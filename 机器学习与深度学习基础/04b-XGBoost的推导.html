@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>04b · XGBoost 的推导：从负梯度到闭式解 · 机器学习与深度学习基础</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:17px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:1.9em;line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:1.42em;margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:1.14em;margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em;display:block;
+ overflow-x:auto}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:.88em;background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:.85em}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:.92em}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:.8em;color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:.85em;color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:.92em}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:.78em;
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:.92em;border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:.93em;line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:.9em;line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:.93em;line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:.92em}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:1.15em;opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+
+.dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:.95em;margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:.93em;line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.02em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:.93em;break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">04b · XGBoost 的推导</span>
+  <span class="prevnext"><a href="04-决策树与集成学习.html">←</a>
+  <a href="05-评估与过拟合.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#xgboost-gbdt">🧮 一、XGBoost 到底改了 GBDT 的什么</a></li>
+<li><a href="#xgboost-lightgbm-catboost">⚔️ 二、XGBoost / LightGBM / CatBoost：各自在优化哪一段</a></li>
+<li><a href="#_10">🔗 这一章连到哪里</a></li>
+<li><a href="#_11">✅ 检查点</a></li>
+<li><a href="#_12">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<h1 id="04b-xgboost">04b · XGBoost 的推导：从负梯度到闭式解</h1>
+<p>⏱ <strong>52 分钟</strong> ｜ ⭐⭐ <strong>上一章的「为什么」——Kaggle 主力算法的引擎室</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong>XGBoost 只做了一件事：把「下一棵树该怎么长」从一堆手工规则，改写成一个能求出闭式解的目标函数。</strong>
+一旦目标函数写对了，<strong>最优叶子权重、分裂增益、预剪枝、缺失值处理全都是它的推论</strong>——LightGBM 和 CatBoost 后来所有的优化，也都挂在这两个公式上。</p>
+<blockquote>
+<p>📍 <strong>你是从哪来的</strong>：<a href="04-决策树与集成学习.html">04 章</a>停在「GBDT 的每棵新树拟合损失函数的<strong>负梯度</strong>」。
+这一章只是接着往下问一句：<strong>负梯度只告诉你往哪个方向走，那到底该走多远？</strong>
+⚠️ <strong>没读过 04 章就先回去</strong>——这里默认你已经知道 Boosting 是串行纠错、GBDT 家族的树都是 CART 回归树、<code>learning_rate</code> 和树数是一对。</p>
+<p>🎁 <strong>这一章可以跳吗</strong>：<strong>只想会用 → 可以跳</strong>，去 <a href="../Kaggle竞赛方法论/01_数据策略与特征工程.html">Kaggle 第 1 章</a>按模板调参就行。
+<strong>但如果你要面试、或者要自定义损失函数、或者想知道 LightGBM 凭什么快</strong> —— 答案全在这一章，别处没有。</p>
+</blockquote>
+<hr />
+<h2 id="xgboost-gbdt">🧮 一、XGBoost 到底改了 GBDT 的什么</h2>
+<p>「每棵新树拟合负梯度」这句话是对的，但它<strong>只讲了一半</strong>：</p>
+<blockquote>
+<p>梯度告诉你<strong>往哪个方向走</strong>，<strong>没告诉你该走多远</strong>。</p>
+</blockquote>
+<p>GBDT 的做法是用 <code>learning_rate</code> 这个人工旋钮把步子统一压小——<strong>小步慢走，绕开了这个问题，而不是解决它</strong>。XGBoost 补上的就是缺的那一半。</p>
+<h3 id="_2">先给直觉：一阶导给方向，二阶导给步长</h3>
+<blockquote>
+<p>⭐ <strong>一句话</strong>：
+<strong>一阶导（斜率）告诉你「往哪边走」，二阶导（曲率）告诉你「这个方向该迈多大步」。</strong>
+坡陡但马上要拐弯 → 小步试探；坡缓而且笔直很远 → 可以大胆迈。</p>
+</blockquote>
+<p>这正是<strong>梯度下降 vs 牛顿法</strong>的差别：梯度下降只知道方向，步长得你自己调；牛顿法多用一个二阶导，<strong>步长是算出来的</strong>。XGBoost 把这一招搬进了 Boosting。</p>
+<h3 id="_3">第一步：把正则项写进目标函数</h3>
+<p>训练第 $t$ 棵树时，模型的预测是「前面所有树的和 + 这棵新树」：</p>
+<p>$$\text{Obj}^{(t)}=\sum_{i=1}^{n} l\big(y_i,\ \hat y_i^{(t-1)}+f_t(x_i)\big)+\Omega(f_t),\qquad \Omega(f)=\gamma T+\frac{1}{2}\lambda\sum_{j=1}^{T}w_j^2$$</p>
+<ul>
+<li>$T$ = 这棵树有几个叶子，$w_j$ = 第 $j$ 个叶子输出的值</li>
+<li>$\gamma$ = <strong>每多长一个叶子要交的「入场费」</strong></li>
+<li>$\lambda$ = <strong>叶子权重的 L2 惩罚</strong>（就是第 3 章那个 L2，只不过惩罚对象换成了叶子的输出值）</li>
+</ul>
+<p>⭐ <strong>这一步就已经和 GBDT 分岔了</strong>：GBDT 的正则（树深、最小样本数、事后剪枝）是<strong>长树时另外加的外挂规则</strong>，不在目标函数里；XGBoost 直接把它写进了要优化的式子。</p>
+<h3 id="_4">第二步：二阶泰勒展开</h3>
+<p>$f_t(x_i)$ 是待求的未知量，套在损失函数 $l$ 里面没法直接优化。<strong>泰勒展开就是干这个用的</strong>：把 $f_t(x_i)$ 当成一个「小增量」，在 $\hat y^{(t-1)}$ 这一点把损失展成多项式。记：</p>
+<p>$$g_i=\frac{\partial\, l(y_i,\hat y^{(t-1)})}{\partial\, \hat y^{(t-1)}}\ (\text{一阶}),\qquad h_i=\frac{\partial^2 l(y_i,\hat y^{(t-1)})}{\partial\, (\hat y^{(t-1)})^2}\ (\text{二阶})$$</p>
+<p>展开到二阶，再扔掉与 $f_t$ 无关的常数项 $l(y_i,\hat y^{(t-1)})$：</p>
+<p>$$\text{Obj}^{(t)}\approx\sum_{i=1}^{n}\Big[\,g_i\, f_t(x_i)+\tfrac{1}{2}h_i\, f_t(x_i)^2\,\Big]+\gamma T+\frac{1}{2}\lambda\sum_j w_j^2$$</p>
+<p>⭐ <strong>停下来看看这一步换到了什么</strong>：式子里<strong>再也没有 $l$ 了</strong>，只剩 $g_i$、$h_i$ 两串数。也就是说——<strong>你换任何损失函数，只要它二阶可导，后面的推导一个字都不用改</strong>。这就是 XGBoost 能让你自定义 <code>objective</code>（只要求你提供 g 和 h 两个函数）的原因，也是「为什么用二阶展开」最实在的一条回答。</p>
+<h3 id="_5">第三步：从「每个样本」归并到「每个叶子」</h3>
+<p>树是<strong>分段常数函数</strong>：落进同一个叶子的样本，输出值完全一样。所以按叶子把样本归并，记 $I_j$ 为落进叶子 $j$ 的样本集合，$G_j=\sum_{i\in I_j}g_i$，$H_j=\sum_{i\in I_j}h_i$：</p>
+<p>$$\text{Obj}^{(t)}=\sum_{j=1}^{T}\Big[\,G_j w_j+\tfrac{1}{2}(H_j+\lambda)w_j^2\,\Big]+\gamma T$$</p>
+<p>⭐ <strong>这是整套推导的关键一步</strong>：$T$ 个叶子的项<strong>互相独立</strong>了。每个叶子单独看就是<strong>一条开口向上的抛物线</strong>（开口向上是因为 $H_j+\lambda&gt;0$），可以各求各的最小值。</p>
+<h3 id="_6">第四步：顶点公式一代，两个闭式解就出来了</h3>
+<p>一元二次 $aw^2+bw$ 的顶点在 $w=-\frac{b}{2a}$，直接套：</p>
+<p>$$w_j^{*}=-\frac{G_j}{H_j+\lambda}\qquad\text{（最优叶子权重）}$$</p>
+<p>代回目标函数：</p>
+<p>$$\text{Obj}^{*}=-\frac{1}{2}\sum_{j=1}^{T}\frac{G_j^{2}}{H_j+\lambda}+\gamma T\qquad\text{（结构分数）}$$</p>
+<p>⭐ <strong>「结构分数」（structure score）就是：给定一棵树长成什么样，它到底有多好——一个数字说了算，越小越好。</strong> XGBoost 里所有关于「要不要这么分」的决定，裁判都是它。</p>
+<p>💡 <strong>拿 MSE 验一下这两个公式</strong>：$l=\frac12(y-\hat y)^2$ 时 $g_i=\hat y_i-y_i$（就是<strong>负残差</strong>），$h_i=1$，于是</p>
+<p>$$w_j^{*}=\frac{\sum_{i\in I_j}(y_i-\hat y_i)}{n_j+\lambda}=\frac{\text{这个叶子里残差的和}}{\text{样本数}+\lambda}$$</p>
+<p>$\lambda=0$ 时就是<strong>残差的平均值</strong>——<strong>正是 GBDT 在做的事</strong>。⭐ <strong>所以在 MSE 下 XGBoost 和 GBDT 是同一个东西</strong>；差别全在别的损失上（logloss、pairwise 排序、Poisson、你自己写的……）。</p>
+<h3 id="_7">第五步：分裂增益——预剪枝直接长在判据里</h3>
+<p>把一个叶子拆成左右两个，收益就是拿新的结构分数减旧的：</p>
+<p>$$\text{Gain}=\frac{1}{2}\left[\frac{G_L^2}{H_L+\lambda}+\frac{G_R^2}{H_R+\lambda}-\frac{(G_L+G_R)^2}{H_L+H_R+\lambda}\right]-\gamma$$</p>
+<p>三点必须读出来：</p>
+<table>
+<thead>
+<tr>
+<th>看哪一部分</th>
+<th>它在说什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>中括号里 = 左分数 + 右分数 − 不拆的分数</td>
+<td>⭐ <strong>这就是「纯度提升」的 XGBoost 版</strong>——只不过量的不再是纯度，而是<strong>目标函数真正降了多少</strong></td>
+</tr>
+<tr>
+<td>$-\gamma$</td>
+<td>每多一个叶子固定扣 $\gamma$ 分。⭐ <strong>Gain 为负就别分</strong>——<strong>预剪枝直接写在判据里</strong>，不是长完再剪</td>
+</tr>
+<tr>
+<td>$\lambda$ 在分母</td>
+<td>叶子里样本少（$H$ 小）时，$\lambda$ 把权重往 0 拽。<strong>样本越少越不敢给大值</strong>——天然的收缩</td>
+</tr>
+</tbody>
+</table>
+<figure class="dia"><svg viewBox="0 0 700 428" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="XGBoost 目标函数的六步推导链：从原始目标函数到二阶泰勒展开、按叶子归并、一元二次求顶点、结构分数，最后得到分裂增益公式"><text x="350" y="22" font-size="12.5" text-anchor="middle" fill="var(--fg)" font-weight="700">XGBoost 的推导链：六步，每一步只是把上一步再往前推一格</text><rect x="16" y="36" width="668" height="48" rx="4" fill="var(--card)" stroke="var(--border)" stroke-width="1"/><text x="30" y="55" font-size="11.5" fill="var(--accent)" font-weight="700">① 目标函数：损失 + 正则（叶子数罚 γ，叶子权重罚 λ）</text><text x="30" y="74" font-size="12" fill="var(--fg)">Obj = Σ l( y , ŷ + f(x) ) + γT + ½λ Σ w²</text><polygon points="343,86 357,86 350,96" fill="var(--muted)"/><rect x="16" y="98" width="668" height="48" rx="4" fill="var(--card)" stroke="var(--border)" stroke-width="1"/><text x="30" y="117" font-size="11.5" fill="var(--accent)" font-weight="700">② 对 f 做二阶泰勒展开，扔掉常数项 —— 从此式子里没有 l 了</text><text x="30" y="136" font-size="12" fill="var(--fg)">Obj ≈ Σ [ g·f(x) + ½ h·f(x)² ] + γT + ½λ Σ w²</text><polygon points="343,148 357,148 350,158" fill="var(--muted)"/><rect x="16" y="160" width="668" height="48" rx="4" fill="var(--card)" stroke="var(--border)" stroke-width="1"/><text x="30" y="179" font-size="11.5" fill="var(--accent)" font-weight="700">③ 树是分段常数 → 按叶子归并：Gj = 叶内 g 之和，Hj = 叶内 h 之和</text><text x="30" y="198" font-size="12" fill="var(--fg)">Obj = Σ 叶子 j [ Gj·wj + ½ (Hj+λ)·wj² ] + γT</text><polygon points="343,210 357,210 350,220" fill="var(--muted)"/><rect x="16" y="222" width="668" height="48" rx="4" fill="var(--card)" stroke="var(--border)" stroke-width="1"/><text x="30" y="241" font-size="11.5" fill="var(--accent)" font-weight="700">④ 每个叶子都是一条开口向上的抛物线 → 顶点就是最优</text><text x="30" y="260" font-size="12" fill="var(--fg)">wj* = − Gj / (Hj + λ)　　⭐ 最优叶子权重</text><polygon points="343,272 357,272 350,282" fill="var(--muted)"/><rect x="16" y="284" width="668" height="48" rx="4" fill="var(--card)" stroke="var(--border)" stroke-width="1"/><text x="30" y="303" font-size="11.5" fill="var(--accent)" font-weight="700">⑤ 代回去，得到「这棵树的结构值多少分」</text><text x="30" y="322" font-size="12" fill="var(--fg)">Obj* = − ½ Σ Gj² / (Hj + λ) + γT　　⭐ 结构分数</text><polygon points="343,334 357,334 350,344" fill="var(--muted)"/><rect x="16" y="346" width="668" height="66" rx="4" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.4"/><text x="30" y="364" font-size="11.5" fill="var(--accent)" font-weight="700">⑥ 拆一个叶子的收益 = 拆后分数 − 拆前分数 − 新叶子的入场费 γ</text><text x="30" y="384" font-size="11.5" fill="var(--fg)">Gain = ½ [ GL²/(HL+λ) + GR²/(HR+λ) − (GL+GR)²/(HL+HR+λ) ] − γ</text><text x="30" y="403" font-size="11.5" fill="var(--muted)">⭐ Gain 为负就不分裂 —— 预剪枝直接长在判据里，不是长完再剪</text></svg><figcaption>⭐ 真正要记的是<b>第 ④ 步</b>：一旦按叶子归并，每个叶子就退化成一条抛物线，<b>顶点公式一代，最优叶子权重和结构分数同时掉出来</b>——XGBoost 后面所有工程优化（缺失值默认方向、加权分位数、直方图）都是在给这两个公式提速。</figcaption></figure>
+
+<h3 id="gbdt">和 GBDT 到底差在哪：三条</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><strong>传统 GBDT</strong></th>
+<th><strong>XGBoost</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>分裂判据</strong></td>
+<td>用负梯度当「伪残差」，再拿<strong>平方误差</strong>准则长一棵回归树去拟合它——是个<strong>代理目标</strong></td>
+<td>直接对真实目标（含正则）二阶展开，<strong>判据就是目标函数的下降量</strong>，没有代理</td>
+</tr>
+<tr>
+<td><strong>叶子值</strong></td>
+<td>树长完之后，对每个叶子再做一次<strong>一维线搜索</strong>补上</td>
+<td>和分裂判据出自<strong>同一个闭式解</strong> $-G/(H+\lambda)$，一步到位</td>
+</tr>
+<tr>
+<td><strong>正则</strong></td>
+<td>树深 / 最小样本数 / 事后剪枝这些<strong>外挂规则</strong></td>
+<td>$\gamma$、$\lambda$ <strong>在目标函数里</strong>，分裂那一刻就在算</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⭐ <strong>「为什么二阶收敛更快」的答案在这</strong>：
+一阶方法只知道方向，步长要靠 <code>learning_rate</code> 试；
+二阶方法把<strong>每个叶子的最优步长直接解出来</strong>（$-G_j/(H_j+\lambda)$ 就是一步牛顿法）。
+同样的树数下，走对步长的那个当然降得更多。
+⚠️ <strong>但别把这句话说过头</strong>：<code>learning_rate</code> 在 XGBoost 里<strong>照样要调、默认照样是 0.1</strong>。二阶解出来的是「这一步理论上的最优」，仍然要打个折才不会过拟合。</p>
+</blockquote>
+<h3 id="_8">顺带解决的两个工程问题</h3>
+<p><strong>① 缺失值：不填，而是学一个「默认方向」</strong> ⭐</p>
+<p>XGBoost 不给你填缺失值。它在<strong>每一个候选分裂点</strong>上，把缺失样本先全扔左边算一次 Gain、再全扔右边算一次，<strong>哪边 Gain 大就把这个分裂点的「默认方向」定成哪边</strong>。</p>
+<p>💡 <strong>所以缺失不是被猜出来的，是被当成一种信息学出来的</strong>（「这个字段为空」本身常常就是强信号——<a href="16-特征工程基础.html">第 16 章</a>那条 <code>income_missing</code>、<a href="附录B-代码速查.html">附录 B</a> 那条 <code>amt_missing</code>，都是同一个道理）。这套机制顺带让它在 one-hot 之后的稀疏矩阵上也跑得快：0 可以和缺失一样被跳过。</p>
+<p><strong>② 不试遍所有切分点：加权分位数草图</strong></p>
+<details>
+<summary>📐 为什么候选分位点要用 h 加权（想看再点）</summary>
+<p>精确贪心要把每个特征的每个取值都当候选切分点试一遍，数据一大就顶不住。近似算法改成只取若干个分位点当候选。<strong>但分位点该按什么加权？</strong> 把第 ② 步那个式子配个方：</p>
+<p>$$\sum_i\Big[g_i f+\tfrac12 h_i f^2\Big]=\sum_i \tfrac12 h_i\Big(f-\big(-\tfrac{g_i}{h_i}\big)\Big)^2+\text{常数}$$</p>
+<p>⭐ 右边是一个<strong>以 $h_i$ 为权重的加权平方误差</strong>——也就是说，$h_i$ 天然就是「这个样本有多重要」。所以候选点要按 $h$ 的分位数取，而不是按样本个数平均取。这就是论文里的 weighted quantile sketch。</p>
+<p>💡 顺带解释了一个现象：logloss 下 $h=p(1-p)$，<strong>预测越靠近 0.5（越犹豫）的样本 $h$ 越大、越被当回事</strong>；已经很确定的样本 $h\to 0$，几乎不影响候选点的选取。</p>
+</details>
+<h2 id="xgboost-lightgbm-catboost">⚔️ 二、XGBoost / LightGBM / CatBoost：各自在优化哪一段</h2>
+<p>三者都是 GBDT 的工业级实现：</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>XGBoost</th>
+<th>LightGBM</th>
+<th>CatBoost</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>生长方式</strong></td>
+<td>按层生长（level-wise）</td>
+<td><strong>按叶生长</strong>（leaf-wise，选增益最大的叶子）</td>
+<td>对称树</td>
+</tr>
+<tr>
+<td><strong>速度</strong></td>
+<td>中</td>
+<td><strong>最快</strong> ⭐</td>
+<td>中</td>
+</tr>
+<tr>
+<td><strong>精度</strong></td>
+<td>高</td>
+<td>高</td>
+<td>高</td>
+</tr>
+<tr>
+<td><strong>类别特征</strong></td>
+<td>需自己编码</td>
+<td>原生支持</td>
+<td><strong>原生且最好</strong> ⭐</td>
+</tr>
+<tr>
+<td><strong>过拟合倾向</strong></td>
+<td>较稳</td>
+<td>需注意（leaf-wise 更易过拟合，要控 <code>num_leaves</code>）</td>
+<td>较稳</td>
+</tr>
+<tr>
+<td><strong>默认参数</strong></td>
+<td>一般</td>
+<td>一般</td>
+<td><strong>开箱即用最好</strong></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>🔑 <strong>实用建议</strong>：<strong>大数据/要快 → LightGBM；类别特征多 → CatBoost；不确定 → 先 LightGBM。</strong>
+三者精度差距通常在 0.1–0.5% 以内，<strong>选型不如调参和特征工程重要</strong>。</p>
+</blockquote>
+<h3 id="_9">有了上一节，这张表就能从「结论」读成「为什么」了</h3>
+<p>⭐ <strong>三者的目标函数是同一个</strong>（都是「二阶展开 + 正则 + 结构分数」那一套）。它们的区别在于<strong>各自在优化训练流程的不同段</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>优化的是哪一段</th>
+<th>XGBoost</th>
+<th>LightGBM</th>
+<th>CatBoost</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>怎么找候选切分点</strong></td>
+<td>精确贪心 / 加权分位数草图</td>
+<td>⭐ <strong>直方图</strong>：每个特征先分成 255 个 bin</td>
+<td>直方图</td>
+</tr>
+<tr>
+<td><strong>下一步该长哪个节点</strong></td>
+<td>level-wise：整层一起长</td>
+<td>⭐ <strong>leaf-wise</strong>：全树挑 Gain 最大的那个叶子长</td>
+<td>对称树：整层共用<strong>同一个</strong> (特征, 阈值)</td>
+</tr>
+<tr>
+<td><strong>类别特征怎么办</strong></td>
+<td>自己 one-hot</td>
+<td>原生（按统计量排序后二分）</td>
+<td>⭐ <strong>有序目标编码</strong></td>
+</tr>
+<tr>
+<td><strong>主要在防什么</strong></td>
+<td>过拟合（$\gamma$ / $\lambda$）</td>
+<td>过拟合（leaf-wise 更凶，靠 <code>num_leaves</code> 刹车）</td>
+<td>⭐ <strong>目标泄漏 / 预测偏移</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>LightGBM 的三板斧（「为什么最快」的答案）</strong>：</p>
+<ul>
+<li>⭐ <strong>直方图算法</strong>：把连续特征预先分成 255 个 bin（一个 <code>uint8</code> 装得下）。找分裂点的复杂度从「O(样本数 × 特征数)」降到「<strong>O(bin 数 × 特征数)</strong>」，内存也降一个数量级。再加一个<strong>直方图做差</strong>——一个节点的两个孩子，算完左边直接用「父 − 左 = 右」拿到右边，<strong>省掉一半计算</strong>。</li>
+<li><strong>GOSS（单边梯度采样）</strong>：梯度大的样本 = 还没学好的样本，<strong>全留</strong>；梯度小的随机采一部分，并<strong>把它们的权重放大</strong>补偿（不放大分布就偏了）。</li>
+<li><strong>EFB（互斥特征捆绑）</strong>：one-hot 之后大量特征<strong>不会同时非零</strong>，把这些互斥的特征捆成一个存，特征数直接掉一大截。</li>
+</ul>
+<p>⚠️ <strong>leaf-wise 的代价</strong>：同样的叶子数下它降损失更多，但树会长得又深又不平衡，<strong>小数据集上极易过拟合</strong>。刹车是 <code>num_leaves</code>（别超过 $2^{\texttt{max\_depth}}$）和 <code>min_data_in_leaf</code>。这就是那张表里「需注意」三个字背后的机理。</p>
+<p><strong>CatBoost 在防的是另一件事</strong>：普通的目标编码（拿这个类别的历史平均标签当特征）<strong>用到了当前样本自己的标签</strong>——这就是第 16 章讲的目标泄漏。CatBoost 的 <strong>ordered target statistics（有序目标编码）</strong> 先给样本安排一个随机顺序，算某个样本的编码时<strong>只用排在它前面的样本</strong>，从结构上把泄漏堵死。同样的思路用在 boosting 上就是 <strong>ordered boosting</strong>，防的是「同一批数据既用来算残差又用来拟合残差」带来的预测偏移。</p>
+<p>⭐ <strong>对称树（oblivious tree）</strong>：同一层所有节点共用一个 (特征, 阈值)。整棵树因此退化成一张 $2^{\text{depth}}$ 的查找表，<strong>推理快得离谱</strong>（几条位运算就定位到叶子）；而且这个限制本身就是很强的正则——这是 CatBoost「默认参数最好用」的一部分原因。</p>
+<blockquote>
+<p>🔑 <strong>一句话版本（可以直接当面试答案）</strong>：
+<strong>XGBoost 定义了这套框架</strong>（二阶展开 + 正则进目标函数 + 结构分数）；
+<strong>LightGBM 优化「怎么算得更快」</strong>（直方图 + 做差 + GOSS + EFB + leaf-wise）；
+<strong>CatBoost 优化「怎么不泄漏」</strong>（有序目标编码 + ordered boosting + 对称树）。
+三者精度差距通常 0.1–0.5%，<strong>所以才说选型远不如调参和特征工程重要</strong>。</p>
+</blockquote>
+<hr />
+<h2 id="_10">🔗 这一章连到哪里</h2>
+<table>
+<thead>
+<tr>
+<th>去哪</th>
+<th>为什么要去那里</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="04-决策树与集成学习.html">04 · 决策树与集成学习</a></td>
+<td>回去看被这一章接住的那半句：<strong>GBDT 的每棵新树拟合的是负梯度</strong>，以及为什么这个家族只能用 CART</td>
+</tr>
+<tr>
+<td><a href="16-特征工程基础.html">16 · 特征工程基础</a></td>
+<td>⭐ 那里的 <strong>OOF 目标编码</strong>就是 CatBoost「有序目标编码」的手工版——想真正搞懂 CatBoost 在防什么，去看那段泄漏演示</td>
+</tr>
+<tr>
+<td><a href="03-线性模型.html">03 · 线性模型</a></td>
+<td>目标函数里的 $\frac12\lambda\sum w_j^2$ 就是那一章的 <strong>L2 正则</strong>，只是惩罚对象从「特征权重」换成了「叶子输出值」</td>
+</tr>
+<tr>
+<td><a href="09-优化器与学习率.html">09 · 优化器与学习率</a></td>
+<td>「一阶给方向、二阶给步长」这条线在那里有另一半：为什么深度学习<strong>不</strong>用二阶方法（Hessian 太大）</td>
+</tr>
+<tr>
+<td><a href="../机器学习的数学原理/02-MAP与正则化的真身.html">数学原理 · 02 MAP 与正则化的真身</a></td>
+<td>$\lambda$ 不是随手加的一项，它对应一个先验分布</td>
+</tr>
+<tr>
+<td><a href="../Kaggle竞赛方法论/01_数据策略与特征工程.html">Kaggle 第 1 章</a></td>
+<td>推导看完了想真的去打榜：那里有 LightGBM 的实战参数模板和特征工程套路</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_11">✅ 检查点</h2>
+<ol>
+<li>XGBoost 为什么要做<strong>二阶</strong>泰勒展开？只用一阶（GBDT）差在哪？</li>
+<li>二阶展开之后，目标函数里还剩下什么？这件事带来了哪个直接的工程好处？</li>
+<li>写出最优叶子权重和分裂增益，并说出 $\gamma$ 和 $\lambda$ 各在管什么。</li>
+<li>用 MSE 损失时 XGBoost 的叶子权重退化成什么？这说明了什么？</li>
+<li>XGBoost 怎么处理缺失值？</li>
+<li>LightGBM 凭什么快（说出三样）？leaf-wise 的代价是什么、拿什么刹车？</li>
+<li>CatBoost 的「有序目标编码」在防什么？对称树带来哪两个好处？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li><strong>一阶导只给方向，二阶导给步长</strong>（梯度下降 vs 牛顿法）。GBDT 是拿负梯度当伪残差、再用<strong>平方误差代理准则</strong>长一棵树去拟合，叶子值靠事后一维线搜索补上——<strong>判据和叶子值不是同一个东西</strong>；XGBoost 直接对真实目标（含正则）二阶展开，<strong>分裂判据和叶子值出自同一个闭式解</strong>。</li>
+<li><strong>只剩 $g_i$ 和 $h_i$，损失函数 $l$ 消失了</strong>。好处：<strong>换任何二阶可导的损失，后面的推导一个字都不用改</strong>——这就是自定义 <code>objective</code> 只要求你提供 g 和 h 两个函数的原因。（另一个好处是按叶子归并后每个叶子是抛物线，<strong>有闭式最优解</strong>。）</li>
+<li>$w_j^*=-\dfrac{G_j}{H_j+\lambda}$；$\text{Gain}=\frac12\Big[\frac{G_L^2}{H_L+\lambda}+\frac{G_R^2}{H_R+\lambda}-\frac{(G_L+G_R)^2}{H_L+H_R+\lambda}\Big]-\gamma$。<strong>$\gamma$ 是每多一个叶子的入场费</strong>，所以 <strong>Gain 为负就不分裂 = 预剪枝写进了判据</strong>（不是长完再剪）；<strong>$\lambda$ 在分母</strong>，叶子样本少（$H$ 小）时把权重往 0 拽，是天然的收缩。</li>
+<li>$g_i=\hat y_i-y_i$、$h_i=1$，$w_j^*$ 退化成<strong>这个叶子里残差的平均值</strong>（$\lambda=0$ 时）——<strong>正是 GBDT 在做的事</strong>。说明 <strong>MSE 下两者等价，二阶展开的价值全在别的损失函数上</strong>（logloss、pairwise 排序、Poisson、自定义）。</li>
+<li><strong>不填</strong>。每个候选分裂点上把缺失样本全扔左边算一次 Gain、全扔右边再算一次，<strong>哪边 Gain 大就把默认方向定成哪边</strong>——缺失是被当成信息<strong>学</strong>出来的，顺带让稀疏 one-hot 也跑得快。</li>
+<li><strong>直方图</strong>（每特征 255 个 bin，复杂度从 O(样本数 × 特征数) 降到 O(bin 数 × 特征数)）+ <strong>直方图做差</strong>（父 − 左 = 右，省一半）+ <strong>GOSS</strong>（梯度大的全留、梯度小的采样并放大权重）+ <strong>EFB</strong>（互斥特征捆绑）。代价：leaf-wise 的树又深又不平衡，<strong>小数据集极易过拟合</strong>；刹车是 <code>num_leaves</code>（别超过 $2^{\texttt{max\_depth}}$）和 <code>min_data_in_leaf</code>。</li>
+<li>防<strong>目标泄漏</strong>：普通目标编码用到了当前样本自己的标签，有序目标编码给样本排一个随机顺序、<strong>只用排在它前面的样本</strong>算编码（同思路用在 boosting 上就是 ordered boosting，防预测偏移）。对称树的两个好处：① 整棵树退化成一张 $2^{\text{depth}}$ 的查找表，<strong>推理极快</strong>；② 这个限制本身就是<strong>很强的正则</strong>，是它「默认参数最好用」的一部分原因。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_12">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong></p>
+<blockquote>
+<p>补的是 04 章缺的那半句：⭐<strong>负梯度只给方向，不给步长</strong>——GBDT 用 <code>learning_rate</code> 统一压小步子，是<strong>绕开</strong>不是解决。⭐<strong>一阶导给方向、二阶导给步长</strong>（坡陡要拐弯就小步，坡缓笔直就大胆迈），即<strong>梯度下降 vs 牛顿法</strong>。<strong>六步推导</strong>：① 正则写进目标函数 <strong>Obj = Σl(y, ŷ+f) + γT + ½λΣw²</strong>（<strong>γ＝每多一个叶子的入场费，λ＝叶子权重的 L2</strong>；⭐<strong>GBDT 的正则是长树时另加的外挂规则、不在目标函数里，这一步就分岔了</strong>）；② <strong>二阶泰勒展开</strong>扔掉常数项，⭐<strong>式子里再也没有 l 了，只剩 g 和 h</strong>——<strong>换任何二阶可导的损失推导一字不改</strong>，这就是自定义 <code>objective</code> 只要你给 g 和 h 的原因；③ <strong>树是分段常数</strong>，按叶子归并成 <strong>Gⱼ、Hⱼ</strong>，⭐<strong>T 个叶子的项互相独立了</strong>；④ 每个叶子是<strong>开口向上的抛物线</strong>（H+λ&gt;0），顶点公式一代，<strong>w*＝−G/(H+λ)</strong>；⑤ 代回去得<strong>结构分数 Obj*＝−½ΣG²/(H+λ)+γT</strong>，⭐<strong>给定树结构一个数字说了算，越小越好</strong>；⑥ <strong>分裂增益＝左分数+右分数−不拆的分数−γ</strong>：中括号里是<strong>「纯度提升」的 XGBoost 版</strong>（量的是目标函数真降了多少）、⭐<strong>Gain 为负就不分裂＝预剪枝写进判据</strong>、<strong>λ 在分母＝叶子样本少就把权重往 0 拽</strong>。💡<strong>MSE 验算：g＝ŷ−y、h＝1，w* 退化成残差平均值——正是 GBDT 在做的事，所以 MSE 下两者等价，二阶的价值全在别的损失上</strong>。⚠️<strong>别说过头：<code>learning_rate</code> 照样要调、默认照样 0.1</strong>。<strong>缺失值</strong>：不填，每个分裂点<strong>把缺失全扔左、全扔右各算一次 Gain，哪边大就定哪边当默认方向</strong>。<strong>加权分位数</strong>：目标函数能配方成<strong>以 h 为权的加权平方误差</strong>，所以候选点按 h 的分位数取。⭐<strong>三巨头目标函数同源，各优化一段</strong>：<strong>XGBoost 定义框架</strong>；<strong>LightGBM 优化「算得快」</strong>——<strong>255 个 bin 的直方图</strong>把复杂度从 O(样本×特征) 降到 O(bin×特征)、<strong>做差「父−左＝右」省一半</strong>、GOSS、EFB、leaf-wise（⚠️<strong>小数据极易过拟合，刹车是 <code>num_leaves</code> 和 <code>min_data_in_leaf</code></strong>）；<strong>CatBoost 优化「不泄漏」</strong>——<strong>有序目标编码只用排在前面的样本</strong>、ordered boosting、<strong>对称树退化成 2^depth 查找表所以推理极快，本身也是强正则</strong>。⭐<strong>三者精度差 0.1–0.5%，选型远不如调参和特征工程重要</strong>。</p>
+</blockquote>
+<p><strong>下一节</strong> 👉 <a href="05-评估与过拟合.html">05-评估与过拟合.md</a> ⭐⭐⭐ <strong>全教程最重要的一章</strong></p>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="04-决策树与集成学习.html"><div class="dir">← 上一节</div>🌲 04 · 决策树与集成</a><a class="next" href="05-评估与过拟合.html"><div class="dir">下一节 →</div>⚖️ 05 · 评估与过拟合</a></nav>
+</main>
+<script>(function(){
+  var KEY="mlbase-progress", FILE="04b-XGBoost\u7684\u63a8\u5bfc.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script></body></html>
