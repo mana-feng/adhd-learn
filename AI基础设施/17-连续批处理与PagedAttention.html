@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>17 · 连续批处理与 PagedAttention · AI 基础设施</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:17px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:1.9em;line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:1.42em;margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:1.14em;margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em;display:block;
+ overflow-x:auto}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:.88em;background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:.85em}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:.92em}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:.8em;color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:.85em;color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:.92em}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:.78em;
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:.92em;border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:.93em;line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:.9em;line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:.93em;line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:.92em}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:1.15em;opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+
+.dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:.95em;margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:.93em;line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.02em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:.93em;break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">连续批处理</span>
+  <span class="prevnext"><a href="16-KV-Cache.html">←</a>
+  <a href="18-量化.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#_2">🐌 一、问题一：静态批处理在浪费什么</a></li>
+<li><a href="#continuous-batching">⭐ 二、连续批处理（Continuous Batching）</a></li>
+<li><a href="#pagedattention">📄 三、PagedAttention：把虚拟内存搬过来</a></li>
+<li><a href="#_4">🧰 四、实际怎么用</a></li>
+<li><a href="#_5">📊 五、调度策略：吞吐和延迟的旋钮</a></li>
+<li><a href="#_6">🔗 和你已学的关系</a></li>
+<li><a href="#_7">✅ 检查点</a></li>
+<li><a href="#_8">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<h1 id="17-pagedattention">17 · 连续批处理与 PagedAttention</h1>
+<p>⏱ <strong>38 分钟</strong> ｜ ⭐⭐ <strong>vLLM 快 20 倍的两个原因</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong>静态批处理让快的请求等慢的，朴素显存管理浪费 60-80% 的 KV Cache。</strong>
+这一章的两个技术分别解决这两件事 ——
+<strong>它们合起来就是现代推理引擎和 <code>model.generate()</code> 之间的全部差距。</strong></p>
+<figure class="dia" data-fig="continuous_batching"><svg viewBox="0 0 720 378" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="静态批处理与连续批处理的对比"><defs><marker id="a9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker><marker id="a9l" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--link)"/></marker><marker id="a9g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--done)"/></marker></defs><text class="dia-t" x="96" y="104" font-size="12" text-anchor="end" fill="var(--fg)" font-weight="700">静态批处理</text><rect x="110" y="84" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="136" y="84" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="162" y="84" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="188" y="84" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="214" y="84" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="240" y="84" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="266" y="84" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="292" y="84" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="318" y="84" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="344" y="84" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="370" y="84" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="396" y="84" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="110" y="108" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="136" y="108" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="162" y="108" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="188" y="108" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="214" y="108" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="240" y="108" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="266" y="108" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="292" y="108" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="318" y="108" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="344" y="108" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="370" y="108" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="396" y="108" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="110" y="132" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="136" y="132" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="162" y="132" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="188" y="132" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="214" y="132" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="240" y="132" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="266" y="132" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="292" y="132" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="318" y="132" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="344" y="132" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="370" y="132" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="396" y="132" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="110" y="156" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="136" y="156" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="162" y="156" width="23" height="20" rx="3" fill="var(--link)" opacity=".62"/><rect x="188" y="156" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="214" y="156" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="240" y="156" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="266" y="156" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="292" y="156" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="318" y="156" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="344" y="156" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="370" y="156" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="396" y="156" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><text class="dia-t" x="436" y="108" font-size="11" text-anchor="start" fill="var(--danger,#e5534b)" font-weight="600">短请求做完也得干等</text><text class="dia-t" x="436" y="126" font-size="10.5" text-anchor="start" fill="var(--muted)" font-weight="normal">灰格 = 白白浪费的算力</text><text class="dia-t" x="96" y="236" font-size="12" text-anchor="end" fill="var(--fg)" font-weight="700">连续批处理</text><rect x="110" y="216" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="136" y="216" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="162" y="216" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="188" y="216" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="214" y="216" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="240" y="216" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="266" y="216" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="292" y="216" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="318" y="216" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="344" y="216" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="370" y="216" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="396" y="216" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="110" y="240" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="136" y="240" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="162" y="240" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="188" y="240" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="214" y="240" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="240" y="240" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="266" y="240" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="292" y="240" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="318" y="240" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="344" y="240" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="370" y="240" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="396" y="240" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="110" y="264" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="136" y="264" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="162" y="264" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="188" y="264" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="214" y="264" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="240" y="264" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="266" y="264" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="292" y="264" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="318" y="264" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="344" y="264" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="370" y="264" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="396" y="264" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="110" y="288" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="136" y="288" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="162" y="288" width="23" height="20" rx="3" fill="var(--done)" opacity=".62"/><rect x="188" y="288" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="214" y="288" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="240" y="288" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="266" y="288" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="292" y="288" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="318" y="288" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="344" y="288" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="370" y="288" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="396" y="288" width="23" height="20" rx="3" fill="var(--border)" opacity=".28"/><rect x="214" y="240" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="240" y="240" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="266" y="240" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="292" y="240" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="318" y="240" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="344" y="240" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="370" y="240" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="396" y="240" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="188" y="288" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="214" y="288" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="240" y="288" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="266" y="288" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="292" y="288" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="292" y="264" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="318" y="264" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="344" y="264" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="370" y="264" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="396" y="264" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="318" y="288" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="344" y="288" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="370" y="288" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><rect x="396" y="288" width="23" height="20" rx="3" fill="var(--accent)" opacity=".6"/><text class="dia-t" x="436" y="240" font-size="11" text-anchor="start" fill="var(--done)" font-weight="600">空位立刻被新请求填上</text><text class="dia-t" x="436" y="258" font-size="10.5" text-anchor="start" fill="var(--muted)" font-weight="normal">橙色 = 中途插进来的新请求</text><text class="dia-t" x="360" y="32" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">同样的 4 条槽位，利用率天差地别</text><text class="dia-t" x="360" y="52" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">横轴是时间步，每一格是一次前向</text><text class="dia-t" x="360" y="340" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">⭐ 关键洞察：生成任务的长度是【事先不知道】的，所以静态批一定会有大量空转</text><text class="dia-t" x="360" y="362" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">连续批处理在每一步结束后重新组批 —— 吞吐常能提升好几倍</text></svg><figcaption>同样 4 条槽位，灰格就是白白浪费掉的算力。⭐ 关键洞察：生成任务的长度<b>事先不知道</b>，所以静态批一定会有大量空转。连续批处理在每一步结束后重新组批，空位立刻被新请求填上 —— 吞吐常能提升好几倍。</figcaption></figure>
+
+<hr />
+<h2 id="_2">🐌 一、问题一：静态批处理在浪费什么</h2>
+<div class="codehilite"><pre><span></span><code>   传统做法：凑齐一批请求 → 一起跑 → 全部跑完 → 再收下一批
+
+   请求A（输出 10 token）  ████░░░░░░░░░░░░░░░░  ← 早就完了，但在等
+   请求B（输出 20 token）  ████████░░░░░░░░░░░░  ← 也在等
+   请求C（输出 500 token） ████████████████████  ← 大家等它
+   请求D（输出 15 token）  ██████░░░░░░░░░░░░░░  ← 也在等
+                          ↑ 实际计算    ↑ 纯浪费
+
+   💀 两个后果：
+   ① GPU 在为&quot;已完成的请求&quot;做无意义的计算
+   ② 新来的请求必须等这一整批结束才能进来（排队延迟极高）
+</code></pre></div>
+
+<blockquote>
+<p>🔑 <strong>问题的根源</strong>：<strong>LLM 的输出长度是不可预测的。</strong>
+一个请求可能输出 10 个 token，另一个 2000 个 —— 差 200 倍。
+<strong>静态批处理让整批的效率被最长的那个请求决定。</strong></p>
+</blockquote>
+<hr />
+<h2 id="continuous-batching">⭐ 二、连续批处理（Continuous Batching）</h2>
+<div class="codehilite"><pre><span></span><code>   ⭐ 核心思想：以【迭代】为单位调度，而不是以【请求】为单位
+
+   每生成一个 token 之后：
+   ① 检查有没有请求完成了 → 立刻踢出，释放它的 KV Cache
+   ② 检查队列里有没有新请求 → 立刻加进来
+   ③ 继续下一个 token
+
+   → batch 的成员在【每一步】都可能变化
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code>   时间 ──────────────────────────────►
+   槽位1  [A A A A][E E E E E E E E E]      ← A 完成后 E 立刻补上 ⭐
+   槽位2  [B B B B B B B B][F F F F F]
+   槽位3  [C C C C C C C C C C C C C C]
+   槽位4  [D D D][G G G G G][H H H H H]
+                ↑ 随时进出，GPU 一直满载
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th>收益</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>吞吐</strong></td>
+<td><strong>提升 5-20 倍</strong>（取决于输出长度的方差）⭐</td>
+</tr>
+<tr>
+<td><strong>排队延迟</strong></td>
+<td>从"等一整批"降到"等一个 token 的时间"</td>
+</tr>
+<tr>
+<td><strong>GPU 利用率</strong></td>
+<td>从锯齿状变成持续满载</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>💡 <strong>为什么收益这么大</strong>：<strong>输出长度方差越大，静态批处理浪费越多。</strong>
+真实流量里长短请求混杂，方差极大 —— 所以连续批处理的收益在生产环境里比 benchmark 还明显。</p>
+</blockquote>
+<h3 id="prefill-decode">⚠️ Prefill 和 Decode 混在一起的麻烦</h3>
+<div class="codehilite"><pre><span></span><code>   ⚠️ 新请求进来要做 Prefill（算力密集、耗时长）
+      而在跑的请求在做 Decode（一步很快）
+
+   → 如果把一个 4000 token 的 Prefill 插进来，
+     这一步会变得很慢 → 所有正在 decode 的请求【都卡了一下】
+     → TPOT 出现毛刺 💀
+
+   ✅ 三种解法：
+   ① 【分块 Prefill】（chunked prefill）⭐
+      把长 Prefill 切成小块，分散到多个迭代里
+   ② 【Prefill/Decode 分离】（P/D disaggregation）⭐
+      用不同的 GPU 池分别做 Prefill 和 Decode
+   ③ 限制每步的 Prefill token 预算
+</code></pre></div>
+
+<blockquote>
+<p>⭐ <strong>P/D 分离是 2024 年之后大规模部署的重要趋势</strong>：
+Prefill 和 Decode 的硬件需求完全不同（<a href="15-推理和训练是两回事.html">第 15 章</a>）——
+<strong>Prefill 要算力，Decode 要带宽</strong>。分开部署可以各自用最合适的卡和并行策略。</p>
+</blockquote>
+<h3 id="pd-kv">💸 P/D 分离的那笔账：KV 要跨机搬</h3>
+<p>上面那句"分开部署"听起来是免费的午餐，<strong>它不是</strong>。</p>
+<div class="codehilite"><pre><span></span><code>   ⚠️ 分开之后多了一件原本不存在的事：
+
+   Prefill 节点算完整个输入的 KV Cache
+   → 这堆 KV 必须【搬到】Decode 节点去
+   → 因为 Decode 那一步要读它
+</code></pre></div>
+
+<p>搬多少？直接用<a href="16-KV-Cache.html">第 16 章</a>的公式接着算。以 <strong>Llama-3 70B（80 层、GQA-8、head_dim 128、BF16）</strong> 为例：</p>
+<div class="codehilite"><pre><span></span><code>   每 token 每层 = 2 × 8 × 128 × 2 字节 = 4 KB
+   × 80 层                              = 320 KB / token   ⭐
+
+   → 4000 token 的输入：320 KB × 4000 ≈ 1.28 GB    要搬这么多
+</code></pre></div>
+
+<p>再看这条链路有多宽（<a href="附录A-速查.html">附录 A</a> 的带宽表）：</p>
+<table>
+<thead>
+<tr>
+<th>链路</th>
+<th>带宽</th>
+<th>搬 1.28 GB 要多久</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>HBM</strong>（同一张卡内，不用搬）</td>
+<td>2000 GB/s</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>NVLink</strong>（同一台机器）</td>
+<td>450–900 GB/s</td>
+<td>1.4–2.8 ms</td>
+</tr>
+<tr>
+<td><strong>InfiniBand</strong>（跨机）⚠️</td>
+<td>25–50 GB/s</td>
+<td><strong>26–51 ms</strong> 💀</td>
+</tr>
+<tr>
+<td>以太网</td>
+<td>1–12 GB/s</td>
+<td>107 ms – 1.3 s 💀💀</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⚠️ <strong>注意 InfiniBand 那一行：它只有 HBM 的约 1/60。</strong>
+这就是 P/D 分离真正的代价 —— <strong>你把一件"本来在显存里现成就有"的事，变成了一次跨机传输。</strong>
+这条链路直接加在 <strong>TTFT</strong> 上：算完 Prefill 还要再等几十毫秒才能开始吐第一个字。</p>
+</blockquote>
+<p><strong>所以它什么时候划算、什么时候不划算：</strong></p>
+<table>
+<thead>
+<tr>
+<th>情况</th>
+<th>判断</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>输入长、输出也长</strong></td>
+<td>✅ <strong>划算</strong></td>
+<td>传输是一次性的，摊到几百个 decode step 上可以忽略</td>
+</tr>
+<tr>
+<td><strong>超大规模、Prefill 和 Decode 各自要几十上百张卡</strong></td>
+<td>✅ <strong>划算</strong> ⭐</td>
+<td>两边能各自选卡型和并行度，省下的钱远大于传输代价</td>
+</tr>
+<tr>
+<td>输入短（几百 token）</td>
+<td>❌ <strong>别分</strong></td>
+<td>搬运的固定开销比省下来的还多</td>
+</tr>
+<tr>
+<td>输出短（比如只出几十个 token）</td>
+<td>❌ <strong>别分</strong></td>
+<td>传输摊不开，直接把 TTFT 拉高</td>
+</tr>
+<tr>
+<td>低并发 / 单机就够</td>
+<td>❌ <strong>别分</strong> ⭐</td>
+<td>分块 Prefill 已经能解决 TPOT 毛刺，<strong>别为了架构好看付这笔钱</strong></td>
+</tr>
+<tr>
+<td>只有以太网</td>
+<td>❌ <strong>别分</strong> 💀</td>
+<td>上表最后一行，几百毫秒起步</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⭐ <strong>顺序不要搞反</strong>：先上<strong>分块 Prefill</strong>（一个参数的事），
+只有当规模大到"Prefill 和 Decode 想用不同卡型 / 不同并行度"时，P/D 分离才开始值。</p>
+<p>💡 业界有专门做这层 KV 传输的组件（Mooncake、LMCache 这类），
+核心思路都是<strong>把 KV 当成一份可以跨节点存取和复用的缓存</strong>：
+传输和计算重叠（一层算完就开始传这一层）、复用已有前缀（不用重传）、
+必要时经 CPU 内存中转。⚠️ <strong>但它们改变的是常数，不是量级</strong> ——
+上面那张带宽表是物理事实，<strong>先看你的输入输出长度配不配得上这笔搬运费</strong>。</p>
+</blockquote>
+<hr />
+<h2 id="pagedattention">📄 三、PagedAttention：把虚拟内存搬过来</h2>
+<figure class="dia" data-fig="paged_attention"><svg viewBox="0 0 700 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="PagedAttention 的分页显存管理"><defs><marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker><marker id="aal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--link)"/></marker><marker id="aag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--done)"/></marker></defs><text class="dia-t" x="180" y="76" font-size="12" text-anchor="middle" fill="var(--muted)" font-weight="700">连续分配（预留最长长度）</text><rect x="60" y="100" width="26" height="30" rx="4" fill="var(--link)" opacity=".55"/><rect x="90" y="100" width="26" height="30" rx="4" fill="var(--link)" opacity=".55"/><rect x="120" y="100" width="26" height="30" rx="4" fill="var(--link)" opacity=".55"/><rect x="150" y="100" width="26" height="30" rx="4" fill="var(--border)" opacity=".25"/><rect x="180" y="100" width="26" height="30" rx="4" fill="var(--border)" opacity=".25"/><rect x="210" y="100" width="26" height="30" rx="4" fill="var(--border)" opacity=".25"/><rect x="240" y="100" width="26" height="30" rx="4" fill="var(--border)" opacity=".25"/><rect x="270" y="100" width="26" height="30" rx="4" fill="var(--border)" opacity=".25"/><rect x="300" y="100" width="26" height="30" rx="4" fill="var(--border)" opacity=".25"/><text class="dia-t" x="52" y="120" font-size="10.5" text-anchor="end" fill="var(--muted)" font-weight="normal">请求1</text><rect x="60" y="138" width="26" height="30" rx="4" fill="var(--link)" opacity=".55"/><rect x="90" y="138" width="26" height="30" rx="4" fill="var(--link)" opacity=".55"/><rect x="120" y="138" width="26" height="30" rx="4" fill="var(--link)" opacity=".55"/><rect x="150" y="138" width="26" height="30" rx="4" fill="var(--link)" opacity=".55"/><rect x="180" y="138" width="26" height="30" rx="4" fill="var(--link)" opacity=".55"/><rect x="210" y="138" width="26" height="30" rx="4" fill="var(--link)" opacity=".55"/><rect x="240" y="138" width="26" height="30" rx="4" fill="var(--link)" opacity=".55"/><rect x="270" y="138" width="26" height="30" rx="4" fill="var(--border)" opacity=".25"/><rect x="300" y="138" width="26" height="30" rx="4" fill="var(--border)" opacity=".25"/><text class="dia-t" x="52" y="158" font-size="10.5" text-anchor="end" fill="var(--muted)" font-weight="normal">请求2</text><rect x="60" y="176" width="26" height="30" rx="4" fill="var(--link)" opacity=".55"/><rect x="90" y="176" width="26" height="30" rx="4" fill="var(--link)" opacity=".55"/><rect x="120" y="176" width="26" height="30" rx="4" fill="var(--border)" opacity=".25"/><rect x="150" y="176" width="26" height="30" rx="4" fill="var(--border)" opacity=".25"/><rect x="180" y="176" width="26" height="30" rx="4" fill="var(--border)" opacity=".25"/><rect x="210" y="176" width="26" height="30" rx="4" fill="var(--border)" opacity=".25"/><rect x="240" y="176" width="26" height="30" rx="4" fill="var(--border)" opacity=".25"/><rect x="270" y="176" width="26" height="30" rx="4" fill="var(--border)" opacity=".25"/><rect x="300" y="176" width="26" height="30" rx="4" fill="var(--border)" opacity=".25"/><text class="dia-t" x="52" y="196" font-size="10.5" text-anchor="end" fill="var(--muted)" font-weight="normal">请求3</text><text class="dia-t" x="180" y="232" font-size="11" text-anchor="middle" fill="var(--danger,#e5534b)" font-weight="600">灰格全是预留但用不上的显存</text><text class="dia-t" x="180" y="250" font-size="11.5" text-anchor="middle" fill="var(--danger,#e5534b)" font-weight="700">浪费常常超过 60%</text><text class="dia-t" x="530" y="76" font-size="12" text-anchor="middle" fill="var(--muted)" font-weight="700">分页（按需分配小块）</text><rect x="400" y="100" width="26" height="30" rx="4" fill="var(--accent)" opacity=".55"/><text class="dia-t" x="413" y="120" font-size="9.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">0</text><rect x="430" y="100" width="26" height="30" rx="4" fill="var(--done)" opacity=".55"/><text class="dia-t" x="443" y="120" font-size="9.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">1</text><rect x="460" y="100" width="26" height="30" rx="4" fill="var(--done)" opacity=".55"/><text class="dia-t" x="473" y="120" font-size="9.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">2</text><rect x="490" y="100" width="26" height="30" rx="4" fill="var(--link)" opacity=".55"/><text class="dia-t" x="503" y="120" font-size="9.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">3</text><rect x="520" y="100" width="26" height="30" rx="4" fill="var(--border)" opacity=".25"/><text class="dia-t" x="533" y="120" font-size="9.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">4</text><rect x="550" y="100" width="26" height="30" rx="4" fill="var(--accent)" opacity=".55"/><text class="dia-t" x="563" y="120" font-size="9.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">5</text><rect x="580" y="100" width="26" height="30" rx="4" fill="var(--done)" opacity=".55"/><text class="dia-t" x="593" y="120" font-size="9.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">6</text><rect x="610" y="100" width="26" height="30" rx="4" fill="var(--border)" opacity=".25"/><text class="dia-t" x="623" y="120" font-size="9.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">7</text><rect x="640" y="100" width="26" height="30" rx="4" fill="var(--done)" opacity=".55"/><text class="dia-t" x="653" y="120" font-size="9.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">8</text><text class="dia-t" x="392" y="120" font-size="10.5" text-anchor="end" fill="var(--muted)" font-weight="normal">物理页</text><text class="dia-t" x="392" y="168" font-size="10.5" text-anchor="end" fill="var(--accent)" font-weight="600">请求1</text><rect x="400" y="152" width="26" height="20" rx="3" fill="var(--accent)" opacity=".4"/><text class="dia-t" x="413" y="166" font-size="9.5" text-anchor="middle" fill="var(--fg)" font-weight="normal">0</text><rect x="430" y="152" width="26" height="20" rx="3" fill="var(--accent)" opacity=".4"/><text class="dia-t" x="443" y="166" font-size="9.5" text-anchor="middle" fill="var(--fg)" font-weight="normal">5</text><text class="dia-t" x="392" y="194" font-size="10.5" text-anchor="end" fill="var(--done)" font-weight="600">请求2</text><rect x="400" y="178" width="26" height="20" rx="3" fill="var(--done)" opacity=".4"/><text class="dia-t" x="413" y="192" font-size="9.5" text-anchor="middle" fill="var(--fg)" font-weight="normal">1</text><rect x="430" y="178" width="26" height="20" rx="3" fill="var(--done)" opacity=".4"/><text class="dia-t" x="443" y="192" font-size="9.5" text-anchor="middle" fill="var(--fg)" font-weight="normal">2</text><rect x="460" y="178" width="26" height="20" rx="3" fill="var(--done)" opacity=".4"/><text class="dia-t" x="473" y="192" font-size="9.5" text-anchor="middle" fill="var(--fg)" font-weight="normal">6</text><rect x="490" y="178" width="26" height="20" rx="3" fill="var(--done)" opacity=".4"/><text class="dia-t" x="503" y="192" font-size="9.5" text-anchor="middle" fill="var(--fg)" font-weight="normal">8</text><text class="dia-t" x="392" y="220" font-size="10.5" text-anchor="end" fill="var(--link)" font-weight="600">请求3</text><rect x="400" y="204" width="26" height="20" rx="3" fill="var(--link)" opacity=".4"/><text class="dia-t" x="413" y="218" font-size="9.5" text-anchor="middle" fill="var(--fg)" font-weight="normal">3</text><text class="dia-t" x="530" y="250" font-size="11.5" text-anchor="middle" fill="var(--done)" font-weight="700">逻辑上连续，物理上可以散着放</text><text class="dia-t" x="350" y="32" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">和操作系统的虚拟内存分页，是同一个思想</text><text class="dia-t" x="350" y="296" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">⭐ 因为 KV Cache 的长度事先不知道，预留就一定浪费、不预留就可能不够</text><text class="dia-t" x="350" y="318" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">分页把「必须连续」这个约束去掉了 —— 于是能装下的并发请求数大幅提升</text><text class="dia-t" x="350" y="344" font-size="11.5" text-anchor="middle" fill="var(--done)" font-weight="600">额外好处：多个请求共享同一段前缀时，可以直接共享物理页（写时复制）</text></svg><figcaption>和操作系统的虚拟内存分页是同一个思想。⭐ KV Cache 长度事先不知道 —— <b>预留就一定浪费，不预留就可能不够</b>；分页把「必须连续」这个约束去掉了。额外好处：共享前缀时可以直接共享物理页。</figcaption></figure>
+
+<div class="codehilite"><pre><span></span><code>   问题（第 16 章）：为每个请求预分配连续显存 → 利用率只有 20-40%
+
+   ⭐ 灵感：操作系统怎么解决同样的问题？
+     → 虚拟内存分页！物理内存分成固定大小的页，
+       进程看到的是连续的虚拟地址，实际映射到分散的物理页
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code>   PagedAttention：
+   · KV Cache 切成固定大小的【块】（block，通常 16 个 token）
+   · 每个请求有一张【块表】（block table），记录它的逻辑块 → 物理块的映射
+   · 物理块从全局池里按需分配，【不需要连续】⭐
+
+   请求A 的块表: [物理块 7, 物理块 3, 物理块 15]
+   请求B 的块表: [物理块 2, 物理块 9]
+                    ↑ 物理上完全分散，逻辑上连续
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code>   ⭐ 效果：
+   · 内部碎片：最多浪费【一个块】（&lt;16 token），而不是整个 max_len
+   · 外部碎片：完全消除（所有块大小一样）
+   · 利用率：20-40% → 【90%+】⭐
+   → 能开的 batch 大 2-4 倍 → 吞吐跟着涨
+</code></pre></div>
+
+<h3 id="_3">⭐ 意外的收益：写时复制的共享</h3>
+<div class="codehilite"><pre><span></span><code>   因为 KV Cache 现在是【按块管理 + 引用计数】的，
+   多个请求可以【共享物理块】：
+
+   ① 前缀共享：相同的系统提示词 → 共享那些块（第 16 章的前缀缓存）
+   ② 并行采样：同一个 prompt 生成 n 个候选 → 共享 prompt 的块 ⭐
+   ③ Beam Search：各个 beam 共享公共前缀
+
+   → 分歧的时候才【写时复制】（copy-on-write）新块
+
+   💡 并行采样场景下，显存能省 50%+
+</code></pre></div>
+
+<blockquote>
+<p>🔗 <strong>上面 ②③ 两条都是「解码策略」的名字，这一章只把它们当负载形态用，没讲它们各自在干什么</strong>：
+<a href="../大模型全景导论/06b-解码策略.html">《大模型全景导论》06b · 解码策略</a>。
+⭐ 去那里主要为了两件对<strong>容量规划</strong>很实际的事：
+① <strong>Beam Search 和「并行采样 n 个候选」看着都是 n 条路，用途完全相反</strong>：
+beam 是<strong>全局按累计对数概率排序取前 k</strong>，目标是「最可能的那一句」，所以 <strong>k 条 beam 常常只差一两个词</strong>；
+并行采样是 n 次独立抽签，目标恰恰是「<strong>不一样的</strong> n 个结果」。
+⚠️ <strong>那一章的明确结论：要 n 个不同的候选就采样 n 次，别用 beam search。</strong>
+② <strong>beam 的成本是 k 份 KV Cache</strong>——这正是块共享在救的东西，也是它值得在这一节被点名的原因；
+但块共享只能省掉公共前缀那部分，<strong>分歧之后每条 beam 的显存还是各算各的</strong>。
+那一章还有一个真实的搬运事故：把翻译服务调好的 <code>num_beams=5</code> 原样搬到「生成营销文案」上。</p>
+<p>🔑 <strong>这是 PagedAttention 最漂亮的地方</strong>：
+<strong>它解决碎片问题的同时，顺带让"共享前缀"变成几乎免费的。</strong>
+而共享前缀在 Agent、多候选生成、树搜索里到处都是。</p>
+</blockquote>
+<hr />
+<h2 id="_4">🧰 四、实际怎么用</h2>
+<div class="codehilite"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">vllm</span><span class="w"> </span><span class="kn">import</span> <span class="n">LLM</span><span class="p">,</span> <span class="n">SamplingParams</span>
+
+<span class="n">llm</span> <span class="o">=</span> <span class="n">LLM</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="s2">&quot;meta-llama/Llama-3.1-8B-Instruct&quot;</span><span class="p">,</span>
+    <span class="n">tensor_parallel_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>           <span class="c1"># 张量并行（第 12 章）</span>
+    <span class="n">gpu_memory_utilization</span><span class="o">=</span><span class="mf">0.90</span><span class="p">,</span>      <span class="c1"># ⭐ 留 10% 余量，调高能装更多 KV</span>
+    <span class="n">max_model_len</span><span class="o">=</span><span class="mi">8192</span><span class="p">,</span>               <span class="c1"># ⭐ 别设太大，它决定预留空间</span>
+    <span class="n">enable_prefix_caching</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>       <span class="c1"># ⭐ 前缀缓存（第 16 章）</span>
+    <span class="n">kv_cache_dtype</span><span class="o">=</span><span class="s2">&quot;fp8&quot;</span><span class="p">,</span>             <span class="c1"># ⭐ KV 量化，能开 2 倍 batch</span>
+    <span class="n">enable_chunked_prefill</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>      <span class="c1"># ⭐ 避免长 prefill 造成 TPOT 毛刺</span>
+<span class="p">)</span>
+
+<span class="n">outs</span> <span class="o">=</span> <span class="n">llm</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span><span class="n">prompts</span><span class="p">,</span> <span class="n">SamplingParams</span><span class="p">(</span><span class="n">temperature</span><span class="o">=</span><span class="mf">0.7</span><span class="p">,</span> <span class="n">max_tokens</span><span class="o">=</span><span class="mi">512</span><span class="p">))</span>
+</code></pre></div>
+
+<p><strong>四个最该调的参数</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>作用</th>
+<th>调法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>gpu_memory_utilization</code></td>
+<td>留给 KV Cache 的显存比例</td>
+<td>从 0.90 起，OOM 就降 ⭐</td>
+</tr>
+<tr>
+<td><code>max_model_len</code></td>
+<td>最大上下文</td>
+<td><strong>按实际需求设，设大了白白预留</strong> ⭐</td>
+</tr>
+<tr>
+<td><code>max_num_seqs</code></td>
+<td>最大并发请求数</td>
+<td>吞吐/延迟的权衡旋钮</td>
+</tr>
+<tr>
+<td><code>enable_chunked_prefill</code></td>
+<td>分块 prefill</td>
+<td><strong>有长输入时必开</strong></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_5">📊 五、调度策略：吞吐和延迟的旋钮</h2>
+<div class="codehilite"><pre><span></span><code>   每一步，调度器要决定：接纳多少新请求？
+
+   激进（尽量塞满）→ 吞吐高，但单请求延迟差
+   保守（限制并发）→ 延迟好，但吞吐低
+
+   ⚠️ 还有一个风险：【抢占】
+     如果 KV Cache 不够了，正在跑的请求会被踢出（swap 或 recompute）
+     → 那个请求的延迟会突然飙升
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th>策略</th>
+<th>适合</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>FCFS</strong>（先来先服务）</td>
+<td>公平，默认</td>
+</tr>
+<tr>
+<td><strong>优先级队列</strong></td>
+<td>区分付费/免费用户</td>
+</tr>
+<tr>
+<td><strong>最短作业优先</strong></td>
+<td>降低平均延迟（但需要预测输出长度，难）</td>
+</tr>
+<tr>
+<td><strong>限制 <code>max_num_seqs</code></strong></td>
+<td>⭐ <strong>保证 P99 延迟的最直接手段</strong></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>💡 <strong>一个实用建议</strong>：<strong>用 <code>max_num_seqs</code> 来守 SLO。</strong>
+先压测出"并发数 → P99 TPOT"的曲线，
+找到满足 SLO 的最大并发数，把它设成上限 —— <strong>超出的排队，而不是拖垮所有人。</strong></p>
+</blockquote>
+<hr />
+<h2 id="_6">🔗 和你已学的关系</h2>
+<table>
+<thead>
+<tr>
+<th>你已经知道的</th>
+<th>这里的位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="15-推理和训练是两回事.html">第 15 章</a> 批处理提吞吐</td>
+<td><strong>本章是怎么在动态请求下做到</strong> ⭐</td>
+</tr>
+<tr>
+<td><a href="15-推理和训练是两回事.html">第 15 章</a> Prefill/Decode 性质不同</td>
+<td>混合调度的麻烦 + P/D 分离</td>
+</tr>
+<tr>
+<td><a href="16-KV-Cache.html">第 16 章</a> 碎片浪费 60-80%</td>
+<td><strong>PagedAttention 解决它</strong> ⭐</td>
+</tr>
+<tr>
+<td><a href="16-KV-Cache.html">第 16 章</a> 前缀缓存</td>
+<td>靠 PagedAttention 的块共享实现</td>
+</tr>
+<tr>
+<td><a href="20-推理服务化.html">第 20 章</a> SLO</td>
+<td>调度策略的目标</td>
+</tr>
+<tr>
+<td><a href="../大模型全景导论/06-推理优化.html">《大模型全景导论》06 推理优化</a> PagedAttention 一节</td>
+<td>那边只说"借鉴了虚拟内存"；<strong>块表、写时复制、抢占这三件事在这里</strong> ⭐</td>
+</tr>
+<tr>
+<td><a href="../模型上线之后/18-成本与容量.html">《模型上线之后》18 成本与容量</a> 3 秒抖动变成 22 分钟不可用</td>
+<td><strong>本章的"抢占"正是这种排队雪崩的起点</strong> —— 所以 <code>max_num_seqs</code> 要按压测设死 ⚠️</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_7">✅ 检查点</h2>
+<ol>
+<li>静态批处理浪费在哪？根源是什么？</li>
+<li>连续批处理的核心思想是什么？吞吐提升多少？</li>
+<li>为什么真实生产环境里连续批处理的收益比 benchmark 还明显？</li>
+<li>Prefill 插进 Decode 批次里会造成什么问题？三种解法是什么？</li>
+<li>P/D 分离的动机是什么？</li>
+<li>P/D 分离的代价是什么？70B 模型 4000 token 的输入，要搬多少 KV？跨机走 IB 大概要多久？</li>
+<li>什么时候【不该】上 P/D 分离？该先做什么？</li>
+<li>PagedAttention 借鉴了什么思想？它怎么消除两种碎片？</li>
+<li>KV Cache 利用率从多少提到多少？</li>
+<li>PagedAttention 的"意外收益"是什么？举三个受益场景。</li>
+<li>守 P99 延迟最直接的手段是什么？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li>浪费在<strong>已完成的请求还占着槽位空转，新请求要等整批结束</strong>。根源：<strong>LLM 的输出长度不可预测</strong>（可能差 200 倍），整批效率被最长的请求决定。</li>
+<li><strong>以迭代为单位调度而不是以请求为单位</strong>——每生成一个 token 后就检查完成的踢出、新来的加入。吞吐提升 <strong>5-20 倍</strong>。</li>
+<li>因为<strong>输出长度方差越大浪费越多</strong>，而真实流量里长短请求混杂、方差极大。</li>
+<li>长 Prefill（算力密集）插进来会让这一步变很慢，<strong>所有正在 decode 的请求都卡一下 → TPOT 毛刺</strong>。解法：①<strong>分块 prefill</strong> ②<strong>P/D 分离</strong> ③限制每步 prefill token 预算。</li>
+<li>因为 <strong>Prefill 要算力、Decode 要带宽</strong>，硬件需求完全不同，分开部署可以各自用最合适的卡和并行策略。</li>
+<li>代价是 <strong>Prefill 算出来的 KV Cache 必须跨机搬到 Decode 节点</strong>。70B（80 层、GQA-8、head_dim 128、BF16）每 token <strong>320 KB</strong>，4000 token 就是 <strong>约 1.28 GB</strong>；<strong>InfiniBand 只有 25–50 GB/s（HBM 的约 1/60）→ 26–51 ms</strong>，而且这段时间<strong>直接加在 TTFT 上</strong>。</li>
+<li><strong>输入短、输出短、低并发、只有以太网</strong>这四种情况都不该分。<strong>该先做的是分块 Prefill</strong>——它只是一个参数，已经能解决 TPOT 毛刺；只有规模大到"Prefill 和 Decode 想用不同卡型/不同并行度"时，P/D 分离才开始值。</li>
+<li>借鉴<strong>操作系统的虚拟内存分页</strong>。KV Cache 切成固定大小的块，每个请求一张块表记录逻辑块→物理块映射，物理块<strong>不需要连续</strong>。内部碎片最多浪费<strong>一个块（&lt;16 token）</strong>，外部碎片因为块大小统一而<strong>完全消除</strong>。</li>
+<li>从 <strong>20-40% 提到 90%+</strong>，能开的 batch 大 2-4 倍。</li>
+<li><strong>块共享（写时复制）</strong>——因为是按块管理+引用计数。三个场景：<strong>前缀共享</strong>（相同系统提示词）、<strong>并行采样</strong>（同一 prompt 生成 n 个候选，省 50%+ 显存）、<strong>Beam Search</strong>（各 beam 共享公共前缀）。</li>
+<li><strong>限制 <code>max_num_seqs</code></strong>。先压测出"并发数→P99 TPOT"曲线，找到满足 SLO 的最大并发设成上限，<strong>超出的排队而不是拖垮所有人</strong>。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_8">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong></p>
+<blockquote>
+<p>⭐⭐<strong>vLLM 比 <code>model.generate()</code> 快 20 倍就靠这两个技术</strong>。<strong>问题一：静态批处理</strong>——凑齐一批一起跑完再收下一批，<strong>已完成的请求占着槽位空转、新请求要等整批结束</strong>；根源是⭐<strong>LLM 输出长度不可预测（可能差 200 倍），整批效率被最长的请求决定</strong>。⭐<strong>连续批处理：以迭代为单位调度而非以请求为单位</strong>——每生成一个 token 就踢出完成的、加入新的，<strong>吞吐提升 5-20 倍</strong>；<strong>真实流量方差大，所以生产收益比 benchmark 还明显</strong>。⚠️<strong>麻烦是 Prefill 插进 Decode 批次会造成 TPOT 毛刺</strong>（长 prefill 让那一步变慢，所有 decode 请求都卡一下）→ 三解法：⭐<strong>分块 prefill</strong>、⭐<strong>P/D 分离</strong>（<strong>Prefill 要算力、Decode 要带宽，硬件需求完全不同</strong>，2024 后大规模部署的趋势）、限制 prefill 预算。💸⚠️<strong>但 P/D 分离不是免费的：分开之后 Prefill 算出的 KV 必须跨机搬到 Decode 节点</strong>——70B（80 层、GQA-8）每 token <strong>320KB</strong>，4000 token 输入就要搬 <strong>1.28GB</strong>；<strong>InfiniBand 只有 25–50GB/s，是 HBM 的约 1/60 → 26–51ms，而且这段时间直接加在 TTFT 上</strong>（走以太网更是几百毫秒起）。⭐<strong>所以：输入长且输出也长、或规模大到两边想用不同卡型时才划算；输入短/输出短/低并发/只有以太网都别分</strong>——⭐<strong>顺序别搞反，先上分块 Prefill（一个参数的事），它已经能解决 TPOT 毛刺</strong>。业界的 Mooncake / LMCache 这类 KV 传输层能靠传输与计算重叠、复用已有前缀把常数压下来，<strong>但改变不了带宽的量级</strong>。<strong>问题二：显存碎片</strong>（第16章，利用率仅 20-40%）→ ⭐⭐<strong>PagedAttention 把操作系统的虚拟内存分页搬过来</strong>：KV Cache 切成固定大小的块（通常 16 token），每请求一张<strong>块表</strong>映射逻辑块→物理块，<strong>物理块不需要连续</strong> → <strong>内部碎片最多浪费一个块、外部碎片完全消除、利用率提到 90%+</strong>，batch 大 2-4 倍。⭐<strong>意外收益：块共享 + 写时复制</strong>——<strong>前缀共享、并行采样（省 50%+ 显存）、Beam Search 共享公共前缀</strong>；<strong>它解决碎片的同时顺带让"共享前缀"几乎免费</strong>。<strong>四个最该调的参数</strong>：<code>gpu_memory_utilization</code>（0.90 起）、⭐<code>max_model_len</code>（<strong>设大了白白预留</strong>）、<code>max_num_seqs</code>、<code>enable_chunked_prefill</code>（有长输入必开）。⭐<strong>守 P99 延迟最直接的手段是限制 <code>max_num_seqs</code></strong>——压测出"并发→P99"曲线，<strong>让超出的排队而不是拖垮所有人</strong>。</p>
+</blockquote>
+<p><strong>下一节</strong> 👉 <a href="18-量化.html">18-量化.md</a></p>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="16-KV-Cache.html"><div class="dir">← 上一节</div>⭐⭐ KV Cache</a><a class="next" href="18-量化.html"><div class="dir">下一节 →</div>⭐ 量化</a></nav>
+</main>
+<script>(function(){
+  var KEY="aiinfra", FILE="17-\u8fde\u7eed\u6279\u5904\u7406\u4e0ePagedAttention.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script></body></html>

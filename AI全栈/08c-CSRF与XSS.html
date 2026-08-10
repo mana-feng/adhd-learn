@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>08c · CSRF 与 XSS：两种攻击，两套完全不同的防线 · AI 全栈</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:17px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:1.9em;line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:1.42em;margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:1.14em;margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em;display:block;
+ overflow-x:auto}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:.88em;background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:.85em}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:.92em}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:.8em;color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:.85em;color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:.92em}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:.78em;
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:.92em;border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:.93em;line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:.9em;line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:.93em;line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:.92em}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:1.15em;opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+
+.dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:.95em;margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:.93em;line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.02em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:.93em;break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">08c · CSRF 与 XSS</span>
+  <span class="prevnext"><a href="08b-同源策略与CORS.html">←</a>
+  <a href="08d-OAuth2与OIDC.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#csrf">🎣 一、CSRF（跨站请求伪造）：请求发得出去，才是这件事的根</a></li>
+<li><a href="#xss">💉 二、XSS（跨站脚本）：边界内部被塞进了代码</a></li>
+<li><a href="#content-security-policy">🧱 三、Content-Security-Policy：净化漏了一次的时候</a></li>
+<li><a href="#_3">🔄 换个栈怎么对应</a></li>
+<li><a href="#_4">🔗 这一章连到哪里</a></li>
+<li><a href="#_5">✅ 检查点</a></li>
+<li><a href="#_6">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<h1 id="08c-csrf-xss">08c · CSRF 与 XSS：两种攻击，两套完全不同的防线</h1>
+<p>⏱ <strong>54 分钟</strong> ｜ ⭐ <strong>一个借用你用户的凭证，一个直接变成你这个源的代码</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong>CSRF 是别人借用你用户身上那份「浏览器自动带的」凭证，XSS 是攻击者的代码跑进了你这个源的内部——前者靠 <code>SameSite</code> 和校验 <code>Origin</code> 挡得住，后者一旦得手，同源策略就站到了他那边。</strong></p>
+<p>⭐ 这一章接着 <a href="08b-同源策略与CORS.html">08b · 同源策略与 CORS</a> 往下讲。那一章立的地基是一句话——<strong>同源策略限制的是「读响应」，不是「发请求」</strong>——⭐⭐ 而<strong>这一章的两种攻击都是它的推论</strong>：CSRF 用的是「发得出」那一半，XSS 干脆钻到边界里面去。08b 第一节那张「三个洞」的地图，这一章走的是后两行。</p>
+<hr />
+<h2 id="csrf">🎣 一、CSRF（跨站请求伪造）：请求发得出去，才是这件事的根</h2>
+<p>⭐ <strong>中文全称叫「跨站请求伪造」</strong>，Cross-Site Request Forgery。攻击剧本只有三步：</p>
+<ol>
+<li>用户在你的站登录过，浏览器里躺着一个有效的会话 Cookie</li>
+<li>用户在<strong>另一个标签页</strong>打开了攻击者的页面（论坛、邮件里的链接、任何地方）</li>
+<li>那个页面里有一个自动提交的表单 <code>&lt;form action="https://app.example.com/api/transfer" method="POST"&gt;</code>——⭐ <strong>浏览器按规矩给这一发带上了你站的 Cookie</strong></li>
+</ol>
+<blockquote>
+<p>⭐⭐ <strong>为什么 CORS 挡不住它</strong>：回到 <a href="08b-同源策略与CORS.html">08b 第一节</a>那句话——CORS 管的是<strong>读响应</strong>，而攻击者<strong>根本不需要读</strong>。
+钱已经转了、文档已经删了、模型已经烧了一万个 token。<strong>响应长什么样他不关心。</strong></p>
+</blockquote>
+<p>⭐ <strong>也正因为如此，<a href="08-认证会话与多租户.html">第 8 章</a>那张表里「Bearer 无 CSRF」不是玄学</strong>：<code>Authorization</code> 头是<strong>你的 JS 手动加上去的</strong>，攻击者的页面既拿不到你的 token（那是另一个源的存储），也没法让浏览器替他加这个头——⭐ 而且他一旦用 <code>fetch</code> 手动加，就<strong>触发预检</strong>（<a href="08b-同源策略与CORS.html">08b 第二节</a>），预检过不了请求根本发不出去。<strong>自动带的凭证有 CSRF，手动带的没有</strong>，判据就这一条。</p>
+<h3 id="_2">🧯 三条防线</h3>
+<table>
+<thead>
+<tr>
+<th>防线</th>
+<th>做什么</th>
+<th>⚠️ 注意</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>⭐ <strong><code>SameSite</code> Cookie 属性</strong></td>
+<td><code>Lax</code>：跨站的 POST 不带这个 Cookie；<code>Strict</code>：跨站连 GET 都不带</td>
+<td>🗓️ <strong>默认值会变</strong>，见下面的框</td>
+</tr>
+<tr>
+<td>⭐ <strong>校验 <code>Origin</code> 头</strong></td>
+<td>会改数据的方法，检查 <code>Origin</code> 在不在白名单里</td>
+<td>白名单<strong>和 CORS 那份是同一份</strong>，别抄成两份</td>
+</tr>
+<tr>
+<td><strong>双提交（double submit）</strong></td>
+<td>后端下发一个随机值，同时放进 Cookie 和页面；提交时前端把它放进<strong>请求头</strong>，后端比对两处是否相等</td>
+<td>⭐ 原理仍是那条：<strong>攻击者的页面读不到你这个源的 Cookie，所以填不出那个头</strong></td>
+</tr>
+</tbody>
+</table>
+<div class="codehilite"><pre><span></span><code><span class="c1"># Cookie 会话的第二道锁：写死 SameSite + 校验 Origin（pip install fastapi httpx）</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">Depends</span><span class="p">,</span> <span class="n">FastAPI</span><span class="p">,</span> <span class="n">HTTPException</span><span class="p">,</span> <span class="n">Request</span><span class="p">,</span> <span class="n">Response</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fastapi.testclient</span><span class="w"> </span><span class="kn">import</span> <span class="n">TestClient</span>
+
+<span class="n">ALLOWED_ORIGINS</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;https://app.example.com&quot;</span><span class="p">}</span>     <span class="c1"># ⭐ 和 CORS 白名单是同一份，别抄两份</span>
+<span class="n">app</span> <span class="o">=</span> <span class="n">FastAPI</span><span class="p">()</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">same_site_only</span><span class="p">(</span><span class="n">request</span><span class="p">:</span> <span class="n">Request</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;⭐ 只对会改数据的方法查；GET 不查（它本来就不该改数据）。&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">method</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;GET&quot;</span><span class="p">,</span> <span class="s2">&quot;HEAD&quot;</span><span class="p">,</span> <span class="s2">&quot;OPTIONS&quot;</span><span class="p">):</span>
+        <span class="k">return</span>
+    <span class="n">origin</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;origin&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">origin</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>                            <span class="c1"># ⚠️ 非浏览器客户端（curl / 服务端）没有这个头</span>
+        <span class="k">return</span>                                    <span class="c1"># 它们也带不了别人的 Cookie，交给鉴权管</span>
+    <span class="k">if</span> <span class="n">origin</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">ALLOWED_ORIGINS</span><span class="p">:</span>             <span class="c1"># ⭐ 只信白名单里的那几个字符串</span>
+        <span class="k">raise</span> <span class="n">HTTPException</span><span class="p">(</span><span class="n">status_code</span><span class="o">=</span><span class="mi">403</span><span class="p">,</span> <span class="n">detail</span><span class="o">=</span><span class="s2">&quot;来源不对&quot;</span><span class="p">)</span>
+
+
+<span class="nd">@app</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/api/login&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">login</span><span class="p">(</span><span class="n">resp</span><span class="p">:</span> <span class="n">Response</span><span class="p">):</span>
+    <span class="n">resp</span><span class="o">.</span><span class="n">set_cookie</span><span class="p">(</span><span class="s2">&quot;sid&quot;</span><span class="p">,</span> <span class="s2">&quot;signed-token-here&quot;</span><span class="p">,</span>   <span class="c1"># 真实值见第 8 章的验签凭证</span>
+                    <span class="n">httponly</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>                <span class="c1"># ⭐ JS 读不到 → XSS 偷不走</span>
+                    <span class="n">secure</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>                  <span class="c1"># ⭐ 只走 HTTPS</span>
+                    <span class="n">samesite</span><span class="o">=</span><span class="s2">&quot;lax&quot;</span><span class="p">,</span>               <span class="c1"># ⭐ 别人的页面发 POST 时不带它</span>
+                    <span class="n">max_age</span><span class="o">=</span><span class="mi">3600</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;ok&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
+
+
+<span class="nd">@app</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/api/transfer&quot;</span><span class="p">,</span> <span class="n">dependencies</span><span class="o">=</span><span class="p">[</span><span class="n">Depends</span><span class="p">(</span><span class="n">same_site_only</span><span class="p">)])</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">transfer</span><span class="p">():</span>
+    <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;done&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">c</span> <span class="o">=</span> <span class="n">TestClient</span><span class="p">(</span><span class="n">app</span><span class="p">)</span>
+    <span class="n">r</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/api/login&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Set-Cookie:&quot;</span><span class="p">,</span> <span class="n">r</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;set-cookie&quot;</span><span class="p">))</span>
+    <span class="k">for</span> <span class="n">origin</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;https://app.example.com&quot;</span><span class="p">,</span> <span class="s2">&quot;https://evil.example&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
+        <span class="n">h</span> <span class="o">=</span> <span class="p">{}</span> <span class="k">if</span> <span class="n">origin</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="p">{</span><span class="s2">&quot;Origin&quot;</span><span class="p">:</span> <span class="n">origin</span><span class="p">}</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Origin=</span><span class="si">%-26s</span><span class="s2"> → </span><span class="si">%d</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">origin</span><span class="p">,</span> <span class="n">c</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/api/transfer&quot;</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="n">h</span><span class="p">)</span><span class="o">.</span><span class="n">status_code</span><span class="p">))</span>
+</code></pre></div>
+
+<p><strong>实跑输出</strong>：</p>
+<div class="codehilite"><pre><span></span><code>Set-Cookie: sid=signed-token-here; HttpOnly; Max-Age=3600; Path=/; SameSite=lax; Secure
+Origin=https://app.example.com    → 200
+Origin=https://evil.example       → 403
+Origin=None                       → 200
+</code></pre></div>
+
+<p>⚠️ <strong>注意第三行</strong>：没有 <code>Origin</code> 头时上面这版<strong>放行</strong>了——留给 <code>curl</code> 和服务端调用方。🗓️ <strong>现代浏览器对跨站 POST 一律会带 <code>Origin</code></strong>，所以更严的做法是「没有 <code>Origin</code> 就拒」，代价是所有非浏览器调用方都得跟着改。<strong>两种都合理，但你要知道自己选的是哪种，并写下来。</strong></p>
+<blockquote>
+<p>🗓️ <strong>这一格里会腐坏的东西，单独放在这里</strong>：<code>SameSite</code> 的<strong>默认值</strong>、第三方 Cookie 的处置、以及「跨站」到底怎么算，<strong>各家浏览器在不同版本里给过不同答案，而且还在变</strong>。
+⭐ <strong>所以别依赖默认值，永远显式写 <code>samesite=</code></strong>；要查默认行为，<strong>以你的目标浏览器当前文档为准</strong>。
+⭐⭐ 上面那三步攻击剧本和三条防线的<strong>原理不会变</strong>——变的只是「不写它的时候浏览器替你选了什么」。</p>
+</blockquote>
+<p>⭐ <strong>还有一层本板块白拿的防护</strong>：你的接口只收 <code>application/json</code>。HTML 表单<strong>发不出</strong>这个 <code>Content-Type</code>（它只有那三种），而用 <code>fetch</code> 设它就会触发预检。实测这个栈的行为——同样一份 <code>{"msg":"hi"}</code> 的 body，<code>Content-Type: application/json</code> 返回 <strong>200</strong>，换成 <code>text/plain</code>、<code>application/x-www-form-urlencoded</code> 或不带，<strong>全是 422，业务函数没执行</strong>。⚠️ <strong>但别把它当唯一防线</strong>：哪天你为了「兼容」让后端也接受表单编码的 body，这层就无声无息地没了。</p>
+<hr />
+<h2 id="xss">💉 二、XSS（跨站脚本）：边界内部被塞进了代码</h2>
+<p>⭐ <strong>全称 Cross-Site Scripting</strong>。它和 CORS、CSRF 那两件事的差别是<strong>质变的</strong>：</p>
+<blockquote>
+<p>⭐⭐ <strong>XSS 成功的那一刻，攻击者的代码就成了「你这个源」的代码，同源策略从此站在他那边。</strong>
+他读 <code>localStorage</code>、发同源请求、拿走页面上的一切——<strong>每一件在浏览器看来都完全合法</strong>，因为那确实是你这个源的脚本在动。</p>
+</blockquote>
+<p>⚠️ <strong>所以 <code>HttpOnly</code> 只是减损，不是防御</strong>：它让脚本偷不走 Cookie，但脚本<strong>根本不需要偷</strong>——它就在页面里，直接以用户身份发请求就行了。</p>
+<p>三种经典形态：</p>
+<table>
+<thead>
+<tr>
+<th>形态</th>
+<th>恶意内容存在哪</th>
+<th>典型入口</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>存储型</strong></td>
+<td>⚠️ <strong>存进了你的库</strong>，每个看到它的人都中招</td>
+<td>用户名、评论、上传的文档</td>
+</tr>
+<tr>
+<td><strong>反射型</strong></td>
+<td>在 URL 里，服务端原样吐回页面</td>
+<td>搜索结果页把关键词拼进 HTML</td>
+</tr>
+<tr>
+<td><strong>DOM 型</strong></td>
+<td>服务端全程没参与，是前端 JS 自己把不可信数据塞进了 <code>innerHTML</code></td>
+<td>前端读 URL 参数直接渲染</td>
+</tr>
+</tbody>
+</table>
+<h3 id="ai-xss">⭐⭐ 第四条路径：AI 应用独有的存储型 XSS</h3>
+<p>它比上面三种绕一道弯，而且<strong>绕过的正是「我又没有用户生成内容」这个自我安慰</strong>：</p>
+<p><strong>用户 A 上传一份文档，里面藏着一段 HTML → 它被切分、embedding、进了向量库（<a href="07-向量检索落地.html">第 7 章</a>）→ 用户 B 提了个相关的问题，这一段被检索出来进了上下文 → 模型照着把那段 HTML 输出了 → B 的前端把模型输出当 Markdown 渲染 → B 的浏览器执行了它。</strong></p>
+<p>⭐ <strong>注意这条链上的每一环都是「功能正常」</strong>：上传成功、检索命中、模型听话、Markdown 渲染。<strong>没有一步是 bug。</strong>
+⚠️ 而且它跨用户、跨租户——<a href="08-认证会话与多租户.html">第 8 章</a>那套 <code>WHERE tenant_id</code> 挡的是「B 读到 A 的数据」，⭐ <strong>挡不住「A 的数据经过模型转述后在 B 的浏览器里执行」</strong>，因为这一趟里数据是<strong>合法地</strong>被检索出来的。</p>
+<h3 id="xss_1">🔍 XSS 到此为止：防御在别处，这里只给名字</h3>
+<p>⚠️ <strong>本节不讲怎么防，因为板块里已经讲透了，重复一遍只会让两处不一致：</strong></p>
+<table>
+<thead>
+<tr>
+<th>在哪</th>
+<th>讲的是</th>
+<th>对应哪种形态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="09-最小可用前端.html">09 · 最小可用前端</a> 第二节</td>
+<td>⭐ <strong>永远 <code>textContent</code>，绝不 <code>innerHTML</code></strong></td>
+<td>对 <strong>DOM 型免疫</strong>——浏览器根本不会把它当标签解析</td>
+</tr>
+<tr>
+<td>⭐⭐ <a href="10-把流式接到界面上.html">10 · 把流式接到界面上</a> 第三节</td>
+<td><strong>HTML 净化的四条最小判据 + 五种正则绕过形态 + 「净化必须是进 <code>innerHTML</code> 前的最后一步」</strong></td>
+<td>上面那条 <strong>AI 存储型路径</strong></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⭐ <strong>分工是清楚的</strong>：<strong>这一章负责「这是什么攻击、有哪几种、为什么它比另两个严重」，第 10 章负责「怎么防、防到什么程度算够」。</strong>
+⚠️ 而这正是这一章存在的理由之一——<strong>09 和 10 两章的防御段落从头到尾没出现过「XSS」三个字母</strong>，读者学会了防御，却不知道自己防的东西叫什么、在别处怎么搜。</p>
+</blockquote>
+<hr />
+<h2 id="content-security-policy">🧱 三、Content-Security-Policy：净化漏了一次的时候</h2>
+<p>⚠️ <strong>这里必须用全称。</strong> 站内 <code>CSP</code> 这个缩写已经被占了两次，而且是完全无关的东西：《密码学与信息安全》里它是 <strong>CSPRNG</strong>（<a href="../密码学与信息安全/04-伪随机.html">04 · 伪随机</a>）和 <strong>Cryptographic Service Provider</strong>（<a href="../密码学与信息安全/18-PKI与证书.html">18 · PKI 与证书</a>），《不靠数据的 AI》里它是<strong>约束满足问题</strong>（<a href="../不靠数据的AI/13-CSP是什么.html">13 · CSP 是什么</a>）。<strong>三个 CSP 毫无关系，搜的时候一定会串。</strong></p>
+<p>Content-Security-Policy 是一个<strong>响应头</strong>，用来告诉浏览器「这一页允许加载和执行哪里来的东西」。⭐ <strong>它的定位是纵深防御</strong>：假设你的净化有一天漏了一条，它让漏进来的那段脚本<strong>执行不了</strong>。</p>
+<p>三条最小配置就能挡掉绝大多数落地形态：</p>
+<table>
+<thead>
+<tr>
+<th>指令</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>default-src 'self'</code></td>
+<td>默认只允许同源资源</td>
+</tr>
+<tr>
+<td>⭐ <code>script-src 'self'</code></td>
+<td><strong>不允许内联脚本和外部域的脚本</strong>——<code>&lt;script&gt;alert(1)&lt;/script&gt;</code> 直接不执行</td>
+</tr>
+<tr>
+<td><code>object-src 'none'</code>；<code>frame-ancestors 'none'</code></td>
+<td>禁插件对象；⭐ 禁别人把你的页面套进 iframe（点击劫持）</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong>两个务实提醒</strong>：① <code>script-src 'self'</code> 会<strong>顺手打掉你自己的内联 <code>&lt;script&gt;</code> 和 <code>onclick=</code></strong>——<a href="09-最小可用前端.html">第 9 章</a>那种单文件前端首当其冲，得先把脚本挪进独立文件；② 🗓️ <strong>先用 <code>Content-Security-Policy-Report-Only</code> 跑一段时间看报告，再切成强制模式</strong>，否则上线当天页面直接白屏。</p>
+<p>🗓️ 具体指令名和可用的取值一直在增补，<strong>以当前文档为准；不变的是那个定位——它是最后一道网，不是替代净化的</strong>。</p>
+<hr />
+<h2 id="_3">🔄 换个栈怎么对应</h2>
+<table>
+<thead>
+<tr>
+<th>概念（不会过期）</th>
+<th>Python / FastAPI（本板块主栈）</th>
+<th>Node（Express / Hono）</th>
+<th>Go</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cookie 三属性</td>
+<td><code>set_cookie(httponly=, secure=, samesite=)</code></td>
+<td><code>res.cookie(..., {httpOnly, secure, sameSite})</code></td>
+<td><code>http.Cookie{HttpOnly, Secure, SameSite}</code></td>
+</tr>
+<tr>
+<td>校验 <code>Origin</code>（本章那段）</td>
+<td><code>Depends(same_site_only)</code></td>
+<td>中间件</td>
+<td>包一层 Handler</td>
+</tr>
+<tr>
+<td>现成的 CSRF 中间件（双提交 / 同步器令牌）</td>
+<td>第三方库 🗓️</td>
+<td>第三方中间件 🗓️</td>
+<td>第三方中间件 🗓️</td>
+</tr>
+<tr>
+<td>⭐ 模板自动转义</td>
+<td>⚠️ <strong>裸 <code>jinja2.Environment()</code> 默认 <code>autoescape=False</code></strong>；Starlette 的 <code>Jinja2Templates</code> 替你传了 <code>select_autoescape()</code>（按扩展名开）🗓️</td>
+<td>各家模板引擎默认不同 🗓️</td>
+<td><code>html/template</code> <strong>按上下文自动转义</strong>；⚠️ <code>text/template</code> <strong>不转义</strong></td>
+</tr>
+<tr>
+<td>Content-Security-Policy 响应头</td>
+<td>中间件里加一个响应头</td>
+<td>安全头中间件 🗓️ 或手加</td>
+<td>手加</td>
+</tr>
+<tr>
+<td>HTML 净化（模型输出进页面前）</td>
+<td>服务端净化库 🗓️</td>
+<td>同左</td>
+<td>同左</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⭐ <strong>这张表要看出的是：只有第一列和最后一列的「叫什么」在变。</strong>
+<code>SameSite</code> / <code>HttpOnly</code> / <code>Origin</code> / <code>Content-Security-Policy</code> <strong>是 HTTP 和浏览器的规矩，不是任何框架的发明</strong>——换栈之后一个字都不会变。
+⚠️ <strong>但第三、四行要单独看</strong>：CSRF 中间件和模板转义<strong>不是浏览器给的，是各家框架自己的东西</strong>——⭐ <strong>默认开没开、保护了哪些方法和路由，必须自己确认一遍</strong>，「装了一个 CSRF 中间件」不等于「它生效了」。</p>
+</blockquote>
+<hr />
+<h2 id="_4">🔗 这一章连到哪里</h2>
+<table>
+<thead>
+<tr>
+<th>去哪</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>⭐⭐ <a href="08b-同源策略与CORS.html">08b · 同源策略与 CORS</a></td>
+<td><strong>本章的地基在那里</strong>：源怎么算、「同源策略限制读不限制发」、CORS 为什么是放宽不是收紧、预检怎么触发。⭐ 本章那句「攻击者手动加 <code>Authorization</code> 就会触发预检」用的就是那一节的规则</td>
+</tr>
+<tr>
+<td>⭐⭐ <a href="10-把流式接到界面上.html">10 · 把流式接到界面上</a></td>
+<td><strong>XSS 的防御在那一章第三节</strong>：净化的四条最小判据、五种正则绕过形态、「净化是进 <code>innerHTML</code> 前的最后一步」。⭐ <strong>本章给攻击命名，那一章给防御落地</strong></td>
+</tr>
+<tr>
+<td><a href="09-最小可用前端.html">09 · 最小可用前端</a></td>
+<td>那一章第二节「永远 <code>textContent</code> 绝不 <code>innerHTML</code>」是对 <strong>DOM 型 XSS 的免疫</strong>；⚠️ 反过来，本章第三节那条 <code>script-src 'self'</code> 会打掉它那种单文件前端里的内联 <code>&lt;script&gt;</code></td>
+</tr>
+<tr>
+<td>⭐ <a href="08-认证会话与多租户.html">08 · 认证、会话与多租户</a></td>
+<td>本章补的是那一章第三节那张表里剩下的两格：<strong>「Cookie 怕 CSRF」「Bearer 怕 XSS」</strong>。⚠️ 那一章第五节的 <code>WHERE tenant_id</code> 挡不住本章第二节那条 AI 存储型路径——<strong>数据是合法被检索出来、再由模型转述的</strong></td>
+</tr>
+<tr>
+<td><a href="08d-OAuth2与OIDC.html">08d · OAuth2 与 OIDC</a> ｜ <a href="08e-JWT.html">08e · JWT</a></td>
+<td>前者的 <code>state</code> 参数是本章 CSRF 防线在 OAuth 流程里的<strong>那一个具体落点</strong>；⭐ 后者那张「token 存哪」的表只回答「存哪」——<strong><code>HttpOnly</code> Cookie 怕 CSRF、<code>localStorage</code> 怕 XSS 全被读走</strong>，怕的就是这一章这两样</td>
+</tr>
+<tr>
+<td><a href="13-配置与密钥.html">13 · 配置与密钥</a></td>
+<td>⭐ 那一章的铁律「密钥绝不放前端，浏览器 →（你的鉴权）→ 你的后端 →（你的 key）→ 供应商」在 XSS 视角下更硬：<strong>一旦 XSS 得手，前端有的东西攻击者全有</strong>——所以前端什么都不能有</td>
+</tr>
+<tr>
+<td><a href="../智能体工程教程/15-安全-沙箱与提示注入.html">../智能体工程教程/15-安全-沙箱与提示注入.html</a></td>
+<td>本章第二节那条「文档里藏 HTML → 检索 → 模型转述 → 别人浏览器执行」是<strong>间接提示注入</strong>的一个具体落点，那一章讲这类攻击的全貌和防线</td>
+</tr>
+<tr>
+<td><a href="14-容器化与部署.html">14 · 容器化与部署</a></td>
+<td><code>Secure</code> Cookie 要求 HTTPS，而证书和反向代理在那一章；⭐ Content-Security-Policy 这类响应头也可以统一加在代理层</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_5">✅ 检查点</h2>
+<ol>
+<li>CSRF 的中文全称是什么？攻击三步是什么？⭐ 为什么 CORS 挡不住它，而 <code>Authorization: Bearer</code> 天然不受影响？</li>
+<li>防 CSRF 的三条防线各是什么？哪一部分属于「会过期、要以当前浏览器文档为准」的内容？</li>
+<li>⭐ 本章那段代码里，<code>same_site_only</code> 为什么对 <code>GET</code> 直接放行？为什么<strong>没有 <code>Origin</code> 头</strong>时也放行？更严的做法是什么、代价是什么？</li>
+<li>⭐ 「接口只收 <code>application/json</code>」为什么白送了一层 CSRF 防护？实测里换成别的 <code>Content-Type</code> 会得到什么？⚠️ 为什么不能把它当唯一防线？</li>
+<li>⭐ XSS 成功之后，同源策略为什么反而成了攻击者的帮凶？<code>HttpOnly</code> 为什么只是减损？</li>
+<li>XSS 的三种经典形态是什么？各自的恶意内容存在哪？</li>
+<li>⭐⭐ AI 应用那条独特的存储型 XSS 路径是什么？为什么第 8 章的租户隔离挡不住它？防御该去哪一章找？</li>
+<li>Content-Security-Policy 的定位是什么？最小三条配置是什么？站内为什么不能写 <code>CSP</code> 这个缩写？</li>
+<li>⭐ 上线 Content-Security-Policy 的两个务实提醒是什么？其中哪一个会直接影响第 9 章那种单文件前端？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li><strong>跨站请求伪造（Cross-Site Request Forgery）</strong>。三步：① 用户在你站登录过，Cookie 还在 ② 他打开攻击者的页面 ③ 那个页面自动提交一个指向你站的表单，<strong>浏览器按规矩带上了你站的 Cookie</strong>。⭐ CORS 挡不住是因为<strong>攻击者根本不需要读响应</strong>——钱已经转了。⭐ Bearer 免疫是因为 <code>Authorization</code> 是 <strong>JS 手动加的</strong>：攻击者拿不到 token，也没法让浏览器替他加；一旦手动加就<strong>触发预检</strong>（见 <a href="08b-同源策略与CORS.html">08b</a>），过不了就发不出。<strong>自动带的凭证有 CSRF，手动带的没有。</strong></li>
+<li>① <strong><code>SameSite</code></strong>（<code>Lax</code> 让跨站 POST 不带 Cookie，<code>Strict</code> 连 GET 都不带）② <strong>校验 <code>Origin</code> 头</strong>（只对会改数据的方法查，白名单<strong>和 CORS 那份同一份</strong>）③ <strong>双提交</strong>（随机值同时进 Cookie 和请求头，后端比对；原理是攻击者读不到你这个源的 Cookie 所以填不出那个头）。🗓️ <strong>会过期的是 <code>SameSite</code> 的默认值、第三方 Cookie 处置、「跨站」怎么算</strong>——⭐ <strong>所以永远显式写 <code>samesite=</code></strong>；攻击原理和三条防线本身不过期。</li>
+<li><code>GET</code> / <code>HEAD</code> / <code>OPTIONS</code> 不查，因为<strong>它们本来就不该改数据</strong>。⚠️ 没有 <code>Origin</code> 头时放行，是留给 <code>curl</code> 和服务端调用方——<strong>它们也带不了别人的 Cookie，交给鉴权管</strong>（实测第三行 <code>Origin=None → 200</code>）。🗓️ 更严的做法是「<strong>没有 <code>Origin</code> 就拒</strong>」（现代浏览器对跨站 POST 一律会带），代价是<strong>所有非浏览器调用方都得跟着改</strong>。⭐ 两种都合理，关键是知道自己选了哪种<strong>并写下来</strong>。</li>
+<li>因为 <strong>HTML 表单发不出 <code>application/json</code></strong>（它只有 <code>x-www-form-urlencoded</code> / <code>multipart/form-data</code> / <code>text/plain</code> 三种），而用 <code>fetch</code> 设这个头又会<strong>触发预检</strong>。实测：同一份 <code>{"msg":"hi"}</code> 的 body，<code>application/json</code> 返回 <strong>200</strong>，换成 <code>text/plain</code> / 表单编码 / 不带<strong>全是 422，业务函数没执行</strong>。⚠️ 不能当唯一防线：<strong>哪天为了「兼容」让后端也收表单编码的 body，它就无声无息地没了</strong>。</li>
+<li>⭐⭐ 因为<strong>攻击者的代码变成了「你这个源」的代码</strong>：读 <code>localStorage</code>、发同源请求、拿走页面上的一切，在浏览器看来<strong>全都合法</strong>。⚠️ <code>HttpOnly</code> 只挡「偷 Cookie」，但脚本<strong>不需要偷</strong>——它就在页面里，<strong>直接以用户身份发请求</strong>就行。</li>
+<li><strong>存储型</strong>（⚠️ 存进了你的库，每个看到的人都中招：用户名、评论、上传的文档）、<strong>反射型</strong>（在 URL 里，服务端原样吐回页面：搜索结果页把关键词拼进 HTML）、<strong>DOM 型</strong>（服务端全程没参与，前端 JS 自己把不可信数据塞进 <code>innerHTML</code>）。</li>
+<li>⭐⭐ <strong>A 上传的文档里藏 HTML → 进向量库 → B 提问时被检索出来进上下文 → 模型照着输出 → B 的前端渲染 Markdown → B 的浏览器执行。</strong> ⭐ 链上<strong>每一环都是功能正常</strong>，没有一步是 bug。第 8 章的 <code>WHERE tenant_id</code> 挡的是「B 直接读到 A 的数据」，⚠️ 挡不住这条，因为这里数据是<strong>合法地被检索出来、再由模型转述</strong>的。⭐ 防御在<strong>第 10 章第三节</strong>（净化四条判据 + 五种绕过形态）。</li>
+<li>它是一个<strong>响应头</strong>，告诉浏览器这一页允许加载执行哪里来的东西，⭐ <strong>定位是纵深防御</strong>——假设净化漏了一次，让漏进来的脚本执行不了；<strong>它是最后一道网，不替代净化</strong>。最小三条：<code>default-src 'self'</code>、⭐ <code>script-src 'self'</code>、<code>object-src 'none'</code> / <code>frame-ancestors 'none'</code>（后者防点击劫持）。⚠️ 不能写缩写 <code>CSP</code>：站内它已经是 <strong>CSPRNG / Cryptographic Service Provider</strong>（密码学）和<strong>约束满足问题</strong>（不靠数据的 AI），三者毫无关系。</li>
+<li>① ⚠️ <strong><code>script-src 'self'</code> 会顺手打掉你自己的内联 <code>&lt;script&gt;</code> 和 <code>onclick=</code></strong>——⭐ <strong>第 9 章那种单文件前端首当其冲</strong>，得先把脚本挪进独立文件；② 🗓️ <strong>先用 <code>Content-Security-Policy-Report-Only</code> 跑一段看报告再切强制</strong>，否则上线当天页面直接白屏。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_6">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong></p>
+<blockquote>
+<p>⭐⭐ <strong>两种攻击都是 08b 那句地基的推论</strong>（同源策略限制「读响应」不限制「发请求」）：<strong>CSRF 用「发得出」那一半，XSS 直接钻进边界内部。</strong> <strong>CSRF（跨站请求伪造）三步</strong>：① 用户在你站登录过、Cookie 还在 ② 他在另一个标签页打开攻击者的页面 ③ 那个页面自动提交一个指向你站的表单，<strong>浏览器按规矩带上了你站的 Cookie</strong>。⭐ <strong>CORS 挡不住，因为攻击者根本不需要读响应</strong>——钱已经转了。⭐ <strong>Bearer 天然免疫</strong>：<code>Authorization</code> 是 JS 手动加的，他加不了，手动加又触发预检——<strong>自动带的凭证有 CSRF，手动带的没有</strong>。<strong>三条防线</strong>：<code>SameSite</code>（<code>Lax</code> 跨站 POST 不带）、<strong>校验 <code>Origin</code></strong>（⭐ 只查会改数据的方法，白名单和 CORS 那份<strong>是同一份</strong>；实测坏 Origin 得 <strong>403</strong>，⚠️ <strong>没有 <code>Origin</code> 头时那版放行</strong>，留给 <code>curl</code>，更严是「没有就拒」）、<strong>双提交</strong>（随机值同时进 Cookie 和请求头，攻击者读不到你这个源的 Cookie 就填不出）。🗓️ ⚠️ <strong><code>SameSite</code> 默认值和第三方 Cookie 处置都会变，所以永远显式写 <code>samesite=</code></strong>。⭐ 还白拿一层：接口只收 <code>application/json</code>，实测换成 <code>text/plain</code> / 表单编码 / 不带<strong>全是 422</strong>，⚠️ 但别当唯一防线。<strong>XSS（跨站脚本）是质变的那一个</strong>：⭐⭐ <strong>一旦得手，攻击者的代码就是「你这个源」的代码，同源策略从此站在他那边</strong>；⚠️ <strong><code>HttpOnly</code> 只是减损</strong>——脚本不用偷 Cookie，它就在页面里直接以用户身份发请求。三种形态：<strong>存储型 / 反射型 / DOM 型</strong>；⭐⭐ <strong>AI 应用还有第四条</strong>：A 上传的文档藏 HTML → 进向量库 → B 检索到 → 模型照着输出 → <strong>B 的浏览器执行</strong>，⭐ <strong>每一环都功能正常，没有一步是 bug</strong>，⚠️ 第 8 章的 <code>WHERE tenant_id</code> 挡不住（数据是合法被检索出来的）。⭐ <strong>分工</strong>：这一章负责命名，<strong>防御在第 10 章第三节</strong>（净化四条判据 + 五种绕过形态），第 9 章的 <code>textContent</code> 对 DOM 型免疫。最后 <strong>Content-Security-Policy</strong>（⚠️ <strong>不能写缩写，站内已被 CSPRNG 和约束满足问题各占一次</strong>）是<strong>纵深防御</strong>：<code>default-src 'self'</code> / <code>script-src 'self'</code> / <code>object-src 'none'</code>，⚠️ 会打掉内联脚本，🗓️ 先用 <code>Report-Only</code> 跑一段再强制。</p>
+</blockquote>
+<p><strong>下一节</strong> 👉 <a href="08d-OAuth2与OIDC.html">08d-OAuth2与OIDC.md</a></p>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="08b-同源策略与CORS.html"><div class="dir">← 上一节</div>🛡️ 08b · 同源策略与 CORS</a><a class="next" href="08d-OAuth2与OIDC.html"><div class="dir">下一节 →</div>🎫 08d · OAuth2 与 OIDC</a></nav>
+</main>
+<script>(function(){
+  var KEY="stack-progress", FILE="08c-CSRF\u4e0eXSS.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script></body></html>

@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>08 · FlashAttention · AI 基础设施</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:17px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:1.9em;line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:1.42em;margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:1.14em;margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em;display:block;
+ overflow-x:auto}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:.88em;background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:.85em}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:.92em}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:.8em;color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:.85em;color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:.92em}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:.78em;
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:.92em;border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:.93em;line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:.9em;line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:.93em;line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:.92em}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:1.15em;opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+
+.dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:.95em;margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:.93em;line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.02em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:.93em;break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">FlashAttention</span>
+  <span class="prevnext"><a href="07-算子融合与编译.html">←</a>
+  <a href="09-显存优化全家桶.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#attention">😖 一、标准 attention 的问题</a></li>
+<li><a href="#_2">💡 二、核心思想：分块 + 在片上完成</a></li>
+<li><a href="#_3">📊 三、收益</a></li>
+<li><a href="#_5">🔨 四、怎么用（几乎不用改代码）</a></li>
+<li><a href="#_7">🧬 五、版本演进（知道区别就够）</a></li>
+<li><a href="#_8">🧠 六、它给你的一般性启发</a></li>
+<li><a href="#_9">🔗 和你已学的关系</a></li>
+<li><a href="#_10">✅ 检查点</a></li>
+<li><a href="#_11">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<h1 id="08-flashattention">08 · FlashAttention</h1>
+<p>⏱ <strong>30 分钟</strong> ｜ ⭐⭐ <strong>这个领域最漂亮的一个优化</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong>它没有减少任何一次浮点运算，却快了好几倍。</strong>
+秘密只有一句：<strong>别把那个 n×n 的中间矩阵写回显存。</strong>
+—— 这是<a href="03-显存与带宽墙.html">第 3 章</a>"少搬点"思想最成功的一次实践。</p>
+<figure class="dia" data-fig="flash_attention"><svg viewBox="0 0 740 422" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="FlashAttention 的分块计算"><defs><marker id="a8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker><marker id="a8l" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--link)"/></marker><marker id="a8g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--done)"/></marker></defs><rect x="60" y="100" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="86" y="100" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="112" y="100" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="138" y="100" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="164" y="100" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="190" y="100" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="216" y="100" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="242" y="100" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="60" y="126" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="86" y="126" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="112" y="126" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="138" y="126" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="164" y="126" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="190" y="126" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="216" y="126" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="242" y="126" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="60" y="152" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="86" y="152" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="112" y="152" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="138" y="152" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="164" y="152" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="190" y="152" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="216" y="152" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="242" y="152" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="60" y="178" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="86" y="178" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="112" y="178" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="138" y="178" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="164" y="178" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="190" y="178" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="216" y="178" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="242" y="178" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="60" y="204" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="86" y="204" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="112" y="204" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="138" y="204" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="164" y="204" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="190" y="204" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="216" y="204" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="242" y="204" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="60" y="230" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="86" y="230" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="112" y="230" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="138" y="230" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="164" y="230" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="190" y="230" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="216" y="230" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="242" y="230" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="60" y="256" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="86" y="256" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="112" y="256" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="138" y="256" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="164" y="256" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="190" y="256" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="216" y="256" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="242" y="256" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="60" y="282" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="86" y="282" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="112" y="282" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="138" y="282" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="164" y="282" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="190" y="282" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="216" y="282" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><rect x="242" y="282" width="23" height="23" rx="3" fill="var(--accent)" opacity=".22" stroke="var(--border)" stroke-width="0.6"/><text class="dia-t" x="164" y="88" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="600">朴素：整个 N×N 都写进显存</text><text class="dia-t" x="164" y="330" font-size="13" text-anchor="middle" fill="var(--danger,#e5534b)" font-weight="700">显存 ∝ N²</text><text class="dia-t" x="164" y="350" font-size="10.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">N=8k 时就是 64M 个数 × 层数</text><rect x="400" y="100" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="426" y="100" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="452" y="100" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="478" y="100" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="504" y="100" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="530" y="100" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="556" y="100" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="582" y="100" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="400" y="126" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="426" y="126" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="452" y="126" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="478" y="126" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="504" y="126" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="530" y="126" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="556" y="126" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="582" y="126" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="400" y="152" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="426" y="152" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="452" y="152" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="478" y="152" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="504" y="152" width="23" height="23" rx="3" fill="var(--done)" opacity=".65" stroke="var(--border)" stroke-width="0.6"/><rect x="530" y="152" width="23" height="23" rx="3" fill="var(--done)" opacity=".65" stroke="var(--border)" stroke-width="0.6"/><rect x="556" y="152" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="582" y="152" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="400" y="178" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="426" y="178" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="452" y="178" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="478" y="178" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="504" y="178" width="23" height="23" rx="3" fill="var(--done)" opacity=".65" stroke="var(--border)" stroke-width="0.6"/><rect x="530" y="178" width="23" height="23" rx="3" fill="var(--done)" opacity=".65" stroke="var(--border)" stroke-width="0.6"/><rect x="556" y="178" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="582" y="178" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="400" y="204" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="426" y="204" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="452" y="204" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="478" y="204" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="504" y="204" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="530" y="204" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="556" y="204" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="582" y="204" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="400" y="230" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="426" y="230" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="452" y="230" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="478" y="230" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="504" y="230" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="530" y="230" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="556" y="230" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="582" y="230" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="400" y="256" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="426" y="256" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="452" y="256" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="478" y="256" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="504" y="256" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="530" y="256" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="556" y="256" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="582" y="256" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="400" y="282" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="426" y="282" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="452" y="282" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="478" y="282" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="504" y="282" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="530" y="282" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="556" y="282" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="582" y="282" width="23" height="23" rx="3" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="0.6"/><rect x="502" y="150" width="52" height="52" rx="4" fill="none" stroke="var(--done)" stroke-width="2.4"/><text class="dia-t" x="504" y="88" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="600">FlashAttention：一次只算一小块</text><text class="dia-t" x="504" y="330" font-size="13" text-anchor="middle" fill="var(--done)" font-weight="700">显存 ∝ N</text><text class="dia-t" x="504" y="350" font-size="10.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">块在片上 SRAM 里算完就丢</text><text class="dia-t" x="370" y="32" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">同样的数学结果，但中间矩阵【从来没有落到显存过】</text><text class="dia-t" x="370" y="384" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">⭐ 它不是「近似」——结果和朴素实现完全一致，省的是【搬运】不是计算</text><text class="dia-t" x="370" y="406" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">这就是为什么它同时更快又更省显存：算力本来就没吃满，瓶颈一直是带宽</text></svg><figcaption>同样的数学结果，但那个 N×N 的中间矩阵<b>从来没有落到显存过</b>。⭐ 它不是「近似」—— 结果和朴素实现完全一致，省的是<b>搬运</b>不是计算。这就是它同时更快又更省显存的原因：瓶颈本来就是带宽不是算力。</figcaption></figure>
+
+<hr />
+<h2 id="attention">😖 一、标准 attention 的问题</h2>
+<div class="codehilite"><pre><span></span><code>   Attention(Q,K,V) = softmax(QKᵀ / √d) · V
+
+   朴素实现：
+   ① S = QKᵀ           → [n, n] 矩阵，写回 HBM      ⚠️
+   ② P = softmax(S)    → 读 [n,n]，写 [n,n]         ⚠️
+   ③ O = PV            → 读 [n,n]                    ⚠️
+</code></pre></div>
+
+<p><strong>算一笔账</strong>（n = 4096，头维度 d = 128，BF16）：</p>
+<div class="codehilite"><pre><span></span><code>   中间矩阵 S：4096 × 4096 × 2 字节 = 33.5 MB   ← 【每个头、每个样本】
+
+   HBM 往返：写 S、读 S、写 P、读 P ≈ 4 × 33.5 = 134 MB
+   而 Q、K、V、O 本身只有 4 × 4096 × 128 × 2 = 4 MB
+
+   ⭐ 搬运量的 97% 花在了那个【根本不需要保存】的中间矩阵上 💀
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code>   算术强度：
+   计算 ≈ 4 × n² × d = 8.6 GFLOP
+   搬运 ≈ 138 MB
+   → 8.6e9 / 138e6 ≈ 62 FLOP/字节
+
+   A100 平衡点是 156 → 【带宽瓶颈】⚠️
+</code></pre></div>
+
+<blockquote>
+<p>🔑 <strong>注意问题的性质</strong>：
+<strong>不是算得慢，是数据搬来搬去。</strong> 显存里那个 33.5MB 的矩阵，
+生成出来只是为了立刻被读回去用一次，然后丢掉。</p>
+</blockquote>
+<hr />
+<h2 id="_2">💡 二、核心思想：分块 + 在片上完成</h2>
+<div class="codehilite"><pre><span></span><code>   ⭐ 关键观察：Shared Memory 有 ~228 KB，比 HBM 快 5 倍（第 3 章）
+
+   → 如果把 Q、K、V 切成小块，让每一块的 S 都能装进 Shared Memory，
+     就可以【在片上算完 softmax 和乘 V】，
+     只把最终的 O 写回 HBM ⭐
+
+   → 那个 n×n 的矩阵【从来没有出现在 HBM 里】
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code>   for 每个 Q 块 Qᵢ:                    ← 外层
+       初始化 Oᵢ = 0, ℓᵢ = 0, mᵢ = -∞
+       for 每个 K,V 块 Kⱼ, Vⱼ:          ← 内层
+           在 Shared Memory 里：
+             Sᵢⱼ = Qᵢ Kⱼᵀ              ← 小块，装得下
+             更新 running max 和 running sum
+             Oᵢ ← 修正后的 Oᵢ + P̃ᵢⱼ Vⱼ   ⭐ 增量累加
+       写出 Oᵢ                          ← 只写一次
+</code></pre></div>
+
+<h3 id="softmax">⭐ 难点：softmax 需要全局的最大值和求和，怎么分块？</h3>
+<div class="codehilite"><pre><span></span><code>   标准 softmax：softmax(x)ᵢ = e^(xᵢ - max) / Σ e^(xⱼ - max)
+                                     ↑ 需要看完【所有】元素才知道
+</code></pre></div>
+
+<p><strong>解法：online softmax（增量修正）</strong></p>
+<details>
+<summary>📐 <b>增量修正怎么做（想看再点）</b></summary>
+<p>已经处理完前面的块，维护三个量：
+- $m$：目前见过的最大值
+- $\ell$：目前的指数和（以 $m$ 为基准）
+- $O$：目前的输出累加</p>
+<p>来了新块，它的最大值是 $m'$，指数和是 $\ell'$：</p>
+<p>$$m^{new} = \max(m, m')$$</p>
+<p>$$\ell^{new} = e^{m - m^{new}}\ell + e^{m' - m^{new}}\ell'$$</p>
+<p>$$O^{new} = e^{m-m^{new}}O + e^{m'-m^{new}}\,\tilde P' V'$$</p>
+<p>💡 <strong>人话</strong>：<em>每次遇到更大的最大值，就把之前累积的结果
+乘一个修正系数 $e^{m-m^{new}}$「打个折」，再加上新块的贡献。</em></p>
+<p><strong>代价</strong>：多做几次指数和乘法（计算量增加约 10–20%）。
+<strong>收益</strong>：那个 n×n 矩阵永远不进 HBM。</p>
+<p>⭐ <strong>这就是"用计算换带宽"的典型 —— 而在带宽瓶颈下，这笔交易极其划算。</strong></p>
+</details>
+<blockquote>
+<p>💡 <strong>online softmax 不是 FlashAttention 发明的</strong>（它更早），
+<strong>FlashAttention 的贡献是把它和分块、片上计算、反向重算组合成一个完整的 IO 感知算法。</strong></p>
+</blockquote>
+<hr />
+<h2 id="_3">📊 三、收益</h2>
+<div class="codehilite"><pre><span></span><code>   HBM 访问量：
+   标准：       O(n² + nd)
+   FlashAttention：O(n²d² / M)     （M = Shared Memory 大小）
+
+   n=4096, d=128, M=228KB 时 → 减少约 【10-20 倍】的 HBM 访问 ⭐
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>提升</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>速度</strong></td>
+<td>2–4 倍（序列越长越明显）⭐</td>
+</tr>
+<tr>
+<td><strong>显存</strong></td>
+<td>从 <strong>O(n²) 降到 O(n)</strong> ⭐⭐</td>
+</tr>
+<tr>
+<td><strong>数值精度</strong></td>
+<td><strong>完全一致</strong>（不是近似算法！）⭐</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>🔑 <strong>最重要的是那个 O(n²) → O(n)</strong>：
+<strong>这才是长上下文能做到 128K 的原因。</strong>
+标准 attention 在 n=128K 时，光中间矩阵就要 <strong>32 GB</strong>（单头单样本）—— 根本不可能。</p>
+</blockquote>
+<h3 id="_4">💡 反向传播怎么办</h3>
+<div class="codehilite"><pre><span></span><code>   反向需要 P 矩阵，但它没被保存
+
+   ⭐ 解法：重算（recomputation）
+     反向时用保存下来的 O、ℓ、m 重新算出 P
+
+   → 又是&quot;用计算换显存&quot;
+   → 因为是带宽瓶颈，重算的时间比读 HBM 还短 ⭐
+</code></pre></div>
+
+<hr />
+<h2 id="_5">🔨 四、怎么用（几乎不用改代码）</h2>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+
+<span class="c1"># ⭐ 首选：PyTorch 内置，自动选最优后端（含 FlashAttention）</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">scaled_dot_product_attention</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">is_causal</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="c1"># 确认它真的走了 Flash 后端</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.nn.attention</span><span class="w"> </span><span class="kn">import</span> <span class="n">sdpa_kernel</span><span class="p">,</span> <span class="n">SDPBackend</span>
+<span class="k">with</span> <span class="n">sdpa_kernel</span><span class="p">(</span><span class="n">SDPBackend</span><span class="o">.</span><span class="n">FLASH_ATTENTION</span><span class="p">):</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">scaled_dot_product_attention</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">is_causal</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="c1"># ⭐ 如果条件不满足会直接报错，而不是静默回退</span>
+</code></pre></div>
+
+<h3 id="_6">⚠️ 什么情况下它会静默回退到慢路径</h3>
+<table>
+<thead>
+<tr>
+<th>条件</th>
+<th>要求</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>数据类型</strong></td>
+<td>必须 <strong>FP16 / BF16</strong>（FP32 不支持）⭐</td>
+</tr>
+<tr>
+<td><strong>头维度</strong></td>
+<td>≤ 256，且通常要是 8 的倍数</td>
+</tr>
+<tr>
+<td><strong>张量布局</strong></td>
+<td>必须连续、形状规范</td>
+</tr>
+<tr>
+<td><strong>attention mask</strong></td>
+<td><strong>任意 mask 不支持</strong>；<code>is_causal=True</code> 支持 ⭐</td>
+</tr>
+<tr>
+<td><strong>GPU 架构</strong></td>
+<td>Ampere（A100）及以上</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>💥 <strong>最常见的一个坑</strong>：<strong>用了自定义 attention mask</strong>。
+很多人手写一个 <code>[B, 1, n, n]</code> 的 mask 传进去，
+<strong>直接把 FlashAttention 禁用了，静默回退到最慢的实现。</strong></p>
+<p>✅ <strong>解法</strong>：能用 <code>is_causal=True</code> 就用它；
+变长序列用 <strong>packing + cu_seqlens</strong>（FlashAttention 原生支持），不要用 padding mask。</p>
+</blockquote>
+<hr />
+<h2 id="_7">🧬 五、版本演进（知道区别就够）</h2>
+<table>
+<thead>
+<tr>
+<th>版本</th>
+<th>关键改进</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>FA-1</strong>（2022）</td>
+<td>提出分块 + online softmax + 重算</td>
+</tr>
+<tr>
+<td><strong>FA-2</strong>（2023）</td>
+<td>减少非矩阵乘操作、更好的并行切分 → <strong>再快约 2 倍</strong> ⭐</td>
+</tr>
+<tr>
+<td><strong>FA-3</strong>（2024）</td>
+<td>针对 H100：异步、FP8、warp 特化 → 再快约 1.5–2 倍</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>💡 <strong>FA-2 的一个关键洞察</strong>：
+<strong>Tensor Core 做矩阵乘极快，但非矩阵乘操作（指数、除法）慢得多。</strong>
+FA-1 里的 online softmax 有大量这类操作，FA-2 重新安排了顺序把它们减到最少。
+<strong>这提醒我们：优化到后期，"非矩阵乘操作"会变成新的瓶颈。</strong></p>
+</blockquote>
+<hr />
+<h2 id="_8">🧠 六、它给你的一般性启发</h2>
+<div class="codehilite"><pre><span></span><code>   ⭐ FlashAttention 教给你的三件事：
+
+   ① 【FLOP 数不变也能大幅提速】
+      → 优化不等于&quot;少算&quot;，更多时候是&quot;少搬&quot;
+
+   ② 【用计算换带宽是划算的】
+      → 在带宽瓶颈下，重算比读显存快
+
+   ③ 【要意识到内存层次的存在】
+      → 同样的算法，&quot;在哪一层算&quot;决定了几倍的差距
+</code></pre></div>
+
+<blockquote>
+<p>🔗 <strong>同一个思路的其他应用</strong>：
+- <a href="07-算子融合与编译.html">算子融合</a>（第 7 章）—— 中间结果留在片上
+- <a href="09-显存优化全家桶.html">梯度检查点</a>（第 9 章）—— 用重算换激活显存
+- <strong>PagedAttention</strong>（<a href="17-连续批处理与PagedAttention.html">第 17 章</a>）—— 推理侧的同类思想</p>
+</blockquote>
+<hr />
+<h2 id="_9">🔗 和你已学的关系</h2>
+<table>
+<thead>
+<tr>
+<th>你已经知道的</th>
+<th>这里的位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="03-显存与带宽墙.html">第 3 章</a> Shared Memory 快 5 倍</td>
+<td><strong>FlashAttention 的全部依据</strong> ⭐</td>
+</tr>
+<tr>
+<td><a href="03-显存与带宽墙.html">第 3 章</a> attention 是带宽瓶颈</td>
+<td>本章是它的解法</td>
+</tr>
+<tr>
+<td><a href="07-算子融合与编译.html">第 7 章</a> 算子融合</td>
+<td>同一思想，FlashAttention 是最成功的案例</td>
+</tr>
+<tr>
+<td><a href="../大模型全景导论/02-Transformer原理.html">全景导论第 2 章</a> attention 公式</td>
+<td>本章优化的就是它</td>
+</tr>
+<tr>
+<td><a href="16-KV-Cache.html">第 16 章</a> KV Cache</td>
+<td>推理侧的 attention 优化</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_10">✅ 检查点</h2>
+<ol>
+<li>标准 attention 的搬运量花在哪了？占比多少？</li>
+<li>FlashAttention 减少了浮点运算次数吗？它到底优化了什么？</li>
+<li>核心思想是什么？靠哪一级存储实现？</li>
+<li>softmax 需要全局最大值，怎么分块？代价是什么？</li>
+<li>显存复杂度从多少降到多少？这对长上下文意味着什么？</li>
+<li>反向传播需要 P 矩阵但没保存，怎么解决？为什么这样划算？</li>
+<li>哪五个条件不满足会静默回退？最常见的坑是哪个？</li>
+<li>FA-2 的关键洞察是什么？它提醒了什么？</li>
+<li>FlashAttention 给出的三条一般性启发是什么？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li>花在那个 <strong>n×n 的中间矩阵</strong>上。n=4096 时中间矩阵 33.5MB，HBM 往返约 134MB，而 Q/K/V/O 本身只有 4MB——<strong>97% 的搬运量花在一个根本不需要保存的东西上</strong>。</li>
+<li><strong>没有减少任何一次浮点运算</strong>（实际还多做了 10-20%）。它优化的是 <strong>HBM 访问量</strong>。</li>
+<li><strong>分块 + 在片上完成</strong>：把 Q/K/V 切成能装进 Shared Memory 的小块，在片上算完 softmax 和乘 V，只把最终的 O 写回 HBM——<strong>那个 n×n 矩阵从来没进过 HBM</strong>。靠 <strong>Shared Memory</strong>（~228KB，比 HBM 快 5 倍）。</li>
+<li><strong>online softmax（增量修正）</strong>：维护 running max 和 running sum，每遇到更大的最大值就把之前累积的结果乘 e^(m−m_new) 打折再加新块贡献。代价：<strong>多做指数和乘法，计算量增加约 10-20%</strong>。</li>
+<li>从 <strong>O(n²) 降到 O(n)</strong>。意味着<strong>长上下文能做到 128K</strong>——标准 attention 在 n=128K 时光中间矩阵就要 32GB（单头单样本），根本不可能。</li>
+<li><strong>重算</strong>：反向时用保存的 O、ℓ、m 重新算出 P。划算是因为<strong>处于带宽瓶颈，重算的时间比从 HBM 读还短</strong>。</li>
+<li>①必须 FP16/BF16（FP32 不支持）②头维度 ≤256 ③张量连续 ④<strong>不能用任意 attention mask</strong> ⑤Ampere 及以上。<strong>最常见的坑是自定义 attention mask</strong>——手写 <code>[B,1,n,n]</code> 的 mask 直接禁用 FlashAttention 且静默回退。解法：用 <code>is_causal=True</code>，变长用 packing + cu_seqlens。</li>
+<li><strong>Tensor Core 做矩阵乘极快，但非矩阵乘操作（指数、除法）慢得多</strong>。FA-2 重排顺序把这类操作减到最少。提醒：<strong>优化到后期，非矩阵乘操作会变成新瓶颈</strong>。</li>
+<li>①<strong>FLOP 数不变也能大幅提速</strong>（优化不等于少算，更多是少搬）②<strong>用计算换带宽是划算的</strong> ③<strong>要意识到内存层次的存在</strong>——同样的算法在哪一层算决定几倍的差距。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_11">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong></p>
+<blockquote>
+<p>⭐⭐<strong>它没减少任何一次浮点运算却快了几倍</strong>——秘密是<strong>别把 n×n 中间矩阵写回显存</strong>。标准 attention 在 n=4096 时中间矩阵 <strong>33.5MB</strong>，HBM 往返 134MB，而 Q/K/V/O 本身只有 4MB → ⭐<strong>97% 的搬运量花在一个根本不需要保存的东西上</strong>，算术强度 62 &lt; 平衡点 156 = 带宽瓶颈。⭐<strong>核心思想：分块 + 在 Shared Memory（228KB，比 HBM 快 5 倍）里算完 softmax 和乘 V，只把 O 写回</strong>——n×n 矩阵<strong>从来没进过 HBM</strong>。难点是 <strong>softmax 需要全局最大值</strong>，解法是 ⭐<strong>online softmax</strong>（维护 running max/sum，遇到更大的最大值就把已累积的结果乘 e^(m−m_new) 打折再加新块）；代价是<strong>多算 10-20%</strong>——<strong>用计算换带宽，在带宽瓶颈下极其划算</strong>。<strong>收益</strong>：HBM 访问少 10-20 倍、速度 2-4 倍、⭐⭐<strong>显存从 O(n²) 降到 O(n)（这才是长上下文能做 128K 的原因</strong>——标准实现在 128K 时单头单样本的中间矩阵就要 32GB）、<strong>数值完全一致不是近似</strong>。反向需要 P 但没存 → <strong>重算</strong>（比读 HBM 还快）。⚠️<strong>五个静默回退的条件</strong>：必须 FP16/BF16、头维度≤256、张量连续、<strong>不能用任意 attention mask</strong>、Ampere 以上；⭐<strong>最常见的坑是自定义 mask</strong>（手写 [B,1,n,n] 直接禁用 FA）→ <strong>用 <code>is_causal=True</code>，变长序列用 packing + cu_seqlens 不要 padding mask</strong>。用法：<strong><code>F.scaled_dot_product_attention</code></strong>，可用 <code>sdpa_kernel(SDPBackend.FLASH_ATTENTION)</code> 强制报错而非静默回退。<strong>FA-2 快 2 倍的洞察：Tensor Core 矩阵乘极快但指数/除法慢</strong> → <strong>优化到后期非矩阵乘操作会变成新瓶颈</strong>。⭐<strong>三条启发</strong>：FLOP 不变也能提速（<strong>优化=少搬不是少算</strong>）、<strong>用计算换带宽划算</strong>、<strong>同样的算法"在哪一层算"决定几倍差距</strong>。</p>
+</blockquote>
+<p><strong>下一节</strong> 👉 <a href="09-显存优化全家桶.html">09-显存优化全家桶.md</a></p>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="07-算子融合与编译.html"><div class="dir">← 上一节</div> 算子融合与编译</a><a class="next" href="09-显存优化全家桶.html"><div class="dir">下一节 →</div>⭐ 显存优化</a></nav>
+</main>
+<script>(function(){
+  var KEY="aiinfra", FILE="08-FlashAttention.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script></body></html>

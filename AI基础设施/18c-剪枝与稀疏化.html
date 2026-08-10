@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>18c · 剪枝与稀疏化 · AI 基础设施</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:17px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:1.9em;line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:1.42em;margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:1.14em;margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em;display:block;
+ overflow-x:auto}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:.88em;background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:.85em}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:.92em}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:.8em;color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:.85em;color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:.92em}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:.78em;
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:.92em;border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:.93em;line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:.9em;line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:.93em;line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:.92em}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:1.15em;opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+
+.dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:.95em;margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:.93em;line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.02em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:.93em;break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">剪枝与稀疏化</span>
+  <span class="prevnext"><a href="18b-知识蒸馏.html">←</a>
+  <a href="19-投机解码.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#_2">✂️ 一、非结构化剪枝：纸面很美，上线归零</a></li>
+<li><a href="#24">🧱 二、半结构化 2:4：能真加速的最低门槛</a></li>
+<li><a href="#_4">🪓 三、结构化剪枝：唯一确定加速的那种</a></li>
+<li><a href="#_5">🎯 四、剪谁：幅度剪枝和它的改良</a></li>
+<li><a href="#_6">🎟️ 五、迭代剪枝与彩票假说</a></li>
+<li><a href="#90-0">💀 六、事故复盘：90% 稀疏度，显存省了 0，延迟没变</a></li>
+<li><a href="#_7">🔗 和你已学的关系</a></li>
+<li><a href="#_8">✅ 检查点</a></li>
+<li><a href="#_9">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<h1 id="18c">18c · 剪枝与稀疏化</h1>
+<p>⏱ <strong>36 分钟</strong> ｜ ⭐⭐ <strong>稀疏度和加速比几乎没有关系</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong>剪枝是压缩三件套里唯一一个"做完了可能一点收益都没有"的。</strong>
+90% 的权重扔掉、精度基本不掉 —— 论文里漂亮得不像话；
+上线一测：<strong>显存一个字节没省，延迟一毫秒没降，decode 上甚至更慢了。</strong>
+这一章讲清楚为什么会这样，以及<strong>哪一种剪枝是真的有用的</strong>。</p>
+<hr />
+<h2 id="_2">✂️ 一、非结构化剪枝：纸面很美，上线归零</h2>
+<h3 id="_3">⭐ 本章最重要的一条</h3>
+<p><strong>逐个权重置零</strong>，不管位置。它在纸面上极漂亮：<strong>90% 的权重可以扔掉而精度基本不变</strong>。</p>
+<p>然后你上线，发现 —— <strong>显存没省，延迟没降。</strong></p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">time</span><span class="o">,</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">set_num_threads</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span>
+<span class="n">W</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">4096</span><span class="p">,</span> <span class="mi">4096</span><span class="p">)</span>
+
+<span class="n">k</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">W</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">*</span> <span class="mf">0.90</span><span class="p">)</span>
+<span class="n">thr</span> <span class="o">=</span> <span class="n">W</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span><span class="o">.</span><span class="n">kthvalue</span><span class="p">(</span><span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="n">values</span>
+<span class="n">W_pruned</span> <span class="o">=</span> <span class="n">W</span> <span class="o">*</span> <span class="p">(</span><span class="n">W</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span> <span class="o">&gt;</span> <span class="n">thr</span><span class="p">)</span>          <span class="c1"># ⭐ 幅度剪枝：|w| 最小的 90% 置零</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;稀疏度        : </span><span class="si">%.1f%%</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="p">((</span><span class="n">W_pruned</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">float</span><span class="p">()</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span> <span class="o">*</span> <span class="mi">100</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;原张量占用    : </span><span class="si">%.1f</span><span class="s2"> MiB&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">W</span><span class="o">.</span><span class="n">element_size</span><span class="p">()</span> <span class="o">*</span> <span class="n">W</span><span class="o">.</span><span class="n">nelement</span><span class="p">()</span> <span class="o">/</span> <span class="mi">2</span><span class="o">**</span><span class="mi">20</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;剪枝后占用    : </span><span class="si">%.1f</span><span class="s2"> MiB&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">W_pruned</span><span class="o">.</span><span class="n">element_size</span><span class="p">()</span> <span class="o">*</span> <span class="n">W_pruned</span><span class="o">.</span><span class="n">nelement</span><span class="p">()</span> <span class="o">/</span> <span class="mi">2</span><span class="o">**</span><span class="mi">20</span><span class="p">))</span>
+<span class="c1"># ⭐ 上面两行一定相等：置零不改变形状，dtype 也没变，显存一个字节都没省</span>
+
+<span class="n">W_csr</span> <span class="o">=</span> <span class="n">W_pruned</span><span class="o">.</span><span class="n">to_sparse_csr</span><span class="p">()</span>        <span class="c1"># 换成稀疏格式才可能省，但索引本身也要钱</span>
+<span class="n">csr_bytes</span> <span class="o">=</span> <span class="p">(</span><span class="n">W_csr</span><span class="o">.</span><span class="n">values</span><span class="p">()</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">*</span> <span class="mi">4</span>
+             <span class="o">+</span> <span class="n">W_csr</span><span class="o">.</span><span class="n">col_indices</span><span class="p">()</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">*</span> <span class="mi">8</span>
+             <span class="o">+</span> <span class="n">W_csr</span><span class="o">.</span><span class="n">crow_indices</span><span class="p">()</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">*</span> <span class="mi">8</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;CSR 占用      : </span><span class="si">%.1f</span><span class="s2"> MiB&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">csr_bytes</span> <span class="o">/</span> <span class="mi">2</span><span class="o">**</span><span class="mi">20</span><span class="p">))</span>
+<span class="c1"># 该看到的数字（4096×4096 FP32，90% 稀疏度，已实跑）：</span>
+<span class="c1">#   原张量 64.0 MiB → 剪枝后 64.0 MiB（一个字节没省）</span>
+<span class="c1">#   → CSR 19.2 MiB  ⭐ 而&quot;只存非零值&quot;的理想值是 6.4 MiB</span>
+<span class="c1">#   多出来的 12.8 MiB 全是行/列索引 —— 稀疏格式的账要连索引一起算</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">bench</span><span class="p">(</span><span class="n">fn</span><span class="p">,</span> <span class="n">warmup</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">runs</span><span class="o">=</span><span class="mi">10</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">warmup</span><span class="p">):</span>
+        <span class="n">fn</span><span class="p">()</span>
+    <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">runs</span><span class="p">):</span>
+        <span class="n">fn</span><span class="p">()</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t0</span><span class="p">)</span> <span class="o">/</span> <span class="n">runs</span> <span class="o">*</span> <span class="mi">1000</span>
+
+<span class="k">for</span> <span class="n">B</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="mi">1024</span><span class="p">]:</span>                 <span class="c1"># B=1 就是 LLM decode 的形状</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="mi">4096</span><span class="p">)</span>
+    <span class="n">td</span> <span class="o">=</span> <span class="n">bench</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">x</span> <span class="o">@</span> <span class="n">W_pruned</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+    <span class="n">ts</span> <span class="o">=</span> <span class="n">bench</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">mm</span><span class="p">(</span><span class="n">W_csr</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">T</span><span class="p">))</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;B=</span><span class="si">{</span><span class="n">B</span><span class="si">:</span><span class="s2">&lt;5</span><span class="si">}</span><span class="s2"> 稠密 </span><span class="si">{</span><span class="n">td</span><span class="si">:</span><span class="s2">8.2f</span><span class="si">}</span><span class="s2"> ms   稀疏 </span><span class="si">{</span><span class="n">ts</span><span class="si">:</span><span class="s2">8.2f</span><span class="si">}</span><span class="s2"> ms   ⭐ 比值 </span><span class="si">{</span><span class="n">ts</span><span class="o">/</span><span class="n">td</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">x&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p><strong>实跑结果</strong>（4 线程 CPU，绝对数字随机器变，两条结论不变）：</p>
+<div class="codehilite"><pre><span></span><code>   稀疏度        : 90.0%
+   原张量占用    : 64.0 MiB
+   剪枝后占用    : 64.0 MiB      ⭐ 一个字节没省
+   CSR 占用      : 19.2 MiB      （值 25.6MB 的 1/4，但索引又吃掉一大块）
+
+   B=1     稠密   1.61 ms   稀疏   1.76 ms   ⭐ 比值 1.09x  ← 反而更慢！
+   B=64    稠密  14.56 ms   稀疏   5.26 ms      比值 0.36x
+   B=1024  稠密 366.22 ms   稀疏 215.33 ms      比值 0.59x
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code>   ⭐ 90% 的乘法被省掉了，但最好的情况也只快了不到 3 倍，
+     而在 B=1（也就是【自回归解码的形状】）上【反而更慢】💀
+</code></pre></div>
+
+<p><strong>为什么？回到<a href="03-显存与带宽墙.html">第 3 章</a>的访存模型：</strong></p>
+<div class="codehilite"><pre><span></span><code>   稠密 matmul 为什么快：
+   · 权重在显存里【连续】→ 访存可以合并（coalesced），带宽跑满
+   · 形状规整 → 直接进 Tensor Core
+
+   稀疏 matmul 为什么不快：
+   · 每个非零值旁边还得读一个【索引】→ 多搬了 50~100% 的字节 ⚠️
+   · 索引指向的位置是【随机的】→ 访存合并失效，实际带宽掉一大截
+   · 形状不规整 → Tensor Core 用不上，退回普通 CUDA core 💀
+
+   ⭐ 最关键的一条：
+     剪枝省掉的是【乘法次数】= 算力，
+     而解码本来就是【带宽瓶颈】，算力有 95% 在闲置（第 15 章）——
+     你省掉了一个本来就不是瓶颈的东西，等于没省。
+</code></pre></div>
+
+<blockquote>
+<p>⭐ <strong>这条要背下来</strong>：
+<strong>非结构化稀疏度和实际加速比几乎没有关系。</strong>
+90% 稀疏可能带来 0 倍加速。判断标准从来不是稀疏度，
+而是「<strong>目标硬件上有没有能吃这种稀疏的 kernel</strong>」。</p>
+</blockquote>
+<hr />
+<h2 id="24">🧱 二、半结构化 2:4：能真加速的最低门槛</h2>
+<div class="codehilite"><pre><span></span><code>   规则：每【连续 4 个权重】里，恰好有 2 个是 0
+
+   [ w0  w1  w2  w3 ] → [ 0  w1  0  w3 ]   ✅ 合法
+                      → [ 0   0  0  w3 ]   ❌ 不合法（3 个零）
+
+   ⭐ Ampere（A100）起，稀疏 Tensor Core 原生支持这个模式
+      → 理论 2 倍算力，实测 1.3~1.7 倍
+   ⚠️ 但稀疏度被【锁死在 50%】，压缩比远不如非结构化
+</code></pre></div>
+
+<hr />
+<h2 id="_4">🪓 三、结构化剪枝：唯一确定加速的那种</h2>
+<p><strong>整头、整通道、整层地删。</strong> 删完之后剩下的<strong>还是一个稠密张量</strong>，只是变小了 —— 所以它一定加速，加速比就是尺寸比，不需要任何特殊 kernel。</p>
+<table>
+<thead>
+<tr>
+<th>粒度</th>
+<th>在 LLM 上是什么</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>删注意力头</strong></td>
+<td>32 头 → 24 头</td>
+<td>很多头确实是冗余的</td>
+</tr>
+<tr>
+<td><strong>缩 FFN 中间维</strong> ⭐</td>
+<td>11008 → 8192</td>
+<td><strong>LLM 参数大头在 FFN，收益最大</strong></td>
+</tr>
+<tr>
+<td><strong>砍层（depth）</strong></td>
+<td>32 层 → 24 层</td>
+<td>最粗暴也最有效，⚠️ 但对推理能力伤害大</td>
+</tr>
+<tr>
+<td><strong>缩 hidden（width）</strong></td>
+<td>4096 → 3072</td>
+<td>全局改动，最需要重训</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⭐ <strong>现在 LLM 领域的主流不是"纯剪枝"，是组合拳</strong>：
+<strong>结构化剪枝把尺寸砍下来 → 立刻用原模型当 teacher 做蒸馏恢复。</strong>
+Sheared-LLaMA、Minitron 这类工作都是这个套路 ——
+<strong>剪枝负责"选一个好的小架构"，蒸馏负责"把能力搬回来"。</strong>
+这也是本章把两件事放在一起讲的原因：<strong>它们在实践中就是一件事。</strong></p>
+</blockquote>
+<hr />
+<h2 id="_5">🎯 四、剪谁：幅度剪枝和它的改良</h2>
+<div class="codehilite"><pre><span></span><code>   幅度剪枝（magnitude pruning）：|w| 越小越先剪
+   → 极简单、极强的 baseline，至今没被大幅超越
+
+   ⚠️ 全局阈值 vs 逐层阈值：
+     全局排序容易把某一层【整层剪光】（各层权重尺度天然不同）
+     → 实践上按层设配额更稳
+</code></pre></div>
+
+<p><strong>LLM 上的两个改良，思路和量化那边一模一样</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>方法</th>
+<th>重要性怎么算</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Wanda</strong> ⭐</td>
+<td>$\lvert w \rvert \times \lVert x \rVert$ —— <strong>权重大小 × 对应输入激活的范数</strong></td>
+</tr>
+<tr>
+<td><strong>SparseGPT</strong></td>
+<td>用二阶信息，逐层剪完立刻重建剩余权重来补偿</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⭐ <strong>注意这个呼应</strong>：
+<a href="18-量化.html">第 18 章</a>的 <strong>AWQ</strong> 说「重要性要看激活，不能只看权重」，
+剪枝这边的 <strong>Wanda</strong> 说的是<strong>完全同一句话</strong>。
+<strong>压缩问题的核心永远是"什么是重要的"，而答案永远是"看它被用得多不多"，不是"看它多大"。</strong></p>
+</blockquote>
+<hr />
+<h2 id="_6">🎟️ 五、迭代剪枝与彩票假说</h2>
+<div class="codehilite"><pre><span></span><code>   ⭐ 一次剪到 90% ≠ 分 5 次剪到 90%
+
+   一次到位：  90% ────────────▶ 精度崩
+   迭代：      50% → 微调 → 70% → 微调 → 85% → 微调 → 90%  ✅
+                                        每次让网络有机会重新分配容量
+</code></pre></div>
+
+<p><strong>彩票假说</strong>一句话就够：<em>随机初始化的大网络里，存在一个小子网络，用同样的初始化单独训练就能达到原网络的精度。</em> ⚠️ <strong>但你必须先把大网络训完才能找到这张彩票</strong> —— 所以它是个漂亮的理论结果，<strong>不是省训练成本的方法</strong>。</p>
+<hr />
+<h2 id="90-0">💀 六、事故复盘：90% 稀疏度，显存省了 0，延迟没变</h2>
+<p><strong>发生了什么</strong>：一个 13B 推理服务做非结构化剪枝，剪到 90% 稀疏。团队按「非零参数量 13B → 1.3B」报了排期：<strong>显存预计 26GB → 2.6GB，部署从 2×A100 降到 1×A10，采购单都提了。</strong> 上线前压测：</p>
+<div class="codehilite"><pre><span></span><code>   预期                    实测
+   显存 26GB → 2.6GB      💀 26.1GB（不降反升，mask 本身还占了 0.1GB）
+   P50 decode 41ms        💀 43ms（略微变慢）
+</code></pre></div>
+
+<p><strong>为什么没发现</strong>：整个验证过程只盯着两个指标 —— <strong>稀疏度</strong>和<strong>精度</strong>，两个都很漂亮。而剪枝框架产出的是 <code>mask + 原张量</code>，训练脚本里打印的"参数量"是按 mask 里的非零数算的，<strong>看起来就是降了 10 倍</strong>。没有任何人跑过一次端到端的显存快照和延迟压测。</p>
+<p><strong>代价</strong>：三周（两周剪枝迭代 + 一周精度恢复微调）报废，A10 采购单撤回，还耽误了一个季度的降本目标。</p>
+<p><strong>补什么</strong>：</p>
+<div class="codehilite"><pre><span></span><code>   ⭐ ① 压缩项的验收指标只有两个：【显存快照】和【P50/P99 延迟】
+        「稀疏度」「参数量」「压缩比」全是过程指标，不能当验收
+   ⭐ ② 立项当天先做 30 分钟的「形状体检」（本节那段代码）：
+        在【目标硬件】上确认这种稀疏到底能不能被吃掉
+      ③ 要真加速就换路线：结构化剪枝，或者 2:4 半结构化
+</code></pre></div>
+
+<blockquote>
+<p>💥 <strong>它和<a href="18b-知识蒸馏.html">上一章</a>那个蒸馏事故是同一个形状</strong>：
+<strong>压缩不会报错。</strong> 剪枝不会告诉你"我没加速"，蒸馏不会告诉你"我伤了长尾"。
+这和<a href="18-量化.html">第 18 章</a>那句「量化最危险的地方是它不会报错」是<strong>完全同一条规律</strong> ——
+<strong>压缩类优化的唯一防线，就是你事先定义好的、足够细的验收指标。</strong></p>
+</blockquote>
+<hr />
+<h2 id="_7">🔗 和你已学的关系</h2>
+<table>
+<thead>
+<tr>
+<th>你已经知道的</th>
+<th>这里的位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="03-显存与带宽墙.html">第 3 章</a> 访存合并与算术强度</td>
+<td>⭐⭐ <strong>非结构化剪枝不加速的根因</strong>：稀疏破坏了访存模式</td>
+</tr>
+<tr>
+<td><a href="15-推理和训练是两回事.html">第 15 章</a> 解码是带宽瓶颈</td>
+<td>⭐ 更深一层的根因：<strong>剪枝省的是算力，而算力本来就有 95% 在闲置</strong></td>
+</tr>
+<tr>
+<td><a href="18-量化.html">第 18 章</a> AWQ「只有 1% 的权重重要」</td>
+<td>剪枝的 <strong>Wanda</strong> 说的是同一句话：<strong>重要性要看激活，不是看权重大小</strong> ⭐</td>
+</tr>
+<tr>
+<td><a href="18b-知识蒸馏.html">第 18b 章</a> 知识蒸馏</td>
+<td>⭐ <strong>组合拳</strong>：结构化剪枝负责"选一个好的小架构"，蒸馏负责"把能力搬回来"</td>
+</tr>
+<tr>
+<td><a href="02-GPU到底是什么.html">第 2 章</a> Tensor Core</td>
+<td>2:4 半结构化能真加速，就是因为 Ampere 起的稀疏 Tensor Core 原生吃这个模式</td>
+</tr>
+<tr>
+<td><a href="../模型上线之后/18-成本与容量.html">《模型上线之后》18 成本与容量</a> 成本核算</td>
+<td>⭐ 那个撤回的 A10 采购单 —— <strong>降本项的验收指标该怎么定</strong></td>
+</tr>
+<tr>
+<td><a href="../大模型全景导论/06-推理优化.html">《大模型全景导论》06 推理优化</a> 部署武器清单</td>
+<td>⭐ 那张清单只有 <strong>量化 / 批处理 / 投机解码三件，剪枝不在里面</strong> —— 本章给出它落选的理由，以及它在什么条件下才算武器</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_8">✅ 检查点</h2>
+<ol>
+<li>⭐ 为什么非结构化剪枝在通用硬件上通常不加速？要能说出<strong>两层</strong>原因。</li>
+<li>剪到 90% 稀疏，张量占用会变成原来的多少？为什么？</li>
+<li>实测里 B=1 的稀疏矩阵乘比稠密还慢，B=1 对应的是推理的哪个阶段？</li>
+<li>2:4 半结构化的规则是什么？它的代价是什么？</li>
+<li>结构化剪枝为什么<strong>一定</strong>加速？LLM 上剪哪一部分收益最大？</li>
+<li>幅度剪枝用全局阈值有什么风险？</li>
+<li>Wanda 的重要性怎么算？它和量化那边的哪个方法是同一句话？</li>
+<li>为什么迭代剪枝好过一次剪到位？彩票假说能不能用来省训练成本？</li>
+<li>那个事故里，团队盯的两个指标是什么？验收指标应该换成什么？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li><strong>（表层）</strong> 稀疏矩阵每个非零值旁边要额外读一个索引，多搬 50~100% 的字节；索引指向的位置<strong>随机</strong>，访存合并失效；形状不规整，<strong>Tensor Core 用不上</strong>。<strong>（根本）</strong> ⭐ <strong>剪枝省掉的是乘法次数即算力，而解码本来就是带宽瓶颈、算力有 95% 在闲置</strong> —— 省掉一个本来就不是瓶颈的东西，等于没省。</li>
+<li><strong>完全不变</strong>（64 MiB → 64 MiB）。置零<strong>不改变张量形状，dtype 也没变</strong>，显存一个字节都不省。要省必须换稀疏格式（CSR），但索引本身也要占空间（实测 19.2 MiB，而不是理想的 6.4 MiB）。</li>
+<li><strong>自回归解码（decode）</strong>。实测比值 1.09x —— <strong>稀疏反而更慢</strong>，正好落在最要命的那个形状上。</li>
+<li>每<strong>连续 4 个权重</strong>里恰好 2 个是 0。代价是<strong>稀疏度被锁死在 50%</strong>，压缩比远不如非结构化；收益是 Ampere 起的稀疏 Tensor Core 原生支持，实测能拿到 1.3~1.7 倍。</li>
+<li>因为它整头、整通道、整层地删，<strong>剩下的还是一个稠密张量</strong>，只是变小了 —— 加速比就是尺寸比，不需要任何特殊 kernel。⭐ <strong>LLM 参数大头在 FFN，缩中间维收益最大</strong>（11008 → 8192）。</li>
+<li>各层权重尺度天然不同，全局排序容易把<strong>某一层整层剪光</strong>。实践上按层设配额更稳。</li>
+<li>$\lvert w \rvert \times \lVert x \rVert$ —— <strong>权重大小 × 对应输入激活的范数</strong>。它和量化那边的 <strong>AWQ</strong> 是同一句话：⭐ <strong>重要性看它被用得多不多，不看它本身多大。</strong></li>
+<li>一次剪到 90% 精度会崩；分几次剪、每次微调，<strong>网络有机会重新分配容量</strong>。彩票假说⚠️ <strong>不能省训练成本</strong> —— 你必须先把大网络训完才能找到那张彩票，它是个理论结果不是方法。</li>
+<li>团队只盯 <strong>稀疏度</strong>和<strong>精度</strong>，两个都很漂亮。⭐ 验收指标应该只有两个：<strong>显存快照</strong>和 <strong>P50/P99 延迟</strong> —— 稀疏度、参数量、压缩比全是<strong>过程指标</strong>，不能当验收。另外立项当天就该在<strong>目标硬件</strong>上做一次 30 分钟的「形状体检」。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_9">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong></p>
+<blockquote>
+<p>⭐⭐<strong>这一章只有一条主线：稀疏度和加速比几乎没有关系。</strong>非结构化剪枝逐个权重置零、90% 扔掉精度基本不掉，纸面漂亮；但实跑 4096×4096 剪到 90%：<strong>张量占用 64MiB 一个字节没省</strong>（⭐<strong>置零不改变形状，dtype 也没变</strong>），换成 CSR 稀疏格式是 19.2MiB 而不是理想的 6.4MiB（<strong>索引本身也要钱</strong>），而且<strong>B=1 时稀疏比稠密还慢 1.09 倍</strong>——B=1 正是<strong>自回归解码的形状</strong>，最要命的那个。⭐<strong>两层原因</strong>：<strong>表层</strong>是每个非零值要额外读索引、多搬 50~100% 字节、索引位置随机导致访存合并失效、形状不规整用不上 Tensor Core；⭐<strong>根本原因是剪枝省的是乘法次数即算力，而解码本来就是带宽瓶颈、算力有 95% 在闲置</strong>——省掉一个本来就不是瓶颈的东西等于没省（第 3、15 章）。<strong>判断标准从来不是稀疏度，而是目标硬件上有没有能吃这种稀疏的 kernel。</strong><strong>真能加速的两条路</strong>：<strong>2:4 半结构化</strong>（每连续 4 个里恰好 2 个零，Ampere 起稀疏 Tensor Core 原生支持，实测 1.3~1.7 倍，⚠️但稀疏度锁死 50%）；⭐<strong>结构化剪枝</strong>（删头、缩 FFN 中间维、砍层、缩 hidden）——<strong>剩下的还是稠密张量，所以一定加速，加速比就是尺寸比</strong>，<strong>LLM 参数大头在 FFN，缩中间维收益最大</strong>。⭐<strong>现在 LLM 的主流不是纯剪枝而是组合拳：结构化剪枝选出小架构 → 立刻用原模型当 teacher 蒸馏恢复</strong>（Sheared-LLaMA、Minitron），这也是它和上一章紧挨着的原因。<strong>剪谁</strong>：幅度剪枝是极强的 baseline 至今没被大幅超越，⚠️<strong>全局阈值会把某一层整层剪光</strong>（各层尺度不同），按层配额更稳；改良里 <strong>Wanda = |w| × 激活范数</strong>，⭐<strong>和量化那边的 AWQ 是同一句话：重要性看被用得多不多，不看本身多大</strong>。<strong>迭代剪枝远好于一次剪到位</strong>（每次微调让网络重新分配容量）；彩票假说漂亮但⚠️<strong>必须先训完大网络才能找到那张彩票，不省训练成本</strong>。💀<strong>事故</strong>：13B 服务剪到 90% 稀疏，按「非零参数 13B→1.3B」报了<strong>显存 26GB→2.6GB、2×A100 降 1×A10</strong>，采购单都提了；实测<strong>显存 26.1GB 不降反升</strong>（mask 自己还占 0.1GB）、<strong>P50 从 41ms 变 43ms 略微变慢</strong>。没发现的原因是全程只看<strong>稀疏度和精度</strong>两个都很漂亮的指标，而框架产出的是 <code>mask + 原张量</code>、打印的"参数量"是按非零数算的，看起来就是降了 10 倍，<strong>没有任何人跑过一次端到端显存快照和延迟压测</strong>。代价：三周报废、采购单撤回、耽误一个季度降本目标。⭐<strong>补丁：压缩项的验收指标只有显存快照和 P50/P99 延迟，稀疏度/参数量/压缩比全是过程指标不能当验收</strong>；立项当天先在<strong>目标硬件</strong>上做 30 分钟形状体检。💥<strong>和上一章那个蒸馏事故是同一个形状：压缩不会报错</strong>——剪枝不会告诉你"我没加速"，蒸馏不会告诉你"我伤了长尾"，<strong>唯一的防线是事先定义好的、足够细的验收指标</strong>。</p>
+</blockquote>
+<p><strong>下一节</strong> 👉 <a href="19-投机解码.html">19-投机解码.md</a></p>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="18b-知识蒸馏.html"><div class="dir">← 上一节</div>⭐ 知识蒸馏</a><a class="next" href="19-投机解码.html"><div class="dir">下一节 →</div> 投机解码</a></nav>
+</main>
+<script>(function(){
+  var KEY="aiinfra", FILE="18c-\u526a\u679d\u4e0e\u7a00\u758f\u5316.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script></body></html>

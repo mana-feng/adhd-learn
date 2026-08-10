@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How Anthropic Runs Large-Scale Code Migrations with Claude Code（Anthropic 如何用 Claude Code 做大规模代码迁移） · Claude博客资料库</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";src:url("../assets/code-cjk-mono.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap;}
+
+:root{--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:17px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:1.9em;line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:1.42em;margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:1.14em;margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em;display:block;
+ overflow-x:auto}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:.88em;background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:.85em}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:.92em}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:.8em;color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:.85em;color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:.92em}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:.78em;
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:.92em;border-top:1px dashed var(--border);padding-top:8px}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */
+.adhd-head{background:var(--accent-soft);border-left:4px solid var(--accent);
+ border-radius:0 12px 12px 0;padding:14px 18px;margin:18px 0}
+.adhd-head .meta{font-size:.9em;color:var(--muted);margin:0 0 8px}
+.adhd-head h2{margin:0 0 6px;font-size:1.05em;color:var(--accent)}
+.adhd-head p.tl{margin:0}
+.ckpt{margin:26px 0 0}
+.ckpt ol{padding-left:1.3em}.ckpt li{margin:.4em 0}
+.recap{background:var(--quote-bg);border-radius:12px;padding:16px 20px;margin:18px 0 0}
+.recap b{color:var(--accent)}
+</style></head><body>
+<div id="scrollbar"></div>
+<header class="site"><div class="inner"><a href="../index.html">🏠 总目录</a>
+<a href="index.html">📚 资料库</a><span class="title">Claude Code 实践</span>
+<button id="themeToggle" title="切换深浅色">🌗</button></div></header>
+<main>
+<h1>How Anthropic Runs Large-Scale Code Migrations with Claude Code（Anthropic 如何用 Claude Code 做大规模代码迁移）</h1>
+<div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>How Anthropic Runs Large-Scale Code Migrations with Claude Code（Anthropic 如何用 Claude Code 做大规模代码迁移）</dd><dt>原文链接</dt><dd><a href="https://claude.com/blog/ai-code-migration" target="_blank" rel="noopener">https://claude.com/blog/ai-code-migration</a></dd><dt>作者</dt><dd>Anthropic（Claude 博客）</dd><dt>发布日期</dt><dd>2026-07-16</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。具体参数与功能名更新很快，落地前请点击上方链接核对原文。</div></div>
+<div class="adhd-head">
+<p class="meta">⏱ <strong>12 分钟</strong> ｜ 🚚 <strong>批量任务的正确打开方式</strong></p>
+<h2 id="tldr">🎯 一句话</h2>
+<p class="tl">大规模迁移的关键不是「让模型改得更准」，而是<strong>把任务切成可独立验证、可独立回滚的小单元</strong>。⭐ 一次改 500 个文件不可控；一次改 1 个文件、跑一次测试、提交一次，才可控。</p>
+</div>
+
+<details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
+<ul>
+<li><a href="#tldr">🎯 一句话</a></li>
+<li><a href="#_1">两个真实案例</a></li>
+<li><a href="#_2">六步迁移架构</a></li>
+<li><a href="#ai">为什么 AI 改变了迁移的经济账</a></li>
+<li><a href="#_3">六条关键实践</a></li>
+<li><a href="#_4">结论</a></li>
+<li><a href="#ckpt">✅ 检查点</a></li>
+<li><a href="#recap">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<p>代码迁移（把生产代码库转换到新语言）已从「多年、百万美元级」的项目变成「数周可完成」的工作。核心洞察是：</p>
+<blockquote>
+<p><strong>「你要修的不是代码，而是产出代码的那个流程（循环）。」</strong></p>
+</blockquote>
+<h2 id="_1">两个真实案例</h2>
+<h3 id="bun-zig-rust">Bun 迁移（Zig → Rust）</h3>
+<ul>
+<li><strong>规模：</strong> 一百万行代码，不到两周</li>
+<li><strong>质量：</strong> 合并前 100% 通过既有测试套件；合并后出现 19 个回归，均已修复</li>
+<li><strong>消耗：</strong> 59 亿输入 token、6.9 亿输出 token，约 <strong>$165,000</strong></li>
+<li><strong>收益：</strong> Linux/Windows 二进制体积减少 19%；基准测试中内存占用从 6,745 MB 降到 609 MB；性能提升 2-5%</li>
+<li>已在生产部署；代码中约 4% 是 unsafe 块（多为 C/C++ 边界的指针操作）</li>
+</ul>
+<h3 id="python-typescript">内部 Python → TypeScript 项目</h3>
+<ul>
+<li><strong>规模：</strong> 16.5 万行，一个周末</li>
+<li><strong>配置：</strong> 12 个子 Agent、8 道阶段闸门、3 轮对抗式审查</li>
+<li><strong>收益：</strong> 编译时间从约 30 分钟降到每平台约 2 秒；二进制启动快 6 倍；退役了一条独立的部署流水线</li>
+</ul>
+<h2 id="_2">六步迁移架构</h2>
+<h3 id="1">第 1 步：打地基（三条并行工作流）</h3>
+<ul>
+<li><strong>规则手册（Rulebook）：</strong> 记录两种语言间的翻译政策——惯用法、类型、架构决策</li>
+<li><strong>依赖图（Dependency Map）：</strong> 用脚本识别文件关系，据此切分可并行的工作流</li>
+<li><strong>缺口清单（Gap Inventory）：</strong> 编目那些需要重构而非直译的架构差异（如 Rust 的所有权模型 vs Zig 的手动分配）</li>
+</ul>
+<h3 id="2">第 2 步：压力测试</h3>
+<p>在代表性样本上用不同翻译方式跑小规模迁移。Bun 的作者在这一阶段抓出了两个影响 1,448 个文件的关键问题。<strong>产出全部丢弃，只保留精化后的规则。</strong></p>
+<h3 id="3">第 3 步：并行翻译</h3>
+<ul>
+<li>跨批次部署实现者 Agent，高并发工作用较小模型（Sonnet）</li>
+<li>未解决的项用 <code>// TODO(port):</code> 注释标记</li>
+<li>用双重对抗式审查者；分歧升级给仲裁者</li>
+<li><strong>发现模式时更新规则手册，而不是逐个修文件</strong></li>
+</ul>
+<h3 id="4-6">第 4-6 步：编译 → 冒烟测试 → 行为对齐</h3>
+<ul>
+<li><strong>编译：</strong> 全工作区跑编译器，并行修错并配对抗式审查</li>
+<li><strong>冒烟测试：</strong> 自动化测试找崩溃，按根因分组做系统性修复</li>
+<li><strong>行为对齐：</strong> 对新旧两套代码库跑完整测试套件；用构建守护进程串行化昂贵的重建操作</li>
+<li><strong>没有测试套件时的替代方案：</strong> 建对等性测试台（parity harness）对比真实场景，或让 Claude 自主设计并通宵运行端到端测试</li>
+</ul>
+<h2 id="ai">为什么 AI 改变了迁移的经济账</h2>
+<ul>
+<li><strong>工作天然可并行：</strong> 数千个独立文件单元支持并发执行</li>
+<li><strong>规格明确：</strong> 原代码库本身就是参考规格</li>
+<li><strong>验证客观：</strong> 测试套件提供无需人工仲裁的基准真值</li>
+<li><strong>工作队列自动生成：</strong> 编译错误和测试失败自动填充待办队列</li>
+<li><strong>模式可检测：</strong> 系统性问题在审查循环中浮现，防止悄然偏移</li>
+</ul>
+<h2 id="_3">六条关键实践</h2>
+<ol>
+<li><strong>把人力前置</strong>到规则手册和压力测试上；后续阶段基本是「烧队列」</li>
+<li><strong>关注失败的模式而非单个失败</strong>——人的注意力应该放在模式上</li>
+<li><strong>设计 token 高效的循环：</strong> 最大的模型留给审查者和写规则，实现工作用小模型</li>
+<li><strong>让工作队列机械化：</strong> 「完成」= 输出文件存在；迁移在构造上就是可恢复的</li>
+<li><strong>坚持对抗式审查</strong>——长任务中它值那个 token 成本</li>
+<li><strong>别照搬本文：</strong> 每次迁移都不同，先和 Claude 一起做针对性规划</li>
+</ol>
+<h2 id="_4">结论</h2>
+<p>语言迁移不再需要「关乎存亡」的理由来立项——长期存在的瓶颈或维护负担现在就足以证明投资合理。通过把迁移围绕系统性验证循环（而非人工代码审查）来组织，并策略性地搭配不同档位的模型，历史上需要「多年工程」的项目可以压缩到几周，迁移的算术从根本上变了。</p>
+<hr />
+<div class="ckpt"><h2 id="ckpt">✅ 检查点</h2>
+<ol>
+<li>大规模代码迁移该怎么切分任务？</li>
+<li>为什么「一次性全改完」是错的？</li>
+<li>迁移任务里人应该负责什么？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li>⭐ <strong>按「可独立验证 + 可独立回滚」切</strong>，通常是单个文件或单个模块。每个单元走完整闭环：<strong>改 → 跑测试 → 通过就提交，不通过就回滚重试</strong>。</li>
+<li>因为<strong>错误会累积且无法定位</strong>。500 个文件一起改完再跑测试，挂了 30 个用例，<strong>你无法知道是哪些改动引起的</strong>，只能整体回滚重来。⭐ 而小单元提交时，<strong>每次失败都精确对应一个改动</strong>。</li>
+<li>⭐ 人负责<strong>①定义迁移规则和边界情况 ②建立验证手段 ③处理模型报上来的例外</strong>。也就是<strong>「定规则 + 建尺子 + 处理异常」</strong>，而不是逐个 review 每处改动——<strong>那样规模上不去，也失去了自动化的意义</strong>。</li>
+</ol>
+</details>
+</div>
+<div class="recap"><h2 id="recap">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong><br />
+⭐<strong>大规模迁移的关键不是让模型改得更准，是把任务切成可独立验证、可独立回滚的小单元</strong>（通常是单个文件或模块），每个单元走完整闭环：<strong>改→跑测试→过就提交，不过就回滚重试</strong>。⭐⭐<strong>「一次性全改完」错在错误会累积且无法定位</strong>——500 个文件一起改完再跑测试挂了 30 个用例，<strong>你无法知道是哪些改动引起的</strong>，只能整体回滚；<strong>小单元提交时每次失败都精确对应一个改动</strong>。<strong>人负责「定规则 + 建尺子 + 处理异常」</strong>（定义迁移规则和边界情况、建立验证手段、处理模型报上来的例外），⚠️<strong>而不是逐个 review 每处改动——那样规模上不去，也失去了自动化的意义</strong>。</p></div>
+<nav class="pagenav"><a href="index.html"><div class="dir">← 返回</div>📚 资料库目录</a>
+<a class="next" href="../智能体工程教程/index.html"><div class="dir">系统学习 →</div>🎓 智能体工程教程</a></nav>
+</main><script>(function(){
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script></body></html>

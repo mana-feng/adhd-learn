@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>03c · 幂等与条件请求：让「重试」变成安全动作 · AI 全栈</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:17px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:1.9em;line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:1.42em;margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:1.14em;margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em;display:block;
+ overflow-x:auto}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:.88em;background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:.85em}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:.92em}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:.8em;color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:.85em;color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:.92em}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:.78em;
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:.92em;border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:.93em;line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:.9em;line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:.93em;line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:.92em}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:1.15em;opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+
+.dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:.95em;margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:.93em;line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.02em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:.93em;break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">03c · 幂等与条件请求</span>
+  <span class="prevnext"><a href="03b-接口的形状.html">←</a>
+  <a href="04-调用层.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#ai">🧩 一、为什么这一章在 AI 板块里</a></li>
+<li><a href="#_2">🧩 二、幂等 ≠ 安全 ≠ 相同响应</a></li>
+<li><a href="#idempotency-key">🧩 三、Idempotency-Key：服务端拿到这个头之后 ⭐⭐</a></li>
+<li><a href="#304">🧱 四、条件请求：那个 304 是怎么来的</a></li>
+<li><a href="#if-match-http">🔍 五、If-Match 就是 HTTP 层的乐观锁</a></li>
+<li><a href="#_3">📋 六、把三件事拼起来</a></li>
+<li><a href="#_4">🔄 换个栈怎么对应</a></li>
+<li><a href="#_5">🔗 这一章连到哪里</a></li>
+<li><a href="#_6">✅ 检查点</a></li>
+<li><a href="#_7">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<h1 id="03c">03c · 幂等与条件请求：让「重试」变成安全动作</h1>
+<p>⏱ <strong>66 分钟</strong> ｜ ⭐ <strong>在别的系统里重试是优化，在 AI 应用里它是默认会发生的事</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong>你的接口迟早会收到同一个请求的第二份拷贝 —— 问题不是「怎么不让它发生」，是「它发生时账上会不会多一笔」。</strong>
+三样东西解决它：<code>Idempotency-Key</code>（同一次意图只执行一次）、<code>ETag</code>（没变就别再传一遍）、<code>If-Match</code>（别无声覆盖别人的修改）。</p>
+<hr />
+<h2 id="ai">🧩 一、为什么这一章在 AI 板块里</h2>
+<p>普通 Web 教程把幂等放在「进阶话题」。<strong>在这里它是基础题</strong>，因为本板块自己就在三处<strong>制造</strong>重复请求：</p>
+<table>
+<thead>
+<tr>
+<th>哪一章</th>
+<th>它做了什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="04-调用层.html">04 · 调用层</a></td>
+<td>重试白名单让 <code>429</code> / <code>5xx</code> / 超时<strong>自动重发</strong>，而读取超时是<strong>几十秒</strong>量级。⚠️ 那张表的原话：「读取超时要小心，<strong>上游可能已在生成，重试 = 付两次钱</strong>」</td>
+</tr>
+<tr>
+<td><a href="10-把流式接到界面上.html">10 · 把流式接到界面上</a></td>
+<td>第七节：⚠️ <strong>前端自动重发 = 一次真金白银的新调用</strong>；结论是「一定要自动重试，就必须配合幂等键」</td>
+</tr>
+<tr>
+<td><a href="11-长任务与队列.html">11 · 长任务与队列</a></td>
+<td>第四节开头：任务被执行两次不是「可能」，是「<strong>一定</strong>」</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⭐⭐ <strong>根问题只有一句</strong>：出错时客户端<strong>分不出「没做成」和「做成了但回复没送到」</strong> —— 两者在它眼里都只是一个超时。
+它只能二选一：不重试（可能丢单）或重试（可能重复）。<strong>服务端的活，是让「重试」这个选项不再有代价。</strong></p>
+</blockquote>
+<p>💀 一个没有幂等保护的 <code>POST /charges</code>：上游生成慢触发 04 章那条自动重试，而上游<strong>其实已经在生成</strong> —— 这一次请求扣了两次钱、烧了两份 token，⚠️ <strong>全程不报错</strong>，日志里是两条漂亮的 200。</p>
+<hr />
+<h2 id="_2">🧩 二、幂等 ≠ 安全 ≠ 相同响应</h2>
+<p><strong>安全</strong>（safe）= 不改变服务端状态；⭐ <strong>幂等</strong>（idempotent）= 执行 N 次和执行 1 次<strong>服务端状态相同</strong>；⚠️ <strong>响应相同不是幂等的要求</strong>。</p>
+<table>
+<thead>
+<tr>
+<th>方法</th>
+<th>安全</th>
+<th>幂等</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code> / <code>HEAD</code></td>
+<td>✅</td>
+<td>✅</td>
+<td>安全的一定幂等，反过来不成立</td>
+</tr>
+<tr>
+<td><code>PUT</code></td>
+<td>❌</td>
+<td>✅</td>
+<td>⭐ 「把它<strong>替换成</strong>这个样子」</td>
+</tr>
+<tr>
+<td><code>DELETE</code></td>
+<td>❌</td>
+<td>✅</td>
+<td>⚠️ 第一次 <code>204</code>、第二次 <code>404</code>，<strong>响应不同，它仍然幂等</strong></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td>❌</td>
+<td>❌</td>
+<td>「再来一件」</td>
+</tr>
+<tr>
+<td><code>PATCH</code></td>
+<td>❌</td>
+<td><strong>看实现</strong></td>
+<td>见下</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ 第三行最常被答错：幂等说的是<strong>状态</strong> —— 两次之后那东西都没了，状态一致，变的只是响应。</p>
+<blockquote>
+<p>⭐ <strong><code>PATCH</code> 幂不幂等全看这条判据</strong>：<strong>「绝对」的操作幂等，「相对」的不幂等。</strong>
+<code>{"title": "新标题"}</code>（赋值）幂等；<code>{"views": "+1"}</code>（增量）不幂等。同理 <code>balance = 70</code> 幂等，<code>balance -= 30</code> 不幂等。</p>
+</blockquote>
+<p>⚠️⚠️ <strong>幂等是你实现出来的协议承诺，不是写了 <code>PUT</code> 就自动有的。</strong> 把 <code>PUT</code> 实现成「往列表里追加一条」照样不幂等 —— 只是它<strong>违反了所有人对 <code>PUT</code> 的预期</strong>，而客户端、代理、重试库全都按那个预期在行动。</p>
+<p>⭐ 这一节兑现的是一张欠条：<a href="04-调用层.html">04</a> 的重试白名单和 <a href="11-长任务与队列.html">11</a> 的死信规则都在讲「<strong>哪些错</strong>该重试」，<strong>没人讲过「哪些请求经得起被重试」</strong>。</p>
+<hr />
+<h2 id="idempotency-key">🧩 三、<code>Idempotency-Key</code>：服务端拿到这个头之后 ⭐⭐</h2>
+<p><a href="11-长任务与队列.html">11 章第四节</a>已经把<strong>队列侧</strong>做完了（由输入算 <code>sha256(user|kind|payload)</code> 当键、写进带唯一约束的表、和干活同一个事务，投三次账上 1 笔），末尾留了一句「更稳的是让客户端传 <code>Idempotency-Key</code> 头」。<strong>这一节是那句话的下半截。</strong></p>
+<p>⭐ <strong>客户端传键和服务端算键，差在「谁来判断这是不是同一次意图」</strong>：</p>
+<blockquote>
+<p>同一个用户<strong>故意</strong>用完全相同的参数下两单（买两份一样的、把同一份文档再总结一版）——
+服务端算出的键<strong>一模一样</strong>，第二次被当成重试<strong>吞掉了</strong>。⚠️ 用户没收到任何错，只是东西没出现。</p>
+</blockquote>
+<p>⚠️ 客户端唯一的硬规矩：<strong>键在发起时生成一次、重试时原样带回</strong>，每次重试重新生成 = 等于没做。⭐ 这和 11 章「幂等键不能用 <code>uuid4()</code>」是同一个错的两副面孔，<strong>但结论相反</strong>：在这里 <code>uuid4()</code> 是<strong>对的</strong>，只要它在一串重试之间不变。</p>
+<p>服务端要回答四个问题：</p>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>答案</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>① 同键、<strong>不同 body</strong></td>
+<td><strong>409</strong>，绝不执行</td>
+<td>⭐ <code>422</code> 说的是「<strong>请求本身有毛病</strong>」，可这里 body 完全合法 —— 毛病在「它和这个键先前绑的那份对不上」，那是<strong>请求与当前状态的冲突</strong></td>
+</tr>
+<tr>
+<td>② <strong>并发</strong>同键</td>
+<td><strong>409</strong>，⚠️ <strong>不要挂着等</strong></td>
+<td>靠唯一约束抢占：插得进去的干活，撞约束的知道有人在干。挂着等意味着两条连接被占几十秒，就是 <a href="06-关系数据库.html">06 章</a>那个「持有时长才是瓶颈」</td>
+</tr>
+<tr>
+<td>③ 同键、同 body</td>
+<td>⭐⭐ <strong>重放第一次的响应</strong></td>
+<td>见下</td>
+</tr>
+<tr>
+<td>④ 键存多久</td>
+<td>由「<strong>客户端最长的重试窗口</strong>」定</td>
+<td>前端手动重试、11 章的退避（<code>MAX_ATTEMPTS = 5</code> 封顶 60 秒）都是分钟级，跨天跑的补偿脚本是天级。🗓️ 常见 24 小时量级，⚠️ <strong>这个数必须写进 API 文档</strong>，客户端才知道超过多久重试就不再安全</td>
+</tr>
+</tbody>
+</table>
+<p>⭐⭐ <strong>③ 是它和「只是去重」的分界线。</strong> 11 章那段返回的是 <code>'skipped'</code>，<strong>在队列侧够用</strong>（投递方不关心结果）；接口侧不行：</p>
+<blockquote>
+<p><strong>客户端之所以重试，恰恰是因为它没收到第一次的响应。</strong>
+你回它一句「这个做过了」，它拿不到订单号、拿不到 job id、拿不到那段结果 —— <strong>等于失败</strong>。</p>
+</blockquote>
+<p>所以要把第一次的<strong>状态码和响应体</strong>存下来原样重放，并让客户端能分辨这是重放（🗓️ 头的名字各家不统一）。⚠️ 代价是存储，以及响应体里可能有用户原话，<strong>留存期要和<a href="../数据这一关/19-隐私脱敏与留存.html">《数据这一关》19 章</a>对齐</strong>。⚠️ <strong>流式重放不了</strong>：<a href="05-流式输出.html">05 章</a>讲过状态码在第一帧发出时就定死成 200，SSE 边生成边发，你手上没有一份「完整响应」可存 —— ⭐ 务实的形状是<strong>把花钱的那一步和流分开</strong>：先用一个带幂等键的普通 POST 创建 / 预扣，拿到 id 再去开流。</p>
+<p>⭐⭐ <strong>键必须限定在租户内。</strong> 这是重放机制自己带来的安全洞：既然「拿着键就能拿到那次响应」，全局唯一的键就意味着 <strong>A 租户猜中 B 的键便能读到 B 的响应体</strong>。所以主键是 <code>(tenant_id, key)</code>，而那个 <code>tenant_id</code> ⚠️ 只能来自<strong>已验签的凭证</strong>（<a href="08-认证会话与多租户.html">08 章</a>）。</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># idem_server.py —— Idempotency-Key 的服务端协议（sqlite3，直接可跑）</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span><span class="o">,</span><span class="w"> </span><span class="nn">hashlib</span><span class="o">,</span><span class="w"> </span><span class="nn">json</span>
+
+<span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;&quot;&quot;CREATE TABLE idem(</span>
+<span class="s2">  tenant TEXT, key TEXT, fingerprint TEXT,          -- ⭐ 指纹：同键不同 body 靠它认出来</span>
+<span class="s2">  status TEXT,                                      -- in_progress / done</span>
+<span class="s2">  resp_code INTEGER, resp_body TEXT,                -- ⭐⭐ 第一次的响应存这，重试时原样重放</span>
+<span class="s2">  PRIMARY KEY (tenant, key))&quot;&quot;&quot;</span><span class="p">)</span>                    <span class="c1"># ⭐⭐ 键限定在租户内，不能全局唯一</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE TABLE orders(id TEXT PRIMARY KEY, tenant TEXT, cents INTEGER)&quot;</span><span class="p">)</span>
+<span class="n">SEQ</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">fp_of</span><span class="p">(</span><span class="n">body</span><span class="p">):</span>   <span class="c1"># ⚠️ sort_keys —— 字段顺序一变指纹就变，会把正常重试误判成「不同 body」</span>
+    <span class="k">return</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">body</span><span class="p">,</span> <span class="n">sort_keys</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">())</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()[:</span><span class="mi">12</span><span class="p">]</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">create_order</span><span class="p">(</span><span class="n">tenant</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">body</span><span class="p">):</span>
+    <span class="n">fp</span> <span class="o">=</span> <span class="n">fp_of</span><span class="p">(</span><span class="n">body</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">with</span> <span class="n">db</span><span class="p">:</span>      <span class="c1"># ⭐ 抢占：唯一约束保证同一时刻只有一个请求能插进来</span>
+            <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;INSERT INTO idem(tenant,key,fingerprint,status)&quot;</span>
+                       <span class="s2">&quot; VALUES(?,?,?,&#39;in_progress&#39;)&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">tenant</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">fp</span><span class="p">))</span>
+    <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">IntegrityError</span><span class="p">:</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;SELECT fingerprint,status,resp_code,resp_body FROM idem&quot;</span>
+                       <span class="s2">&quot; WHERE tenant=? AND key=?&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">tenant</span><span class="p">,</span> <span class="n">key</span><span class="p">))</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="n">fp</span><span class="p">:</span>                <span class="c1"># ① 同键不同 body</span>
+            <span class="k">return</span> <span class="mi">409</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;code&quot;</span><span class="p">:</span> <span class="s2">&quot;idempotency_key_reused&quot;</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;这个键绑的是另一个请求体&quot;</span><span class="p">}</span>
+        <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;in_progress&quot;</span><span class="p">:</span>     <span class="c1"># ② 并发同键，⚠️ 不挂着等</span>
+            <span class="k">return</span> <span class="mi">409</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;code&quot;</span><span class="p">:</span> <span class="s2">&quot;request_in_progress&quot;</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;同一个键正在处理中&quot;</span><span class="p">}</span>
+        <span class="k">return</span> <span class="n">r</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span> <span class="p">{</span><span class="o">**</span><span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">r</span><span class="p">[</span><span class="mi">3</span><span class="p">]),</span> <span class="s2">&quot;replayed&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>   <span class="c1"># ⭐⭐ ③ 重放，不是「跳过」</span>
+
+    <span class="n">SEQ</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;order_id&quot;</span><span class="p">:</span> <span class="s2">&quot;ord_</span><span class="si">%d</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">SEQ</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="s2">&quot;cents&quot;</span><span class="p">:</span> <span class="n">body</span><span class="p">[</span><span class="s2">&quot;cents&quot;</span><span class="p">]}</span>
+    <span class="k">with</span> <span class="n">db</span><span class="p">:</span>          <span class="c1"># ⭐ 干活和写响应在同一个事务里（11 章第四节同款理由）</span>
+        <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;INSERT INTO orders VALUES(?,?,?)&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">out</span><span class="p">[</span><span class="s2">&quot;order_id&quot;</span><span class="p">],</span> <span class="n">tenant</span><span class="p">,</span> <span class="n">body</span><span class="p">[</span><span class="s2">&quot;cents&quot;</span><span class="p">]))</span>
+        <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;UPDATE idem SET status=&#39;done&#39;, resp_code=?, resp_body=?&quot;</span>
+                   <span class="s2">&quot; WHERE tenant=? AND key=?&quot;</span><span class="p">,</span> <span class="p">(</span><span class="mi">201</span><span class="p">,</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">out</span><span class="p">),</span> <span class="n">tenant</span><span class="p">,</span> <span class="n">key</span><span class="p">))</span>
+    <span class="k">return</span> <span class="mi">201</span><span class="p">,</span> <span class="n">out</span>
+
+
+<span class="n">b</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;cents&quot;</span><span class="p">:</span> <span class="mi">3000</span><span class="p">,</span> <span class="s2">&quot;item&quot;</span><span class="p">:</span> <span class="s2">&quot;pro-plan&quot;</span><span class="p">}</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;① 第一次        &quot;</span><span class="p">,</span> <span class="n">create_order</span><span class="p">(</span><span class="s2">&quot;acme&quot;</span><span class="p">,</span> <span class="s2">&quot;k-1&quot;</span><span class="p">,</span> <span class="n">b</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;② 原样重试      &quot;</span><span class="p">,</span> <span class="n">create_order</span><span class="p">(</span><span class="s2">&quot;acme&quot;</span><span class="p">,</span> <span class="s2">&quot;k-1&quot;</span><span class="p">,</span> <span class="n">b</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;③ 同键换 body   &quot;</span><span class="p">,</span> <span class="n">create_order</span><span class="p">(</span><span class="s2">&quot;acme&quot;</span><span class="p">,</span> <span class="s2">&quot;k-1&quot;</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;cents&quot;</span><span class="p">:</span> <span class="mi">9900</span><span class="p">,</span> <span class="s2">&quot;item&quot;</span><span class="p">:</span> <span class="s2">&quot;pro-plan&quot;</span><span class="p">}))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;④ 别的租户同键  &quot;</span><span class="p">,</span> <span class="n">create_order</span><span class="p">(</span><span class="s2">&quot;globex&quot;</span><span class="p">,</span> <span class="s2">&quot;k-1&quot;</span><span class="p">,</span> <span class="n">b</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;⑤ 换个键        &quot;</span><span class="p">,</span> <span class="n">create_order</span><span class="p">(</span><span class="s2">&quot;acme&quot;</span><span class="p">,</span> <span class="s2">&quot;k-2&quot;</span><span class="p">,</span> <span class="n">b</span><span class="p">))</span>
+<span class="k">with</span> <span class="n">db</span><span class="p">:</span>          <span class="c1"># 手动造一个「另一个请求正在处理中」的状态</span>
+    <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;INSERT INTO idem(tenant,key,fingerprint,status)&quot;</span>
+               <span class="s2">&quot; VALUES(&#39;acme&#39;,&#39;k-3&#39;,?,&#39;in_progress&#39;)&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">fp_of</span><span class="p">(</span><span class="n">b</span><span class="p">),))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;⑥ 同键正在处理中&quot;</span><span class="p">,</span> <span class="n">create_order</span><span class="p">(</span><span class="s2">&quot;acme&quot;</span><span class="p">,</span> <span class="s2">&quot;k-3&quot;</span><span class="p">,</span> <span class="n">b</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;库里的订单：&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;SELECT id,tenant,cents FROM orders&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">())</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<div class="codehilite"><pre><span></span><code>① 第一次         (201, {&#39;order_id&#39;: &#39;ord_1&#39;, &#39;cents&#39;: 3000})
+② 原样重试       (201, {&#39;order_id&#39;: &#39;ord_1&#39;, &#39;cents&#39;: 3000, &#39;replayed&#39;: True})
+③ 同键换 body    (409, {&#39;code&#39;: &#39;idempotency_key_reused&#39;, ...})
+④ 别的租户同键   (201, {&#39;order_id&#39;: &#39;ord_2&#39;, &#39;cents&#39;: 3000})
+⑤ 换个键         (201, {&#39;order_id&#39;: &#39;ord_3&#39;, &#39;cents&#39;: 3000})
+⑥ 同键正在处理中 (409, {&#39;code&#39;: &#39;request_in_progress&#39;, ...})
+库里的订单： [(&#39;ord_1&#39;, &#39;acme&#39;, 3000), (&#39;ord_2&#39;, &#39;globex&#39;, 3000), (&#39;ord_3&#39;, &#39;acme&#39;, 3000)]
+</code></pre></div>
+
+<p>⭐ <strong>② 和 ⑤ 对着看</strong>：同一份 body，键相同就重放同一个 <code>ord_1</code>，键换了就真下了一单 <code>ord_3</code> —— <strong>「是不是同一次意图」的判断权在客户端手里</strong>。⭐ <strong>④ 是那个安全洞的正面演示</strong>：<code>globex</code> 用了同一个字符串 <code>k-1</code>，拿到的是<strong>自己的</strong> <code>ord_2</code>。
+（<code>code</code> / <code>message</code> 沿用 <a href="03-后端骨架.html">03 章</a>那套统一错误形状，真接进服务时还要带 <code>trace_id</code>。<strong>这一章不重新定义错误长什么样，只决定该返哪个码。</strong>）</p>
+<hr />
+<!--MIDSTOP-->
+<blockquote>
+<p>🛑 <strong>读到这里可以停</strong> —— 前半章讲完了（约 28 分钟）。
+<strong>后半章还有</strong>：条件请求：那个 304 是怎么来的 · <code>If-Match</code> 就是 HTTP 层的乐观锁 · 把三件事拼起来 · 换个栈怎么对应
+回来的时候不用重读，直接从下一节接着看就行。</p>
+</blockquote>
+<hr />
+<h2 id="304">🧱 四、条件请求：那个 304 是怎么来的</h2>
+<p>上面解决的是「写」。<strong>读</strong>这一侧也有重复：用户每隔几秒刷一次会话列表，内容一个字没变，你却把整段 JSON 又发了一遍。</p>
+<p>机制三步：① 响应带 <code>ETag: W/"c_42-v7"</code>（这个资源当前这一版的指纹）② 客户端下次带 <code>If-None-Match: W/"c_42-v7"</code> ③ 服务端一比对，一样就返 <strong><code>304 Not Modified</code></strong>，⭐ <strong>不带 body</strong>。</p>
+<p>⚠️ <strong>304 省的是 body，不是往返</strong> —— TLS、鉴权、以及你为了算 ETag 做的那次查库都还在。⭐ 判据：<strong>body 大、变化少</strong>的才值得做（会话列表、文档正文、前端配置），一个二十字节的小 JSON 别折腾。</p>
+<p>⭐ <strong>ETag 怎么算，两条路</strong>：<strong>内容哈希</strong>最准，但 ⚠️ <strong>省不了计算，只省传输</strong>；⭐ <strong>版本派生</strong>（<code>"{id}-v{version}"</code> 或 <code>"{id}-{updated_at}"</code>）便宜得多 —— <a href="06-关系数据库.html">06 章</a>那张表上本来就有 <code>updated_at</code>。⚠️ 强 ETag（<code>"abc"</code>）承诺<strong>字节级完全相同</strong>，弱 ETag（<code>W/"abc"</code>）只承诺<strong>语义等价</strong>，有压缩和中间层改写时强的容易被弄坏，拿不准就用弱的。<code>Last-Modified</code> 精度<strong>只到秒</strong>，回滚还会让时间和内容对不上 —— <strong>两个都能给就给 ETag</strong>。</p>
+<p>⚠️ <strong>两个必须点破的边界</strong>：</p>
+<ul>
+<li>⭐⭐ <strong>它和 <a href="04-调用层.html">04 章</a>的 LLM 结果缓存是两件事</strong>：那一章问「同样的输入要不要<strong>再问一次模型</strong>」（省的是<strong>钱</strong>，判据是 <code>temperature=0</code>、不带工具、不流式），这一节问「同样的资源要不要<strong>再传一次字节</strong>」（省的是<strong>流量</strong>）。一个在调用层、一个在 HTTP 层，两层都做不冲突。</li>
+<li><strong>流式端点别做 ETag</strong>：发第一个字节的时候，你还不知道最终内容是什么。</li>
+</ul>
+<hr />
+<h2 id="if-match-http">🔍 五、<code>If-Match</code> 就是 HTTP 层的乐观锁</h2>
+<p>把方向反过来：<code>If-None-Match</code> 用于读（「没变就别给我」），<code>If-Match</code> 用于写（「<strong>没被别人改过我才写</strong>」）。它治的是<strong>丢更新</strong>：</p>
+<blockquote>
+<p>A 和 B 同时打开同一个会话的标题编辑框，都看到 <code>v7</code>。A 存了，B 十秒后也存了。
+⚠️ <strong>B 的 <code>PUT</code> 把 A 的改动整段覆盖，没有任何报错</strong> —— A 只是过一会儿发现自己改的东西没了。</p>
+</blockquote>
+<p>流程：<code>GET</code> 拿到 <code>ETag</code> → 改 → <code>PUT</code> 时带 <code>If-Match</code> → 服务端比对，对不上返 <strong><code>412 Precondition Failed</code></strong>。⭐ <strong>服务端实现只有一条 SQL，不需要任何锁</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">UPDATE</span><span class="w"> </span><span class="n">docs</span><span class="w"> </span><span class="k">SET</span><span class="w"> </span><span class="n">title</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">?</span><span class="p">,</span><span class="w"> </span><span class="k">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">version</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span>
+<span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="k">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">?</span><span class="w">      </span><span class="c1">-- ⭐ 受影响行数 = 0 就是冲突，返 412</span>
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th>码</th>
+<th>含义</th>
+<th>本章的例子</th>
+<th>客户端该做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>412</strong></td>
+<td>⭐ <strong>你自己提的前置条件不成立</strong></td>
+<td><code>If-Match</code> 对不上</td>
+<td>重新 <code>GET</code> → 合并 → 再提交</td>
+</tr>
+<tr>
+<td><strong>409</strong></td>
+<td>请求和服务器<strong>当前状态</strong>打架，但你没提任何条件</td>
+<td>同键不同 body、并发同键</td>
+<td>换个键 / 稍后重试</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⭐ <strong>记法：412 是「你提的条件不成立」，409 是「你和服务器现在的状态对不上」。</strong>
+412 的可贵之处是<strong>客户端知道下一步该干什么</strong>；409 往往只能告诉它「别再原样重试了」。</p>
+</blockquote>
+<p>⚠️ <strong>对多人可同时改的资源要强制带 <code>If-Match</code></strong>，不带就拒（🗓️ 正式做法是返 <code>428 Precondition Required</code>）—— 不强制的话，忘了带的那个客户端<strong>仍然在无声覆盖别人</strong>。想表达「我就是要覆盖，只要它还在」，标准写法是 <code>If-Match: *</code>。</p>
+<p>⭐⭐ <strong>为什么这个板块尤其该用乐观锁</strong>：<a href="06-关系数据库.html">06 章第六节</a>警告过「别在 <code>SELECT ... FOR UPDATE</code> 之后调外部服务 —— 那是攥着一把行锁在等」（那节的可跑对照：池 5、并发 40、LLM 1 秒时 <strong>8.15 秒 vs 1.15 秒</strong>）。而 AI 应用最典型的写路径正是「读一份文档 → <strong>调模型改写（几十秒）</strong> → 写回去」，悲观行锁在这段时间根本不能用，版本号则什么都不锁。⚠️ 代价是<strong>冲突处理被推给了客户端</strong>，所以 412 至少要带上当前版本，否则客户端只能盲目重 GET 再赌一次。</p>
+<p>💡 同一个形状后面还会再见到：<a href="11-长任务与队列.html">第 11 章</a>那条队列认领语句里的 <code>WHERE status='queued'</code>，本质就是拿状态当版本号的乐观锁。</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># conditional.py —— 条件请求的两次比对（纯 stdlib 可直接跑；框架写法见文末对照表）</span>
+<span class="n">DOC</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;c_42&quot;</span><span class="p">,</span> <span class="s2">&quot;title&quot;</span><span class="p">:</span> <span class="s2">&quot;旧标题&quot;</span><span class="p">,</span> <span class="s2">&quot;version&quot;</span><span class="p">:</span> <span class="mi">7</span><span class="p">}</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">etag</span><span class="p">():</span>
+    <span class="k">return</span> <span class="s1">&#39;W/&quot;</span><span class="si">%s</span><span class="s1">-v</span><span class="si">%d</span><span class="s1">&quot;&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">DOC</span><span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">],</span> <span class="n">DOC</span><span class="p">[</span><span class="s2">&quot;version&quot;</span><span class="p">])</span>   <span class="c1"># ⭐ 版本派生，不必读全文</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">GET</span><span class="p">(</span><span class="n">if_none_match</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">if_none_match</span> <span class="o">==</span> <span class="n">etag</span><span class="p">():</span>
+        <span class="k">return</span> <span class="mi">304</span><span class="p">,</span> <span class="kc">None</span>                                <span class="c1"># ⭐ 没变 → 不带 body</span>
+    <span class="k">return</span> <span class="mi">200</span><span class="p">,</span> <span class="nb">dict</span><span class="p">(</span><span class="n">DOC</span><span class="p">,</span> <span class="n">etag</span><span class="o">=</span><span class="n">etag</span><span class="p">())</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">PUT</span><span class="p">(</span><span class="n">title</span><span class="p">,</span> <span class="n">if_match</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">if_match</span> <span class="o">!=</span> <span class="n">etag</span><span class="p">():</span>                              <span class="c1"># ⭐ 对不上 = 别人先改过了</span>
+        <span class="k">return</span> <span class="mi">412</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;已被改过，请重新 GET 后再提交&quot;</span><span class="p">,</span> <span class="s2">&quot;now&quot;</span><span class="p">:</span> <span class="n">etag</span><span class="p">()}</span>  <span class="c1"># ⭐ 带上当前版本</span>
+    <span class="n">DOC</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="n">title</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="n">DOC</span><span class="p">[</span><span class="s2">&quot;version&quot;</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="mi">200</span><span class="p">,</span> <span class="nb">dict</span><span class="p">(</span><span class="n">DOC</span><span class="p">,</span> <span class="n">etag</span><span class="o">=</span><span class="n">etag</span><span class="p">())</span>
+
+
+<span class="n">tag</span> <span class="o">=</span> <span class="n">GET</span><span class="p">()[</span><span class="mi">1</span><span class="p">][</span><span class="s2">&quot;etag&quot;</span><span class="p">]</span>                                  <span class="c1"># A 和 B 都拿到 v7</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;① 带 If-None-Match:&quot;</span><span class="p">,</span> <span class="n">GET</span><span class="p">(</span><span class="n">tag</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;② A 写入:&quot;</span><span class="p">,</span> <span class="n">PUT</span><span class="p">(</span><span class="s2">&quot;A 的标题&quot;</span><span class="p">,</span> <span class="n">tag</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;③ B 拿着旧 ETag 写:&quot;</span><span class="p">,</span> <span class="n">PUT</span><span class="p">(</span><span class="s2">&quot;B 的标题&quot;</span><span class="p">,</span> <span class="n">tag</span><span class="p">))</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<div class="codehilite"><pre><span></span><code>① 带 If-None-Match: (304, None)
+② A 写入: (200, {&#39;id&#39;: &#39;c_42&#39;, &#39;title&#39;: &#39;A 的标题&#39;, &#39;version&#39;: 8, &#39;etag&#39;: &#39;W/&quot;c_42-v8&quot;&#39;})
+③ B 拿着旧 ETag 写: (412, {&#39;message&#39;: &#39;已被改过，请重新 GET 后再提交&#39;, &#39;now&#39;: &#39;W/&quot;c_42-v8&quot;&#39;})
+</code></pre></div>
+
+<p>⭐ <strong>第 ③ 行是这一节的全部价值</strong>：没有 <code>If-Match</code> 时它会是 <code>200</code>、标题会变成「B 的标题」—— <strong>A 的改动被无声吃掉，全程零报错</strong>。</p>
+<hr />
+<h2 id="_3">📋 六、把三件事拼起来</h2>
+<p>创建 / 扣费 / 提交任务（<code>POST</code>）用 <strong><code>Idempotency-Key</code> + 重放</strong>，冲突返 <code>409</code>；整体替换（<code>PUT</code>）天然幂等，<strong>再加 <code>If-Match</code></strong> 防丢更新，冲突返 <code>412</code>；局部修改（<code>PATCH</code>）⚠️ 先确认补丁是「绝对」的再加 <code>If-Match</code>；反复拉同一份大 body（<code>GET</code>）用 <code>ETag</code> + <code>If-None-Match</code>，命中返 <code>304</code>（这不是错）。</p>
+<blockquote>
+<p>⭐⭐ <strong>一条能直接写进代码评审清单的规矩</strong>：
+<strong>每一个会花钱或改状态的 <code>POST</code>，要么带 <code>Idempotency-Key</code>，要么重新设计成 <code>PUT</code>。</strong>
+两条都不满足的，就是在等一次双倍扣款。</p>
+</blockquote>
+<p>⚠️ 客户端也有三件事必须配合：① 键<strong>原样带回</strong>；② 尊重 <code>429</code> 带回来的 <code>Retry-After</code>（<a href="12-限流配额与成本护栏.html">12 章</a>讲它怎么从令牌桶算出来）；③ 退避<strong>加抖动</strong>。</p>
+<hr />
+<h2 id="_4">🔄 换个栈怎么对应</h2>
+<table>
+<thead>
+<tr>
+<th>概念</th>
+<th>Python / FastAPI（本板块主栈）</th>
+<th>Node（Express / Hono）</th>
+<th>Go</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>读请求头</td>
+<td><code>Header(default=None)</code>（下划线自动转连字符）</td>
+<td><code>req.get('Idempotency-Key')</code> / <code>c.req.header(...)</code></td>
+<td><code>r.Header.Get("Idempotency-Key")</code></td>
+</tr>
+<tr>
+<td>幂等键存储</td>
+<td>⭐ 一张带唯一约束的表 —— <strong>就是 06 章那个库</strong></td>
+<td>同左</td>
+<td>同左</td>
+</tr>
+<tr>
+<td>返 304</td>
+<td><code>Response(status_code=304)</code></td>
+<td><code>res.status(304).end()</code></td>
+<td><code>w.WriteHeader(http.StatusNotModified)</code></td>
+</tr>
+<tr>
+<td>⚠️ 自动 ETag</td>
+<td><strong>没有内置</strong>，自己算</td>
+<td>🗓️ Express 有个 <code>etag</code> 应用设置（给 <code>res.send</code> 加弱 ETag）</td>
+<td><code>http.ServeContent</code> 只对<strong>静态文件</strong>处理条件请求</td>
+</tr>
+<tr>
+<td>乐观锁</td>
+<td><code>UPDATE … WHERE version = ?</code> 看受影响行数</td>
+<td>同左</td>
+<td>同左</td>
+</tr>
+</tbody>
+</table>
+<p>⭐ <strong>这张表要看出的是：哪些是概念、哪些只是这个框架的叫法。</strong>
+<strong>没有任何一个框架内置 <code>Idempotency-Key</code></strong> —— 它必须落在<strong>你的</strong>存储上、按<strong>你的</strong>业务语义决定什么算「同一次意图」，外包不出去。而 ETag/304 有的框架替你做了一半，⚠️ 可它替你做的恰好是「把整个 body 算出来再哈希」那一半 —— <strong>省传输不省计算</strong>，真正值钱的版本派生仍然得你自己写。</p>
+<hr />
+<h2 id="_5">🔗 这一章连到哪里</h2>
+<table>
+<thead>
+<tr>
+<th>去哪</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>⭐⭐ <a href="11-长任务与队列.html">11 · 长任务与队列</a></td>
+<td>本章是它第四节末尾「更稳的是让客户端传 <code>Idempotency-Key</code> 头」那句话的下半截。⭐ <strong>两侧一起看</strong>：那边管「同一个任务被<strong>消费</strong>两次」（服务端算键），这边管「同一个请求被<strong>发</strong>两次」（客户端传键）</td>
+</tr>
+<tr>
+<td>⭐ <a href="04-调用层.html">04 · 调用层</a></td>
+<td>本章存在的直接原因：那一章的白名单会<strong>自动</strong>重发 <code>429</code>/<code>5xx</code>/超时，而它自己那张表就写着「读取超时时上游可能已在生成，重试 = 付两次钱」</td>
+</tr>
+<tr>
+<td><a href="10-把流式接到界面上.html">10 · 把流式接到界面上</a></td>
+<td>第七节说「一定要自动重试就必须配合幂等键」—— <strong>服务端那一半在本章第三节</strong>：键怎么存、怎么重放、怎么按租户隔离</td>
+</tr>
+<tr>
+<td>⭐ <a href="06-关系数据库.html">06 · 关系数据库</a></td>
+<td>乐观锁的 <code>version</code> 列和幂等键表都落在那一章的库上。⭐ <strong>反过来也成立</strong>：那一章禁止攥着行锁调外部服务，本章的版本号正是那条禁令下还能用的并发控制</td>
+</tr>
+<tr>
+<td>⭐ <a href="03b-接口的形状.html">03b · 接口的形状</a></td>
+<td>那一章讲方法语义和状态码的<strong>整体</strong>选择，只点一句「<code>PUT</code> 幂等、<code>POST</code> 不幂等」；⭐ <strong>幂等的全部展开在本章</strong>，本章也只碰 <code>409</code> / <code>412</code> 两个码</td>
+</tr>
+<tr>
+<td><a href="08-认证会话与多租户.html">08 · 认证、会话与多租户</a></td>
+<td>幂等键必须限定在租户内，⚠️ 而那个 <code>tenant_id</code> 只能来自<strong>已验签的凭证</strong> —— 从请求参数里取就是一行越权</td>
+</tr>
+<tr>
+<td><a href="16-上线前检查单.html">16 · 上线前检查单</a></td>
+<td>那份清单里「同一个 <code>Idempotency-Key</code> 投三次 → 账上只有一笔」，验的就是本章第三节</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_6">✅ 检查点</h2>
+<ol>
+<li>「安全」「幂等」「相同响应」分别是什么？<code>DELETE</code> 第二次返 404，它还幂等吗？<code>PATCH</code> 幂不幂等取决于什么？</li>
+<li>客户端传 <code>Idempotency-Key</code> 比服务端自己算键好在哪？客户端唯一的硬规矩是什么？</li>
+<li>同键不同 body 为什么返 409 而不是 422？并发同键为什么不能挂着等？</li>
+<li>为什么「只去重、回一句 skipped」在接口侧不够用？流式路径上为什么重放不了？</li>
+<li>幂等键表的主键为什么必须是 <code>(tenant_id, key)</code>？键该存多久，判据是什么？</li>
+<li><code>304</code> 省掉的是什么、没省掉的是什么？它和 04 章的 LLM 结果缓存差在哪？</li>
+<li><code>412</code> 和 <code>409</code> 怎么分？为什么这个板块更该用乐观锁而不是 <code>SELECT ... FOR UPDATE</code>？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li><strong>安全</strong> = 不改变服务端状态；<strong>幂等</strong> = 执行 N 次和 1 次<strong>服务端状态相同</strong>；<strong>响应相同不是幂等的要求</strong> —— ⭐ <code>DELETE</code> 第二次返 404 <strong>仍然幂等</strong>，两次之后那东西都没了。<code>PATCH</code> 取决于补丁语义：⭐ <strong>「绝对」的操作幂等（<code>{"title": "新标题"}</code>），「相对」的不幂等（<code>{"views": "+1"}</code>）</strong>。</li>
+<li>服务端算的键<strong>分不出「重试」和「用户故意再来一次」</strong> —— 同一个用户用相同参数下两单，算出的键一样，第二单被当成重试<strong>吞掉</strong>，用户还收不到任何错。客户端传键把「是不是同一次意图」的判断权交回发起方。硬规矩：<strong>发起时生成一次、重试时原样带回</strong>；⭐ 这里用 <code>uuid4()</code> 反而是对的（11 章说不能用它，指的是<strong>服务端每次重算</strong>的场景）。</li>
+<li><code>422</code> 说的是「<strong>请求本身有毛病</strong>」，而这里的 body 可能完全合法，毛病在「它和这个键先前绑的那份对不上」—— 那是<strong>请求与当前状态的冲突</strong>，所以是 <code>409</code>。不能挂着等，是因为一次调用几十秒，挂等把两条连接一起占住，正是 06 章那个「持有时长才是瓶颈」。</li>
+<li>⭐⭐ <strong>客户端之所以重试，恰恰是因为它没收到第一次的响应</strong>；回它「做过了」，它拿不到订单号 / job id / 生成结果，等于失败。所以要存下第一次的<strong>状态码和响应体</strong>原样重放（队列侧返 <code>skipped</code> 够用，是因为投递方不关心结果）。⚠️ 流式重放不了：状态码在第一帧发出时就定死成 200，SSE 边生成边发，没有一份完整响应可存。</li>
+<li>因为<strong>重放意味着「拿着键就能拿到那次响应」</strong>，全局唯一的话 A 租户猜中 B 的键就能读到 B 的响应体（代码里 ④：<code>globex</code> 用同一个 <code>k-1</code> 拿到的是自己的 <code>ord_2</code>）。存多久由「<strong>客户端最长的重试窗口</strong>」定（🗓️ 常见 24 小时量级），而且<strong>必须写进 API 文档</strong>。</li>
+<li>省的是 <strong>body</strong>；⚠️ <strong>没省往返</strong> —— TLS、鉴权、为算 ETag 做的查库都还在，所以只有 <strong>body 大、变化少</strong>的接口值得做。⭐ 和 LLM 结果缓存<strong>是两件事</strong>：那个问「要不要<strong>再问一次模型</strong>」（省钱），这个问「要不要<strong>再传一次字节</strong>」（省流量）。</li>
+<li><strong>412 = 你自己提的前置条件不成立</strong>（<code>If-Match</code> 对不上），客户端明确知道要重新 GET 再提交；<strong>409 = 请求和当前状态打架</strong>但你没提条件。该用乐观锁是因为写路径是「读 → <strong>调模型（几十秒）</strong> → 写回」，悲观行锁会攥着锁等外部服务，正是 06 章明令禁止的（对照：池 5 / 并发 40 / LLM 1 秒，<strong>8.15 秒 vs 1.15 秒</strong>）；⚠️ 代价是冲突处理被推给客户端。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_7">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong></p>
+<blockquote>
+<p><strong>根问题</strong>：出错时客户端<strong>分不出「没做成」和「做成了但回复没送到」</strong>，只能在丢单和重复之间二选一 —— 服务端的活是让「重试」不再有代价。⭐ 这在本板块是基础题，因为板块自己就在制造重复：04 章的白名单自动重发 <code>429</code>/<code>5xx</code>/超时（原话「<strong>上游可能已在生成，重试 = 付两次钱</strong>」）、10 章的前端重发是「一次真金白银的新调用」、11 章说任务被执行两次<strong>不是可能是一定</strong>。
+<strong>三个概念别混</strong>：安全 = 不改状态；⭐ 幂等 = 执行 N 次和 1 次<strong>服务端状态相同</strong>；⚠️ <strong>响应相同不是幂等的要求</strong>（<code>DELETE</code> 第二次返 404 仍然幂等）。<code>PUT</code>/<code>DELETE</code> 幂等不安全，<code>POST</code> 都不是，<code>PATCH</code> <strong>看实现</strong> —— ⭐ <strong>「绝对」的操作幂等，「相对」的不幂等</strong>。⚠️ 幂等是你实现出来的承诺，不是写了 <code>PUT</code> 就自动有的。
+⭐⭐ <strong><code>Idempotency-Key</code> 的服务端协议</strong>（11 章第四节末尾那句的下半截）：客户端传键强过服务端算键，差别在<strong>谁判断「是不是同一次意图」</strong> —— 服务端算 <code>sha256(user|kind|payload)</code> 会把「用户故意再下一单」当成重试<strong>吞掉</strong>。客户端硬规矩：<strong>发起时生成一次、重试时原样带回</strong>（⭐ 这里 <code>uuid4()</code> 反而是对的）。服务端答四问：① <strong>同键不同 body → 409 不是 422</strong>（422 是「请求本身有毛病」，可这里 body 完全合法）；② <strong>并发同键 → 唯一约束抢占后返 409，⚠️ 绝不挂着等</strong>（一次调用几十秒，挂等就是 06 章那个「持有时长才是瓶颈」）；③ ⭐⭐ <strong>必须重放第一次的响应，而不是回一句「跳过」</strong> —— 客户端重试恰恰是因为没收到第一次的响应，回「做过了」它拿不到订单号，等于失败；⚠️ <strong>流式重放不了</strong>（状态码第一帧就定死成 200），务实做法是把<strong>花钱那步和流分开</strong>；④ <strong>存多久由「客户端最长的重试窗口」定</strong>（🗓️ 24 小时量级），<strong>必须写进 API 文档</strong>。⭐⭐ 主键必须是 <code>(tenant_id, key)</code> —— 重放意味着「拿着键就能拿到那次响应」，全局唯一就是越权读。
+<strong>条件请求</strong>：响应带 <code>ETag</code> → 下次带 <code>If-None-Match</code> → 一样就返 <strong>304 不带 body</strong>。⚠️ <strong>304 省 body 不省往返</strong>，所以只有 <strong>body 大、变化少</strong>的接口值得做；内容哈希最准但<strong>省不了计算只省传输</strong>，⭐ 版本派生便宜得多。⚠️ 它和 04 章的 <strong>LLM 结果缓存是两件事</strong>：那个问「要不要再问一次模型」（省钱），这个问「要不要再传一次字节」（省流量）。
+⭐ <strong><code>If-Match</code> 就是 HTTP 层的乐观锁</strong>，治<strong>丢更新</strong>：A、B 都拿着 <code>v7</code>，A 先存 B 后存，<strong>B 无声覆盖 A，全程零报错</strong>。<code>GET</code> 拿 ETag → <code>PUT</code> 带 <code>If-Match</code> → 对不上返 <strong>412</strong>；服务端只要一条 <code>UPDATE … SET version = version + 1 WHERE id = ? AND version = ?</code>，<strong>受影响行数 0 就是冲突</strong>，不用任何锁。⭐ <strong>412 是「你提的条件不成立」，409 是「你和服务器当前状态打架」。</strong> ⭐⭐ 这个板块尤其该用乐观锁：写路径是「读 → 调模型几十秒 → 写回」，而 06 章明令禁止攥着行锁调外部服务（对照 <strong>8.15 秒 vs 1.15 秒</strong>）；代价是冲突处理推给客户端，所以 412 至少要带上当前版本。
+⭐⭐ <strong>写进评审清单的一条</strong>：<strong>会花钱或改状态的 <code>POST</code>，要么带 <code>Idempotency-Key</code>，要么重新设计成 <code>PUT</code>。</strong> 换栈时不变的是：<strong>没有框架内置 <code>Idempotency-Key</code></strong>，而框架替你做的那半个 ETag 恰好是「把 body 算出来再哈希」—— <strong>省传输不省计算</strong>。</p>
+</blockquote>
+<p><strong>下一节</strong> 👉 <a href="04-调用层.html">04-调用层.md</a></p>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="03b-接口的形状.html"><div class="dir">← 上一节</div>📐 03b · 接口的形状</a><a class="next" href="04-调用层.html"><div class="dir">下一节 →</div>🔌 04 · 调用层</a></nav>
+</main>
+<script>(function(){
+  var KEY="stack-progress", FILE="03c-\u5e42\u7b49\u4e0e\u6761\u4ef6\u8bf7\u6c42.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script></body></html>

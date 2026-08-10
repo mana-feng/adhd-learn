@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>04 · Roofline 与 MFU · AI 基础设施</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:17px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:1.9em;line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:1.42em;margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:1.14em;margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em;display:block;
+ overflow-x:auto}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:.88em;background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:.85em}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:.92em}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:.8em;color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:.85em;color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:.92em}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:.78em;
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:.92em;border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:.93em;line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:.9em;line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:.93em;line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:.92em}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:1.15em;opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+
+.dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:.95em;margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:.93em;line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.02em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:.93em;break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">Roofline 与 MFU</span>
+  <span class="prevnext"><a href="03-显存与带宽墙.html">←</a>
+  <a href="05-互联与集群拓扑.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#roofline">📈 一、Roofline 模型</a></li>
+<li><a href="#mfu">📊 二、MFU：最重要的一个指标</a></li>
+<li><a href="#mfu_2">🔍 三、MFU 低了怎么查（按顺序）</a></li>
+<li><a href="#_3">💰 四、另外两个你该会算的数</a></li>
+<li><a href="#_4">🔗 和你已学的关系</a></li>
+<li><a href="#_5">✅ 检查点</a></li>
+<li><a href="#_6">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<h1 id="04-roofline-mfu">04 · Roofline 与 MFU</h1>
+<p>⏱ <strong>28 分钟</strong> ｜ ⭐⭐ <strong>唯一能回答"我还有多少空间"的工具</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong>不会算 MFU，你的所有优化都是盲调。</strong>
+这一章给你两个工具：<strong>Roofline 告诉你瓶颈在哪，MFU 告诉你离天花板还有多远。</strong></p>
+<figure class="dia" data-fig="roofline"><svg viewBox="0 0 730 394" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Roofline 模型"><line x1="110" y1="270" x2="620" y2="270" stroke="var(--border)" stroke-width="1.5"/><line x1="110" y1="270" x2="110" y2="54" stroke="var(--border)" stroke-width="1.5"/><line x1="110" y1="270" x2="324.2" y2="80" stroke="var(--link)" stroke-width="3.4"/><line x1="324.2" y1="80" x2="620" y2="80" stroke="var(--accent)" stroke-width="3.4"/><line x1="324.2" y1="270" x2="324.2" y2="80" stroke="var(--border)" stroke-width="1.2" stroke-dasharray="4 4"/><text class="dia-t" x="324.2" y="290" font-size="11.5" text-anchor="middle" fill="var(--done)" font-weight="700">平衡点</text><text class="dia-t" x="324.2" y="307" font-size="10.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">A100 ≈ 156</text><circle cx="191.6" cy="197.6" r="7" fill="var(--danger,#e5534b)"/><text class="dia-t" x="191.60000000000002" y="181.6190476190476" font-size="12" text-anchor="middle" fill="var(--danger,#e5534b)" font-weight="700">Decode</text><circle cx="477.2" cy="80.0" r="7" fill="var(--done)"/><text class="dia-t" x="477.2" y="64" font-size="12" text-anchor="middle" fill="var(--done)" font-weight="700">Prefill / 训练</text><text class="dia-t" x="200" y="118" font-size="12.5" text-anchor="middle" fill="var(--link)" font-weight="700">带宽受限</text><text class="dia-t" x="200" y="136" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">（搬不过来）</text><text class="dia-t" x="500" y="100" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">算力受限</text><text class="dia-t" x="500" y="118" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">（算不过来）</text><text class="dia-t" x="365.0" y="332" font-size="12" text-anchor="middle" fill="var(--muted)" font-weight="normal">算术强度 = 每读 1 字节做多少次浮点运算  →</text><text class="dia-t" x="116" y="44" font-size="12" text-anchor="start" fill="var(--muted)" font-weight="normal">实际算力  ↑</text><text class="dia-t" x="365" y="32" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">一条折线，就能判断你被什么卡住了</text><text class="dia-t" x="365" y="356" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">⭐ Decode 天然落在左边斜坡上 —— 它的 MFU 只有 1~5% 是【物理决定的】，不是配置错了</text><text class="dia-t" x="365" y="378" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">所以推理优化的方向是「提高算术强度」（批处理、KV Cache），而不是买更强的算力</text></svg><figcaption>左边斜坡是<b>带宽受限</b>（搬不过来），右边平台是<b>算力受限</b>（算不过来）。⭐ Decode 天然落在左边 —— 它的 MFU 只有 1~5% 是<b>物理决定的</b>，不是配置错了。所以推理优化的方向是「提高算术强度」，不是买更强的算力。</figcaption></figure>
+
+<hr />
+<h2 id="roofline">📈 一、Roofline 模型</h2>
+<p class="dia-lead">横轴是<b>算术强度</b>（FLOP/字节），纵轴是<b>性能</b>（TFLOPS）。曲线由两段拼成：左边一段<b>斜坡</b>（<b>斜率 = 显存带宽</b>，这是带宽上限），右边一段<b>水平屋顶</b>（算力上限，A100 是 <b>312 TFLOPS</b>）。两段的交点就是<b>拐点</b>，A100 落在 <b>156 FLOP/字节</b>。你的每个 kernel 都会落在这张图的某个位置上：</p>
+
+<table>
+<thead>
+<tr>
+<th>你的 kernel 落在哪</th>
+<th>说明</th>
+<th>该优化什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>⭐ <strong>斜坡上</strong></td>
+<td><strong>带宽瓶颈</strong>（算术强度不到 156）</td>
+<td>优化<strong>【搬运】</strong></td>
+</tr>
+<tr>
+<td>⭐ <strong>屋顶下方</strong></td>
+<td><strong>算力瓶颈</strong></td>
+<td>优化<strong>【计算】</strong>或用 Tensor Core</td>
+</tr>
+<tr>
+<td>⭐ <strong>屋顶上</strong></td>
+<td>超过了硬件峰值</td>
+<td><strong>你算错了</strong> 😄</td>
+</tr>
+</tbody>
+</table>
+<p>$$\text{可达性能} = \min(\text{峰值算力},\; \text{算术强度} \times \text{带宽})$$</p>
+<p>💡 <strong>人话</strong>：<em>要么被算力卡住，要么被带宽卡住，取小的那个。</em></p>
+<h3 id="_2">🔨 三步用起来</h3>
+<div class="codehilite"><pre><span></span><code>   ① 算这个 kernel 的 FLOP 和字节数 → 得到算术强度
+   ② 在图上找到它的位置 → 知道理论上限是多少
+   ③ 和实测对比：
+      · 接近理论上限   → 这个 kernel 已经到头了，去优化别的
+      · 远低于理论上限 → 有 bug 或实现差，值得深挖 ⭐
+</code></pre></div>
+
+<blockquote>
+<p>🔑 <strong>Roofline 最大的价值不是"告诉你能快多少"，
+而是"告诉你【不能】快多少"</strong> ——
+一个算术强度只有 2 的 kernel，无论你怎么优化计算，都不可能超过 4 TFLOPS。
+<strong>知道这个，你就不会在错误的地方浪费一周。</strong></p>
+</blockquote>
+<hr />
+<h2 id="mfu">📊 二、MFU：最重要的一个指标</h2>
+<p>$$\text{MFU} = \frac{\text{实际有效算力}}{\text{硬件峰值算力}}$$</p>
+<p><strong>怎么算（这是你真正会用到的）</strong>：</p>
+<div class="codehilite"><pre><span></span><code>   ① 算出一次前向+反向的 FLOP：
+
+      ⭐ Transformer 的经验公式：
+         每个 token 的训练 FLOP ≈ 6 × 参数量
+
+         （前向 2N，反向 4N —— 反向要算两组梯度：
+           对输入的和对权重的，所以是前向的 2 倍）
+
+   ② 实测吞吐（tokens/秒）
+
+   ③ MFU = (6 × N × tokens/秒) / (GPU数 × 峰值FLOPS)
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">mfu</span><span class="p">(</span><span class="n">params_B</span><span class="p">,</span> <span class="n">tokens_per_sec</span><span class="p">,</span> <span class="n">n_gpus</span><span class="p">,</span> <span class="n">peak_tflops</span><span class="o">=</span><span class="mi">312</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Transformer 训练的 MFU。peak_tflops: A100 BF16 = 312&quot;&quot;&quot;</span>
+    <span class="n">flops_per_token</span> <span class="o">=</span> <span class="mi">6</span> <span class="o">*</span> <span class="n">params_B</span> <span class="o">*</span> <span class="mf">1e9</span>
+    <span class="n">achieved</span> <span class="o">=</span> <span class="n">flops_per_token</span> <span class="o">*</span> <span class="n">tokens_per_sec</span>
+    <span class="n">peak</span> <span class="o">=</span> <span class="n">n_gpus</span> <span class="o">*</span> <span class="n">peak_tflops</span> <span class="o">*</span> <span class="mf">1e12</span>
+    <span class="k">return</span> <span class="n">achieved</span> <span class="o">/</span> <span class="n">peak</span>
+
+<span class="c1"># 例：7B 模型，8 卡 A100，实测 12000 tokens/秒</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;MFU = </span><span class="si">{</span><span class="n">mfu</span><span class="p">(</span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">12000</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">)</span><span class="si">:</span><span class="s2">.1%</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>     <span class="c1"># MFU = 20.2%   ⚠️ 偏低，有优化空间</span>
+</code></pre></div>
+
+<details>
+<summary>📐 <b>为什么是 6N（想看再点）</b></summary>
+<p>对一个权重矩阵 $W \in \mathbb{R}^{m\times n}$，处理一个 token：</p>
+<ul>
+<li><strong>前向</strong>：$y = Wx$ → $2mn$ FLOP（一次乘一次加）</li>
+<li><strong>反向对输入的梯度</strong>：$\partial x = W^\top \partial y$ → $2mn$</li>
+<li><strong>反向对权重的梯度</strong>：$\partial W = \partial y\, x^\top$ → $2mn$</li>
+</ul>
+<p>合计 $6mn$，而 $mn$ 就是这个矩阵的参数量 → <strong>6 × 参数量</strong> ⭐</p>
+<p>⚠️ <strong>这个公式忽略了 attention 的 $O(n^2)$ 部分</strong>。
+序列很长时要加上：$\text{每 token} \approx 6N + 12 \cdot L \cdot h \cdot s$
+（L=层数，h=hidden，s=序列长度）。
+<strong>序列 ≥ 8K 时这一项不能忽略。</strong></p>
+</details>
+<h3 id="mfu_1">📏 MFU 该是多少（对照基准）</h3>
+<table>
+<thead>
+<tr>
+<th>MFU</th>
+<th>评价</th>
+<th>该干什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>&lt; 20%</td>
+<td>💀 有明显问题</td>
+<td><strong>先查数据管线，多半是没喂饱</strong></td>
+</tr>
+<tr>
+<td>20–35%</td>
+<td>⚠️ 偏低</td>
+<td>查激活检查点配置、通信、算子融合</td>
+</tr>
+<tr>
+<td>35–45%</td>
+<td>🟡 一般</td>
+<td>常规优化还有空间</td>
+</tr>
+<tr>
+<td><strong>45–55%</strong></td>
+<td>✅ <strong>良好</strong></td>
+<td>已经不错了</td>
+</tr>
+<tr>
+<td>55–60%</td>
+<td>⭐ 优秀</td>
+<td>接近天花板</td>
+</tr>
+<tr>
+<td>&gt; 60%</td>
+<td>🤔 <strong>检查你的公式</strong></td>
+<td>可能算错了（或用了 FP8）</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>🔑 <strong>为什么天花板是 60% 而不是 100%</strong>：
+存在无法消除的开销 —— <strong>通信、非矩阵乘操作（LayerNorm/Softmax/激活函数）、
+数据加载、kernel 启动、优化器更新</strong>。这些都不算进"有效 FLOP"但要占时间。</p>
+</blockquote>
+<hr />
+<h2 id="mfu_2">🔍 三、MFU 低了怎么查（按顺序）</h2>
+<div class="codehilite"><pre><span></span><code>   ① GPU 有没有在跑？        → nvidia-smi 看利用率，长期低于 90% = 没喂饱
+   ② 数据管线跟得上吗？      → 把 dataloader 换成随机张量，MFU 变了吗？⭐
+   ③ 通信占多少？            → 单卡 vs 多卡的 MFU 差多少
+   ④ 非矩阵乘操作占多少？    → profiler 看 kernel 时间分布
+   ⑤ 有没有用上 Tensor Core？→ 精度对不对、维度对齐了吗
+   ⑥ 激活检查点是不是开太狠？→ 全量重算会掉 30% 以上
+</code></pre></div>
+
+<blockquote>
+<p>⭐ <strong>第 ② 步是最值得先做的诊断</strong>：</p>
+<div class="codehilite"><pre><span></span><code># 把真实数据换成固定的随机张量，其他不变
+batch = torch.randint(0, vocab, (B, S), device=&#39;cuda&#39;)
+# 如果 MFU 显著上升 → 瓶颈在数据管线，不在模型（第 22 章）
+</code></pre></div>
+
+<p><strong>这一个实验能在 5 分钟内排除掉一整类问题。</strong></p>
+</blockquote>
+<h3 id="pytorch-profiler">🔬 用 PyTorch Profiler 找热点</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">torch.profiler</span><span class="w"> </span><span class="kn">import</span> <span class="n">profile</span><span class="p">,</span> <span class="n">ProfilerActivity</span><span class="p">,</span> <span class="n">schedule</span>
+
+<span class="k">with</span> <span class="n">profile</span><span class="p">(</span>
+    <span class="n">activities</span><span class="o">=</span><span class="p">[</span><span class="n">ProfilerActivity</span><span class="o">.</span><span class="n">CPU</span><span class="p">,</span> <span class="n">ProfilerActivity</span><span class="o">.</span><span class="n">CUDA</span><span class="p">],</span>
+    <span class="n">schedule</span><span class="o">=</span><span class="n">schedule</span><span class="p">(</span><span class="n">wait</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">warmup</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">active</span><span class="o">=</span><span class="mi">3</span><span class="p">),</span>   <span class="c1"># ⭐ 跳过预热</span>
+    <span class="n">record_shapes</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">profile_memory</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">with_stack</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="k">as</span> <span class="n">prof</span><span class="p">:</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">6</span><span class="p">):</span>
+        <span class="n">train_step</span><span class="p">()</span>
+        <span class="n">prof</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">prof</span><span class="o">.</span><span class="n">key_averages</span><span class="p">()</span><span class="o">.</span><span class="n">table</span><span class="p">(</span>
+    <span class="n">sort_by</span><span class="o">=</span><span class="s2">&quot;self_cuda_time_total&quot;</span><span class="p">,</span> <span class="n">row_limit</span><span class="o">=</span><span class="mi">20</span><span class="p">))</span>   <span class="c1"># ⭐ 看谁最耗时</span>
+<span class="n">prof</span><span class="o">.</span><span class="n">export_chrome_trace</span><span class="p">(</span><span class="s2">&quot;trace.json&quot;</span><span class="p">)</span>               <span class="c1"># 拖进 chrome://tracing</span>
+</code></pre></div>
+
+<p><strong>读 trace 的三个信号</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>你看到</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>GPU 时间轴上有空隙</strong></td>
+<td>GPU 在等 CPU 或数据 → 数据管线 / CPU 开销</td>
+</tr>
+<tr>
+<td><strong>一堆小 kernel 密集排列</strong></td>
+<td>没有融合，kernel 启动开销占比高 → <a href="07-算子融合与编译.html">第 7 章</a></td>
+</tr>
+<tr>
+<td><strong>通信 kernel（nccl）占比大</strong></td>
+<td>通信瓶颈 → 检查拓扑或换并行策略</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_3">💰 四、另外两个你该会算的数</h2>
+<h3 id="1">① 训练一个模型要多久</h3>
+<p>$$\text{训练时间} \approx \frac{6 \times N \times D}{\text{GPU数} \times \text{峰值FLOPS} \times \text{MFU}}$$</p>
+<p>（N = 参数量，D = 训练 token 数）</p>
+<div class="codehilite"><pre><span></span><code>   例：7B 模型，1T tokens，64 张 A100，MFU 45%
+
+   6 × 7e9 × 1e12 / (64 × 312e12 × 0.45)
+   = 4.2e22 / 8.98e15
+   ≈ 4.7e6 秒 ≈ 54 天
+
+   ⭐ 如果 MFU 只有 25%：97 天 —— 差了 43 天的机时
+</code></pre></div>
+
+<blockquote>
+<p>💡 <strong>这个公式的实用价值</strong>：<strong>在开始训练之前就能估算成本。</strong>
+MFU 从 25% 提到 45%，在这个例子里省下的机时价值几十万元。</p>
+</blockquote>
+<h3 id="2">② 推理成本</h3>
+<div class="codehilite"><pre><span></span><code>   每个输出 token 的 FLOP ≈ 2 × 参数量   （只有前向）
+
+   ⚠️ 但推理是【带宽瓶颈】，用 FLOP 算会严重低估
+   ⭐ 正确的估法：每生成 1 个 token 至少要把【全部权重读一遍】
+
+   → 理论最快解码速度 = 显存带宽 / 模型大小
+
+   例：7B 模型 BF16（14GB），A100（2TB/s）
+       2000 / 14 ≈ 143 tokens/秒   ← 单个请求的理论上限 ⭐
+</code></pre></div>
+
+<blockquote>
+<p>🔑 <strong>这个"带宽除以模型大小"是推理领域最有用的心算公式</strong>：
+它解释了为什么<strong>量化能直接提速</strong>（模型小一半 → 速度快一倍），
+也解释了为什么<strong>批处理是免费的</strong>（读一遍权重服务多个请求）。
+🔗 <a href="15-推理和训练是两回事.html">第 15</a>、<a href="16-KV-Cache.html">16</a>、<a href="18-量化.html">18 章</a>全建立在这上面。</p>
+</blockquote>
+<hr />
+<h2 id="_4">🔗 和你已学的关系</h2>
+<table>
+<thead>
+<tr>
+<th>你已经知道的</th>
+<th>这里的位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="03-显存与带宽墙.html">第 3 章</a> 算术强度</td>
+<td><strong>Roofline 的横轴</strong> ⭐</td>
+</tr>
+<tr>
+<td><a href="03-显存与带宽墙.html">第 3 章</a> 平衡点 156</td>
+<td>Roofline 的拐点</td>
+</tr>
+<tr>
+<td><a href="01-AI-Infra在解决什么问题.html">第 1 章</a> 先测再优化</td>
+<td>本章就是"怎么测"</td>
+</tr>
+<tr>
+<td><a href="02-GPU到底是什么.html">第 2 章</a> GPU-Util 有误导性</td>
+<td><strong>MFU 才是真指标</strong> ⭐</td>
+</tr>
+<tr>
+<td><a href="../机器学习与深度学习基础/11-训练调试手册.html">《机器学习与深度学习基础》11 训练调试手册</a> 「GPU 跑不满」</td>
+<td>那里只能定性说"利用率忽高忽低"，<strong>MFU 把它变成一个能横向比较的数字</strong> ⭐</td>
+</tr>
+<tr>
+<td><a href="../大模型全景导论/06-推理优化.html">《大模型全景导论》06 推理优化</a> 量化 / 批处理 / 投机解码</td>
+<td><strong>那三件武器的共同依据，就是本章末尾的"带宽 ÷ 模型大小"</strong> ⭐</td>
+</tr>
+<tr>
+<td><a href="../模型上线之后/18-成本与容量.html">《模型上线之后》18 成本与容量</a></td>
+<td>本章算的是机时；<strong>折成"一次请求多少钱、峰值要几台机器"在那边</strong></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_5">✅ 检查点</h2>
+<ol>
+<li>Roofline 模型的两条线分别代表什么？拐点在哪？</li>
+<li>Roofline 最大的价值是什么？（不是"能快多少"）</li>
+<li>MFU 怎么算？Transformer 每 token 的训练 FLOP 是多少？</li>
+<li>为什么是 6N？这个公式什么时候会失准？</li>
+<li>MFU 多少算良好？为什么天花板是 60% 而不是 100%？</li>
+<li>MFU 低了，最值得先做的一个诊断实验是什么？</li>
+<li>读 profiler trace 时，"GPU 时间轴有空隙"说明什么？</li>
+<li>推理领域最有用的心算公式是什么？它解释了哪两件事？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li>斜坡是<strong>带宽上限</strong>（斜率=显存带宽），屋顶是<strong>算力上限</strong>。拐点在算术强度 = 峰值算力/带宽，A100 上是 <strong>156 FLOP/字节</strong>。</li>
+<li><strong>告诉你"不能"快多少</strong>。一个算术强度只有 2 的 kernel，无论怎么优化计算都超不过 4 TFLOPS——知道这个就不会在错误的地方浪费一周。</li>
+<li>MFU = (6 × 参数量 × tokens/秒) / (GPU数 × 峰值FLOPS)。每 token 训练 FLOP ≈ <strong>6 × 参数量</strong>。</li>
+<li>前向 2mn + 反向对输入 2mn + 反向对权重 2mn = 6mn，而 mn 就是参数量。<strong>忽略了 attention 的 O(n²) 部分</strong>，序列 ≥ 8K 时会失准，要加 12·L·h·s。</li>
+<li><strong>45–55% 良好，55–60% 优秀</strong>。天花板不是 100% 是因为存在无法消除的开销：<strong>通信、非矩阵乘操作（LayerNorm/Softmax）、数据加载、kernel 启动、优化器更新</strong>——占时间但不算有效 FLOP。</li>
+<li><strong>把 dataloader 换成固定的随机张量</strong>，其他不变。如果 MFU 显著上升 → 瓶颈在数据管线不在模型。<strong>5 分钟排除一整类问题</strong>。</li>
+<li><strong>GPU 在等 CPU 或等数据</strong> → 数据管线或 CPU 开销有问题。</li>
+<li><strong>理论最快解码速度 = 显存带宽 ÷ 模型大小</strong>（7B BF16 在 A100 上 ≈ 143 tokens/秒）。解释了：<strong>量化能直接提速</strong>（模型小一半速度快一倍）、<strong>批处理是免费的</strong>（读一遍权重服务多个请求）。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_6">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong></p>
+<blockquote>
+<p>⭐⭐<strong>不会算 MFU，所有优化都是盲调</strong>。<strong>Roofline</strong>：可达性能 = min(峰值算力, 算术强度×带宽)；斜坡=带宽上限、屋顶=算力上限、<strong>拐点在 156</strong>（A100）。⭐<strong>它最大的价值是告诉你"不能"快多少</strong>——算术强度 2 的 kernel 怎么优化都超不过 4 TFLOPS，知道这个就不会浪费一周。⭐⭐<strong>MFU = (6×参数量×tokens/秒) / (GPU数×峰值FLOPS)</strong>；<strong>每 token 训练 FLOP ≈ 6N</strong>（前向2N + 反向对输入2N + 反向对权重2N），⚠️<strong>忽略了 attention 的 O(n²)，序列≥8K 时要加 12·L·h·s</strong>。<strong>基准</strong>：&lt;20% 有明显问题、20-35% 偏低、<strong>45-55% 良好</strong>、55-60% 优秀、&gt;60% 检查公式；⭐<strong>天花板是 60% 不是 100%，因为通信/LayerNorm/Softmax/数据加载/kernel启动/优化器更新占时间但不算有效 FLOP</strong>。<strong>MFU 低了按序查</strong>：GPU在跑吗 → ⭐<strong>把 dataloader 换成随机张量（5 分钟排除一整类问题）</strong> → 通信占比 → 非矩阵乘占比 → Tensor Core 用上没（精度和维度对齐）→ 检查点开太狠。<strong>读 trace 三信号</strong>：<strong>时间轴有空隙</strong>=在等CPU/数据、<strong>一堆小 kernel</strong>=没融合、<strong>nccl 占比大</strong>=通信瓶颈。<strong>训练时间 ≈ 6ND / (GPU数×峰值×MFU)</strong>（7B/1T tokens/64卡/MFU45% ≈ <strong>54 天</strong>，MFU 25% 则 97 天）。⭐⭐<strong>推理最有用的心算：理论最快解码速度 = 显存带宽 ÷ 模型大小</strong>（7B BF16 在 A100 上 ≈ <strong>143 tokens/秒</strong>）——它解释了<strong>量化为什么直接提速</strong>和<strong>批处理为什么是免费的</strong>。</p>
+</blockquote>
+<p><strong>下一节</strong> 👉 <a href="05-互联与集群拓扑.html">05-互联与集群拓扑.md</a></p>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="03-显存与带宽墙.html"><div class="dir">← 上一节</div>⭐⭐ 显存与带宽墙</a><a class="next" href="05-互联与集群拓扑.html"><div class="dir">下一节 →</div>⭐ 互联与拓扑</a></nav>
+</main>
+<script>(function(){
+  var KEY="aiinfra", FILE="04-Roofline\u4e0eMFU.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script></body></html>
