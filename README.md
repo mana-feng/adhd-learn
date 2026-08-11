@@ -4,7 +4,7 @@
 
 15 个板块 · 376 章 · 约 235 万字 · 纯静态 HTML，**下载下来双击就能离线看**。
 
-🌐 **在线版 → [fuckyoukaggle.manafeng.com](https://fuckyoukaggle.manafeng.com)**
+🌐 **在线版 → [adhd-learn.manafeng.com](https://adhd-learn.manafeng.com)**
 
 ---
 
@@ -33,21 +33,21 @@
 
 | 板块 | 章数 | 时长 | 讲什么 |
 |---|---|---|---|
-| [机器学习与深度学习基础](https://fuckyoukaggle.manafeng.com/机器学习与深度学习基础/index.html) | 25 | 9.3 h | ⭐ **承重墙**，其余板块都建在它上面 |
-| [机器学习的数学原理](https://fuckyoukaggle.manafeng.com/机器学习的数学原理/index.html) | 19 | 8.1 h | 上一层的「为什么能 work」 |
-| [大模型全景导论](https://fuckyoukaggle.manafeng.com/大模型全景导论/index.html) | 21 | 13.5 h | 索引式，只求「知道有这么回事」，帮你选方向 |
+| [机器学习与深度学习基础](https://adhd-learn.manafeng.com/机器学习与深度学习基础/index.html) | 25 | 9.3 h | ⭐ **承重墙**，其余板块都建在它上面 |
+| [机器学习的数学原理](https://adhd-learn.manafeng.com/机器学习的数学原理/index.html) | 19 | 8.1 h | 上一层的「为什么能 work」 |
+| [大模型全景导论](https://adhd-learn.manafeng.com/大模型全景导论/index.html) | 21 | 13.5 h | 索引式，只求「知道有这么回事」，帮你选方向 |
 
 ### 🔨 各个方向
 
 | 板块 | 章数 | 时长 | 讲什么 |
 |---|---|---|---|
-| [智能体工程教程](https://fuckyoukaggle.manafeng.com/智能体工程教程/index.html) | 26 | 11.2 h | 大模型应用层，从裸 HTTP 到框架 |
-| [强化学习基础](https://fuckyoukaggle.manafeng.com/强化学习基础/index.html) | 17 | 6.5 h | 序贯决策 / RLHF / DPO |
-| [推荐算法](https://fuckyoukaggle.manafeng.com/推荐算法/index.html) | 27 | 8.6 h | 工业系统视角 |
-| [Kaggle竞赛方法论](https://fuckyoukaggle.manafeng.com/Kaggle竞赛方法论/index.html) | 25 | 12.8 h | 打榜查阅手册 |
-| [不靠数据的AI](https://fuckyoukaggle.manafeng.com/不靠数据的AI/index.html) | 22 | 11.5 h | ⭐ 其余板块都讲「从数据里学」，**这一套讲「在空间里搜」**——A\*、α-β 剪枝、CSP、贝叶斯网络 |
-| [博弈论与集体决策](https://fuckyoukaggle.manafeng.com/博弈论与集体决策/index.html) | 29 | 17.0 h | ⭐ 前面几套默认「对面不会算计你」，**这一套讲那个假设失效之后** |
-| [密码学与信息安全](https://fuckyoukaggle.manafeng.com/密码学与信息安全/index.html) | 26 | 10.0 h | 另一个方向的基本功 |
+| [智能体工程教程](https://adhd-learn.manafeng.com/智能体工程教程/index.html) | 26 | 11.2 h | 大模型应用层，从裸 HTTP 到框架 |
+| [强化学习基础](https://adhd-learn.manafeng.com/强化学习基础/index.html) | 17 | 6.5 h | 序贯决策 / RLHF / DPO |
+| [推荐算法](https://adhd-learn.manafeng.com/推荐算法/index.html) | 27 | 8.6 h | 工业系统视角 |
+| [Kaggle竞赛方法论](https://adhd-learn.manafeng.com/Kaggle竞赛方法论/index.html) | 25 | 12.8 h | 打榜查阅手册 |
+| [不靠数据的AI](https://adhd-learn.manafeng.com/不靠数据的AI/index.html) | 22 | 11.5 h | ⭐ 其余板块都讲「从数据里学」，**这一套讲「在空间里搜」**——A\*、α-β 剪枝、CSP、贝叶斯网络 |
+| [博弈论与集体决策](https://adhd-learn.manafeng.com/博弈论与集体决策/index.html) | 29 | 17.0 h | ⭐ 前面几套默认「对面不会算计你」，**这一套讲那个假设失效之后** |
+| [密码学与信息安全](https://adhd-learn.manafeng.com/密码学与信息安全/index.html) | 26 | 10.0 h | 另一个方向的基本功 |
 
 ### 🚀 让它真的跑起来
 
@@ -55,18 +55,18 @@
 
 | 板块 | 章数 | 时长 | 讲什么 |
 |---|---|---|---|
-| [数据这一关](https://fuckyoukaggle.manafeng.com/数据这一关/index.html) | 22 | 21.4 h | 数据进模型**之前**的那一半 |
-| [AI全栈](https://fuckyoukaggle.manafeng.com/AI全栈/index.html) | 29 | 23.7 h | ⭐ 把模型包成一个别人能用的产品——后端 / 流式 / 存储 / 认证 / 队列 / 部署 |
-| [AI基础设施](https://fuckyoukaggle.manafeng.com/AI基础设施/index.html) | 28 | 13.3 h | 算力与工程底座 |
-| [模型上线之后](https://fuckyoukaggle.manafeng.com/模型上线之后/index.html) | 22 | 13.7 h | 模型训完之后的那一半 |
+| [数据这一关](https://adhd-learn.manafeng.com/数据这一关/index.html) | 22 | 21.4 h | 数据进模型**之前**的那一半 |
+| [AI全栈](https://adhd-learn.manafeng.com/AI全栈/index.html) | 29 | 23.7 h | ⭐ 把模型包成一个别人能用的产品——后端 / 流式 / 存储 / 认证 / 队列 / 部署 |
+| [AI基础设施](https://adhd-learn.manafeng.com/AI基础设施/index.html) | 28 | 13.3 h | 算力与工程底座 |
+| [模型上线之后](https://adhd-learn.manafeng.com/模型上线之后/index.html) | 22 | 13.7 h | 模型训完之后的那一半 |
 
 ### 📚 一手资料
 
 | 板块 | 章数 | 时长 | 讲什么 |
 |---|---|---|---|
-| [Claude博客资料库](https://fuckyoukaggle.manafeng.com/Claude博客资料库/index.html) | 38 | 7.6 h | 官方博客整理，可回溯原文 |
+| [Claude博客资料库](https://adhd-learn.manafeng.com/Claude博客资料库/index.html) | 38 | 7.6 h | 官方博客整理，可回溯原文 |
 
-> 💡 **不知道从哪开始？** 打开[总目录](https://fuckyoukaggle.manafeng.com/)，或者直接读[《大模型全景导论》](https://fuckyoukaggle.manafeng.com/大模型全景导论/index.html)——
+> 💡 **不知道从哪开始？** 打开[总目录](https://adhd-learn.manafeng.com/)，或者直接读[《大模型全景导论》](https://adhd-learn.manafeng.com/大模型全景导论/index.html)——
 > 它的存在意义就是**帮你把「我该学什么」这个问题关掉**。
 
 ---
