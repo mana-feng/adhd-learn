@@ -271,7 +271,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#transformer">🧠 核心概念二：一层 Transformer 长什么样</a></li>
 <li><a href="#_6">🧠 核心概念三：因果掩码（为什么它只会「续写」）</a></li>
 <li><a href="#kv-cache">🧠 核心概念四：KV Cache（连接到你已知的痛点）</a></li>
-<li><a href="#_8">🔗 和你已知的关系</a></li>
+<li><a href="#_8">🔗 和站内其他章的关系</a></li>
 <li><a href="#_9">📦 深挖的话要学什么</a></li>
 <li><a href="#_10">⚖️ 要不要深挖</a></li>
 <li><a href="#_11">✅ 检查点</a></li>
@@ -297,11 +297,16 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="attention">🧠 核心概念一：注意力（Attention）</h2>
 <h3 id="_2">先看它解决什么问题</h3>
-<div class="codehilite"><pre><span></span><code>   句子：「那只猫没抓到它，因为它跑得太快」
+<div class="codehilite"><pre><span></span><code>   句子：「那只猫没抓到那只老鼠，因为它跑得太快」
 
-   第二个「它」指谁？猫还是老鼠？
+   「它」指谁？猫还是老鼠？
    → 要理解「它」，必须看句子里的其他词
    → 而且不同的词，重要程度不一样
+
+   ⭐ 判别的关键在「跑得太快」：
+      跑得快 → 逃掉了 → 所以「它」是【老鼠】
+      （把「太快」换成「太慢」，答案立刻翻转成【猫】——
+        句子其余部分一个字没变，只有这一个线索词在决定答案）
 </code></pre></div>
 
 <p><strong>注意力 = 给每个词分配「该看谁、看多重」的权重。</strong></p>
@@ -327,32 +332,36 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <code>÷√d_k</code> = 防止维度高时数值过大导致 softmax 变得极端
 <code>softmax</code> = 把分数变成权重（加起来 = 1）
 <code>×V</code> = 按权重把大家的内容混合起来</p>
-<p>🔗 <strong>如果你做过推荐或搜索</strong>：这里的「点积衡量相关度」和<a href="../推荐算法/05-矩阵分解.html">矩阵分解里的用户向量·物品向量</a><strong>是同一个思想</strong>。
+<p>🔗 <strong>如果你做过推荐或搜索</strong>：这里的「点积衡量相关度」和<a href="../推荐算法/05-矩阵分解.html">矩阵分解里的用户向量·物品向量</a><strong>是同一个思想</strong>——
+推荐里把它做成一整套结构，就是<strong><a href="../推荐算法/08-深度学习推荐模型.html">双塔召回 DSSM</a></strong>（用户塔算 Q、物品塔算 K）。
 区别只有一个：<strong>推荐取 top-k 是"硬选"，注意力用 softmax 是"软选"且可微。</strong></p>
 </blockquote>
 <h3 id="_3">🧮 用那个句子走一遍</h3>
-<div class="codehilite"><pre><span></span><code>   「那只猫没抓到它，因为它跑得太快」
-                          ↑ 处理这个「它」
+<div class="codehilite"><pre><span></span><code>   「那只猫没抓到那只老鼠，因为它跑得太快」
+                              ↑ 处理这个「它」
 
    ① 「它」的 Query 大致在问：「我是个代词，我指的是谁？」
 
    ② 和每个词的 Key 打分（数字是示意）：
-        那只  0.1
-        猫    2.8   ← 名词，可能是指代对象
+        猫    1.2   ← 也是名词，是个候选，但线索对不上
         没    0.1
         抓到  0.9   ← 动作，提供了语义线索
-        它    0.3
+        老鼠  2.8   ← 「跑得快所以逃掉了」的那一个 ⭐
         因为  0.2
-        跑得  1.5   ← 「跑得快」这个属性很关键
+        跑得  1.5   ← 「跑得快」这个属性是判别的关键
         太快  1.4
 
-   ③ softmax 后 → 「猫」拿到最大权重
+   ③ softmax 后 → 「老鼠」拿到最大权重
 
    ④ 加权求和各词的 Value
-      → 「它」的新向量里，混进了大量「猫」的信息 ⭐
+      → 「它」的新向量里，混进了大量「老鼠」的信息 ⭐
 
    💡 经过这一层之后，「它」这个 token 的表示，
-      已经不再是通用的&quot;它&quot;，而是&quot;指代猫的那个它&quot;
+      已经不再是通用的&quot;它&quot;，而是&quot;指代老鼠的那个它&quot;
+
+   ⚠️ 注意「猫」也拿了 1.2 分——它确实是个语法上合格的候选。
+      真正把票投给老鼠的是「跑得/太快」这两个词。
+      ⭐ 这正是注意力比「就近找个名词」强的地方：它是【所有词一起投票】。
 </code></pre></div>
 
 <blockquote>
@@ -396,7 +405,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
    输出（喂给下一层）
 </code></pre></div>
 
-<p><strong>堆 32～120 层</strong>，就是一个现代大模型。</p>
+<p><strong>堆 32～120 层</strong>，大模型的骨架就是这个。</p>
+<p>⚠️ 上面画的是 <strong>2017 年那版原始 Transformer</strong>（LayerNorm 在残差【之后】，即 Post-LN）。
+今天的模型在这张图上还有四处小改动（其中之一就是把 LayerNorm 挪到前面，Pre-LN）——见 <a href="02b-现代LLM架构的四处改动.html">02b · 现代 LLM 架构的四处改动</a>。</p>
 <blockquote>
 <p>💡 <strong>反直觉的事实</strong>：参数量的大头在 <strong>FFN</strong>（约 2/3），不是注意力。注意力负责「词之间交流」，FFN 负责「存知识」——研究表明事实性知识主要存在 FFN 里。</p>
 </blockquote>
@@ -458,7 +469,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><strong>位置编码</strong></td>
-<td><strong>打乱词序结果完全一样</strong>（注意力是置换等变的）</td>
+<td><strong>打乱词序，每个词算出来的东西跟着一起换位、内容不变</strong>（注意力是<strong>置换等变</strong>的）—— ⚠️ 这是<strong>还没加因果掩码时</strong>的严格结论，掩码本身也携带位置信息</td>
 </tr>
 </tbody>
 </table>
@@ -488,17 +499,24 @@ Transformer 的贡献是<strong>组合方式</strong>，不是发明新零件。
    有  Cache：每步只算新词的 QKV，快几十倍 ✅
 
    代价：显存！
-   KV Cache 大小 ≈ 2 × 层数 × 头数 × 头维度 × 序列长度 × batch × 精度字节
+   KV Cache 大小 ≈ 2 × 层数 × KV 头数 × 头维度 × 序列长度 × batch × 精度字节
+                             ↑ ⭐ 是【存 K/V 的头数】，不一定等于注意力头数
+                               早期模型两者相等；今天多数模型用 GQA，KV 头少得多
    → 长上下文时，KV Cache 可能比模型权重还占显存 💀
 </code></pre></div>
 
 <blockquote>
 <p>🔑 <strong>这一条解释了两件你早就遇到的事</strong>：
 1. 为什么长上下文那么贵 —— KV Cache 线性增长，且吃显存
-2. 为什么「上下文腐烂」（智能体教程第 4 章）—— 注意力要算 n² 的两两关系，token 越多，每个词分到的注意力越被摊薄</p>
+2. ⚠️ <strong>「上下文腐烂」不是 KV Cache 的锅</strong> —— 它是<strong>注意力本身</strong>的性质：一个词的 softmax 权重
+   总和恒为 1，要分给 <strong>n</strong> 个词，token 翻倍，平均份额就减半（叠加长序列训练数据少、位置编码要外推）。
+   ⭐ <strong>KV Cache 是精确复用，开不开都不改变模型输出</strong>，它只影响显存和重复计算。（智能体教程第 4 章）</p>
 </blockquote>
+<p>⚠️ <strong>别把两个 n² 搞混</strong>：上面「没有 Cache 时 O(n²)」说的是<strong>重复计算量</strong>，那个是 KV Cache 能消掉的；
+而「腐烂」的分母是 <strong>n</strong>（一个词要把总和为 1 的注意力分给 n 个词），<strong>和缓存无关，也消不掉</strong>。</p>
 <h3 id="_7">🧮 算一个具体的数</h3>
-<div class="codehilite"><pre><span></span><code>   一个 70B 模型（80 层，64 头，头维度 128，FP16）：
+<div class="codehilite"><pre><span></span><code>   一个 70B 模型（80 层，头维度 128，FP16），先按【每个头各存自己的 K/V】算：
+   ⚠️ 也就是 GQA 出现【之前】的算法，64 个注意力头 = 64 组 K/V
 
    每个 token 的 KV Cache = 2 × 80 × 64 × 128 × 2 字节 ≈ 2.6 MB
 
@@ -508,11 +526,15 @@ Transformer 的贡献是<strong>组合方式</strong>，不是发明新零件。
    ⭐ 模型权重才 140GB —— KV Cache 轻松超过它
 </code></pre></div>
 
+<p>⚠️ <strong>上面这个数是「问题有多大」，不是今天的实际值。</strong> 真实的 Llama-2/3 70B 用的是 <strong>GQA-8</strong>
+（64 个注意力头共享 <strong>8</strong> 组 K/V），每 token 约 <strong>320 KB</strong>，10 万 token 约 <strong>32 GB</strong> ——
+⭐ <strong>正好是上面那个数的 1/8</strong>，而这 8 倍差距就是下面这一小节的全部内容。</p>
 <blockquote>
 <p>💡 <strong>这就是 MQA / GQA 存在的理由</strong>：
 让多个 Query 头<strong>共享同一组 K 和 V</strong>，KV Cache 直接砍到 1/8 甚至 1/64。
 <strong>代价是一点点效果，换来的是长上下文变得可负担。</strong>
-🔗 详见<a href="06-推理优化.html">第 6 章推理优化</a>。</p>
+🔗 <strong>完整展开在<a href="../AI基础设施/16-KV-Cache.html">AI基础设施 16 · KV-Cache</a></strong>（MHA / MQA / GQA 三者的存储形态对照、MLA、以及具体省了多少）；
+<a href="06-推理优化.html">第 6 章推理优化</a>会在部署武器清单里再提它一次。</p>
 </blockquote>
 <h3 id="prefill-vs-decode">⏱️ 两个阶段：Prefill vs Decode（理解延迟的关键）</h3>
 <div class="codehilite"><pre><span></span><code>   ① Prefill（预填充）：处理你的输入
@@ -533,7 +555,7 @@ Transformer 的贡献是<strong>组合方式</strong>，不是发明新零件。
 - <strong>为什么 Prefix Caching 省这么多</strong>：它直接跳过了 prefill 的重复计算</p>
 </blockquote>
 <hr />
-<h2 id="_8">🔗 和你已知的关系</h2>
+<h2 id="_8">🔗 和站内其他章的关系</h2>
 <p>左列有的来自日常用 LLM 的经验，有的在站内别的板块讲过——<strong>碰上过哪几条就从哪几条接进来，一条没碰过也不影响读这一章</strong>。</p>
 <table>
 <thead>
@@ -623,7 +645,7 @@ Transformer 的贡献是<strong>组合方式</strong>，不是发明新零件。
 <h2 id="_11">✅ 检查点</h2>
 <ol>
 <li>注意力里的 Q、K、V 各是什么角色？它和推荐系统的双塔召回什么区别？</li>
-<li>用「那只猫没抓到它」那个例子说：经过一层注意力后，「它」这个 token 发生了什么？</li>
+<li>用「那只猫没抓到那只老鼠，因为它跑得太快」那个例子说：经过一层注意力后，「它」这个 token 发生了什么？是哪几个词决定了答案？</li>
 <li>注意力和 FFN 的分工是什么？这个分工解释了哪三件事？</li>
 <li>五个零件里，拿掉哪个会导致"打乱词序结果不变"？拿掉哪个会导致"几十层训不动"？</li>
 <li>参数量的大头在注意力还是 FFN？为什么 MoE 只替换 FFN？</li>
@@ -636,12 +658,12 @@ Transformer 的贡献是<strong>组合方式</strong>，不是发明新零件。
 <summary>👀 答案</summary>
 <ol>
 <li>Q=我想找什么（需求），K=我是什么（索引），V=我的内容。Q·K 算相关度，softmax 成权重，加权求和 V。<strong>和双塔召回是同一个思想（点积算相关度），区别是召回取 top-k 硬选、注意力用 softmax 软选且可微。</strong></li>
-<li>「它」的 Query 在问"我指谁"，和「猫」的 Key 打分最高，softmax 后「猫」拿到最大权重，加权求和时<strong>「猫」的信息被大量混进「它」的新向量</strong>——它从通用的"它"变成了"指代猫的那个它"。</li>
+<li>「它」的 Query 在问"我指谁"，和「<strong>老鼠</strong>」的 Key 打分最高，softmax 后「老鼠」拿到最大权重，加权求和时<strong>「老鼠」的信息被大量混进「它」的新向量</strong>——它从通用的"它"变成了"指代老鼠的那个它"。⭐ <strong>决定答案的是「跑得/太快」这两个线索词</strong>：跑得快说明是逃掉的那个。「猫」也是语法上合格的候选、也拿了分，但线索对不上——<strong>注意力是所有词一起投票，不是就近找个名词</strong>。</li>
 <li><strong>注意力是横向的（token 之间交换信息），FFN 是纵向的（每个 token 单独深加工）</strong>。解释了：①MoE 为什么只替换 FFN（参数大头，且注意力必须每个 token 参与）②事实性知识存在 FFN 里 ③<strong>为什么加长上下文不增加知识量</strong>（上下文影响注意力侧，FFN 的知识是训练时固化的）。</li>
 <li>拿掉<strong>位置编码</strong> → 打乱词序结果不变（注意力是置换等变的）；拿掉<strong>残差连接</strong> → 几十层训不动（梯度连乘消失）。</li>
 <li><strong>FFN（约 2/3）</strong>。MoE 只替换 FFN 是因为它是参数大头、稀疏化收益最大，而注意力必须每个 token 都参与不能稀疏。</li>
 <li>禁止看未来的词，强制模型学"根据前文猜下一个词"（自回归）。导致模型<strong>本质是续写机</strong>，只能一个字一个字生成。</li>
-<li>避免每生成一个词就重算前面所有词的 K/V。<strong>70B 模型每 token 约 2.6MB，10 万 token ≈ 260GB</strong>——比 140GB 的模型权重还大。这就是 MQA/GQA（共享 KV）存在的理由。</li>
+<li>避免每生成一个词就重算前面所有词的 K/V。<strong>按「每个头各存 K/V」（GQA 之前）算，70B 模型每 token 约 2.6MB，10 万 token ≈ 260GB</strong>——比 140GB 的模型权重还大。⭐ 这就是 MQA/GQA（多个 Q 头共享 K/V）存在的理由；真实的 Llama-2/3 70B 用 GQA-8，每 token 约 320KB，正好是 1/8。</li>
 <li><strong>Prefill 受算力限制</strong>（所有 token 并行，GPU 吃满，决定首字延迟）；<strong>Decode 受显存带宽限制</strong>（每步只算 1 个 token 却要读全部 KV Cache）。解释了：①输出比输入贵（decode 时 GPU 利用率极低）②<strong>batch 起来几乎不增加时间</strong>（带宽瓶颈）③Prefix Caching 省很多（跳过 prefill 重复计算）。</li>
 <li><strong>贵</strong>：KV Cache 随长度线性增长，占显存和带宽，decode 阶段每步都要读完整个 Cache。<strong>腐烂</strong>：注意力要算 n² 的两两关系，token 越多每个词分到的注意力越稀薄；加上长序列训练数据少、位置编码要外推。</li>
 </ol>
@@ -650,7 +672,7 @@ Transformer 的贡献是<strong>组合方式</strong>，不是发明新零件。
 <h2 id="_12">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>Transformer=让每个词看其他词并更新自己。注意力用QKV：Q·K算相关度→softmax成权重→加权求和V（<strong>就是点积，和推荐的双塔同源，区别只是硬选vs软选</strong>）——⭐<strong>走一遍「猫…它」的例子：「它」的Q问"我指谁"，「猫」的K得分最高，加权后猫的信息混进「它」的向量 → 它从通用的"它"变成"指代猫的它"</strong>。多头=并行多组捕捉不同关系。一层=注意力+残差+LayerNorm+FFN。⭐<strong>分工：注意力是横向的(token之间交换信息)，FFN是纵向的(每个token单独深加工)；FFN是参数大头(2/3)且存知识</strong>——这解释了 MoE 为什么只替换FFN、以及<strong>为什么加长上下文不增加知识量</strong>。五零件拿掉的后果：<strong>没位置编码→打乱词序结果不变；没残差→几十层训不动</strong>。因果掩码→只能续写(自回归)。<strong>KV Cache</strong>避免重算但吃显存——<strong>70B模型10万token要260GB，比140GB的权重还大</strong>，这就是MQA/GQA的理由。⭐<strong>Prefill受算力限制(并行，决定首字延迟)、Decode受显存带宽限制(每步算1个token却要读全部Cache)</strong> → 解释了输出比输入贵、<strong>batch起来几乎不增加时间</strong>、Prefix Caching 为什么省。<strong>性价比最高的一块，建议补。</strong></p>
+<p>Transformer=让每个词看其他词并更新自己。注意力用QKV：Q·K算相关度→softmax成权重→加权求和V（<strong>就是点积，和推荐的双塔同源，区别只是硬选vs软选</strong>）——⭐<strong>走一遍「那只猫没抓到那只老鼠，因为它跑得太快」：「它」的Q问"我指谁"，「老鼠」的K得分最高（判别线索是「跑得/太快」——跑得快说明是逃掉的那个），加权后老鼠的信息混进「它」的向量 → 它从通用的"它"变成"指代老鼠的它"。⚠️「猫」也是合格候选、也拿了分，真正把票投给老鼠的是那两个线索词</strong>。多头=并行多组捕捉不同关系。一层=注意力+残差+LayerNorm+FFN。⭐<strong>分工：注意力是横向的(token之间交换信息)，FFN是纵向的(每个token单独深加工)；FFN是参数大头(2/3)且存知识</strong>——这解释了 MoE 为什么只替换FFN、以及<strong>为什么加长上下文不增加知识量</strong>。五零件拿掉的后果：<strong>没位置编码→打乱词序结果不变；没残差→几十层训不动</strong>。因果掩码→只能续写(自回归)。<strong>KV Cache</strong>避免重算但吃显存——<strong>70B模型10万token要260GB，比140GB的权重还大</strong>，这就是MQA/GQA的理由。⭐<strong>Prefill受算力限制(并行，决定首字延迟)、Decode受显存带宽限制(每步算1个token却要读全部Cache)</strong> → 解释了输出比输入贵、<strong>batch起来几乎不增加时间</strong>、Prefix Caching 为什么省。<strong>性价比最高的一块，建议补。</strong></p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="02b-现代LLM架构的四处改动.html">02b-现代LLM架构的四处改动.md</a></p>
 <blockquote>
