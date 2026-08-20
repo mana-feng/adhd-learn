@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>01 · 一条查询是怎么跑的 · SQL 查询这一关</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:1.9em;line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:1.42em;margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:1.14em;margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:.88em;background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:.85em}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:.92em}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:.8em;color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:.85em;color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:.92em}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:.78em;
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:.92em;border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:.93em;line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:.9em;line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:.93em;line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:.92em}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:1.15em;opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:.82em;
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
+
+.dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:.95em;margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:.93em;line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.02em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:.93em;break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">01 · 一条查询是怎么跑的</span>
+  <span class="prevnext"><a href="00-怎么用这份教程.html">←</a>
+  <a href="02-JOIN的几种语义.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#_2">🚦 一、八步，按真正的先后排</a></li>
+<li><a href="#_3">🧩 二、这个顺序解释了四类日常报错</a></li>
+<li><a href="#_4">📋 三、一张表：每个子句「站在哪一侧」</a></li>
+<li><a href="#_5">🚧 四、逻辑顺序 ≠ 物理执行顺序</a></li>
+<li><a href="#select">🧾 五、SELECT * 的三个坑</a></li>
+<li><a href="#_6">🔁 六、把一个问题翻译成这八步</a></li>
+<li><a href="#_7">🔗 这一章连到哪里</a></li>
+<li><a href="#_8">✅ 检查点</a></li>
+<li><a href="#_9">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<h1 id="01">01 · 一条查询是怎么跑的</h1>
+<p>⏱ <strong>54 分钟</strong> ｜ ⭐ <strong><code>SELECT</code> 写在最前面，却几乎是最后才执行——搞懂这个顺序，一半的报错自己就解释了</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong>SQL 的书写顺序和执行顺序完全是两回事：<code>FROM</code> 最先跑，<code>SELECT</code> 排在倒数第三。</strong>
+这一条不是冷知识，它直接决定了「这个别名能不能在这里用」「这个函数能不能写在这里」「这一行为什么被扔了」。</p>
+<hr />
+<h2 id="_2">🚦 一、八步，按真正的先后排</h2>
+<p>你写下的是这个顺序：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w">   </span><span class="n">feature</span><span class="p">,</span><span class="w"> </span><span class="k">SUM</span><span class="p">(</span><span class="n">cents</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">total</span>
+<span class="k">FROM</span><span class="w">     </span><span class="n">calls</span>
+<span class="k">WHERE</span><span class="w">    </span><span class="n">model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;big&#39;</span>
+<span class="k">GROUP</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">feature</span>
+<span class="k">HAVING</span><span class="w">   </span><span class="k">SUM</span><span class="p">(</span><span class="n">cents</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">1</span>
+<span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">total</span><span class="w"> </span><span class="k">DESC</span>
+<span class="k">LIMIT</span><span class="w">    </span><span class="mi">1</span>
+</code></pre></div>
+
+<p>数据库执行的是<strong>另一个顺序</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>步</th>
+<th>子句</th>
+<th>它做什么</th>
+<th>做完之后手上是什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>①</td>
+<td><code>FROM</code> / <code>JOIN</code></td>
+<td>把要用的表摆出来、连起来</td>
+<td><strong>一张宽表</strong>，行数可能比任何一张原表都多（⚠️ 02 章的正题）</td>
+</tr>
+<tr>
+<td>②</td>
+<td><code>WHERE</code></td>
+<td>逐行判断，扔掉不要的<strong>行</strong></td>
+<td>还是行，只是少了</td>
+</tr>
+<tr>
+<td>③</td>
+<td><code>GROUP BY</code></td>
+<td>把剩下的行<strong>按键塌成组</strong></td>
+<td><strong>组</strong>，不再是行</td>
+</tr>
+<tr>
+<td>④</td>
+<td><code>HAVING</code></td>
+<td>逐组判断，扔掉不要的<strong>组</strong></td>
+<td>组，只是少了</td>
+</tr>
+<tr>
+<td>⑤</td>
+<td><code>SELECT</code></td>
+<td>算出每一组（或每一行）要输出的列，<strong>别名在这一步才诞生</strong></td>
+<td>结果行</td>
+</tr>
+<tr>
+<td>⑥</td>
+<td><code>DISTINCT</code></td>
+<td>对结果行去重</td>
+<td>结果行</td>
+</tr>
+<tr>
+<td>⑦</td>
+<td><code>ORDER BY</code></td>
+<td>排序（⭐ 它能看见 ⑤ 造出来的别名）</td>
+<td>有序的结果行</td>
+</tr>
+<tr>
+<td>⑧</td>
+<td><code>LIMIT</code> / <code>OFFSET</code></td>
+<td>截断</td>
+<td>最终结果</td>
+</tr>
+</tbody>
+</table>
+<p>把上面那条查询每一步剩多少行量出来：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
+
+<span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;&quot;&quot;CREATE TABLE calls(</span>
+<span class="s2">                 user_id TEXT, feature TEXT, model TEXT, cents REAL)&quot;&quot;&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="s2">&quot;INSERT INTO calls VALUES(?,?,?,?)&quot;</span><span class="p">,</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s2">&quot;u1&quot;</span><span class="p">,</span> <span class="s2">&quot;chat&quot;</span><span class="p">,</span>    <span class="s2">&quot;small&quot;</span><span class="p">,</span>  <span class="mf">0.056</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;u1&quot;</span><span class="p">,</span> <span class="s2">&quot;summary&quot;</span><span class="p">,</span> <span class="s2">&quot;big&quot;</span><span class="p">,</span>    <span class="mf">2.64</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;u2&quot;</span><span class="p">,</span> <span class="s2">&quot;summary&quot;</span><span class="p">,</span> <span class="s2">&quot;big&quot;</span><span class="p">,</span>   <span class="mf">10.2</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;u2&quot;</span><span class="p">,</span> <span class="s2">&quot;chat&quot;</span><span class="p">,</span>    <span class="s2">&quot;small&quot;</span><span class="p">,</span>  <span class="mf">0.03</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;u3&quot;</span><span class="p">,</span> <span class="s2">&quot;translate&quot;</span><span class="p">,</span><span class="s2">&quot;big&quot;</span><span class="p">,</span>   <span class="mf">0.40</span><span class="p">),</span>
+<span class="p">])</span>
+
+<span class="n">rows</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">SELECT   feature, SUM(cents) AS total</span>
+<span class="s2">FROM     calls</span>
+<span class="s2">WHERE    model = &#39;big&#39;</span>
+<span class="s2">GROUP BY feature</span>
+<span class="s2">HAVING   SUM(cents) &gt; 1</span>
+<span class="s2">ORDER BY total DESC</span>
+<span class="s2">LIMIT    1</span>
+<span class="s2">&quot;&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;结果:&quot;</span><span class="p">,</span> <span class="n">rows</span><span class="p">)</span>
+
+<span class="c1"># 中途量一下每一步剩多少行</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;FROM 之后:&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;SELECT COUNT(*) FROM calls&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()[</span><span class="mi">0</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;WHERE 之后:&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;SELECT COUNT(*) FROM calls WHERE model=&#39;big&#39;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()[</span><span class="mi">0</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;GROUP BY 之后:&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
+    <span class="s2">&quot;SELECT COUNT(*) FROM (SELECT feature FROM calls WHERE model=&#39;big&#39; GROUP BY feature)&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()[</span><span class="mi">0</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;HAVING 之后:&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
+    <span class="s2">&quot;SELECT COUNT(*) FROM (SELECT feature FROM calls WHERE model=&#39;big&#39; &quot;</span>
+    <span class="s2">&quot;GROUP BY feature HAVING SUM(cents) &gt; 1)&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()[</span><span class="mi">0</span><span class="p">])</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<div class="codehilite"><pre><span></span><code>结果: [(&#39;summary&#39;, 12.84)]
+FROM 之后: 5
+WHERE 之后: 3
+GROUP BY 之后: 2
+HAVING 之后: 1
+</code></pre></div>
+
+<p>⭐ <strong>五行 → 三行 → 两组 → 一组。</strong> 注意第三步那个箭头跨过了一道坎：
+<strong>前面是行，后面是组。</strong> 一旦跨过去，「这一行的 <code>user_id</code> 是谁」这个问题就没有答案了 ——
+组里有好几个 <code>user_id</code>，你只能问「这一组里有几个不同的 <code>user_id</code>」。</p>
+<blockquote>
+<p>⭐ <strong>整章最值得记住的一句</strong>：
+<strong><code>GROUP BY</code> 是一道单向门。</strong> 门前你操作的是行，门后你操作的是组。
+报错信息里那句 <code>misuse of aggregate</code>，十次有九次是因为你站在门的错误一侧。</p>
+</blockquote>
+<hr />
+<h2 id="_3">🧩 二、这个顺序解释了四类日常报错</h2>
+<h3 id="1-where-select">① <code>WHERE</code> 里用 <code>SELECT</code> 的别名</h3>
+<p>按逻辑顺序，<code>WHERE</code>（②）跑的时候 <code>SELECT</code>（⑤）还没执行，<strong>别名根本不存在</strong>。</p>
+<p>⚠️ <strong>但 SQLite 会放你过去</strong> —— 这是它的一个扩展，不是标准行为：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
+
+<span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE TABLE calls(feature TEXT, cents REAL)&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="s2">&quot;INSERT INTO calls VALUES(?,?)&quot;</span><span class="p">,</span>
+               <span class="p">[(</span><span class="s2">&quot;chat&quot;</span><span class="p">,</span> <span class="mf">0.056</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;summary&quot;</span><span class="p">,</span> <span class="mf">2.64</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;summary&quot;</span><span class="p">,</span> <span class="mf">10.2</span><span class="p">)])</span>
+
+<span class="c1"># ① ORDER BY 用 SELECT 里的别名</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;ORDER BY 用别名:&quot;</span><span class="p">,</span>
+      <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;SELECT feature, cents*10 AS jiao FROM calls ORDER BY jiao DESC&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">())</span>
+
+<span class="c1"># ② WHERE 用 SELECT 里的别名</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;WHERE 用别名:&quot;</span><span class="p">,</span>
+          <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;SELECT feature, cents*10 AS jiao FROM calls WHERE jiao &gt; 1&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">())</span>
+<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;WHERE 用别名 -&gt;&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span> <span class="s2">&quot;:&quot;</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+
+<span class="c1"># ③ WHERE 里放聚合函数</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;WHERE 放聚合:&quot;</span><span class="p">,</span>
+          <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;SELECT feature FROM calls WHERE SUM(cents) &gt; 1 GROUP BY feature&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">())</span>
+<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;WHERE 放聚合 -&gt;&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span> <span class="s2">&quot;:&quot;</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+
+<span class="c1"># ④ HAVING 放聚合</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;HAVING 放聚合:&quot;</span><span class="p">,</span>
+      <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;SELECT feature, SUM(cents) FROM calls GROUP BY feature HAVING SUM(cents) &gt; 1&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">())</span>
+
+<span class="c1"># ⑤ HAVING 里能不能用 SELECT 的别名</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;HAVING 用别名:&quot;</span><span class="p">,</span>
+          <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;SELECT feature, SUM(cents) AS s FROM calls GROUP BY feature HAVING s &gt; 1&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">())</span>
+<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;HAVING 用别名 -&gt;&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span> <span class="s2">&quot;:&quot;</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<div class="codehilite"><pre><span></span><code>ORDER BY 用别名: [(&#39;summary&#39;, 102.0), (&#39;summary&#39;, 26.400000000000002), (&#39;chat&#39;, 0.56)]
+WHERE 用别名: [(&#39;summary&#39;, 26.400000000000002), (&#39;summary&#39;, 102.0)]
+WHERE 放聚合 -&gt; OperationalError : misuse of aggregate: SUM()
+HAVING 放聚合: [(&#39;summary&#39;, 12.84)]
+HAVING 用别名: [(&#39;summary&#39;, 12.84)]
+</code></pre></div>
+
+<p>💀 <strong>这里有个陷阱值得单独说</strong>：<code>WHERE jiao &gt; 1</code> 在 SQLite 里<strong>跑通了</strong>。
+你在本地测得好好的，同一条 SQL 拿到 Postgres 上会得到 <code>column "jiao" does not exist</code>，
+MySQL 也会报 <code>Unknown column 'jiao' in 'where clause'</code>。</p>
+<p>⭐ <strong>判据：别名只在 <code>SELECT</code> 之后的子句里可靠</strong>（<code>ORDER BY</code> 一定可以；<code>GROUP BY</code> / <code>HAVING</code> 各库不同 —— ⚠️ Postgres 恰好是 <code>GROUP BY</code> 可以、<code>HAVING</code> 不行）。
+想在 <code>WHERE</code> 里用一个算出来的值，<strong>把表达式重写一遍</strong>，或者用子查询/CTE 包一层（05、06 章）。</p>
+<h3 id="2-where">② <code>WHERE</code> 里放聚合函数</h3>
+<p><code>SUM()</code> 要等 <code>GROUP BY</code>（③）把组分好才有意义，而 <code>WHERE</code> 在②。所以这次三个库口径一致：
+SQLite 报 <code>misuse of aggregate: SUM()</code>，Postgres 报 <code>aggregate functions are not allowed in WHERE</code>。</p>
+<p>⭐ <strong>要按聚合结果过滤，那是 <code>HAVING</code>（④）的活。</strong></p>
+<h3 id="3-having-sqlite-mysql-postgres">③ <code>HAVING</code> 能用别名（SQLite / MySQL 可以，⚠️ Postgres 不行）</h3>
+<p>看起来和上面矛盾 —— <code>HAVING</code>（④）也在 <code>SELECT</code>（⑤）前面啊？
+<strong>是的，标准 SQL 里 <code>HAVING</code> 用别名也是不合法的</strong>，但三个主流库都特意放宽了这一条，因为 <code>HAVING SUM(cents) &gt; 1</code> 写两遍太蠢。
+⚠️ <strong>别把「三个库都放宽了」当成「顺序表错了」</strong> —— 顺序表描述的是语义，各库在不改变语义的前提下加了糖。</p>
+<h3 id="4-order-by-select">④ <code>ORDER BY</code> 能用别名，而且能用<strong>没出现在 <code>SELECT</code> 里的列</strong></h3>
+<p><code>ORDER BY</code>（⑦）在 <code>SELECT</code>（⑤）之后，所以别名一定可见。
+⚠️ 但<strong>加了 <code>DISTINCT</code>（⑥）之后就不行了</strong> —— 去重之后那些没被选出来的列已经不存在了，没法拿来排序。</p>
+<hr />
+<h2 id="_4">📋 三、一张表：每个子句「站在哪一侧」</h2>
+<p>⭐ <strong>遇到「这里能不能写 X」，查这张表比背规则快：</strong></p>
+<table>
+<thead>
+<tr>
+<th>子句</th>
+<th>它看得见</th>
+<th>它看不见</th>
+<th>典型误用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ON</code></td>
+<td>参与连接的两张表的原始列</td>
+<td>别名、聚合结果</td>
+<td>把过滤条件写进 <code>ON</code>（⚠️ 对 <code>LEFT JOIN</code> 会改语义，02 章）</td>
+</tr>
+<tr>
+<td><code>WHERE</code></td>
+<td><strong>单行</strong>的原始列</td>
+<td>别名（标准上）、聚合结果、窗口函数结果</td>
+<td>用它过滤聚合值</td>
+</tr>
+<tr>
+<td><code>GROUP BY</code></td>
+<td>原始列、表达式、列序号</td>
+<td>聚合结果</td>
+<td>忘了把 <code>SELECT</code> 里的非聚合列也分组（03 章）</td>
+</tr>
+<tr>
+<td><code>HAVING</code></td>
+<td><strong>整组</strong>：分组键 + 聚合结果</td>
+<td>组内单行的其他列</td>
+<td>用它做行级过滤（能跑，但慢且难读）</td>
+</tr>
+<tr>
+<td><code>SELECT</code></td>
+<td>分组键、聚合结果；未分组时是单行的列</td>
+<td>自己刚起的别名（同一层内）</td>
+<td><code>SELECT a AS x, x*2</code></td>
+</tr>
+<tr>
+<td><code>ORDER BY</code></td>
+<td>别名、结果列、以及原表的列</td>
+<td>加了 <code>DISTINCT</code> 之后：没被选出来的列</td>
+<td>以为 <code>ORDER BY</code> 在 <code>LIMIT</code> 之后</td>
+</tr>
+<tr>
+<td><code>LIMIT</code></td>
+<td>已排好序的结果</td>
+<td>——</td>
+<td>⚠️ <strong>不写 <code>ORDER BY</code> 就 <code>LIMIT</code></strong>，返回哪几行是不确定的</td>
+</tr>
+</tbody>
+</table>
+<p>💀 <strong>最后一格值得展开</strong>：<code>SELECT * FROM t LIMIT 10</code> 每次给你哪十行，SQL 标准不保证。
+现在跑十次一样，不代表建了索引之后还一样、换了库之后还一样。
+⭐ <strong>判据：只要写了 <code>LIMIT</code>，就必须写 <code>ORDER BY</code>，而且排序键要能唯一定序</strong>（撞值时补一个主键兜底 —— 这正是 05 章那个复合游标的来历）。</p>
+<hr />
+<!--MIDSTOP-->
+<blockquote>
+<p>🛑 <strong>读到这里可以停</strong> —— 已经读了约 25 分钟。
+<strong>最后一段还有</strong>（约 26 分钟）：逻辑顺序 ≠ 物理执行顺序 · <code>SELECT *</code> 的三个坑 · 把一个问题翻译成这八步 · 检查点与走神救援
+回来的时候不用重读，直接从下一节接着看就行。</p>
+</blockquote>
+<hr />
+<h2 id="_5">🚧 四、逻辑顺序 ≠ 物理执行顺序</h2>
+<p>上面那张八步表描述的是<strong>语义</strong>：结果必须<strong>看起来像是</strong>按这个顺序算出来的。
+真正跑的时候，优化器可以随便重排，只要结果一样。</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
+
+<span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE TABLE calls(user_id TEXT, feature TEXT, cents REAL)&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="s2">&quot;INSERT INTO calls VALUES(?,?,?)&quot;</span><span class="p">,</span>
+               <span class="p">[(</span><span class="sa">f</span><span class="s2">&quot;u</span><span class="si">{</span><span class="n">i</span><span class="o">%</span><span class="mi">50</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;chat&quot;</span> <span class="k">if</span> <span class="n">i</span> <span class="o">%</span> <span class="mi">3</span> <span class="k">else</span> <span class="s2">&quot;summary&quot;</span><span class="p">,</span> <span class="n">i</span> <span class="o">*</span> <span class="mf">0.01</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">5000</span><span class="p">)])</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE INDEX idx_feature ON calls(feature)&quot;</span><span class="p">)</span>
+
+<span class="c1"># 逻辑顺序说 FROM 先跑；物理上优化器可以先用索引把行挑出来</span>
+<span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;EXPLAIN QUERY PLAN &quot;</span>
+                    <span class="s2">&quot;SELECT user_id, SUM(cents) FROM calls &quot;</span>
+                    <span class="s2">&quot;WHERE feature=&#39;summary&#39; GROUP BY user_id ORDER BY 2 DESC LIMIT 3&quot;</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">r</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;---&quot;</span><span class="p">)</span>
+<span class="c1"># 同一条查询，去掉 WHERE 之后计划变了</span>
+<span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;EXPLAIN QUERY PLAN &quot;</span>
+                    <span class="s2">&quot;SELECT user_id, SUM(cents) FROM calls GROUP BY user_id&quot;</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">r</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出（5000 行，SQLite 3.50.4）：</p>
+<div class="codehilite"><pre><span></span><code>(9, 0, 62, &#39;SEARCH calls USING INDEX idx_feature (feature=?)&#39;)
+(14, 0, 0, &#39;USE TEMP B-TREE FOR GROUP BY&#39;)
+(58, 0, 0, &#39;USE TEMP B-TREE FOR ORDER BY&#39;)
+---
+(6, 0, 216, &#39;SCAN calls&#39;)
+(8, 0, 0, &#39;USE TEMP B-TREE FOR GROUP BY&#39;)
+</code></pre></div>
+
+<p>⭐ <strong>注意第一行</strong>：逻辑上「<code>FROM</code> 先把整张表摆出来，<code>WHERE</code> 再逐行扔」，
+物理上数据库<strong>根本没有摆出整张表</strong> —— 它直接拿 <code>idx_feature</code> 只把 <code>feature='summary'</code> 那些行捞出来。
+<code>WHERE</code> 的条件被下推到了取数那一步。</p>
+<p>⚠️ 这两件事各管各的，别混：</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>用来回答</th>
+<th>在哪一章</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>逻辑顺序</strong>（八步表）</td>
+<td>「这么写<strong>能不能</strong>跑」「这个结果<strong>为什么</strong>是这样」</td>
+<td><strong>本章</strong></td>
+</tr>
+<tr>
+<td><strong>物理计划</strong>（<code>EXPLAIN</code>）</td>
+<td>「它<strong>快不快</strong>」「索引<strong>有没有</strong>被用上」</td>
+<td><a href="09-计划里的连接与索引失效.html">09 章</a></td>
+</tr>
+</tbody>
+</table>
+<p>⭐ <strong>一条实用建议</strong>：调试语义问题时看八步表，调试性能问题时看 <code>EXPLAIN QUERY PLAN</code>。
+拿计划去解释「为什么这个数不对」，几乎总是走弯路。</p>
+<hr />
+<h2 id="select">🧾 五、<code>SELECT *</code> 的三个坑</h2>
+<p><code>SELECT *</code> 在探索数据时非常好用，⭐ <strong>但不该出现在任何一段会被存下来的 SQL 里</strong>（视图、报表、代码、定时任务）。三个理由：</p>
+<p><strong>① 列的顺序和数量不受你控制。</strong>
+有人给表加了一列，你那段 <code>cursor.fetchall()</code> 之后按下标取 <code>row[3]</code> 的 Python 代码就悄悄取错了列 ——
+⚠️ 又是一个<strong>不报错</strong>的错误。</p>
+<p><strong>② 多读了用不上的列。</strong>
+09 章会讲「覆盖索引」：只读索引里有的列时数据库可以不回表。<code>SELECT *</code> 让覆盖索引<strong>永远不可能生效</strong>。</p>
+<p><strong>③ <code>JOIN</code> 之后会有重名列。</strong>
+两张表都有 <code>id</code>，<code>SELECT *</code> 之后你拿到两个都叫 <code>id</code> 的列，按名字取值时拿到哪个取决于驱动实现。</p>
+<blockquote>
+<p>⭐ <strong>一个折中</strong>：探索时用 <code>SELECT *</code>，定稿前把列名一个个写出来。
+写列名这件事的额外收益是：<strong>它逼你回答「这张表我到底要哪几列」</strong>，
+而这个问题的答案往往会顺手暴露出「我连了一张根本用不上的表」。</p>
+</blockquote>
+<hr />
+<h2 id="_6">🔁 六、把一个问题翻译成这八步</h2>
+<p>⭐ <strong>这是整套教程的方法核心。</strong> 拿到一个自然语言问题，不要直接开始写 <code>SELECT</code>，按这个顺序问自己六句话：</p>
+<table>
+<thead>
+<tr>
+<th>问自己</th>
+<th>对应哪一步</th>
+<th>举例（「上周哪个功能最烧钱，只看大模型」）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>① <strong>数据在哪几张表？怎么连？</strong></td>
+<td><code>FROM</code> / <code>JOIN</code></td>
+<td>一张 <code>calls</code> 就够，不用连</td>
+</tr>
+<tr>
+<td>② ⭐ <strong>连完之后，一行代表什么？</strong></td>
+<td>——</td>
+<td>一行 = 一次模型调用</td>
+</tr>
+<tr>
+<td>③ <strong>哪些行不该参与？</strong></td>
+<td><code>WHERE</code></td>
+<td><code>model='big'</code> 且 <code>ts</code> 在上周</td>
+</tr>
+<tr>
+<td>④ <strong>答案的粒度是什么？</strong></td>
+<td><code>GROUP BY</code></td>
+<td>一行 = 一个 feature</td>
+</tr>
+<tr>
+<td>⑤ <strong>每一组要算什么？</strong></td>
+<td><code>SELECT</code> 里的聚合</td>
+<td><code>SUM(cents)</code></td>
+</tr>
+<tr>
+<td>⑥ <strong>要不要扔掉一些组？怎么排？取几个？</strong></td>
+<td><code>HAVING</code> / <code>ORDER BY</code> / <code>LIMIT</code></td>
+<td>按总额降序取前 1</td>
+</tr>
+</tbody>
+</table>
+<p>⭐ <strong>第 ② 步是全教程最重要的一个问题</strong>：<strong>「现在一行代表什么？」</strong></p>
+<p>它在后面每一章都会以不同形式回来：
+02 章的扇出是「连完之后一行不再代表一张订单」，
+03 章的分组是「聚合之后一行代表一组」，
+07 章的窗口函数则是「<strong>一行还是代表一行</strong>，只是多知道了一些邻居的事」。</p>
+<p>⚠️ <strong>绝大多数「不报错的错」，追到最后都是这一句答错了。</strong></p>
+<hr />
+<h2 id="_7">🔗 这一章连到哪里</h2>
+<table>
+<thead>
+<tr>
+<th>相关的地方</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="02-JOIN的几种语义.html">02-JOIN的几种语义.html</a></td>
+<td>第①步 <code>FROM/JOIN</code> 展开细讲。⭐ 本章说「连完之后行数可能比任何原表都多」，那一章告诉你多出来的行怎么把 <code>SUM</code> 从 150 变成 250</td>
+</tr>
+<tr>
+<td><a href="03-聚合与分组.html">03-聚合与分组.html</a></td>
+<td>第③④⑤步的正题：<code>GROUP BY</code> 那道单向门的两侧各能做什么，<code>WHERE</code> 和 <code>HAVING</code> 的分界怎么用</td>
+</tr>
+<tr>
+<td><a href="04-NULL与三值逻辑.html">04-NULL与三值逻辑.html</a></td>
+<td>⭐ 本章说「<code>WHERE</code> 逐行判断，扔掉不要的行」—— 那一章会告诉你 <code>WHERE</code> 其实<strong>只放行判为真的</strong>，判为「未知」的也一起扔了</td>
+</tr>
+<tr>
+<td><a href="05-子查询的三种形状.html">05-子查询的三种形状.html</a></td>
+<td>想在 <code>WHERE</code> 里用一个算出来的值，正规解法是包一层子查询；本章那个 <code>LIMIT</code> 必须配唯一定序，也是那一章复合游标的来历</td>
+</tr>
+<tr>
+<td><a href="09-计划里的连接与索引失效.html">09-计划里的连接与索引失效.html</a></td>
+<td>本章第四节只演示了「逻辑顺序不是物理顺序」，<code>EXPLAIN</code> 怎么读、写法怎么把索引废掉在那一章</td>
+</tr>
+<tr>
+<td><a href="../AI全栈/06-关系数据库.html">AI 全栈 · 06 关系数据库</a></td>
+<td>本章第四节用了一个 <code>CREATE INDEX</code>，但<strong>索引该不该建、怎么建</strong>是那一章的题目，本教程不重讲</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_8">✅ 检查点</h2>
+<ol>
+<li>按真正的执行顺序，八个步骤依次是哪些？<code>SELECT</code> 排第几？</li>
+<li>为什么标准 SQL 不允许在 <code>WHERE</code> 里用 <code>SELECT</code> 起的别名？SQLite 上会怎样，Postgres 上会怎样？</li>
+<li><code>WHERE SUM(cents) &gt; 1</code> 会报什么错？该换成什么？</li>
+<li><code>HAVING</code> 在 <code>SELECT</code> 之前执行，为什么 SQLite/MySQL 却允许 <code>HAVING s &gt; 1</code>（<code>s</code> 是别名）？Postgres 呢？</li>
+<li>实跑那条查询在 <code>FROM / WHERE / GROUP BY / HAVING</code> 四步之后分别剩几行（组）？</li>
+<li>为什么说 <code>GROUP BY</code> 是一道「单向门」？跨过去之后哪类问题就问不出来了？</li>
+<li>只写 <code>LIMIT</code> 不写 <code>ORDER BY</code> 有什么问题？判据是什么？</li>
+<li>逻辑顺序和物理计划各用来回答什么问题？实跑里 <code>WHERE feature='summary'</code> 在物理上发生了什么？</li>
+<li><code>SELECT *</code> 的三个坑分别是什么？</li>
+<li>把一个问题翻译成 SQL 的六句话里，哪一句最重要？它在后面几章分别变成了什么形式？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li><code>FROM/JOIN</code> → <code>WHERE</code> → <code>GROUP BY</code> → <code>HAVING</code> → <code>SELECT</code> → <code>DISTINCT</code> → <code>ORDER BY</code> → <code>LIMIT</code>。
+   <code>SELECT</code> 排<strong>第五</strong>，倒数第三。</li>
+<li>因为 <code>WHERE</code>（第②步）跑的时候 <code>SELECT</code>（第⑤步）还没执行，<strong>别名还不存在</strong>。
+   ⚠️ SQLite 是个例外，实跑 <code>WHERE jiao &gt; 1</code> <strong>跑通了</strong>（返回两行）；
+   Postgres 报 <code>column "jiao" does not exist</code>，MySQL 报 <code>Unknown column 'jiao' in 'where clause'</code>。
+   💀 所以本地测通不等于上线能跑。</li>
+<li>SQLite 报 <code>OperationalError : misuse of aggregate: SUM()</code>（Postgres 是 <code>aggregate functions are not allowed in WHERE</code>）。
+   换成 <code>HAVING SUM(cents) &gt; 1</code>。</li>
+<li>因为<strong>标准里确实不合法</strong>，SQLite/MySQL 特意加了这颗语法糖 —— 否则 <code>HAVING SUM(cents) &gt; 1</code> 要把表达式写两遍。
+   ⚠️ <strong>Postgres 没加</strong>：它的文档明写输出列名可用于 <code>ORDER BY</code>/<code>GROUP BY</code>、<strong>但不能用于 <code>WHERE</code> 和 <code>HAVING</code></strong>（🗓️ 未实跑，据 PG 官方文档）。
+   ⚠️ 这不代表顺序表错了：顺序表描述<strong>语义</strong>，各库在不改语义的前提下加糖。</li>
+<li><strong>5 → 3 → 2 → 1</strong>（5 行 → 3 行 → 2 组 → 1 组），最终结果 <code>[('summary', 12.84)]</code>。</li>
+<li>因为门前操作的是<strong>行</strong>，门后操作的是组。跨过去之后「这一行的 <code>user_id</code> 是谁」没有答案了 ——
+   一组里有好几个 <code>user_id</code>，只能问「这一组里有几个不同的 <code>user_id</code>」。
+   报错 <code>misuse of aggregate</code> 十次有九次就是站错了侧。</li>
+<li>返回哪几行<strong>标准不保证</strong>，现在跑十次一样不代表建了索引之后还一样。
+   判据：<strong>写了 <code>LIMIT</code> 就必须写 <code>ORDER BY</code>，且排序键要能唯一定序</strong>（撞值时补主键兜底）。</li>
+<li><strong>逻辑顺序</strong>答「能不能这么写」「结果为什么是这样」；物理计划答「快不快」「索引用上没有」。
+   实跑里 <code>WHERE</code> 被<strong>下推</strong>到取数那一步：计划第一行是 <code>SEARCH calls USING INDEX idx_feature (feature=?)</code>，
+   数据库根本没有先摆出整张表；去掉 <code>WHERE</code> 之后同一条查询变成 <code>SCAN calls</code>。</li>
+<li>① 列的顺序和数量不受控（加一列，按下标取值的代码悄悄取错，<strong>不报错</strong>）；
+   ② 多读用不上的列，<strong>覆盖索引永远不可能生效</strong>；③ <code>JOIN</code> 之后重名列，按名字取值拿到哪个看驱动。</li>
+<li><strong>「现在一行代表什么？」</strong> 02 章是「连完之后一行不再代表一张订单」，
+    03 章是「聚合之后一行代表一组」，07 章是「一行还是代表一行，只是多知道了邻居的事」。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_9">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong></p>
+<blockquote>
+<p>⭐ <strong>SQL 的书写顺序和执行顺序是两回事。</strong> 真正的顺序是八步，⭐ <strong>而 <code>SELECT</code> 排第五、倒数第三。</strong></p>
+<p>⭐⭐ <strong>第三步（分组）是一道单向门</strong>：门前操作的是<strong>行</strong>，门后操作的是<strong>组</strong>——<strong>跨过去之后「这一行的某列是谁」就没有答案了</strong>。那个「聚合函数用错地方」的报错，<strong>十次有九次是站错了侧</strong>。</p>
+<p>这个顺序直接解释四类日常报错：过滤条件里用 <code>SELECT</code> 的别名<strong>标准上不合法</strong>（过滤在第二步，别名第五步才诞生），💀 <strong>而某些库跑得通、换个库就报错——本地测通不等于上线能跑</strong>；要按聚合过滤就得用 <code>HAVING</code>；⚠️ <strong>有些库给 <code>HAVING</code> 加了别名这颗糖、有些没加</strong>（⭐ <strong>顺序描述的是语义，加糖不改语义</strong>）；排序在 <code>SELECT</code> 之后所以别名一定可见，⚠️ <strong>但加了去重之后就不能再拿没选出来的列排序</strong>。</p>
+<p>💀 ⭐ <strong>只写 <code>LIMIT</code> 不写 <code>ORDER BY</code>，返回哪几行标准不保证。</strong> 判据：<strong>写 <code>LIMIT</code> 就必须写 <code>ORDER BY</code>，而且排序键要唯一定序</strong>——撞值时补主键兜底，<strong>这正是后面复合游标分页的来历</strong>。</p>
+<p>⚠️ <strong>逻辑顺序不等于物理执行</strong>：看执行计划会发现数据库<strong>根本没先摆出整张表</strong>，过滤被下推到了取数那一步。⭐ <strong>两者各管各的：逻辑顺序答「能不能写、为什么是这个结果」，物理计划答「快不快、索引用上没」。</strong></p>
+<p><code>SELECT *</code> 三个坑：<strong>列序和列数不受控</strong>（加一列，按下标取值的代码悄悄取错）、覆盖索引永远失效、连接后重名列。</p>
+<p>⭐ 最后是全教程的方法核心——拿到问题先问六句，⭐⭐ <strong>其中「现在一行代表什么」是最重要的一句：绝大多数「不报错的错」追到最后都是它答错了。</strong></p>
+</blockquote>
+<p><strong>下一节</strong> 👉 <a href="02-JOIN的几种语义.html">02-JOIN的几种语义.md</a></p>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="00-怎么用这份教程.html"><div class="dir">← 上一节</div>🧭 00 · 怎么用这份教程</a><a class="next" href="02-JOIN的几种语义.html"><div class="dir">下一节 →</div>🔗 02 · JOIN 的几种语义</a></nav>
+</main>
+<script>(function(){
+  var KEY="sql-progress", FILE="01-\u4e00\u6761\u67e5\u8be2\u662f\u600e\u4e48\u8dd1\u7684.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script></body></html>

@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>08 · `DataLoader`：worker 手里的不是你那个 Dataset · PyTorch 这个框架本身</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:1.9em;line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:1.42em;margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:1.14em;margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:.88em;background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:.85em}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:.92em}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:.8em;color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:.85em;color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:.92em}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:.78em;
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:.92em;border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:.93em;line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:.9em;line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:.93em;line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:.92em}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:1.15em;opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:.82em;
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
+
+.dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:.95em;margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:.93em;line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.02em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:.93em;break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">08 · DataLoader 与多进程</span>
+  <span class="prevnext"><a href="07-train和eval改了什么.html">←</a>
+  <a href="09-自定义算子.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#_2">🧬 一、⭐ 副本：实测</a></li>
+<li><a href="#_3">🎲 二、随机数：先破一条过期的传言</a></li>
+<li><a href="#_4">💀 三、但这个坑只是换了个形态</a></li>
+<li><a href="#iterabledataset-worker">🌊 四、IterableDataset 在多 worker 下会把数据重复一遍</a></li>
+<li><a href="#collate_fn">📦 五、默认 collate_fn 悄悄做了什么</a></li>
+<li><a href="#_5">🚦 六、这一章不讲什么</a></li>
+<li><a href="#_6">🔗 这一章连到哪里</a></li>
+<li><a href="#_7">✅ 检查点</a></li>
+<li><a href="#_8">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<h1 id="08-dataloaderworker-dataset">08 · <code>DataLoader</code>：worker 手里的不是你那个 Dataset</h1>
+<p>⏱ <strong>72 分钟</strong> ｜ ⭐ <strong>实测：<code>num_workers=2</code> 之后，<code>self.n_read</code> 在主进程里永远是 0，两个 worker 各自数到 4</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong><code>num_workers &gt; 0</code> 的那一刻，你的 <code>Dataset</code> 就不再只有一份了 —— 每个 worker 进程拿到的是一份【副本】。</strong>
+副本上改的东西主进程看不见，副本里的随机数发生器也是复制过去的（这一条会直接让你的数据增强失效）。
+⚠️ 至于「六个参数怎么调才能喂饱 GPU」，<a href="../AI基础设施/22-数据管线与存储.html">《AI基础设施》22 · 数据管线与存储</a>已经讲透了，这一章一个字都不重复；
+「进程为什么要复制、fork 和 spawn 差在哪、Windows 上为什么必须写 <code>if __name__</code>」是<a href="../Python会咬你的地方/index.html">《Python 会咬你的地方》</a>并发那一章的正题。
+<strong>这一章只讲一件事：数据集被复制之后，语义上发生了什么。</strong></p>
+<hr />
+<h2 id="_2">🧬 一、⭐ 副本：实测</h2>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.utils.data</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">DataLoader</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Counting</span><span class="p">(</span><span class="n">Dataset</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">n_read</span> <span class="o">=</span> <span class="mi">0</span>                      <span class="c1"># ⚠️ 想统计「读了多少条」</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="mi">8</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">n_read</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="nb">float</span><span class="p">(</span><span class="n">i</span><span class="p">),</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">n_read</span><span class="p">),</span> <span class="nb">float</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">())])</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>                   <span class="c1"># ⭐ Windows 上必须有这一行，原因见 Python 板块</span>
+    <span class="k">for</span> <span class="n">nw</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">):</span>
+        <span class="n">ds</span> <span class="o">=</span> <span class="n">Counting</span><span class="p">()</span>
+        <span class="n">rows</span> <span class="o">=</span> <span class="p">[</span><span class="n">b</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">DataLoader</span><span class="p">(</span><span class="n">ds</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">num_workers</span><span class="o">=</span><span class="n">nw</span><span class="p">)]</span>
+        <span class="n">pids</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">({</span><span class="nb">int</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">rows</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">b</span><span class="p">[:,</span> <span class="mi">2</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">()})</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;num_workers=</span><span class="si">{</span><span class="n">nw</span><span class="si">}</span><span class="s2">: 主进程里 ds.n_read = </span><span class="si">{</span><span class="n">ds</span><span class="o">.</span><span class="n">n_read</span><span class="si">}</span><span class="s2">&quot;</span>
+              <span class="sa">f</span><span class="s2">&quot;  各条记录看到的 n_read = </span><span class="si">{</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">b</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">rows</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">b</span><span class="p">[:,</span><span class="w"> </span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">()]</span><span class="si">}</span><span class="s2">&quot;</span>
+              <span class="sa">f</span><span class="s2">&quot;  进程数 = </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">pids</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>num_workers=0: 主进程里 ds.n_read = 8 各条记录看到的 n_read = [1, 2, 3, 4, 5, 6, 7, 8] 进程数 = 1</p><p>num_workers=2: 主进程里 ds.n_read = 0 各条记录看到的 n_read = [1, 2, 3, 4, 1, 2, 3, 4] 进程数 = 2</p></div></section>
+<p>⭐ 三个数字，每一个都值得盯一会儿：</p>
+<table>
+<thead>
+<tr>
+<th>观察</th>
+<th>意思</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>主进程 <code>ds.n_read = 0</code></td>
+<td><strong>worker 里改的属性主进程一律看不见</strong>。<code>num_workers=0</code> 时是 8 —— 同一份代码，两种行为</td>
+</tr>
+<tr>
+<td>各条记录 <code>[1,2,3,4,1,2,3,4]</code></td>
+<td><strong>两个 worker 各从 0 开始数</strong>，谁也不知道对方存在</td>
+</tr>
+<tr>
+<td>进程数 = 2</td>
+<td><code>__getitem__</code> 是在<strong>别的进程</strong>里执行的，不是别的线程</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong>由此推出的三条实用结论</strong>：</p>
+<ul>
+<li><strong>不要用 Dataset 的属性做任何统计</strong>（读了多少条、哪些样本被跳过、类别计数）——<code>num_workers&gt;0</code> 时它永远是初始值。要统计就把数写进<strong>返回值</strong>里带出来。</li>
+<li><strong>不要在 <code>__getitem__</code> 里写缓存</strong>（<code>self.cache[i] = ...</code>）。每个 worker 一份缓存，内存翻 <code>num_workers</code> 倍，命中率还低。</li>
+<li>⚠️ <strong>不要在 <code>__init__</code> 里打开文件句柄 / 数据库连接</strong>。句柄跟着副本走，多个进程共用一个偏移量的下场是读出乱数据。✅ 正确做法是<strong>在 <code>__getitem__</code> 里惰性打开</strong>，第一次用到才建，这样每个 worker 建自己的。</li>
+</ul>
+<hr />
+<h2 id="_3">🎲 二、随机数：先破一条过期的传言</h2>
+<p>网上流传很广的一条是「<strong>多个 worker 会生成完全相同的随机增强，因为 numpy 的种子没被重设</strong>」。
+这条在老版本上成立，<strong>在 torch 2.13 上已经不成立了</strong>。实测：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">random</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.utils.data</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">DataLoader</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">RngDS</span><span class="p">(</span><span class="n">Dataset</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="mi">8</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;torch&quot;</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10000</span><span class="p">,</span> <span class="p">(</span><span class="mi">1</span><span class="p">,))</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span>
+                <span class="s2">&quot;numpy&quot;</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10000</span><span class="p">)),</span>
+                <span class="s2">&quot;random&quot;</span><span class="p">:</span> <span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">9999</span><span class="p">)}</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span> <span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">nw</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">):</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="p">[]</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;torch&quot;</span><span class="p">,</span> <span class="s2">&quot;numpy&quot;</span><span class="p">,</span> <span class="s2">&quot;random&quot;</span><span class="p">)}</span>
+        <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">DataLoader</span><span class="p">(</span><span class="n">RngDS</span><span class="p">(),</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">num_workers</span><span class="o">=</span><span class="n">nw</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">out</span><span class="p">:</span>
+                <span class="n">out</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">+=</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">b</span><span class="p">[</span><span class="n">k</span><span class="p">]]</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;num_workers=</span><span class="si">{</span><span class="n">nw</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">out</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;   </span><span class="si">{</span><span class="n">k</span><span class="si">:</span><span class="s2">7</span><span class="si">}</span><span class="s2">: 去重后 </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">v</span><span class="p">))</span><span class="si">}</span><span class="s2">/8&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出（<code>num_workers=0</code> 和 <code>2</code> 一致）：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>num_workers=0</p><p>torch : 去重后 8/8</p><p>numpy : 去重后 8/8</p><p>random : 去重后 8/8</p><p>num_workers=2</p><p>torch : 去重后 8/8</p><p>numpy : 去重后 8/8</p><p>random : 去重后 8/8</p></div></section>
+<p>⭐ <strong>三套全局发生器（<code>torch</code> / <code>np.random</code> / <code>random</code>）都被 PyTorch 逐 worker 重新播种了。</strong>
+种子怎么来的，也能直接看：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.utils.data</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">DataLoader</span><span class="p">,</span> <span class="n">get_worker_info</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">WhoAmI</span><span class="p">(</span><span class="n">Dataset</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="mi">4</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">):</span>
+        <span class="n">w</span> <span class="o">=</span> <span class="n">get_worker_info</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">w</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">(),</span> <span class="mi">0</span><span class="p">])</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="n">w</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">w</span><span class="o">.</span><span class="n">num_workers</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">(),</span> <span class="n">w</span><span class="o">.</span><span class="n">seed</span> <span class="o">%</span> <span class="mi">100000</span><span class="p">])</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">DataLoader</span><span class="p">(</span><span class="n">WhoAmI</span><span class="p">(),</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">num_workers</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">b</span><span class="o">.</span><span class="n">tolist</span><span class="p">():</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;worker id=</span><span class="si">{</span><span class="n">r</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2"> / 共 </span><span class="si">{</span><span class="n">r</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">  pid=</span><span class="si">{</span><span class="n">r</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="si">}</span><span class="s2">  seed%100000=</span><span class="si">{</span><span class="n">r</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>某次实跑输出（pid 和 seed 每次都不同，<strong>要看的是它们之间的关系</strong>）：</p>
+<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>worker id=0 / 共 2 pid=40048 seed%100000=44167</p><p>worker id=0 / 共 2 pid=40048 seed%100000=44167</p><p>worker id=1 / 共 2 pid=33820 seed%100000=44168</p><p>worker id=1 / 共 2 pid=33820 seed%100000=44168</p></div></section>
+<p>⭐ <strong>两个 worker 的 seed 是连号的</strong>（<code>…167</code> 和 <code>…168</code>）：DataLoader 每个 epoch 抽一个 base seed，
+再给第 <code>i</code> 个 worker 发 <code>base_seed + i</code>。<strong>所以它们既互不相同，又能被 <code>torch.manual_seed()</code> 完整复现。</strong></p>
+<p>⚠️ <strong><code>get_worker_info()</code> 在主进程里返回 <code>None</code></strong> —— 上面那个 <code>if w is None</code> 分支不是防御性编程，<code>num_workers=0</code> 时它就是 <code>None</code>。</p>
+<hr />
+<h2 id="_4">💀 三、但这个坑只是换了个形态</h2>
+<p>上面破掉的是「<strong>全局</strong>发生器」那一版。把发生器<strong>存进 <code>self</code></strong>，它就跟着副本一起被复制了 —— 这才是今天真正会咬到你的形态，而且 <code>np.random.default_rng()</code> 正是 numpy 现在推荐的写法。</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.utils.data</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">DataLoader</span><span class="p">,</span> <span class="n">get_worker_info</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">OwnRng</span><span class="p">(</span><span class="n">Dataset</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>      <span class="c1"># ⚠️ 发生器存进了 self</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="mi">8</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">rng</span><span class="o">.</span><span class="n">integers</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10000</span><span class="p">))</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">fix_seed</span><span class="p">(</span><span class="n">worker_id</span><span class="p">):</span>                          <span class="c1"># ⭐ 修法</span>
+    <span class="n">info</span> <span class="o">=</span> <span class="n">get_worker_info</span><span class="p">()</span>
+    <span class="n">info</span><span class="o">.</span><span class="n">dataset</span><span class="o">.</span><span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">initial_seed</span><span class="p">()</span> <span class="o">%</span> <span class="mi">2</span><span class="o">**</span><span class="mi">32</span><span class="p">)</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="k">for</span> <span class="n">nw</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">):</span>
+        <span class="n">v</span> <span class="o">=</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">DataLoader</span><span class="p">(</span><span class="n">OwnRng</span><span class="p">(),</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">num_workers</span><span class="o">=</span><span class="n">nw</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">b</span><span class="p">]</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;num_workers=</span><span class="si">{</span><span class="n">nw</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">v</span><span class="si">}</span><span class="s2">  去重后 </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">v</span><span class="p">))</span><span class="si">}</span><span class="s2">/8&quot;</span><span class="p">)</span>
+
+    <span class="n">v</span> <span class="o">=</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">DataLoader</span><span class="p">(</span><span class="n">OwnRng</span><span class="p">(),</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">num_workers</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+                                    <span class="n">worker_init_fn</span><span class="o">=</span><span class="n">fix_seed</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">b</span><span class="p">]</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;加了 worker_init_fn: </span><span class="si">{</span><span class="n">v</span><span class="si">}</span><span class="s2">  去重后 </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">v</span><span class="p">))</span><span class="si">}</span><span class="s2">/8&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>num_workers=0: [8506, 6369, 5111, 2697, 3078, 409, 752, 165] 去重后 8/8</p><p>num_workers=2: [8506, 6369, 5111, 2697, 8506, 6369, 5111, 2697] 去重后 4/8</p><p>num_workers=4: [8506, 6369, 5111, 2697, 8506, 6369, 5111, 2697] 去重后 4/8</p><p>加了 worker_init_fn: [3232, 9238, 8653, 6793, 4674, 6441, 4372, 3919] 去重后 8/8</p><p>（⚠️ 具体数值是**某次实跑** —— base seed 每次运行都变，稳定可复现的是「去重后 8/8」这个结论）</p></div></section>
+<p>⭐ <strong><code>8506, 6369, 5111, 2697</code> 一字不差地重复了一遍</strong> —— 两个 worker 各自从同一个状态开始摇。
+换成真实场景就是：<strong>你的随机裁剪、随机翻转、随机 mask，在每 <code>batch/num_workers</code> 条样本上循环重复</strong>。</p>
+<p>💀 <strong>为什么这个 bug 极难发现</strong>：</p>
+<ul>
+<li>数据<strong>看起来是随机的</strong>（不是全零、不是全一），只是<strong>周期性重复</strong>；</li>
+<li>训练<strong>照常收敛</strong>，只是收敛到的点差一点点；</li>
+<li><code>num_workers=0</code> 调试时<strong>完全正常</strong> —— 而人排查问题的第一反应正是把 <code>num_workers</code> 调成 0；</li>
+<li>⭐ 重复周期恰好等于 <code>num_workers</code>，<strong>改一下 worker 数，「随机性」就变了</strong>，很容易被误判成「调参有效果」。</li>
+</ul>
+<p>✅ <strong>两种修法</strong>，选一种：</p>
+<table>
+<thead>
+<tr>
+<th>修法</th>
+<th>怎么写</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>⭐ <strong>别把发生器存进 <code>self</code></strong></td>
+<td><code>__getitem__</code> 里直接用 <code>np.random.*</code> / <code>torch.rand</code> 全局接口</td>
+<td>绝大多数情况，因为第二节实测它们已经被逐 worker 播种了</td>
+</tr>
+<tr>
+<td><strong><code>worker_init_fn</code></strong></td>
+<td>上面那个 <code>fix_seed</code>，用 <code>torch.initial_seed()</code>（<strong>已经是逐 worker 的</strong>）去重建发生器</td>
+<td>你确实需要一个独立发生器（比如不想污染全局状态）</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<!--MIDSTOP-->
+<blockquote>
+<p>🛑 <strong>读到这里可以停</strong> —— 前半章讲完了（约 28 分钟）。
+<strong>后半章还有</strong>：<code>IterableDataset</code> 在多 worker 下会把数据重复一遍 · 默认 <code>collate_fn</code> 悄悄做了什么 · 这一章不讲什么
+回来的时候不用重读，直接从下一节接着看就行。</p>
+</blockquote>
+<hr />
+<h2 id="iterabledataset-worker">🌊 四、<code>IterableDataset</code> 在多 worker 下会把数据重复一遍</h2>
+<p><code>Dataset</code>（映射式）由主进程分配下标，所以 worker 之间天然不重叠。
+但 <code>IterableDataset</code> 是<strong>数据集自己吐数据</strong>的 —— 没人告诉它「你只该吐第几批」，于是每个 worker 都把<strong>整个流</strong>跑了一遍。</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.utils.data</span><span class="w"> </span><span class="kn">import</span> <span class="n">IterableDataset</span><span class="p">,</span> <span class="n">DataLoader</span><span class="p">,</span> <span class="n">get_worker_info</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Stream</span><span class="p">(</span><span class="n">IterableDataset</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">6</span><span class="p">):</span>
+            <span class="k">yield</span> <span class="n">i</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">StreamFixed</span><span class="p">(</span><span class="n">IterableDataset</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">info</span> <span class="o">=</span> <span class="n">get_worker_info</span><span class="p">()</span>
+        <span class="n">wid</span> <span class="o">=</span> <span class="mi">0</span> <span class="k">if</span> <span class="n">info</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">info</span><span class="o">.</span><span class="n">id</span>
+        <span class="n">n</span> <span class="o">=</span> <span class="mi">1</span> <span class="k">if</span> <span class="n">info</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">info</span><span class="o">.</span><span class="n">num_workers</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">6</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="o">%</span> <span class="n">n</span> <span class="o">==</span> <span class="n">wid</span><span class="p">:</span>          <span class="c1"># ⭐ 自己按 worker 分片</span>
+                <span class="k">yield</span> <span class="n">i</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="k">for</span> <span class="n">nw</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">):</span>
+        <span class="n">v</span> <span class="o">=</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">DataLoader</span><span class="p">(</span><span class="n">Stream</span><span class="p">(),</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">num_workers</span><span class="o">=</span><span class="n">nw</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">b</span><span class="p">]</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;num_workers=</span><span class="si">{</span><span class="n">nw</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">v</span><span class="si">}</span><span class="s2">  共 </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="si">}</span><span class="s2"> 条（数据集只有 6 条）&quot;</span><span class="p">)</span>
+    <span class="n">v</span> <span class="o">=</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">DataLoader</span><span class="p">(</span><span class="n">StreamFixed</span><span class="p">(),</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">num_workers</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">b</span><span class="p">]</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;自己分片后 num_workers=3: </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="si">}</span><span class="s2">  共 </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="si">}</span><span class="s2"> 条&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>num_workers=0: [0, 1, 2, 3, 4, 5] 共 6 条（数据集只有 6 条）</p><p>num_workers=2: [0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5] 共 12 条（数据集只有 6 条）</p><p>num_workers=3: [0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5] 共 18 条（数据集只有 6 条）</p><p>自己分片后 num_workers=3: [0, 1, 2, 3, 4, 5] 共 6 条</p></div></section>
+<p>⚠️ <strong>一个 epoch 的样本数直接乘以 <code>num_workers</code>，而且每条都出现了 <code>num_workers</code> 次。</strong>
+它不报错，只是<strong>你的 epoch 变长了、每条数据被重复训练了</strong>。</p>
+<p>⭐ <strong>判据一句话</strong>：<strong>映射式 Dataset 是「主进程发号，worker 取货」；<code>IterableDataset</code> 是「worker 自己去源头取」，所以分片必须你自己写。</strong>
+分片有两种写法：按下标取模（上面那种，简单但每条数据都要被读到才丢掉），或者在文件/分片层面切（<code>files[wid::n]</code>，⭐ 更快，因为根本不去读别的 worker 那份文件）。</p>
+<p>（流式数据怎么洗牌、缓冲区该开多大，在 <a href="../AI基础设施/22-数据管线与存储.html">《AI基础设施》22</a>。）</p>
+<hr />
+<h2 id="collate_fn">📦 五、默认 <code>collate_fn</code> 悄悄做了什么</h2>
+<p><code>DataLoader</code> 从 <code>__getitem__</code> 拿回来的是<strong>一个 list 的单条样本</strong>，把它们变成一个 batch 的那一步叫 collate。默认实现的规则可以直接看：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.utils.data.dataloader</span><span class="w"> </span><span class="kn">import</span> <span class="n">default_collate</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;① 三个 (2,) 张量 →&quot;</span><span class="p">,</span> <span class="n">default_collate</span><span class="p">([</span><span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span> <span class="o">*</span> <span class="mi">2</span><span class="p">])</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;② python int  →&quot;</span><span class="p">,</span> <span class="n">default_collate</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">]),</span> <span class="n">default_collate</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">])</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;③ python float→&quot;</span><span class="p">,</span> <span class="n">default_collate</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">])</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;④ dict        →&quot;</span><span class="p">,</span> <span class="n">default_collate</span><span class="p">([{</span><span class="s2">&quot;x&quot;</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span> <span class="s2">&quot;y&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">},</span>
+                                          <span class="p">{</span><span class="s2">&quot;x&quot;</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span> <span class="s2">&quot;y&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">}]))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;⑤ 字符串      →&quot;</span><span class="p">,</span> <span class="n">default_collate</span><span class="p">([</span><span class="s2">&quot;a&quot;</span><span class="p">,</span> <span class="s2">&quot;b&quot;</span><span class="p">,</span> <span class="s2">&quot;c&quot;</span><span class="p">]))</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">① 三个 (2,) 张量</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">torch.Size([3, 2])</span></div><div class="vb-flow-row"><span class="vb-flow-step">② python int</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">tensor([1, 2, 3]) torch.int64</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ python float</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">torch.float64</span></div><div class="vb-flow-row"><span class="vb-flow-step">④ dict</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">{&#x27;x&#x27;: tensor([[0., 0.],</span></div><div class="vb-flow-row"><span class="vb-flow-step">[1., 1.]]), &#x27;y&#x27;: tensor([1, 2])}</span></div><div class="vb-flow-row"><span class="vb-flow-step">⑤ 字符串</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">[&#x27;a&#x27;, &#x27;b&#x27;, &#x27;c&#x27;]</span></div></div></section>
+<p>四条规则：<strong>张量 <code>stack</code> 一层</strong>（多出一维在最前）、<strong>数字变张量</strong>、dict/tuple 递归进去、字符串原样留在 list 里不动。</p>
+<p>⚠️⚠️ <strong>第 ③ 条是个会静默伤人的坑</strong>：<code>float</code> → <strong><code>float64</code></strong>，而模型参数是 <code>float32</code>。</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.utils.data</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">DataLoader</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">FloatDS</span><span class="p">(</span><span class="n">Dataset</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="mi">4</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">3</span><span class="p">),</span> <span class="nb">float</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>          <span class="c1"># ⚠️ 标签是 python float</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="n">DataLoader</span><span class="p">(</span><span class="n">FloatDS</span><span class="p">(),</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">4</span><span class="p">)))</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;特征 dtype:&quot;</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="s2">&quot; 标签 dtype:&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;相减之后:&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">1</span><span class="p">)(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">squeeze</span><span class="p">()</span> <span class="o">-</span> <span class="n">y</span><span class="p">)</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>特征 dtype: torch.float32 标签 dtype: torch.float64</p><p>相减之后: torch.float64</p></div></section>
+<p>⭐ <strong>不报错</strong>，只是整条 loss 链路被<strong>静默提升成了双精度</strong> —— CPU 上只是慢一点，GPU 上则是「明明开了混合精度却没提速」。
+✅ 修法就一个字：<code>__getitem__</code> 里返回 <code>torch.tensor(float(i))</code>，或者在 collate 之后 <code>.float()</code>。</p>
+<p><strong>两种 collate 报错</strong>（都实跑抄下来）：</p>
+<div class="codehilite"><pre><span></span><code>RuntimeError: stack expects each tensor to be equal size, but got [3] at entry 0 and [5] at entry 1
+</code></pre></div>
+
+<p>⭐ <strong>看到 <code>stack expects each tensor to be equal size</code> 就是变长样本</strong>（文本、音频、点云），要自己写 collate：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.nn.utils.rnn</span><span class="w"> </span><span class="kn">import</span> <span class="n">pad_sequence</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">pad_collate</span><span class="p">(</span><span class="n">batch</span><span class="p">):</span>
+    <span class="n">lens</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="nb">len</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">batch</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">pad_sequence</span><span class="p">(</span><span class="n">batch</span><span class="p">,</span> <span class="n">batch_first</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span> <span class="n">lens</span>
+
+
+<span class="n">x</span><span class="p">,</span> <span class="n">lens</span> <span class="o">=</span> <span class="n">pad_collate</span><span class="p">([</span><span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">3</span><span class="p">),</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span> <span class="o">*</span> <span class="mi">2</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span> <span class="n">lens</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+</code></pre></div>
+
+<p>实跑输出 <code>torch.Size([2, 5]) [[1.0, 1.0, 1.0, 0.0, 0.0], [2.0, 2.0, 2.0, 2.0, 2.0]] [3, 5]</code>。
+⭐ <strong>一定要把真实长度也带出来</strong>，否则下游没法造 mask，padding 会被当成真数据算进 loss。</p>
+<div class="codehilite"><pre><span></span><code>TypeError: default_collate: batch must contain tensors, numpy arrays, numbers, dicts or lists; found &lt;class &#39;__main__.Foo&#39;&gt;
+</code></pre></div>
+
+<p>⭐ 这条是「你返回了个自定义对象」——<code>PIL.Image</code>、<code>dataclass</code>、<code>spacy</code> 的 Doc 都会撞上。</p>
+<hr />
+<h2 id="_5">🚦 六、这一章不讲什么</h2>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>去哪</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>num_workers</code> / <code>pin_memory</code> / <code>prefetch_factor</code> / <code>persistent_workers</code> / <code>drop_last</code> <strong>怎么调</strong></td>
+<td><a href="../AI基础设施/22-数据管线与存储.html">《AI基础设施》22 · 数据管线与存储</a> ⭐ 六个参数逐个讲透，还有「五分钟确诊数据管线是不是瓶颈」</td>
+</tr>
+<tr>
+<td>进程是<strong>怎么</strong>被创建的、fork 和 spawn 差在哪、为什么 Windows 上必须写 <code>if __name__ == "__main__"</code>、pickle 要花多少代价</td>
+<td><a href="../Python会咬你的地方/index.html">《Python 会咬你的地方》</a> 并发那一章</td>
+</tr>
+<tr>
+<td>数据该怎么存（小文件为什么是灾难、memmap、WebDataset）</td>
+<td><a href="../AI基础设施/22-数据管线与存储.html">《AI基础设施》22</a></td>
+</tr>
+<tr>
+<td>数据集本身干不干净、标注一不一致</td>
+<td><a href="../数据这一关/index.html">《数据这一关》</a></td>
+</tr>
+</tbody>
+</table>
+<p>⭐ <strong>一个可以带走的排查顺序</strong>：<code>DataLoader</code> 出怪事时，<strong>先把 <code>num_workers</code> 设成 0 跑一遍</strong>。</p>
+<ul>
+<li>设成 0 就正常 → 问题在<strong>副本语义</strong>（本章一到四节）；</li>
+<li>设成 0 还是不对 → 问题在 <code>Dataset</code> / <code>collate_fn</code> 本身（第五节），和多进程无关。</li>
+</ul>
+<p>⚠️ 但要记得这个办法<strong>本身会掩盖第三节那个 bug</strong>（<code>num_workers=0</code> 时随机数完全正常）—— 所以「设成 0 就好了」不等于「多进程有 bug」，也可能是<strong>你的代码依赖了只有单进程才成立的假设</strong>。</p>
+<hr />
+<h2 id="_6">🔗 这一章连到哪里</h2>
+<table>
+<thead>
+<tr>
+<th>相关的地方</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="07-train和eval改了什么.html">07 · <code>train()</code> / <code>eval()</code> 改了什么</a></td>
+<td>上一章末尾那条 <code>Expected more than 1 value per channel</code> 的诱因就是这里的 <code>drop_last=False</code>：最后一个 batch 只剩 1 条</td>
+</tr>
+<tr>
+<td><a href="09-自定义算子.html">09 · 自己写一个 autograd 算子</a></td>
+<td>数据进来之后就轮到算子了；那一章讲<strong>怎么给框架加一个它没有的操作</strong></td>
+</tr>
+<tr>
+<td><a href="../AI基础设施/22-数据管线与存储.html">《AI基础设施》22 · 数据管线与存储</a></td>
+<td>⭐ <strong>六个参数怎么调、怎么确诊数据管线是不是瓶颈、数据该用什么格式存</strong> —— 本章刻意不碰这些</td>
+</tr>
+<tr>
+<td><a href="../Python会咬你的地方/index.html">《Python 会咬你的地方》</a></td>
+<td>⭐ 进程模型本身：fork vs spawn、为什么 Windows 必须写 <code>if __name__</code>、跨进程传数据的 pickle 代价。本章只讲「复制之后语义变了什么」</td>
+</tr>
+<tr>
+<td><a href="../数据这一关/13-评测集也是数据.html">《数据这一关》13 · 评测集也是数据</a></td>
+<td>第三节那个「增强周期性重复」属于数据质量问题的框架侧成因；那边讲数据本身的质量怎么量</td>
+</tr>
+<tr>
+<td><a href="../机器学习与深度学习基础/15-PyTorch实战手册.html">《机器学习与深度学习基础》15 · PyTorch 实战手册</a></td>
+<td>「GPU 利用率忽高忽低就是数据加载没配好」那一句的出处，配置方法在 AI基础设施 22</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_7">✅ 检查点</h2>
+<ol>
+<li><code>num_workers=2</code> 时，<code>__getitem__</code> 里 <code>self.n_read += 1</code>，主进程读到的 <code>ds.n_read</code> 是多少？为什么？</li>
+<li>由「worker 拿到副本」能直接推出哪三条不该做的事？</li>
+<li>「多个 worker 会生成完全相同的随机增强」这条传言，在 torch 2.13 上还成立吗？实测了哪三套发生器？</li>
+<li>那个坑今天以什么形态存在？怎么用一行输出证明它？</li>
+<li>worker 的种子是怎么来的？<code>get_worker_info()</code> 在主进程里返回什么？</li>
+<li>第三节那个 bug 为什么极难发现（至少说三条）？</li>
+<li><code>IterableDataset</code> 配 <code>num_workers=3</code> 会发生什么？为什么映射式 Dataset 不会？</li>
+<li>默认 <code>collate_fn</code> 对张量、int、float、dict、字符串分别做什么？哪一条会静默伤人？</li>
+<li><code>stack expects each tensor to be equal size</code> 说明什么？自己写 collate 时<strong>除了补齐</strong>还必须带出什么？</li>
+<li><code>DataLoader</code> 出怪事时先做什么？这个办法有什么盲区？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li><strong>0</strong>。实测 <code>num_workers=0</code> 时是 8、<code>num_workers=2</code> 时是 0，而各条记录看到的是 <code>[1,2,3,4,1,2,3,4]</code> —— 两个 worker 各拿一份副本、各从 0 开始数，主进程那一份根本没被碰过。</li>
+<li>①<strong>不要用 Dataset 属性做统计</strong>（永远是初始值，要统计就写进返回值带出来）②不要在 <code>__getitem__</code> 里写缓存（每 worker 一份，内存翻 <code>num_workers</code> 倍且命中率低）③不要在 <code>__init__</code> 里开文件句柄/数据库连接（多进程共用一个偏移量会读出乱数据），改成在 <code>__getitem__</code> 里惰性打开。</li>
+<li><strong>不成立了</strong>。实测 <code>torch.randint</code> / <code>np.random.randint</code> / <code>random.randint</code> 三套全局发生器在 <code>num_workers=2</code> 下都是 8/8 不重复，PyTorch 逐 worker 重新播种了它们。</li>
+<li>换成了「<strong>把发生器存进 <code>self</code></strong>」——<code>self.rng = np.random.default_rng(0)</code> 会跟着副本一起被复制。实测 <code>num_workers=2</code> 输出 <code>[8506, 6369, 5111, 2697, 8506, 6369, 5111, 2697]</code>，去重后只有 4/8；<code>num_workers=4</code> 同样是 4/8。</li>
+<li>DataLoader 每个 epoch 抽一个 base seed，给第 <code>i</code> 个 worker 发 <code>base_seed + i</code> —— 实测两个 worker 的 seed 是<strong>连号</strong>（<code>…44167</code> / <code>…44168</code>），所以既互不相同、又能被 <code>torch.manual_seed()</code> 完整复现。<code>get_worker_info()</code> 在主进程里返回 <code>None</code>。</li>
+<li>①数据看起来是随机的，只是<strong>周期性重复</strong> ②训练照常收敛，只是差一点 ③<code>num_workers=0</code> 调试时完全正常，而这正是排查的第一反应 ④重复周期等于 <code>num_workers</code>，改 worker 数「随机性」就变了，容易被误判成调参有效。</li>
+<li><strong>整个数据流被重复 3 遍</strong>：实测 6 条的数据集在 <code>num_workers=3</code> 下吐出 18 条（<code>num_workers=2</code> 吐 12 条）。因为 <code>IterableDataset</code> 是数据集自己吐数据，没人告诉它该吐哪一段；映射式 Dataset 由主进程发下标，worker 之间天然不重叠。修法是在 <code>__iter__</code> 里读 <code>get_worker_info()</code> 自己分片（<code>i % n == wid</code>，或更好的 <code>files[wid::n]</code> 在文件层面切）。</li>
+<li>张量 <strong><code>stack</code> 一层</strong>、int → <code>int64</code> 张量、float → <code>float64</code> 张量 ⚠️、dict/tuple 递归进去、字符串原样留在 list 里。会静默伤人的是 float：标签变 <code>float64</code> 之后整条 loss 链路被提升成双精度（实测 <code>x</code> 是 <code>float32</code>、<code>y</code> 是 <code>float64</code>、相减后 <code>float64</code>），不报错，GPU 上表现为「开了混合精度却没提速」。</li>
+<li>说明<strong>样本是变长的</strong>（实测 <code>got [3] at entry 0 and [5] at entry 1</code>）。除了 <code>pad_sequence</code> 补齐，必须把真实长度一起返回，否则下游造不出 mask，padding 会被当真数据算进 loss。</li>
+<li><strong>先把 <code>num_workers</code> 设成 0 跑一遍</strong>：设成 0 就正常 → 问题在副本语义；设成 0 还是不对 → 问题在 <code>Dataset</code> / <code>collate_fn</code> 本身。⚠️ 盲区是它会掩盖第三节那个随机数 bug（单进程下随机数完全正常），所以「设成 0 就好了」也可能意味着你的代码依赖了只有单进程才成立的假设。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_8">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong></p>
+<blockquote>
+<p>⭐ <strong><code>num_workers &gt; 0</code> 的那一刻，你的 Dataset 就有了 N 份副本。</strong> 实测在 <code>__getitem__</code> 里累加计数，主进程读到的是 <strong>0</strong>，而各个 worker 各数各的——<strong><code>__getitem__</code> 跑在别的进程里</strong>。</p>
+<p>由此三条禁令：<strong>别用 Dataset 属性做统计</strong>（要统计就写进返回值带出来）、<strong>别在 <code>__getitem__</code> 里写缓存</strong>（内存翻 N 倍）、⚠️ <strong>别在 <code>__init__</code> 里开文件句柄或数据库连接</strong>（多进程共用偏移量会读出乱数据，改成惰性打开）。</p>
+<p>⭐ 网上那条「多 worker 会生成相同增强」在新版本上<strong>已经不成立</strong>——PyTorch 逐 worker 播种，三套全局发生器都不重复。💀 <strong>但这个坑换了个形态</strong>：把发生器<strong>存进 <code>self</code></strong>（正是 numpy 现在推荐的写法）就会跟着副本被复制，于是增强在每 <code>batch/num_workers</code> 条上<strong>循环重复</strong>。</p>
+<p>⚠️ 它难发现是因为：数据看着仍是随机的、训练照常收敛、⭐ <strong><code>num_workers=0</code> 调试时完全正常</strong>、改 worker 数「随机性」就变（<strong>容易误判成调参有效</strong>）。</p>
+<p>⚠️ <code>IterableDataset</code> 在多 worker 下会<strong>把整个流重复一遍</strong>（不报错，只是 epoch 变长、每条被重复训练）——因为映射式是「主进程发号、worker 取货」，Iterable 是「worker 自己去源头取」，<strong>分片必须你自己写</strong>。</p>
+<p>⚠️ 默认 collate 有个静默陷阱：<strong>Python <code>float</code> 会变成 <code>float64</code></strong>，整条 loss 链路悄悄变成双精度。变长数据要自己 pad，⭐ <strong>并把真实长度一起带出来</strong>，否则造不出 mask。</p>
+</blockquote>
+<p><strong>下一节</strong> 👉 <a href="09-自定义算子.html">09-自定义算子.md</a></p>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="07-train和eval改了什么.html"><div class="dir">← 上一节</div>🔀 07 · train 和 eval 改了什么</a><a class="next" href="09-自定义算子.html"><div class="dir">下一节 →</div>🛠️ 09 · 自定义算子</a></nav>
+</main>
+<script>(function(){
+  var KEY="torch-progress", FILE="08-DataLoader\u4e0e\u591a\u8fdb\u7a0b.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script></body></html>

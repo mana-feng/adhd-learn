@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>10 · 把模型交出去：保存、TorchScript、ONNX、`torch.export`、`compile` · PyTorch 这个框架本身</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:1.9em;line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:1.42em;margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:1.14em;margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:.88em;background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:.85em}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:.92em}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:.8em;color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:.85em;color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:.92em}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:.78em;
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:.92em;border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:.93em;line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:.9em;line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:.93em;line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:.92em}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:1.15em;opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:.82em;
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
+
+.dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:.95em;margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:.93em;line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.02em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:.93em;break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">10 · 把模型交出去</span>
+  <span class="prevnext"><a href="09-自定义算子.html">←</a>
+  <a href="附录A-速查.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#torchsavemodel">🧩 一、torch.save(model) 存的不是模型，是一根引用</a></li>
+<li><a href="#pytorch-26-torchload">🔒 二、PyTorch 2.6 改了 torch.load 的默认值</a></li>
+<li><a href="#_2">📐 三、光有权重还不够：交付清单</a></li>
+<li><a href="#torchscript">🧊 四、TorchScript：把「怎么算」也装进文件</a></li>
+<li><a href="#onnx">🕸️ 五、ONNX：交给另一个运行时</a></li>
+<li><a href="#torchexport">🧭 六、torch.export：现在的正路</a></li>
+<li><a href="#torchcompile">⚡ 七、torch.compile 不是一种交付格式</a></li>
+<li><a href="#_7">🚦 八、选哪一个</a></li>
+<li><a href="#_8">🔗 这一章连到哪里</a></li>
+<li><a href="#_9">✅ 检查点</a></li>
+<li><a href="#_10">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<h1 id="10-torchscriptonnxtorchexportcompile">10 · 把模型交出去：保存、TorchScript、ONNX、<code>torch.export</code>、<code>compile</code></h1>
+<p>⏱ <strong>132 分钟</strong> ｜ ⭐ <strong>实测：<code>torch.save(model)</code> 存出来的文件里，真的写着 <code>mymodel Net</code> 这个模块路径 —— 换个目录加载就是 <code>ModuleNotFoundError: No module named 'mymodel'</code></strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong>交付一个模型永远是交付两样东西：【权重】和【怎么算】。四种格式的差别只在于「怎么算」这一半装在哪里 —— 装在你的 <code>.py</code> 文件里、装在 pickle 的一根引用里、还是装进导出的那张图里。</strong>
+⚠️ 这一章只管<strong>模型怎么变成一个可交付的文件</strong>。文件到手之后怎么起服务、怎么做健康检查、怎么灰度，是 <a href="../AI全栈/index.html">《AI 全栈》</a> 和 <a href="../模型上线之后/index.html">《模型上线之后》</a> 的事。</p>
+<p>本章所有实验用同一个玩具模型，它住在 <code>mymodel.py</code> 里：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Net</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">hidden</span><span class="o">=</span><span class="mi">8</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fc1</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="n">hidden</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fc2</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">hidden</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">fc2</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">relu</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fc1</span><span class="p">(</span><span class="n">x</span><span class="p">)))</span>
+</code></pre></div>
+
+<p>⚠️ <strong>它只有 58 个参数</strong>（<code>fc1</code> 40 个 + <code>fc2</code> 18 个），所以下面所有文件体积<strong>基本全是元数据，不是权重</strong>。别拿这些字节数去比较格式谁更省空间 —— 它们比的是「装了多少结构信息」。</p>
+<hr />
+<h2 id="torchsavemodel">🧩 一、<code>torch.save(model)</code> 存的不是模型，是一根引用</h2>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mymodel</span><span class="w"> </span><span class="kn">import</span> <span class="n">Net</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">Net</span><span class="p">()</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="s2">&quot;whole.pt&quot;</span><span class="p">)</span>                 <span class="c1"># ① 整个模型对象</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">state_dict</span><span class="p">(),</span> <span class="s2">&quot;sd.pt&quot;</span><span class="p">)</span>       <span class="c1"># ② 只存权重</span>
+
+<span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;whole.pt&quot;</span><span class="p">,</span> <span class="s2">&quot;sd.pt&quot;</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">f</span><span class="si">:</span><span class="s2">10</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">getsize</span><span class="p">(</span><span class="n">f</span><span class="p">)</span><span class="si">:</span><span class="s2">6d</span><span class="si">}</span><span class="s2"> 字节&quot;</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;state_dict 的 key:&quot;</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">state_dict</span><span class="p">()</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;类型:&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">state_dict</span><span class="p">())</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>whole.pt 3401 字节</p><p>sd.pt 2411 字节</p><p>state_dict 的 key: [&#x27;fc1.weight&#x27;, &#x27;fc1.bias&#x27;, &#x27;fc2.weight&#x27;, &#x27;fc2.bias&#x27;]</p><p>类型: OrderedDict</p></div></section>
+<p>差的那 990 字节里装了什么？<strong><code>.pt</code> 文件其实是个 zip</strong>，里面的 <code>data.pkl</code> 就是一段 pickle，可以直接拆开看它引用了哪些类：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">io</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pickletools</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">zipfile</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">globals_in</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+    <span class="k">with</span> <span class="n">zipfile</span><span class="o">.</span><span class="n">ZipFile</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="k">as</span> <span class="n">z</span><span class="p">:</span>
+        <span class="n">name</span> <span class="o">=</span> <span class="p">[</span><span class="n">n</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">z</span><span class="o">.</span><span class="n">namelist</span><span class="p">()</span> <span class="k">if</span> <span class="n">n</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s2">&quot;data.pkl&quot;</span><span class="p">)][</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">blob</span> <span class="o">=</span> <span class="n">z</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">StringIO</span><span class="p">()</span>
+    <span class="n">pickletools</span><span class="o">.</span><span class="n">dis</span><span class="p">(</span><span class="n">blob</span><span class="p">,</span> <span class="n">out</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">sorted</span><span class="p">({</span><span class="n">ln</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;GLOBAL&quot;</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">strip</span><span class="p">(</span><span class="s2">&quot;&#39;&quot;</span><span class="p">)</span>
+                   <span class="k">for</span> <span class="n">ln</span> <span class="ow">in</span> <span class="n">out</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span><span class="o">.</span><span class="n">splitlines</span><span class="p">()</span> <span class="k">if</span> <span class="s2">&quot;GLOBAL&quot;</span> <span class="ow">in</span> <span class="n">ln</span><span class="p">})</span>
+
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;whole.pt 里引用的类:&quot;</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">globals_in</span><span class="p">(</span><span class="s2">&quot;whole.pt&quot;</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;   &quot;</span><span class="p">,</span> <span class="n">g</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;sd.pt 里引用的类:&quot;</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">globals_in</span><span class="p">(</span><span class="s2">&quot;sd.pt&quot;</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;   &quot;</span><span class="p">,</span> <span class="n">g</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>whole.pt 里引用的类:</p><p>__builtin__ set</p><p>collections OrderedDict</p><p>mymodel Net</p><p>torch FloatStorage</p><p>torch._utils _rebuild_parameter</p><p>torch._utils _rebuild_tensor_v2</p><p>torch.nn.modules.linear Linear</p><p>sd.pt 里引用的类:</p><p>collections OrderedDict</p><p>torch FloatStorage</p><p>torch._utils _rebuild_tensor_v2</p></div></section>
+<p>⭐ <strong><code>mymodel Net</code> —— 你的模块名和类名，一字不差地写在文件里了。</strong>
+但<strong>类的代码没有进去</strong>，进去的只是这个名字。加载的时候 pickle 会照着这个名字去 <code>import mymodel</code>，找不到就完。</p>
+<p>把两个文件拷到一个<strong>没有 <code>mymodel.py</code></strong> 的目录里：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;--- ① 整个模型 ---&quot;</span><span class="p">)</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">m</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;whole.pt&quot;</span><span class="p">,</span> <span class="n">weights_only</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;加载成功:&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">m</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span> <span class="o">+</span> <span class="s2">&quot;: &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;--- ② 只有权重 ---&quot;</span><span class="p">)</span>
+<span class="n">sd</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;sd.pt&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;加载成功:&quot;</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">sd</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>--- ① 整个模型 ---</p><p>ModuleNotFoundError: No module named &#x27;mymodel&#x27;</p><p>--- ② 只有权重 ---</p><p>加载成功: [&#x27;fc1.weight&#x27;, &#x27;fc1.bias&#x27;, &#x27;fc2.weight&#x27;, &#x27;fc2.bias&#x27;]</p></div></section>
+<p>💀 <strong><code>torch.save(model)</code> 把你的项目结构腌进了权重文件。</strong> 它会在这些时候咬你：</p>
+<ul>
+<li>你把 <code>mymodel.py</code> 挪进了一个包，路径从 <code>mymodel</code> 变成 <code>models.mymodel</code> → 旧 checkpoint 全部打不开</li>
+<li>你把类改名了 → 同上</li>
+<li>对方拿到 <code>.pt</code> 但没有你的仓库 → 根本加载不了</li>
+<li>⚠️ 你在<strong>训练脚本里</strong>直接 <code>torch.save(model)</code>，而训练脚本是 <code>__main__</code> → 文件里写的是 <code>__main__ Net</code>，<strong>换任何一个入口都加载不了</strong></li>
+</ul>
+<p>✅ <strong>规矩就一条：<code>torch.save(model.state_dict())</code>，加载时先自己构造一个同样结构的模型，再 <code>load_state_dict</code>。</strong>
+<code>state_dict</code> 里没有任何类名，它只是一个 <code>OrderedDict[str, Tensor]</code> —— <strong>纯数据，跨项目、跨版本、跨人都能读</strong>。
+（<code>state_dict</code> 里到底装了什么、<code>load_state_dict</code> 为什么老报 key 对不上，在 <a href="06-state_dict与存取.html">06 · <code>state_dict</code> 到底装了什么</a>。）</p>
+<hr />
+<h2 id="pytorch-26-torchload">🔒 二、PyTorch 2.6 改了 <code>torch.load</code> 的默认值</h2>
+<p>即使 <code>mymodel.py</code> 就在手边，直接 <code>torch.load("whole.pt")</code> 现在也会失败：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mymodel</span><span class="w"> </span><span class="kn">import</span> <span class="n">Net</span>          <span class="c1"># ⭐ 类定义在，也照样试试</span>
+
+<span class="n">m</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;whole.pt&quot;</span><span class="p">)</span>       <span class="c1"># torch 2.13 的默认参数</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<div class="codehilite"><pre><span></span><code>UnpicklingError:
+Weights only load failed. This file can still be loaded, to do so you have two options, do those steps only if you trust the source of the checkpoint.
+    (1) In PyTorch 2.6, we changed the default value of the `weights_only` argument in `torch.load` from `False` to `True`. Re-running `torch.load` with `weights_only` set to `False` will likely succeed, but it can result in arbitrary code execution. Do it only if you got the file from a trusted source.
+    (2) Alternatively, to load with `weights_only=True` please check the recommended steps in the following error message.
+    WeightsUnpickler error: Unsupported global: GLOBAL mymodel.Net was not an allowed global by default. Please use `torch.serialization.add_safe_globals([mymodel.Net])` or the `torch.serialization.safe_globals([mymodel.Net])` context manager to allowlist this global if you trust this class/function.
+</code></pre></div>
+
+<p>⭐ <strong>原因写在报错里了：pickle 反序列化等于执行任意代码。</strong> 一个 <code>.pt</code> 文件可以在你 <code>torch.load</code> 的那一刻删你的家目录 —— 而 HuggingFace 上的权重是<strong>别人上传的</strong>。
+2.6 之后默认 <code>weights_only=True</code>：只允许张量和一小撮内置类型，遇到别的一律拒绝。</p>
+<p>⚠️ <strong>这条会以一种意外的方式咬你：连你自己存的 checkpoint 也可能过不了。</strong></p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">argparse</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mymodel</span><span class="w"> </span><span class="kn">import</span> <span class="n">Net</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">Net</span><span class="p">()</span>
+<span class="n">opt</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">Adam</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">parameters</span><span class="p">())</span>
+<span class="n">opt</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+
+<span class="n">ckpt</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;model&quot;</span><span class="p">:</span> <span class="n">m</span><span class="o">.</span><span class="n">state_dict</span><span class="p">(),</span> <span class="s2">&quot;optim&quot;</span><span class="p">:</span> <span class="n">opt</span><span class="o">.</span><span class="n">state_dict</span><span class="p">(),</span> <span class="s2">&quot;epoch&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span> <span class="s2">&quot;best&quot;</span><span class="p">:</span> <span class="mf">0.91</span><span class="p">}</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">ckpt</span><span class="p">,</span> <span class="s2">&quot;ckpt.pt&quot;</span><span class="p">)</span>
+<span class="n">back</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;ckpt.pt&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;① 标准 checkpoint:&quot;</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">back</span><span class="o">.</span><span class="n">keys</span><span class="p">()),</span> <span class="s2">&quot; epoch =&quot;</span><span class="p">,</span> <span class="n">back</span><span class="p">[</span><span class="s2">&quot;epoch&quot;</span><span class="p">])</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">({</span><span class="s2">&quot;cfg&quot;</span><span class="p">:</span> <span class="n">argparse</span><span class="o">.</span><span class="n">Namespace</span><span class="p">(</span><span class="n">lr</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">),</span> <span class="s2">&quot;sd&quot;</span><span class="p">:</span> <span class="n">m</span><span class="o">.</span><span class="n">state_dict</span><span class="p">()},</span> <span class="s2">&quot;ckpt2.pt&quot;</span><span class="p">)</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;ckpt2.pt&quot;</span><span class="p">)</span>
+<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;② 塞了个 Namespace -&gt;&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;   &quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">ln</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">ln</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="n">splitlines</span><span class="p">()</span> <span class="k">if</span> <span class="s2">&quot;Unsupported global&quot;</span> <span class="ow">in</span> <span class="n">ln</span><span class="p">])</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">({</span><span class="s2">&quot;arr&quot;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">3</span><span class="p">),</span> <span class="s2">&quot;sd&quot;</span><span class="p">:</span> <span class="n">m</span><span class="o">.</span><span class="n">state_dict</span><span class="p">()},</span> <span class="s2">&quot;ckpt3.pt&quot;</span><span class="p">)</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;ckpt3.pt&quot;</span><span class="p">)</span>
+<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;③ 塞了个 numpy 数组 -&gt;&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;   &quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">ln</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">ln</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="n">splitlines</span><span class="p">()</span> <span class="k">if</span> <span class="s2">&quot;Unsupported global&quot;</span> <span class="ow">in</span> <span class="n">ln</span><span class="p">])</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">① 标准 checkpoint: [&#x27;model&#x27;, &#x27;optim&#x27;, &#x27;epoch&#x27;, &#x27;best&#x27;] epoch = 3</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 塞了个 Namespace -&gt; UnpicklingError</span></div><div class="vb-flow-row"><span class="vb-flow-step">[&#x27;WeightsUnpickler error: Unsupported global: GLOBAL argparse.Namespace was not an allowed global by default. …&#x27;]</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 塞了个 numpy 数组 -&gt; UnpicklingError</span></div><div class="vb-flow-row"><span class="vb-flow-step">[&#x27;WeightsUnpickler error: Unsupported global: GLOBAL numpy._core.multiarray._reconstruct was not an allowed global by default. …&#x27;]</span></div></div></section>
+<p>⭐ <strong>三条结论</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>你存了什么</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>state_dict</code> + 优化器 <code>state_dict</code> + <code>int</code> / <code>float</code> / <code>str</code> / <code>list</code> / <code>dict</code></td>
+<td>✅ 直接能读</td>
+</tr>
+<tr>
+<td>一个 <code>argparse.Namespace</code>（配置对象）</td>
+<td>❌ <code>Unsupported global: GLOBAL argparse.Namespace</code></td>
+</tr>
+<tr>
+<td>⚠️ 一个 <strong>numpy 数组</strong></td>
+<td>❌ <code>Unsupported global: GLOBAL numpy._core.multiarray._reconstruct</code></td>
+</tr>
+</tbody>
+</table>
+<p>第三条最容易中招 —— 谁都往 checkpoint 里塞过一个 <code>np.array</code> 的类别权重或者混淆矩阵。</p>
+<p>✅ <strong>三种修法，按推荐顺序</strong>：</p>
+<ol>
+<li>⭐ <strong>别往 checkpoint 里塞对象。</strong> 配置存成 <code>dict</code>，numpy 数组存之前 <code>torch.from_numpy(...)</code> 或者 <code>.tolist()</code>。<strong>这样文件对所有人都是安全可读的。</strong></li>
+<li><code>with torch.serialization.safe_globals([argparse.Namespace]): torch.load(...)</code> —— 明确地放行你认识的那几个类。</li>
+<li><code>torch.load(..., weights_only=False)</code> —— <strong>只在文件是你自己产的时候用</strong>。⚠️ 别把它当成「修好了」，它是「我确认这个文件可信」。</li>
+</ol>
+<hr />
+<h2 id="_2">📐 三、光有权重还不够：交付清单</h2>
+<p><code>state_dict</code> 是纯数据，好处是跨项目可读，代价是<strong>「怎么算」全部丢在你这边</strong>。所以交出去的时候还得附上：</p>
+<table>
+<thead>
+<tr>
+<th>要一起交的</th>
+<th>不交会怎样</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>模型代码</strong>（或者一个导出的图，见第四节起）</td>
+<td>对方构造不出结构，<code>load_state_dict</code> 无从谈起</td>
+</tr>
+<tr>
+<td>⭐ <strong>构造超参</strong>（<code>hidden=8</code>、层数、<code>num_classes</code>）</td>
+<td>结构对不上 → <code>size mismatch for fc1.weight</code> 那一串（见 <a href="06-state_dict与存取.html">06 章</a>）</td>
+</tr>
+<tr>
+<td>⭐ <strong>预处理</strong>（归一化的均值/方差、tokenizer、resize 尺寸）</td>
+<td>💀 <strong>不报错，只是精度莫名其妙地低</strong> —— 训练和推理的预处理不一致是线上事故的头号来源</td>
+</tr>
+<tr>
+<td><strong>类别顺序</strong></td>
+<td>同上，<code>argmax</code> 出来的下标对到了别的类</td>
+</tr>
+<tr>
+<td><code>torch</code> 版本、<code>opset</code> 版本</td>
+<td>老文件在新版本上加载出奇怪的 warning 或行为差异</td>
+</tr>
+<tr>
+<td><strong>模型卡 / 评测数字</strong></td>
+<td>对方不知道这个模型什么时候能用、什么时候不能用</td>
+</tr>
+</tbody>
+</table>
+<p>⭐ <strong>这就是为什么「导出成一张图」有价值</strong>：它把前四行里的「怎么算」那部分焊进了文件。
+⚠️ 但注意预处理通常仍在图外面 —— 除非你特意把归一化写进 <code>forward</code>。💡 <strong>一个很实用的习惯：把归一化那两行搬进模型的 <code>forward</code></strong>，这样导出的图自带预处理，交付面就少一个能出错的地方。</p>
+<p>（训练/推理预处理不一致的完整后果和排查法，在 <a href="../模型上线之后/04-训练推理一致性.html">《模型上线之后》04 · 训练推理一致性</a>。）</p>
+<hr />
+<!--MIDSTOP-->
+<blockquote>
+<p>🛑 <strong>读到这里可以停</strong> —— 前半章讲完了（约 22 分钟）：<code>torch.save</code> 的两种写法、<code>weights_only</code> 这个新默认值、以及交付清单。
+<strong>后半章还有</strong>：TorchScript（<code>trace</code> 会把分支写死）· ONNX（换个运行时跑）· <code>torch.export</code>（现在的正路）· <code>torch.compile</code>（它<strong>不是</strong>交付格式）· 怎么选。
+回来的时候不用重读，直接从下一节接着看就行。</p>
+</blockquote>
+<hr />
+<h2 id="torchscript">🧊 四、TorchScript：把「怎么算」也装进文件</h2>
+<p><code>torch.jit</code> 有两条路，<strong>它们的失败方式完全不同，这是本节唯一要记住的事</strong>：</p>
+<ul>
+<li><strong><code>trace</code></strong>：喂一个样例输入进去，<strong>记录下真正执行过的那串算子</strong>。</li>
+<li><strong><code>script</code></strong>：直接<strong>读你的 Python 源码</strong>，编译成 TorchScript。</li>
+</ul>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Cond</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="mi">2</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="o">-</span><span class="mi">1</span>
+
+
+<span class="n">m</span> <span class="o">=</span> <span class="n">Cond</span><span class="p">()</span>
+<span class="n">pos</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">])</span>
+<span class="n">neg</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">2.0</span><span class="p">])</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;原模型      :&quot;</span><span class="p">,</span> <span class="n">m</span><span class="p">(</span><span class="n">pos</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span> <span class="n">m</span><span class="p">(</span><span class="n">neg</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+
+<span class="n">traced</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">trace</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">pos</span><span class="p">)</span>          <span class="c1"># ⚠️ 只喂了正数</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;trace 之后  :&quot;</span><span class="p">,</span> <span class="n">traced</span><span class="p">(</span><span class="n">pos</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span> <span class="n">traced</span><span class="p">(</span><span class="n">neg</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+
+<span class="n">scripted</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">script</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;script 之后 :&quot;</span><span class="p">,</span> <span class="n">scripted</span><span class="p">(</span><span class="n">pos</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span> <span class="n">scripted</span><span class="p">(</span><span class="n">neg</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;--- trace 出来的代码 ---&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">traced</span><span class="o">.</span><span class="n">code</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;--- script 出来的代码 ---&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">scripted</span><span class="o">.</span><span class="n">code</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">TracerWarning: Converting a tensor to a Python boolean might cause the trace to be incorrect. We can&#x27;t record the data flow of Python values, so this value will be treated as a constant in the future. This means that the trace might not generalize to other inputs!</span></div><div class="vb-flow-row"><span class="vb-flow-step">if x.sum() &gt; 0:</span></div><div class="vb-flow-row"><span class="vb-flow-step">原模型 : [2.0, 4.0] [1.0, 2.0]</span></div><div class="vb-flow-row"><span class="vb-flow-step">trace 之后 : [2.0, 4.0] [-2.0, -4.0]</span></div><div class="vb-flow-row"><span class="vb-flow-step">script 之后 : [2.0, 4.0] [1.0, 2.0]</span></div><div class="vb-flow-row"><span class="vb-flow-step">--- trace 出来的代码 ---</span></div><div class="vb-flow-row"><span class="vb-flow-step">def forward(self,</span></div><div class="vb-flow-row"><span class="vb-flow-step">x: Tensor) -&gt; Tensor:</span></div><div class="vb-flow-row"><span class="vb-flow-step">return torch.mul(x, CONSTANTS.c0)</span></div><div class="vb-flow-row"><span class="vb-flow-step">--- script 出来的代码 ---</span></div><div class="vb-flow-row"><span class="vb-flow-step">def forward(self,</span></div><div class="vb-flow-row"><span class="vb-flow-step">x: Tensor) -&gt; Tensor:</span></div><div class="vb-flow-row"><span class="vb-flow-step">if bool(torch.gt(torch.sum(x), 0)):</span></div><div class="vb-flow-row"><span class="vb-flow-step">_0 = torch.mul(x, 2)</span></div><div class="vb-flow-row"><span class="vb-flow-step">else:</span></div><div class="vb-flow-row"><span class="vb-flow-step">_0 = torch.mul(x, -1)</span></div><div class="vb-flow-row"><span class="vb-flow-step">return _0</span></div></div></section>
+<p>💀💀 <strong>负数输入下，原模型给 <code>[1.0, 2.0]</code>，trace 出来的给 <code>[-2.0, -4.0]</code>。</strong>
+看 <code>traced.code</code> 就明白了：<code>if</code> 整个消失了，只剩一句 <code>torch.mul(x, CONSTANTS.c0)</code> —— tracer 只看见了「这次乘了 2」，它<strong>根本不知道有另一条分支存在</strong>。</p>
+<p>⭐ <strong><code>trace</code> 的失效模式是「悄悄给出错答案」，而不是报错。</strong> 它只给了一条 <code>TracerWarning</code>，而 warning 混在训练日志里没人会看见。
+⚠️ 凡是 <code>if x.sum() &gt; 0</code> / <code>while</code> / <code>len(x)</code> 参与控制流 / <code>.item()</code> 之后走分支，<strong>tracer 全部当成常量写死</strong>。</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>trace</code></th>
+<th><code>script</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>怎么工作</td>
+<td>跑一遍，记录算子</td>
+<td>编译你的 Python 源码</td>
+</tr>
+<tr>
+<td>数据相关的 <code>if</code> / <code>for</code></td>
+<td>💀 <strong>写死成常量，不报错</strong></td>
+<td>✅ 保留下来</td>
+</tr>
+<tr>
+<td>支持的 Python</td>
+<td>任意（因为根本没在读你的代码）</td>
+<td>⚠️ 只支持一个子集，写法太动态会编译不过</td>
+</tr>
+<tr>
+<td>典型用法</td>
+<td>结构固定的 CNN</td>
+<td>有控制流的模型（RNN、beam search）</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_3">装进文件之后长什么样</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mymodel</span><span class="w"> </span><span class="kn">import</span> <span class="n">Net</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">Net</span><span class="p">()</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;原模型输出:&quot;</span><span class="p">,</span> <span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">m</span><span class="p">(</span><span class="n">x</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">()])</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">script</span><span class="p">(</span><span class="n">m</span><span class="p">),</span> <span class="s2">&quot;scripted.pt&quot;</span><span class="p">)</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="s2">&quot;x.pt&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;scripted.pt&quot;</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">getsize</span><span class="p">(</span><span class="s2">&quot;scripted.pt&quot;</span><span class="p">),</span> <span class="s2">&quot;字节&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>原模型输出: [-0.1947, -0.1502]</p><p>scripted.pt 5758 字节</p></div></section>
+<p>把 <code>scripted.pt</code> 和 <code>x.pt</code> 拷到<strong>没有 <code>mymodel.py</code></strong> 的目录里：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>                     <span class="c1"># ⭐ 注意：这个目录里没有 mymodel.py</span>
+
+<span class="n">m</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;scripted.pt&quot;</span><span class="p">)</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;x.pt&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;类型:&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">m</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;输出:&quot;</span><span class="p">,</span> <span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">m</span><span class="p">(</span><span class="n">x</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">()])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;还能看到源码:&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">code</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">类型: RecursiveScriptModule</span></div><div class="vb-flow-row"><span class="vb-flow-step">输出: [-0.1947, -0.1502]</span></div><div class="vb-flow-row"><span class="vb-flow-step">还能看到源码:</span></div><div class="vb-flow-row"><span class="vb-flow-step">def forward(self,</span></div><div class="vb-flow-row"><span class="vb-flow-step">x: Tensor) -&gt; Tensor:</span></div><div class="vb-flow-row"><span class="vb-flow-step">fc2 = self.fc2</span></div><div class="vb-flow-row"><span class="vb-flow-step">fc1 = self.fc1</span></div><div class="vb-flow-row"><span class="vb-flow-step">_0 = (fc2).forward(torch.relu((fc1).forward(x, )), )</span></div><div class="vb-flow-row"><span class="vb-flow-step">return _0</span></div></div></section>
+<p>⭐ <strong>和第一节形成了完整对照</strong>：同一个目录、同样没有 <code>mymodel.py</code>，<code>torch.load("whole.pt")</code> 报 <code>ModuleNotFoundError</code>，而 <code>torch.jit.load("scripted.pt")</code> <strong>跑出了一模一样的 <code>[-0.1947, -0.1502]</code></strong>。
+「怎么算」这一半真的进了文件 —— 而且 <code>m.code</code> 还能把它打印出来。这就是 TorchScript 的全部卖点：一个不需要你的 Python 代码就能跑的模型（C++ 的 LibTorch 也能直接加载它）。</p>
+<p>🗓️ <strong>但 TorchScript 现在处于维护状态</strong>，PyTorch 的力量都投在 <code>torch.export</code> 上（第六节）。⭐ <strong>新项目从 <code>torch.export</code> 起步；<code>torch.jit</code> 主要是维护存量、或者你要交给一个只认 TorchScript 的老部署环境。</strong></p>
+<hr />
+<h2 id="onnx">🕸️ 五、ONNX：交给另一个运行时</h2>
+<p>前面几种格式的读者都还是 PyTorch。<strong>ONNX 换的是运行时</strong> —— onnxruntime、TensorRT、CoreML、各种边缘芯片的 SDK 都吃它。</p>
+<p>⚠️ <strong>先说一条会当场绊住你的</strong>。PyTorch 2.9 起 <code>torch.onnx.export</code> 默认走<strong>新的 <code>torch.export</code> 导出器</strong>，它需要一个额外的包：</p>
+<div class="codehilite"><pre><span></span><code>ModuleNotFoundError: No module named &#39;onnxscript&#39;
+</code></pre></div>
+
+<p>✅ 两条路：装 <code>onnxscript</code>，或者用 <code>dynamo=False</code> 回到老的 TorchScript 导出器（本机实验走的是后者，因为环境里没有 <code>onnxscript</code>）：</p>
+<div class="codehilite"><pre><span></span><code>DeprecationWarning: You are using the legacy TorchScript-based ONNX export. Starting in PyTorch 2.9, the new torch.export-based ONNX exporter has become the default.
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mymodel</span><span class="w"> </span><span class="kn">import</span> <span class="n">Net</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">Net</span><span class="p">()</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">onnx</span><span class="o">.</span><span class="n">export</span><span class="p">(</span>
+    <span class="n">m</span><span class="p">,</span> <span class="p">(</span><span class="n">x</span><span class="p">,),</span> <span class="s2">&quot;net.onnx&quot;</span><span class="p">,</span>
+    <span class="n">input_names</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">],</span> <span class="n">output_names</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">],</span>
+    <span class="n">dynamic_axes</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;x&quot;</span><span class="p">:</span> <span class="p">{</span><span class="mi">0</span><span class="p">:</span> <span class="s2">&quot;batch&quot;</span><span class="p">},</span> <span class="s2">&quot;y&quot;</span><span class="p">:</span> <span class="p">{</span><span class="mi">0</span><span class="p">:</span> <span class="s2">&quot;batch&quot;</span><span class="p">}},</span>   <span class="c1"># ⭐ 声明哪一维是可变的</span>
+    <span class="n">dynamo</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;net.onnx&quot;</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">getsize</span><span class="p">(</span><span class="s2">&quot;net.onnx&quot;</span><span class="p">),</span> <span class="s2">&quot;字节&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;原模型输出:&quot;</span><span class="p">,</span> <span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">m</span><span class="p">(</span><span class="n">x</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">()])</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="s2">&quot;x1.pt&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>net.onnx 675 字节</p><p>原模型输出: [-0.1947, -0.1502]</p></div></section>
+<p>导出的东西可以直接拆开看：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">onnx</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">onnxruntime</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ort</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">g</span> <span class="o">=</span> <span class="n">onnx</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;net.onnx&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">graph</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;输入 :&quot;</span><span class="p">,</span> <span class="p">[(</span><span class="n">i</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="p">[</span><span class="n">d</span><span class="o">.</span><span class="n">dim_param</span> <span class="ow">or</span> <span class="n">d</span><span class="o">.</span><span class="n">dim_value</span>
+                          <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">i</span><span class="o">.</span><span class="n">type</span><span class="o">.</span><span class="n">tensor_type</span><span class="o">.</span><span class="n">shape</span><span class="o">.</span><span class="n">dim</span><span class="p">])</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">g</span><span class="o">.</span><span class="n">input</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;输出 :&quot;</span><span class="p">,</span> <span class="p">[(</span><span class="n">o</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="p">[</span><span class="n">d</span><span class="o">.</span><span class="n">dim_param</span> <span class="ow">or</span> <span class="n">d</span><span class="o">.</span><span class="n">dim_value</span>
+                          <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">o</span><span class="o">.</span><span class="n">type</span><span class="o">.</span><span class="n">tensor_type</span><span class="o">.</span><span class="n">shape</span><span class="o">.</span><span class="n">dim</span><span class="p">])</span> <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">g</span><span class="o">.</span><span class="n">output</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;节点 :&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">n</span><span class="o">.</span><span class="n">op_type</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">g</span><span class="o">.</span><span class="n">node</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;权重 :&quot;</span><span class="p">,</span> <span class="p">[(</span><span class="n">w</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">dims</span><span class="p">))</span> <span class="k">for</span> <span class="n">w</span> <span class="ow">in</span> <span class="n">g</span><span class="o">.</span><span class="n">initializer</span><span class="p">])</span>
+
+<span class="n">sess</span> <span class="o">=</span> <span class="n">ort</span><span class="o">.</span><span class="n">InferenceSession</span><span class="p">(</span><span class="s2">&quot;net.onnx&quot;</span><span class="p">)</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;x1.pt&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;onnxruntime 输出:&quot;</span><span class="p">,</span> <span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">sess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;x&quot;</span><span class="p">:</span> <span class="n">x</span><span class="o">.</span><span class="n">numpy</span><span class="p">()})[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">()])</span>
+
+<span class="n">big</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;换成 batch=5 :&quot;</span><span class="p">,</span> <span class="n">sess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;x&quot;</span><span class="p">:</span> <span class="n">big</span><span class="p">})[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>输入 : [(&#x27;x&#x27;, [&#x27;batch&#x27;, 4])]</p><p>输出 : [(&#x27;y&#x27;, [&#x27;batch&#x27;, 2])]</p><p>节点 : [&#x27;Gemm&#x27;, &#x27;Relu&#x27;, &#x27;Gemm&#x27;]</p><p>权重 : [(&#x27;fc1.weight&#x27;, [8, 4]), (&#x27;fc1.bias&#x27;, [8]), (&#x27;fc2.weight&#x27;, [2, 8]), (&#x27;fc2.bias&#x27;, [2])]</p><p>onnxruntime 输出: [-0.1947, -0.1502]</p><p>换成 batch=5 : (5, 2)</p></div></section>
+<p>⭐ <strong>三件事值得盯一会儿</strong>：</p>
+<ol>
+<li><strong><code>nn.Linear</code> 没了，变成了 <code>Gemm</code>。</strong> ONNX 里只有<strong>算子</strong>，没有你的类、没有 <code>nn.Module</code> 的层级结构 —— 它是一张纯粹的计算图。<code>Relu</code> 也不再是一个「层」，就是图上一个节点。</li>
+<li><strong>权重名字还留着</strong>（<code>fc1.weight</code> 等），且<strong>权重就在这个文件里</strong>（<code>initializer</code>），所以 ONNX 是自包含的：一个文件 = 结构 + 权重。</li>
+<li>⭐ <strong><code>dynamic_axes</code> 声明过的那一维显示成 <code>'batch'</code>（字符串）而不是数字</strong>，所以 batch=5 能跑通。<strong>没声明的维会被写成固定数字，换个尺寸就直接报错。</strong></li>
+</ol>
+<h3 id="_4">💀 同一个坑：数据相关的分支</h3>
+<p>老的 ONNX 导出器是<strong>基于 trace 的</strong>，所以第四节那个坑原样存在：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">onnx</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">onnxruntime</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ort</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Cond</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="mi">2</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="o">-</span><span class="mi">1</span>
+
+
+<span class="n">m</span> <span class="o">=</span> <span class="n">Cond</span><span class="p">()</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+<span class="n">pos</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">]])</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">onnx</span><span class="o">.</span><span class="n">export</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="p">(</span><span class="n">pos</span><span class="p">,),</span> <span class="s2">&quot;cond.onnx&quot;</span><span class="p">,</span> <span class="n">input_names</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">],</span> <span class="n">output_names</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">],</span>
+                  <span class="n">dynamic_axes</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;x&quot;</span><span class="p">:</span> <span class="p">{</span><span class="mi">0</span><span class="p">:</span> <span class="s2">&quot;b&quot;</span><span class="p">},</span> <span class="s2">&quot;y&quot;</span><span class="p">:</span> <span class="p">{</span><span class="mi">0</span><span class="p">:</span> <span class="s2">&quot;b&quot;</span><span class="p">}},</span> <span class="n">dynamo</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;节点:&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">n</span><span class="o">.</span><span class="n">op_type</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">onnx</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;cond.onnx&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">graph</span><span class="o">.</span><span class="n">node</span><span class="p">])</span>
+
+<span class="n">sess</span> <span class="o">=</span> <span class="n">ort</span><span class="o">.</span><span class="n">InferenceSession</span><span class="p">(</span><span class="s2">&quot;cond.onnx&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;正数 pytorch:&quot;</span><span class="p">,</span> <span class="n">m</span><span class="p">(</span><span class="n">pos</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span> <span class="s2">&quot; onnx:&quot;</span><span class="p">,</span> <span class="n">sess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;x&quot;</span><span class="p">:</span> <span class="n">pos</span><span class="o">.</span><span class="n">numpy</span><span class="p">()})[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+<span class="n">neg</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">2.0</span><span class="p">]])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;负数 pytorch:&quot;</span><span class="p">,</span> <span class="n">m</span><span class="p">(</span><span class="n">neg</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span> <span class="s2">&quot; onnx:&quot;</span><span class="p">,</span> <span class="n">sess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;x&quot;</span><span class="p">:</span> <span class="n">neg</span><span class="o">.</span><span class="n">numpy</span><span class="p">()})[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>节点: [&#x27;Constant&#x27;, &#x27;Mul&#x27;]</p><p>正数 pytorch: [[2.0, 4.0]] onnx: [[2.0, 4.0]]</p><p>负数 pytorch: [[1.0, 2.0]] onnx: [[-2.0, -4.0]]</p></div></section>
+<p>⚠️ <strong>正样例对上了，负样例差得离谱。</strong> 这解释了一条老生常谈的部署纪律：<strong>导出之后必须拿一批真实数据逐条比对 PyTorch 和 ONNX 的输出</strong>，只测一条样例正好是最容易漏掉这个 bug 的做法。</p>
+<h3 id="_5">💀💀 更狠的一种：整张图变成一个常数</h3>
+<p>上一章那个「前向绕出去用 numpy 算」的 <code>Function</code>（<a href="09-自定义算子.html">09 · 自己写一个 autograd 算子</a>），导出时会发生这个：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">onnx</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">onnxruntime</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ort</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">NpSqrt</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()))</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">out</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">g</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">out</span><span class="p">,)</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="k">return</span> <span class="n">g</span> <span class="o">/</span> <span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">out</span><span class="p">)</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">M</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">NpSqrt</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+
+
+<span class="n">m</span> <span class="o">=</span> <span class="n">M</span><span class="p">()</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">4.0</span><span class="p">,</span> <span class="mf">9.0</span><span class="p">]])</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">onnx</span><span class="o">.</span><span class="n">export</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="p">(</span><span class="n">x</span><span class="p">,),</span> <span class="s2">&quot;np.onnx&quot;</span><span class="p">,</span> <span class="n">dynamo</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+<span class="n">g</span> <span class="o">=</span> <span class="n">onnx</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;np.onnx&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">graph</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;图里的节点:&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">n</span><span class="o">.</span><span class="n">op_type</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">g</span><span class="o">.</span><span class="n">node</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;图的输入  :&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">i</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">g</span><span class="o">.</span><span class="n">input</span><span class="p">])</span>
+<span class="n">sess</span> <span class="o">=</span> <span class="n">ort</span><span class="o">.</span><span class="n">InferenceSession</span><span class="p">(</span><span class="s2">&quot;np.onnx&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;ort 要的输入:&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">i</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">sess</span><span class="o">.</span><span class="n">get_inputs</span><span class="p">()])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;跑一次    :&quot;</span><span class="p">,</span> <span class="n">sess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="p">{})[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;pytorch 换个输入:&quot;</span><span class="p">,</span> <span class="n">m</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mf">16.0</span><span class="p">,</span> <span class="mf">25.0</span><span class="p">,</span> <span class="mf">36.0</span><span class="p">]]))</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+</code></pre></div>
+
+<p>实跑输出（省去两条 <code>TracerWarning</code>）：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>图里的节点: [&#x27;Constant&#x27;]</p><p>图的输入 : []</p><p>ort 要的输入: []</p><p>跑一次 : [[1.0, 2.0, 3.0]]</p><p>pytorch 换个输入: [[4.0, 5.0, 6.0]]</p></div></section>
+<p>💀💀💀 <strong>导出的模型没有输入</strong>。整个计算被折成了一个常数，永远返回 <code>[[1.0, 2.0, 3.0]]</code>，而 PyTorch 换个输入给的是 <code>[[4.0, 5.0, 6.0]]</code>。
+<strong><code>torch.onnx.export</code> 没有报错</strong>，只给了两条 <code>TracerWarning</code>（<code>Converting a tensor to a NumPy array might cause the trace to be incorrect</code> 和 <code>torch.from_numpy results are registered as constants in the trace</code>）。</p>
+<p>⭐ <strong>由此得到一条最省事的自检</strong>：<strong>导完先看一眼图的输入列表和节点数</strong>。输入是空的、或者节点少得不像话，就说明有大段计算被折成常量了。</p>
+<p>⚠️ 顺便回答上一章留的问题：<strong>导出的是推理图，你写的 <code>backward</code> 会被整个丢掉</strong>（推理不需要它，所以这没关系）。真正的问题只在于 <code>forward</code> 里有没有绕出框架。</p>
+<hr />
+<!--MIDSTOP2-->
+<blockquote>
+<p>🛑 <strong>第二个休息点</strong> —— 中段讲完了（约 40 分钟）。
+<strong>最后一段还有</strong>：<code>torch.export</code>：现在的正路 · <code>torch.compile</code> 不是一种交付格式 · 选哪一个
+这一章确实长，分三次读完全没问题 —— 回来直接从下一节接着看。</p>
+</blockquote>
+<hr />
+<!--MIDSTOP-->
+<blockquote>
+<p>🛑 <strong>读到这里可以停</strong> —— 已经读了约 76 分钟。
+<strong>最后一段还有</strong>（约 31 分钟）：<code>torch.export</code>：现在的正路 · <code>torch.compile</code> 不是一种交付格式 · 选哪一个
+回来的时候不用重读，直接从下一节接着看就行。</p>
+</blockquote>
+<hr />
+<h2 id="torchexport">🧭 六、<code>torch.export</code>：现在的正路</h2>
+<p><code>torch.export</code> 是 PyTorch 2.x 给出的答案，位置介于 trace 和 script 之间：<strong>它用符号执行走一遍你的代码</strong>，产出一张 ATen 级别的图。</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mymodel</span><span class="w"> </span><span class="kn">import</span> <span class="n">Net</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">Net</span><span class="p">()</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+
+<span class="n">ep</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">export</span><span class="o">.</span><span class="n">export</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="p">(</span><span class="n">x</span><span class="p">,))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;类型:&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">ep</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">ep</span><span class="o">.</span><span class="n">graph_module</span><span class="o">.</span><span class="n">code</span><span class="p">)</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">export</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">ep</span><span class="p">,</span> <span class="s2">&quot;net.pt2&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;net.pt2&quot;</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">getsize</span><span class="p">(</span><span class="s2">&quot;net.pt2&quot;</span><span class="p">),</span> <span class="s2">&quot;字节&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;原模型:&quot;</span><span class="p">,</span> <span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">m</span><span class="p">(</span><span class="n">x</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">()])</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>类型: ExportedProgram</p><p>def forward(self, p_fc1_weight, p_fc1_bias, p_fc2_weight, p_fc2_bias, x):</p><p>linear = torch.ops.aten.linear.default(x, p_fc1_weight, p_fc1_bias); x = p_fc1_weight = p_fc1_bias = None</p><p>relu = torch.ops.aten.relu.default(linear); linear = None</p><p>linear_1 = torch.ops.aten.linear.default(relu, p_fc2_weight, p_fc2_bias); relu = p_fc2_weight = p_fc2_bias = None</p><p>return (linear_1,)</p><p>net.pt2 11581 字节</p><p>原模型: [-0.1947, -0.1502]</p></div></section>
+<p>⭐ <strong>注意 <code>forward</code> 的签名</strong>：参数从 4 个权重开始，<code>x</code> 排在最后 —— <strong>权重被「提」成了函数的入参</strong>（这叫 functionalization）。图里没有任何状态，是一个纯函数。ONNX 里 <code>nn.Linear</code> 变成 <code>Gemm</code>，这里变成 <code>torch.ops.aten.linear.default</code>。</p>
+<p>同样，拷到<strong>没有 <code>mymodel.py</code></strong> 的目录里：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>                      <span class="c1"># ⭐ 这个目录里没有 mymodel.py</span>
+
+<span class="n">ep</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">export</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;net.pt2&quot;</span><span class="p">)</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;x.pt&quot;</span><span class="p">)</span>        <span class="c1"># ④ 存的那份输入，和 net.pt2 一起拷过来</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;类型:&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">ep</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;输出:&quot;</span><span class="p">,</span> <span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">ep</span><span class="o">.</span><span class="n">module</span><span class="p">()(</span><span class="n">x</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">()])</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>类型: ExportedProgram</p><p>输出: [-0.1947, -0.1502]</p></div></section>
+<h3 id="trace">⭐ 它和 <code>trace</code> 最关键的一处不同：宁可报错，也不悄悄写死</h3>
+<p>同样那个 <code>Cond</code> 模型：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Cond</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="mi">2</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="o">-</span><span class="mi">1</span>
+
+
+<span class="n">torch</span><span class="o">.</span><span class="n">export</span><span class="o">.</span><span class="n">export</span><span class="p">(</span><span class="n">Cond</span><span class="p">()</span><span class="o">.</span><span class="n">eval</span><span class="p">(),</span> <span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">]]),))</span>
+</code></pre></div>
+
+<p>实跑输出（截断）：</p>
+<div class="codehilite"><pre><span></span><code>GuardOnDataDependentSymNode: Could not guard on data-dependent expression Eq(u0, 1) (unhinted: Eq(u0, 1)).  (Size-like symbols: none)
+
+consider using data-dependent friendly APIs such as guard_or_false, guard_or_true and statically_known_true.
+</code></pre></div>
+
+<p>⭐ <strong>这是本节最值得记住的一句：<code>trace</code> 给你一个错模型，<code>torch.export</code> 给你一个报错。</strong>
+报错难看，但它出现在<strong>你的机器上</strong>；错模型不难看，它出现在线上。</p>
+<h3 id="_6">形状也是同一个道理</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mymodel</span><span class="w"> </span><span class="kn">import</span> <span class="n">Net</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">Net</span><span class="p">()</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+<span class="n">x2</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<span class="n">x5</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+
+<span class="n">ep</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">export</span><span class="o">.</span><span class="n">export</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="p">(</span><span class="n">x2</span><span class="p">,))</span>                       <span class="c1"># 只给了 batch=2 的样例</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;① 不声明动态维，喂 batch=5:&quot;</span><span class="p">,</span> <span class="n">ep</span><span class="o">.</span><span class="n">module</span><span class="p">()(</span><span class="n">x5</span><span class="p">)</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;① 不声明动态维，喂 batch=5 -&gt;&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span> <span class="o">+</span> <span class="s2">&quot;: &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()[:</span><span class="mi">220</span><span class="p">])</span>
+
+<span class="n">b</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">export</span><span class="o">.</span><span class="n">Dim</span><span class="p">(</span><span class="s2">&quot;batch&quot;</span><span class="p">)</span>
+<span class="n">ep2</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">export</span><span class="o">.</span><span class="n">export</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="p">(</span><span class="n">x2</span><span class="p">,),</span> <span class="n">dynamic_shapes</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;x&quot;</span><span class="p">:</span> <span class="p">{</span><span class="mi">0</span><span class="p">:</span> <span class="n">b</span><span class="p">}})</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;② 声明 batch 是动态维，喂 batch=5:&quot;</span><span class="p">,</span> <span class="n">ep2</span><span class="o">.</span><span class="n">module</span><span class="p">()(</span><span class="n">x5</span><span class="p">)</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-flow" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">① 不声明动态维，喂 batch=5 -&gt; AssertionError: Guard failed: x.size()[0] == 2</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 声明 batch 是动态维，喂 batch=5: torch.Size([5, 2])</span></div></div></section>
+<p>⭐ <strong>默认所有形状都是写死的</strong>（<code>Guard failed: x.size()[0] == 2</code> 把这件事说得很直白），要动态就用 <code>torch.export.Dim</code> 明确声明 —— 和 ONNX 的 <code>dynamic_axes</code> 是同一个概念。
+⚠️ <strong>样例输入的 batch 不要用 1</strong>：0 和 1 会被当成特殊值做特化，拿 <code>batch=1</code> 的样例去声明动态维会得到 <code>Constraints violated (batch)! … your code specialized it to be a constant (1)</code>。用 2 或更大。</p>
+<hr />
+<h2 id="torchcompile">⚡ 七、<code>torch.compile</code> 不是一种交付格式</h2>
+<p>这是最容易被归错类的一个。</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mymodel</span><span class="w"> </span><span class="kn">import</span> <span class="n">Net</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">Net</span><span class="p">()</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+<span class="n">c</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;torch.compile 返回的类型:&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;它还是不是 nn.Module :&quot;</span><span class="p">,</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">c</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;state_dict 的 key    :&quot;</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">state_dict</span><span class="p">()</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;拿得到原模型吗       :&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">_orig_mod</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>torch.compile 返回的类型: OptimizedModule</p><p>它还是不是 nn.Module : True</p><p>state_dict 的 key : [&#x27;_orig_mod.fc1.weight&#x27;, &#x27;_orig_mod.fc1.bias&#x27;, &#x27;_orig_mod.fc2.weight&#x27;, &#x27;_orig_mod.fc2.bias&#x27;]</p><p>拿得到原模型吗 : Net</p></div></section>
+<p>⭐ <strong><code>torch.compile</code> 返回的是一个【包着你的模型的壳】</strong>，它没有产出任何文件。编译发生在第一次真正跑起来的时候，产物是这个进程里的一份编译缓存 —— 进程一结束就没了（磁盘上是有缓存的，但那是缓存，不是交付物）。
+<strong>它和前三节根本不是一类东西</strong>：那三个回答「怎么把模型变成文件」，这个回答「怎么让它在你的进程里跑得快」。</p>
+<h3 id="_orig_mod">💀💀 那个 <code>_orig_mod.</code> 前缀会咬人</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mymodel</span><span class="w"> </span><span class="kn">import</span> <span class="n">Net</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">Net</span><span class="p">()</span>
+<span class="n">c</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">state_dict</span><span class="p">(),</span> <span class="s2">&quot;compiled_sd.pt&quot;</span><span class="p">)</span>     <span class="c1"># ⚠️ 存的是编译后那个壳的 state_dict</span>
+
+<span class="n">fresh</span> <span class="o">=</span> <span class="n">Net</span><span class="p">()</span>
+<span class="n">fresh</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;compiled_sd.pt&quot;</span><span class="p">))</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<div class="codehilite"><pre><span></span><code>RuntimeError:
+Error(s) in loading state_dict for Net:
+    Missing key(s) in state_dict: &quot;fc1.weight&quot;, &quot;fc1.bias&quot;, &quot;fc2.weight&quot;, &quot;fc2.bias&quot;. 
+    Unexpected key(s) in state_dict: &quot;_orig_mod.fc1.weight&quot;, &quot;_orig_mod.fc1.bias&quot;, &quot;_orig_mod.fc2.weight&quot;, &quot;_orig_mod.fc2.bias&quot;. 
+</code></pre></div>
+
+<p>✅ <strong>修法：存原模型的 <code>state_dict</code></strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 🧩 骨架：接着上一段跑，Net / c / torch 都在那里定义</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">_orig_mod</span><span class="o">.</span><span class="n">state_dict</span><span class="p">(),</span> <span class="s2">&quot;ok_sd.pt&quot;</span><span class="p">)</span>     <span class="c1"># ⭐ 穿过那层壳</span>
+<span class="n">fresh2</span> <span class="o">=</span> <span class="n">Net</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">fresh2</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;ok_sd.pt&quot;</span><span class="p">)))</span>
+</code></pre></div>
+
+<p>实跑输出 <code>&lt;All keys matched successfully&gt;</code>。</p>
+<p>⚠️ <strong><code>DistributedDataParallel</code> 会以完全相同的方式加一层 <code>module.</code> 前缀</strong> —— 同一个坑的另一个化身。看到 <code>Unexpected key(s)</code> 里所有 key 都多了同一个前缀，就是这类问题。（<code>load_state_dict</code> 报错的完整分类在 <a href="06-state_dict与存取.html">06 章</a>。）</p>
+<p>🗓️ <strong>本机没法实跑 <code>torch.compile</code> 的编译部分</strong>：调用 <code>c(x)</code> 会抛</p>
+<div class="codehilite"><pre><span></span><code>InductorError: InvalidCxxCompiler: Compiler: cl is not found.
+</code></pre></div>
+
+<p>⭐ <strong>这条报错本身值得知道</strong>：Inductor 在 CPU 上是生成 C++ 代码再编译的，所以 Windows 上要装 MSVC（<code>cl.exe</code>）；GPU 上则需要 Triton。<code>torch.compile</code> 不是纯 Python 的东西，它对你的机器有编译工具链要求。
+（<code>torch.compile</code> 到底做了什么优化、能快多少，在 <a href="../AI基础设施/07-算子融合与编译.html">《AI基础设施》07 · 算子融合与编译</a> —— <strong>那边讲「快在哪」，这一章只讲「它不产出文件」。</strong>）</p>
+<hr />
+<!--MIDSTOP-->
+<blockquote>
+<p>🛑 <strong>读到这里可以停</strong> —— 已经读了约 101 分钟。
+<strong>最后一段还有</strong>（约 30 分钟）：选哪一个 · 检查点与走神救援
+回来的时候不用重读，直接从下一节接着看就行。</p>
+</blockquote>
+<hr />
+<h2 id="_7">🚦 八、选哪一个</h2>
+<table>
+<thead>
+<tr>
+<th>你要干什么</th>
+<th>用</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>训练中途存档、和自己人交接</td>
+<td>⭐ <strong><code>torch.save(model.state_dict())</code></strong></td>
+<td>纯数据，跨版本跨项目都能读；代码另外给</td>
+</tr>
+<tr>
+<td>交给一个没有你代码的 Python/C++ 环境</td>
+<td>⭐ <strong><code>torch.export</code> + <code>torch.export.save</code></strong></td>
+<td>现在的正路；实测在没有源码的目录里加载，输出完全一致</td>
+</tr>
+<tr>
+<td>交给老的 LibTorch / 只认 TorchScript 的部署栈</td>
+<td><code>torch.jit.script</code> + <code>torch.jit.save</code></td>
+<td>🗓️ 维护状态，新项目别从这里起步</td>
+</tr>
+<tr>
+<td>交给别的运行时（onnxruntime / TensorRT / CoreML / 端侧芯片）</td>
+<td><strong>ONNX</strong></td>
+<td>一个文件自包含结构 + 权重，跨框架</td>
+</tr>
+<tr>
+<td>让它在你自己的进程里跑得快</td>
+<td><code>torch.compile</code></td>
+<td>⚠️ <strong>不是交付格式</strong>，它不产出文件</td>
+</tr>
+</tbody>
+</table>
+<p>⭐ <strong>一条通用纪律，比选哪个格式重要得多</strong>：</p>
+<blockquote>
+<p><strong>导出之后，拿一批（不是一条）真实数据，逐条比对原模型和导出模型的输出。</strong></p>
+</blockquote>
+<p>本章的三个坑 —— trace 写死分支（负样例 <code>[1.0, 2.0]</code> vs <code>[-2.0, -4.0]</code>）、ONNX 同样写死、numpy 那个折成常数 —— <strong>全部会被这一步抓住，也全部会被「只测一条样例」放过</strong>。</p>
+<p>⚠️ <strong><code>.eval()</code> 别忘了。</strong> 导出的是<strong>当时那个状态</strong>，<code>train()</code> 模式下导出的图会把 Dropout 和 BN 的训练分支一起带走（<a href="07-train和eval改了什么.html">07 · <code>train()</code> / <code>eval()</code> 到底改了什么</a>）。</p>
+<hr />
+<h2 id="_8">🔗 这一章连到哪里</h2>
+<table>
+<thead>
+<tr>
+<th>相关的地方</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="06-state_dict与存取.html">06 · <code>state_dict</code> 到底装了什么</a></td>
+<td>本章第七节那条 <code>Unexpected key(s)</code>（<code>_orig_mod.</code> 前缀）和第三节的 <code>size mismatch</code>，完整分类在那一章</td>
+</tr>
+<tr>
+<td><a href="07-train和eval改了什么.html">07 · <code>train()</code> / <code>eval()</code> 到底改了什么</a></td>
+<td>⚠️ 导出前必须 <code>.eval()</code> —— 导出的是<strong>当时那个状态</strong>，Dropout / BN 的训练分支会被一起写进图里</td>
+</tr>
+<tr>
+<td><a href="09-自定义算子.html">09 · 自己写一个 autograd 算子</a></td>
+<td>⭐ 第五节那个「导出成一个常数」的模型，就是那一章里绕出去用 numpy 算的 <code>Function</code>；也回答了那边留的问题：<strong>导出的是推理图，<code>backward</code> 会被丢掉</strong></td>
+</tr>
+<tr>
+<td><a href="../AI基础设施/07-算子融合与编译.html">《AI基础设施》07 · 算子融合与编译</a></td>
+<td>⭐ <code>torch.compile</code> <strong>快在哪</strong>（融合、少读写显存、少 kernel launch）—— 本章只讲「它不产出文件」</td>
+</tr>
+<tr>
+<td><a href="../AI基础设施/18-量化.html">《AI基础设施》18 · 量化</a></td>
+<td>量化通常发生在导出前后这条链上，ONNX / TensorRT 都有各自的量化路径</td>
+</tr>
+<tr>
+<td><a href="../AI全栈/14-容器化与部署.html">《AI全栈》14 · 容器化与部署</a></td>
+<td>⭐ <strong>文件到手之后</strong>：怎么打进镜像、怎么起服务、怎么发版 —— 本章只到「产出一个文件」为止</td>
+</tr>
+<tr>
+<td><a href="../模型上线之后/04-训练推理一致性.html">《模型上线之后》04 · 训练推理一致性</a></td>
+<td>⭐ 第三节那份交付清单里最容易漏、后果最重的是<strong>预处理</strong>；那一章讲不一致会怎样、怎么查</td>
+</tr>
+<tr>
+<td><a href="../模型上线之后/17-版本回溯与可复现.html">《模型上线之后》17 · 版本回溯与可复现</a></td>
+<td>权重文件之外还要钉住哪些东西才能复现一次训练</td>
+</tr>
+<tr>
+<td><a href="../大模型全景导论/07-本地部署与开源生态.html">《大模型全景导论》07 · 本地部署与开源生态</a></td>
+<td>大模型场景下的部署选型（这一章是通用模型的交付格式）</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_9">✅ 检查点</h2>
+<ol>
+<li><code>torch.save(model)</code> 存出来的文件里，实测能看到哪些类名？<code>torch.save(model.state_dict())</code> 呢？</li>
+<li>把 <code>whole.pt</code> 拷到没有 <code>mymodel.py</code> 的目录里加载会怎样？为什么在训练脚本里直接 <code>torch.save(model)</code> 尤其危险？</li>
+<li>PyTorch 2.6 改了 <code>torch.load</code> 的什么默认值？为什么改？</li>
+<li>哪三类东西塞进 checkpoint 会让默认的 <code>torch.load</code> 失败？哪一类最容易中招？三种修法的推荐顺序是什么？</li>
+<li>除了 <code>state_dict</code>，交付时还必须一起给的东西里，哪一个漏掉是「不报错、只是精度莫名其妙地低」？</li>
+<li><code>trace</code> 和 <code>script</code> 对数据相关的 <code>if</code> 分别怎么处理？实测三行输出分别是什么？<code>traced.code</code> 里剩下什么？</li>
+<li>在没有 <code>mymodel.py</code> 的目录里，<code>torch.load("whole.pt")</code> 和 <code>torch.jit.load("scripted.pt")</code> 的结果分别是什么？这个对照说明了什么？</li>
+<li>导出的 ONNX 图里，<code>nn.Linear</code> 变成了什么？这说明 ONNX 里没有什么？<code>dynamic_axes</code> 不写会怎样？</li>
+<li>「绕出去用 numpy 算」的模型导出成 ONNX 之后是什么样？为什么说这是本章最狠的一个坑？由此得到什么自检办法？</li>
+<li><code>torch.export</code> 遇到数据相关的 <code>if</code> 时的行为，和 <code>trace</code> 有什么本质区别？用一句话概括。</li>
+<li><code>torch.export</code> 默认怎么处理形状？样例输入的 batch 为什么不能用 1？</li>
+<li><code>torch.compile</code> 为什么不算交付格式？它的 <code>state_dict</code> 有什么特别之处，会引出哪条报错？</li>
+<li>不管选哪种格式，导出之后都必须做的那一步是什么？为什么「只测一条样例」正好会漏掉本章的三个坑？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li><code>whole.pt</code> 里实测有 <strong><code>mymodel Net</code></strong>、<code>torch.nn.modules.linear Linear</code>、<code>collections OrderedDict</code>、<code>torch FloatStorage</code>、<code>torch._utils _rebuild_parameter</code> / <code>_rebuild_tensor_v2</code>、<code>__builtin__ set</code>；<code>sd.pt</code> 里只有 <code>collections OrderedDict</code> / <code>torch FloatStorage</code> / <code>torch._utils _rebuild_tensor_v2</code> —— 没有任何你的类名。关键是：进去的只是名字，类的代码没进去。</li>
+<li><code>ModuleNotFoundError: No module named 'mymodel'</code>（而 <code>sd.pt</code> 照常加载）。训练脚本里直接存尤其危险，是因为脚本跑起来时模块名是 <strong><code>__main__</code></strong>，文件里写的就是 <code>__main__ Net</code>，换任何一个入口都加载不了。</li>
+<li><code>weights_only</code> 从 <code>False</code> 改成了 <strong><code>True</code></strong>。原因写在报错里：pickle 反序列化等于执行任意代码（<code>it can result in arbitrary code execution</code>），而权重文件经常是从网上下的。</li>
+<li>①自定义类（实测 <code>Unsupported global: GLOBAL mymodel.Net</code>）②配置对象（<code>GLOBAL argparse.Namespace</code>）③⚠️ <strong>numpy 数组</strong>（<code>GLOBAL numpy._core.multiarray._reconstruct</code>）——第三类最容易中招，谁都往 checkpoint 里塞过 <code>np.array</code>。推荐顺序：别往 checkpoint 里塞对象（配置存 <code>dict</code>、数组转 tensor 或 <code>.tolist()</code>）→ <code>torch.serialization.safe_globals([...])</code> 明确放行 → <code>weights_only=False</code>（只在文件是自己产的时候，它的意思是「我确认可信」不是「修好了」）。标准 checkpoint（<code>state_dict</code> + 优化器 <code>state_dict</code> + int/float）实测直接能读。</li>
+<li><strong>预处理</strong>（归一化的均值/方差、tokenizer、resize 尺寸）—— 它不会报错，只表现为精度莫名其妙地低。类别顺序也是同一类。💡 实用习惯：把归一化搬进 <code>forward</code>，这样导出的图自带预处理。</li>
+<li><code>trace</code> 把分支<strong>当常量写死、不报错</strong>；<code>script</code> 编译源码、保留分支。实测：原模型 <code>[2.0, 4.0]</code> / <code>[1.0, 2.0]</code>，trace 之后 <code>[2.0, 4.0]</code> / <code>[-2.0, -4.0]</code>（负样例错了），script 之后 <code>[2.0, 4.0]</code> / <code>[1.0, 2.0]</code>（对）。<code>traced.code</code> 里 <code>if</code> 整个消失了，只剩 <code>return torch.mul(x, CONSTANTS.c0)</code>。只有一条 <code>TracerWarning: Converting a tensor to a Python boolean might cause the trace to be incorrect.</code></li>
+<li><code>torch.load("whole.pt")</code> → <strong><code>ModuleNotFoundError</code></strong>；<code>torch.jit.load("scripted.pt")</code> → 跑出 <code>[-0.1947, -0.1502]</code>，和原模型完全一致，而且 <code>m.code</code> 还能把 <code>forward</code> 打印出来。说明 TorchScript 把「怎么算」这一半也装进了文件，不再需要你的 Python 代码。</li>
+<li>变成了 <strong><code>Gemm</code></strong>（实测节点是 <code>['Gemm', 'Relu', 'Gemm']</code>）。说明 ONNX 里只有算子，没有你的类、没有 <code>nn.Module</code> 的层级结构，它是一张纯计算图（权重也在文件里，所以是自包含的）。<code>dynamic_axes</code> 声明过的维显示成 <code>'batch'</code> 字符串、能跑 batch=5；不声明就写成固定数字，换尺寸直接报错。</li>
+<li>实测导出的图<strong>只有一个 <code>Constant</code> 节点、输入列表是空的</strong>，永远返回 <code>[[1.0, 2.0, 3.0]]</code>，而 PyTorch 换个输入给的是 <code>[[4.0, 5.0, 6.0]]</code>。狠在导出根本没报错，只有两条 <code>TracerWarning</code>。自检办法：导完先看图的输入列表和节点数 —— 输入是空的、节点少得不像话，就是有大段计算被折成了常量。</li>
+<li><code>trace</code> <strong>悄悄写死</strong>，<code>torch.export</code> 直接报错（实测 <code>GuardOnDataDependentSymNode: Could not guard on data-dependent expression</code>）。一句话：<code>trace</code> 给你一个错模型，<code>torch.export</code> 给你一个报错；报错出现在你的机器上，错模型出现在线上。</li>
+<li><strong>默认所有形状都写死</strong>：实测用 <code>batch=2</code> 的样例导出、喂 <code>batch=5</code> 会抛 <code>AssertionError: Guard failed: x.size()[0] == 2</code>；用 <code>torch.export.Dim("batch")</code> 声明之后才是 <code>torch.Size([5, 2])</code>。⚠️ 样例 batch 不能用 1，因为 0 和 1 会被特化，会报 <code>Constraints violated (batch)! … your code specialized it to be a constant (1)</code>。</li>
+<li>因为它<strong>不产出任何文件</strong> —— 返回的是一个 <code>OptimizedModule</code> 壳（仍是 <code>nn.Module</code>），编译发生在第一次真跑的时候、产物是进程内的缓存。它的 <code>state_dict</code> 的 key 全部多了 <code>_orig_mod.</code> 前缀，直接存下来再往原模型上加载会报 <code>Missing key(s) … "fc1.weight" …</code> + <code>Unexpected key(s) … "_orig_mod.fc1.weight" …</code>；✅ 修法是存 <code>c._orig_mod.state_dict()</code>。⚠️ <code>DistributedDataParallel</code> 会以同样的方式加 <code>module.</code> 前缀。</li>
+<li><strong>拿一批（不是一条）真实数据，逐条比对原模型和导出模型的输出。</strong> 因为本章三个坑（trace 写死分支、ONNX 同样写死、numpy 折成常数）全都在样例输入上给出正确答案 —— trace 那个例子里正样例 <code>[2.0, 4.0]</code> 两边一致、负样例才暴露；只测一条样例（尤其是导出时用的那一条）必然全部漏掉。⚠️ 另外别忘了 <code>.eval()</code>。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_10">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong></p>
+<blockquote>
+<p>⭐ <strong>交付模型 = 交付【权重】+【怎么算】，四种格式的差别只是「怎么算」装在哪儿。</strong></p>
+<p>💀 <strong>直接存整个模型对象，存的不是模型，是一根引用</strong>——把文件拆开看，里面写的是你的模块名和类名，⭐ <strong>代码根本没进去</strong>。拷到没有那个源文件的目录就找不到类；⚠️ <strong>在训练脚本里直接存尤其毒，因为模块名会变成 <code>__main__</code>。</strong> ✅ 规矩：<strong>只存权重字典。</strong></p>
+<p>🔒 新版本把加载默认改成了「只读权重」（反序列化等于任意代码执行），⚠️ <strong>于是连你自己的 checkpoint 也可能读不了</strong>——最容易中招的是<strong>往 checkpoint 里塞了别的库的数组对象</strong>。⭐ 修法按序：<strong>别塞对象 → 显式声明白名单 → 最后才考虑关掉</strong>，而且只在文件确实是自己产的时候。</p>
+<p>🧊 ⭐ <strong><code>trace</code> 只记录跑过的算子</strong>，遇到数据相关的分支会<strong>把它写死</strong>——⚠️ <strong>实测换个输入结果就完全错了，而它只给一条 warning。</strong> 编译源码的那条路会保留分支。</p>
+<p>🕸️ <strong>ONNX 换的是运行时</strong>：图里只剩通用算子，⭐ <strong>你的类没了</strong>；权重自包含；⚠️ <strong>动态维度必须提前声明，否则换个 batch 就跑不了</strong>。⚠️ 老导出器基于 trace，<strong>同一个分支坑原样存在。</strong></p>
+<p>💀💀 最狠的一例：一个前向绕出框架的模块导出之后，⭐ <strong>图里没有输入、只有一个常量节点，永远返回同一个结果——而导出过程没有任何报错。</strong> ⭐ 自检很简单：<strong>导完先看图的输入列表和节点数。</strong></p>
+<p>⭐⭐ <code>torch.export</code> 是现在的正路，<strong>它和 trace 的本质区别是：遇到数据相关分支时它报错——trace 给你一个错模型，它给你一个错误信息。</strong></p>
+<p>📐 交付清单里最容易漏、后果最重的是<strong>预处理</strong>：⚠️ <strong>它不报错，只是精度莫名其妙地低。</strong></p>
+</blockquote>
+<p><strong>下一节</strong> 👉 <a href="附录A-速查.html">附录A-速查.md</a></p>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="09-自定义算子.html"><div class="dir">← 上一节</div>🛠️ 09 · 自定义算子</a><a class="next" href="附录A-速查.html"><div class="dir">下一节 →</div>📖 附录A · 报错反查表</a></nav>
+</main>
+<script>(function(){
+  var KEY="torch-progress", FILE="10-\u628a\u6a21\u578b\u4ea4\u51fa\u53bb.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script></body></html>

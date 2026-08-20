@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>06 · CTE 与递归：把「这份数据的全部上游」查出来 · SQL 查询这一关</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:1.9em;line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:1.42em;margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:1.14em;margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:.88em;background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:.85em}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:.92em}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:.8em;color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:.85em;color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:.92em}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:.78em;
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:.92em;border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:.93em;line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:.9em;line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:.93em;line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:.92em}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:1.15em;opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:.82em;
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
+
+.dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:.95em;margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:.93em;line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.02em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:.93em;break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">06 · CTE 与递归查询</span>
+  <span class="prevnext"><a href="05-子查询的三种形状.html">←</a>
+  <a href="07-窗口函数.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#17">🧭 一、先划清和《数据这一关 17》的分工</a></li>
+<li><a href="#with">🧩 二、WITH：把嵌套读成流水线</a></li>
+<li><a href="#with-recursive">🌲 三、WITH RECURSIVE：两段式结构</a></li>
+<li><a href="#inputs">🕸️ 四、血缘：inputs 数组就是一张边表</a></li>
+<li><a href="#union">💀 五、三个坑：UNION 不是万能防环</a></li>
+<li><a href="#_2">🧯 六、可以照抄的安全写法</a></li>
+<li><a href="#_3">🔗 这一章连到哪里</a></li>
+<li><a href="#_4">✅ 检查点</a></li>
+<li><a href="#_5">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<h1 id="06-cte">06 · CTE 与递归：把「这份数据的全部上游」查出来</h1>
+<p>⏱ <strong>80 分钟</strong> ｜ ⭐ <strong>血缘图就是一张边表，「全部上游」是一条递归查询</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong><code>WITH</code> 把套了三层的子查询摊成一条流水线；<code>WITH RECURSIVE</code> 让一条查询能自己接着自己跑，于是「顺着边一直往上走」不再需要写 Python。</strong>
+前者是可读性，后者是能力 —— 没有它，「这份训练数据的全部上游是谁」这个问题在纯 SQL 里根本表达不出来。</p>
+<hr />
+<h2 id="17">🧭 一、先划清和《数据这一关 17》的分工</h2>
+<p><a href="../数据这一关/17-数据版本与血缘.html">数据这一关 · 17 数据版本与血缘</a> <strong>owns「血缘该记什么、为什么要记」</strong>：
+run manifest 里要有上游表 + 分区 + 每个上游的指纹 + 行数 + 数据截止时间，缺一项不许发版。</p>
+<p><strong>本章 owns「记下来之后怎么查」。</strong> 两件事完全不重叠，但缺了后者，前者只是一堆躺着的 JSON。</p>
+<p>⭐ <strong>17 章有三处白纸黑字在等这一章</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>17 章那里写着</th>
+<th>它需要的查询</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>第一节六项自测的 ③「<strong>是哪段 SQL 产出的？改过吗</strong>」、④「<strong>过滤掉了哪些行</strong>」</td>
+<td>这两条要读 SQL，而三层嵌套的 SQL 没人读得下去 —— 第二节</td>
+</tr>
+<tr>
+<td>第四节 manifest 里的 <code>"inputs": [{table, partition, fingerprint, n_rows}, …]</code></td>
+<td>⭐ <strong>这就是一张边表，一条边一行</strong>；「全部上游」是它的传递闭包 —— 第三节</td>
+</tr>
+<tr>
+<td>第四节那句叹息：「过滤条件往往写在 SQL 里，但<strong>没人会去读三个月前的 SQL</strong>」</td>
+<td>CTE 正是让那段 SQL 可读的工具，而 17 章从头到尾没提过它</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ 反过来也成立：<strong>本章不重讲指纹怎么算、backfill 为什么危险、那场信贷事故</strong>，那些是 17 章的正题。</p>
+<hr />
+<h2 id="with">🧩 二、<code>WITH</code>：把嵌套读成流水线</h2>
+<p>先看一个真问题：<strong>manifest 都记下来了，怎么发现「分区名没变、内容却变了」？</strong>
+（这正是 17 章的「死法 B」，它说没有指纹就无法被发现 —— 有了指纹，发现它是一条查询。）</p>
+<div class="codehilite"><pre><span></span><code><span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">run_inputs</span><span class="w"> </span><span class="p">(</span>
+<span class="w">  </span><span class="n">run_id</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span><span class="w"> </span><span class="n">tbl</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span><span class="w"> </span><span class="n">part</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span><span class="w"> </span><span class="n">fingerprint</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span><span class="w"> </span><span class="n">n_rows</span><span class="w"> </span><span class="nb">INTEGER</span><span class="p">);</span>
+</code></pre></div>
+
+<p><strong>嵌套写法</strong>（只有两层就已经要从里往外读了）：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">tbl</span><span class="p">,</span><span class="w"> </span><span class="n">part</span><span class="p">,</span><span class="w"> </span><span class="n">k</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="p">(</span>
+<span class="w">  </span><span class="k">SELECT</span><span class="w"> </span><span class="n">tbl</span><span class="p">,</span><span class="w"> </span><span class="n">part</span><span class="p">,</span><span class="w"> </span><span class="k">COUNT</span><span class="p">(</span><span class="k">DISTINCT</span><span class="w"> </span><span class="n">fingerprint</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">k</span>
+<span class="w">  </span><span class="k">FROM</span><span class="w"> </span><span class="n">run_inputs</span><span class="w"> </span><span class="k">GROUP</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">tbl</span><span class="p">,</span><span class="w"> </span><span class="n">part</span>
+<span class="p">)</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">k</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">tbl</span><span class="p">,</span><span class="w"> </span><span class="n">part</span><span class="p">;</span>
+</code></pre></div>
+
+<p><strong>CTE 写法</strong>（从上往下读，每一段有名字）：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">WITH</span><span class="w"> </span><span class="n">per_part</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="p">(</span>
+<span class="w">  </span><span class="k">SELECT</span><span class="w"> </span><span class="n">tbl</span><span class="p">,</span><span class="w"> </span><span class="n">part</span><span class="p">,</span><span class="w"> </span><span class="k">COUNT</span><span class="p">(</span><span class="k">DISTINCT</span><span class="w"> </span><span class="n">fingerprint</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">k</span>
+<span class="w">  </span><span class="k">FROM</span><span class="w"> </span><span class="n">run_inputs</span><span class="w"> </span><span class="k">GROUP</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">tbl</span><span class="p">,</span><span class="w"> </span><span class="n">part</span>
+<span class="p">),</span><span class="w"> </span><span class="n">changed</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="p">(</span>
+<span class="w">  </span><span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">per_part</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">k</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">1</span>
+<span class="p">)</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="n">tbl</span><span class="p">,</span><span class="w"> </span><span class="n">part</span><span class="p">,</span><span class="w"> </span><span class="n">k</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">changed</span><span class="w"> </span><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">tbl</span><span class="p">,</span><span class="w"> </span><span class="n">part</span><span class="p">;</span>
+</code></pre></div>
+
+<p>整段可跑：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
+
+<span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;&quot;&quot;CREATE TABLE run_inputs (</span>
+<span class="s2">  run_id TEXT, tbl TEXT, part TEXT, fingerprint TEXT, n_rows INTEGER)&quot;&quot;&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="s2">&quot;INSERT INTO run_inputs VALUES (?,?,?,?,?)&quot;</span><span class="p">,</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s2">&quot;train_v37_0131&quot;</span><span class="p">,</span> <span class="s2">&quot;dw.user_profile_wide&quot;</span><span class="p">,</span> <span class="s2">&quot;dt=2024-01-31&quot;</span><span class="p">,</span> <span class="s2">&quot;3a91f0c7&quot;</span><span class="p">,</span> <span class="mi">8421339</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;train_v37_0131&quot;</span><span class="p">,</span> <span class="s2">&quot;dw.repay_label&quot;</span><span class="p">,</span>       <span class="s2">&quot;dt=2024-01-31&quot;</span><span class="p">,</span> <span class="s2">&quot;77c0be14&quot;</span><span class="p">,</span> <span class="mi">3110284</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;train_v38_0430&quot;</span><span class="p">,</span> <span class="s2">&quot;dw.user_profile_wide&quot;</span><span class="p">,</span> <span class="s2">&quot;dt=2024-01-31&quot;</span><span class="p">,</span> <span class="s2">&quot;b5e2149c&quot;</span><span class="p">,</span> <span class="mi">8421339</span><span class="p">),</span>  <span class="c1"># ⭐ 同分区，指纹变了</span>
+    <span class="p">(</span><span class="s2">&quot;train_v38_0430&quot;</span><span class="p">,</span> <span class="s2">&quot;dw.repay_label&quot;</span><span class="p">,</span>       <span class="s2">&quot;dt=2024-01-31&quot;</span><span class="p">,</span> <span class="s2">&quot;77c0be14&quot;</span><span class="p">,</span> <span class="mi">3110284</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;train_v39_0731&quot;</span><span class="p">,</span> <span class="s2">&quot;dw.user_profile_wide&quot;</span><span class="p">,</span> <span class="s2">&quot;dt=2024-01-31&quot;</span><span class="p">,</span> <span class="s2">&quot;b5e2149c&quot;</span><span class="p">,</span> <span class="mi">8421339</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;train_v39_0731&quot;</span><span class="p">,</span> <span class="s2">&quot;dw.repay_label&quot;</span><span class="p">,</span>       <span class="s2">&quot;dt=2024-07-31&quot;</span><span class="p">,</span> <span class="s2">&quot;0d4471ff&quot;</span><span class="p">,</span> <span class="mi">3517190</span><span class="p">),</span>
+<span class="p">])</span>
+
+<span class="n">nested</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">SELECT tbl, part, k FROM (</span>
+<span class="s2">  SELECT tbl, part, COUNT(DISTINCT fingerprint) AS k</span>
+<span class="s2">  FROM run_inputs GROUP BY tbl, part</span>
+<span class="s2">) WHERE k &gt; 1 ORDER BY tbl, part</span>
+<span class="s2">&quot;&quot;&quot;</span>
+<span class="n">cte</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">WITH per_part AS (</span>
+<span class="s2">  SELECT tbl, part, COUNT(DISTINCT fingerprint) AS k</span>
+<span class="s2">  FROM run_inputs GROUP BY tbl, part</span>
+<span class="s2">), changed AS (</span>
+<span class="s2">  SELECT * FROM per_part WHERE k &gt; 1</span>
+<span class="s2">)</span>
+<span class="s2">SELECT tbl, part, k FROM changed ORDER BY tbl, part</span>
+<span class="s2">&quot;&quot;&quot;</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;嵌套写法 :&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">nested</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;CTE 写法 :&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">cte</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;两者相同 :&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">nested</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span> <span class="o">==</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">cte</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">())</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>嵌套写法 : [(&#x27;dw.user_profile_wide&#x27;, &#x27;dt=2024-01-31&#x27;, 2)]</p><p>CTE 写法 : [(&#x27;dw.user_profile_wide&#x27;, &#x27;dt=2024-01-31&#x27;, 2)]</p><p>两者相同 : True</p></div></section>
+<p>⭐ 一行结果就是 17 章那句「<strong>分区名没变、行数没变、schema 没变</strong>」的实证：<code>dt=2024-01-31</code> 这个分区被两次训练读到过 <strong>2 个不同的指纹</strong>。</p>
+<p><strong><code>WITH</code> 的三条值得记住的性质：</strong></p>
+<table>
+<thead>
+<tr>
+<th>性质</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>它是命名，不是新表</strong></td>
+<td>CTE 只在这条语句里存在，语句跑完就没了。⚠️ 不要以为它写进了库</td>
+</tr>
+<tr>
+<td>⭐ <strong>一次定义，多处引用</strong></td>
+<td>同一个 CTE 名字可以在后面被 <code>JOIN</code> 两次、在两个子查询里各用一次；嵌套子查询做不到，只能整段复制</td>
+</tr>
+<tr>
+<td><strong>后面的 CTE 能引用前面的</strong></td>
+<td>所以它读起来是流水线：<code>per_part</code> → <code>changed</code> → 最终 <code>SELECT</code>，⚠️ 但<strong>不能反过来引用后面的</strong>（除非是递归，见下一节）</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⭐ <strong>判据：一旦你开始从括号最里层往外读，就该换成 CTE。</strong>
+它不改变结果、不改变语义，改变的是<strong>三个月后还有没有人看得懂</strong>
+—— 而这正是 17 章第四节那句叹息的解法。</p>
+</blockquote>
+<p>⚠️ <strong>CTE 不是性能优化。</strong> 数据库可能把它算完存下来（物化），也可能把它展开进外层。
+SQLite 3.35 起可以用 <code>WITH x AS MATERIALIZED (...)</code> / <code>NOT MATERIALIZED</code> 显式要求（本机 3.50.4 两种写法都跑通了），
+但⭐ <strong>默认不要去指定它</strong> —— 先让它可读，慢了再回到 09 章看计划。</p>
+<hr />
+<h2 id="with-recursive">🌲 三、<code>WITH RECURSIVE</code>：两段式结构</h2>
+<p>普通 CTE 只能引用<strong>前面</strong>定义好的 CTE。<code>RECURSIVE</code> 解开了这条限制：<strong>CTE 可以在自己的定义里引用自己</strong>。</p>
+<p>结构永远是两段，中间用 <code>UNION</code> 或 <code>UNION ALL</code> 连起来：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">WITH</span><span class="w"> </span><span class="k">RECURSIVE</span><span class="w"> </span><span class="err">名字</span><span class="p">(</span><span class="err">列</span><span class="p">,</span><span class="w"> </span><span class="err">…</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="err">种子查询</span><span class="w">                     </span><span class="c1">-- ① 第一批行，不引用自己</span>
+<span class="w">  </span><span class="k">UNION</span><span class="w"> </span><span class="p">[</span><span class="k">ALL</span><span class="p">]</span>
+<span class="w">    </span><span class="err">递归步</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="k">JOIN</span><span class="w"> </span><span class="err">名字</span><span class="w"> </span><span class="err">…</span><span class="w">          </span><span class="c1">-- ② 引用自己，拿上一批算出下一批</span>
+<span class="p">)</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="err">名字</span><span class="p">;</span>
+</code></pre></div>
+
+<p>⭐ <strong>执行模型只有一句话</strong>：拿种子当作「当前这一批」，反复代进递归步算出新的一批，<strong>直到某一轮不再产生新行为止</strong>。</p>
+<p><strong>最小的例子：造一根日历骨架。</strong> 这在数据活里天天要用 —— 表里只有「有数据的那些天」，
+而你要回答的是「<strong>哪几天根本没跑</strong>」，缺的那几天在表里是不存在的行，<code>GROUP BY</code> 永远数不出来：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
+
+<span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE TABLE runs (dt TEXT, n_rows INTEGER)&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="s2">&quot;INSERT INTO runs VALUES (?,?)&quot;</span><span class="p">,</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s2">&quot;2026-03-01&quot;</span><span class="p">,</span> <span class="mi">8421339</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;2026-03-02&quot;</span><span class="p">,</span> <span class="mi">8433012</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;2026-03-03&quot;</span><span class="p">,</span> <span class="mi">8440188</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;2026-03-08&quot;</span><span class="p">,</span> <span class="mi">8511903</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;2026-03-09&quot;</span><span class="p">,</span> <span class="mi">8520447</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;2026-03-10&quot;</span><span class="p">,</span> <span class="mi">8531226</span><span class="p">),</span>
+<span class="p">])</span>   <span class="c1"># ⚠️ 03-04 ~ 03-07 这四天的任务根本没跑</span>
+
+<span class="n">q</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">WITH RECURSIVE cal(d) AS (</span>
+<span class="s2">    SELECT &#39;2026-03-01&#39;                                   -- ① 种子</span>
+<span class="s2">  UNION ALL</span>
+<span class="s2">    SELECT date(d, &#39;+1 day&#39;) FROM cal WHERE d &lt; &#39;2026-03-10&#39;   -- ② 递归步 ⭐ 这里就是刹车</span>
+<span class="s2">)</span>
+<span class="s2">SELECT cal.d, r.n_rows</span>
+<span class="s2">FROM cal LEFT JOIN runs r ON r.dt = cal.d                 -- ⭐ 左连接：没跑的那几天变成 NULL</span>
+<span class="s2">ORDER BY cal.d</span>
+<span class="s2">&quot;&quot;&quot;</span>
+<span class="k">for</span> <span class="n">d</span><span class="p">,</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">q</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="n">d</span><span class="si">}</span><span class="s2">  </span><span class="si">{</span><span class="s1">&#39;(缺)&#39;</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="ow">is</span><span class="w"> </span><span class="kc">None</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="n">n</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="n">missing</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;SELECT COUNT(*) FROM (</span><span class="si">{</span><span class="n">q</span><span class="si">}</span><span class="s2">) WHERE n_rows IS NULL&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;日历天数 :&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;SELECT COUNT(*) FROM (</span><span class="si">{</span><span class="n">q</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()[</span><span class="mi">0</span><span class="p">],</span>
+      <span class="s2">&quot;| 缺的天数 :&quot;</span><span class="p">,</span> <span class="n">missing</span><span class="p">,</span>
+      <span class="s2">&quot;| 表里的行数 :&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;SELECT COUNT(*) FROM runs&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()[</span><span class="mi">0</span><span class="p">])</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>2026-03-01 8421339</p><p>2026-03-02 8433012</p><p>2026-03-03 8440188</p><p>2026-03-04 (缺)</p><p>2026-03-05 (缺)</p><p>2026-03-06 (缺)</p><p>2026-03-07 (缺)</p><p>2026-03-08 8511903</p><p>2026-03-09 8520447</p><p>2026-03-10 8531226</p><p>日历天数 : 10 | 缺的天数 : 4 | 表里的行数 : 6</p></div></section>
+<p>⭐ <strong>这十行里最值钱的是那四行 <code>(缺)</code></strong>：表里只有 6 行，任何 <code>GROUP BY dt</code> 都只能数出 6 天，
+<strong>缺的四天不会以任何形式出现在结果里</strong>。骨架 <code>LEFT JOIN</code> 事实表，是把「不存在」变成「一行 NULL」的标准手法。
+⚠️ 这个骨架在 08 章还会再用一次 —— 那里要处理的正是「数据有缺口时，<code>ROWS</code> 和 <code>RANGE</code> 不是一回事」。</p>
+<hr />
+<h2 id="inputs">🕸️ 四、血缘：<code>inputs</code> 数组就是一张边表</h2>
+<p>17 章的 manifest 里，<code>inputs</code> 每一项是「<strong>这次产出用了哪张上游表</strong>」。把它摊平，就是一张两列的边表：</p>
+<div class="codehilite"><pre><span></span><code><span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">edges</span><span class="w"> </span><span class="p">(</span><span class="n">child</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span><span class="w"> </span><span class="n">parent</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">);</span><span class="w">   </span><span class="c1">-- child 的上游是 parent</span>
+</code></pre></div>
+
+<p>⚠️ <strong>列名要认死</strong>：<code>child</code> 是产出物，<code>parent</code> 是它的输入。方向搞反了，你查出来的是下游不是上游。</p>
+<p>一张有<strong>菱形</strong>的血缘图（<code>src.crm</code> 有两条路能到达 —— 这在真实数仓里是常态，不是特例）：</p>
+<table>
+<thead>
+<tr>
+<th>child（产出）</th>
+<th>parent（上游）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>train_v37</code></td>
+<td><code>feat_user_wide</code></td>
+</tr>
+<tr>
+<td><code>train_v37</code></td>
+<td><code>feat_label</code></td>
+</tr>
+<tr>
+<td><code>feat_user_wide</code></td>
+<td><code>dw.user_profile_wide</code></td>
+</tr>
+<tr>
+<td><code>feat_user_wide</code></td>
+<td><code>dim_city</code></td>
+</tr>
+<tr>
+<td><code>feat_label</code></td>
+<td><code>dw.repay_label</code></td>
+</tr>
+<tr>
+<td><code>dw.user_profile_wide</code></td>
+<td><code>src.crm</code></td>
+</tr>
+<tr>
+<td><code>dw.user_profile_wide</code></td>
+<td><code>src.app_log</code></td>
+</tr>
+<tr>
+<td><code>dw.repay_label</code></td>
+<td><code>src.crm</code> ⭐ 菱形汇点</td>
+</tr>
+<tr>
+<td><code>dim_city</code></td>
+<td><code>src.geo</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>「<code>train_v37</code> 的全部上游」就是一条递归查询</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
+
+<span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE TABLE edges (child TEXT, parent TEXT)&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="s2">&quot;INSERT INTO edges VALUES (?,?)&quot;</span><span class="p">,</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s2">&quot;train_v37&quot;</span><span class="p">,</span> <span class="s2">&quot;feat_user_wide&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;train_v37&quot;</span><span class="p">,</span> <span class="s2">&quot;feat_label&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;feat_user_wide&quot;</span><span class="p">,</span> <span class="s2">&quot;dw.user_profile_wide&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;feat_user_wide&quot;</span><span class="p">,</span> <span class="s2">&quot;dim_city&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;feat_label&quot;</span><span class="p">,</span> <span class="s2">&quot;dw.repay_label&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;dw.user_profile_wide&quot;</span><span class="p">,</span> <span class="s2">&quot;src.crm&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;dw.user_profile_wide&quot;</span><span class="p">,</span> <span class="s2">&quot;src.app_log&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;dw.repay_label&quot;</span><span class="p">,</span> <span class="s2">&quot;src.crm&quot;</span><span class="p">),</span>          <span class="c1"># ⭐ 菱形：src.crm 有两条路可以到达</span>
+    <span class="p">(</span><span class="s2">&quot;dim_city&quot;</span><span class="p">,</span> <span class="s2">&quot;src.geo&quot;</span><span class="p">),</span>
+<span class="p">])</span>
+
+<span class="n">q</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">WITH RECURSIVE up(node) AS (</span>
+<span class="s2">    SELECT parent FROM edges WHERE child = &#39;train_v37&#39;          -- ① 直接上游</span>
+<span class="s2">  UNION</span>
+<span class="s2">    SELECT e.parent FROM edges e JOIN up ON e.child = up.node    -- ② 上游的上游</span>
+<span class="s2">)</span>
+<span class="s2">SELECT node FROM up ORDER BY node</span>
+<span class="s2">&quot;&quot;&quot;</span>
+<span class="n">rows</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">q</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;上游节点数 :&quot;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">rows</span><span class="p">))</span>
+<span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">rows</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;   &quot;</span><span class="p">,</span> <span class="n">r</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;src.crm 出现次数 :&quot;</span><span class="p">,</span> <span class="nb">sum</span><span class="p">(</span><span class="mi">1</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">rows</span> <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;src.crm&quot;</span><span class="p">))</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>上游节点数 : 8</p><p>dim_city</p><p>dw.repay_label</p><p>dw.user_profile_wide</p><p>feat_label</p><p>feat_user_wide</p><p>src.app_log</p><p>src.crm</p><p>src.geo</p><p>src.crm 出现次数 : 1</p></div></section>
+<p>⭐ 这 8 行就是 17 章那句「<strong>保留期 ≥ 监管追溯期</strong>」要盯的清单 —— <strong>它不是两张表，是八张</strong>。
+只盯 manifest 里直接列出的两个上游，剩下六个里任何一个被覆盖，你照样复现不出来。</p>
+<blockquote>
+<p>⭐ <strong>换个方向问「这张表一改会影响谁」，只要把 <code>child</code> 和 <code>parent</code> 对调。</strong>
+同一张边表、同一个写法，一个是<strong>上游闭包</strong>（我依赖谁），一个是<strong>下游闭包</strong>（谁依赖我）。
+后者就是改口径前必须发的那份通知名单。</p>
+</blockquote>
+<hr />
+<!--MIDSTOP-->
+<blockquote>
+<p>🛑 <strong>读到这里可以停</strong> —— 前半章讲完了（约 34 分钟）。
+<strong>后半章还有</strong>：三个坑：<code>UNION</code> 不是万能防环 · 可以照抄的安全写法
+回来的时候不用重读，直接从下一节接着看就行。</p>
+</blockquote>
+<hr />
+<h2 id="union">💀 五、三个坑：<code>UNION</code> 不是万能防环</h2>
+<p>上面那条查询能停下来，靠的是 <code>UNION</code> 去重：绕回已经见过的节点时不产生新行，递归自然收敛。
+⚠️ <strong>但这个保护比你以为的脆弱得多，三处都亲手跑过。</strong></p>
+<h3 id="1union">坑 ①：<code>UNION</code> 去的是「整行」的重，不是「节点」的重</h3>
+<p>给递归多带一列 <code>path</code>（很自然的需求：想知道每个上游是<strong>怎么</strong>被依赖上的），去重立刻失效：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
+
+<span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE TABLE edges (child TEXT, parent TEXT)&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="s2">&quot;INSERT INTO edges VALUES (?,?)&quot;</span><span class="p">,</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s2">&quot;train_v37&quot;</span><span class="p">,</span> <span class="s2">&quot;feat_user_wide&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;train_v37&quot;</span><span class="p">,</span> <span class="s2">&quot;feat_label&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;feat_user_wide&quot;</span><span class="p">,</span> <span class="s2">&quot;dw.user_profile_wide&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;feat_user_wide&quot;</span><span class="p">,</span> <span class="s2">&quot;dim_city&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;feat_label&quot;</span><span class="p">,</span> <span class="s2">&quot;dw.repay_label&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;dw.user_profile_wide&quot;</span><span class="p">,</span> <span class="s2">&quot;src.crm&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;dw.user_profile_wide&quot;</span><span class="p">,</span> <span class="s2">&quot;src.app_log&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;dw.repay_label&quot;</span><span class="p">,</span> <span class="s2">&quot;src.crm&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;dim_city&quot;</span><span class="p">,</span> <span class="s2">&quot;src.geo&quot;</span><span class="p">),</span>
+<span class="p">])</span>
+
+<span class="n">q_path</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">WITH RECURSIVE up(node, path) AS (</span>
+<span class="s2">    SELECT parent, &#39;train_v37&gt;&#39; || parent FROM edges WHERE child = &#39;train_v37&#39;</span>
+<span class="s2">  UNION</span>
+<span class="s2">    SELECT e.parent, up.path || &#39;&gt;&#39; || e.parent FROM edges e JOIN up ON e.child = up.node</span>
+<span class="s2">)</span>
+<span class="s2">SELECT node, path FROM up ORDER BY node, path</span>
+<span class="s2">&quot;&quot;&quot;</span>
+<span class="n">rows</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">q_path</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;带 path 的行数 :&quot;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">rows</span><span class="p">))</span>
+<span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">rows</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;   &quot;</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="s2">&quot;|&quot;</span><span class="p">,</span> <span class="n">p</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;src.crm 出现次数 :&quot;</span><span class="p">,</span> <span class="nb">sum</span><span class="p">(</span><span class="mi">1</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">rows</span> <span class="k">if</span> <span class="n">n</span> <span class="o">==</span> <span class="s2">&quot;src.crm&quot;</span><span class="p">))</span>
+
+<span class="n">q_all</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">WITH RECURSIVE up(node) AS (</span>
+<span class="s2">    SELECT parent FROM edges WHERE child = &#39;train_v37&#39;</span>
+<span class="s2">  UNION ALL</span>
+<span class="s2">    SELECT e.parent FROM edges e JOIN up ON e.child = up.node</span>
+<span class="s2">)</span>
+<span class="s2">SELECT node FROM up</span>
+<span class="s2">&quot;&quot;&quot;</span>
+<span class="n">rows2</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">q_all</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;UNION ALL 行数 :&quot;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">rows2</span><span class="p">),</span>
+      <span class="s2">&quot;| src.crm 出现次数 :&quot;</span><span class="p">,</span> <span class="nb">sum</span><span class="p">(</span><span class="mi">1</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">rows2</span> <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;src.crm&quot;</span><span class="p">))</span>
+</code></pre></div>
+
+<p><strong>实测输出</strong>（只摘关键几行）：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>带 path 的行数 : 9</p><p>src.crm | train_v37&gt;feat_label&gt;dw.repay_label&gt;src.crm</p><p>src.crm | train_v37&gt;feat_user_wide&gt;dw.user_profile_wide&gt;src.crm</p><p>src.crm 出现次数 : 2</p><p>UNION ALL 行数 : 9 | src.crm 出现次数 : 2</p></div></section>
+<p>⭐ <strong>8 行变 9 行</strong>：<code>src.crm</code> 那两行的 <code>node</code> 一模一样，但 <code>path</code> 不同，于是它们是两个不同的整行，<code>UNION</code> 全都留下。
+⚠️ <strong>如果你拿这个结果去 <code>COUNT(*)</code> 报「上游有几个」，你会报出 9 —— 而真实答案是 8。</strong>
+菱形结构在数仓里到处都是，这是最容易发生的一次多算。</p>
+<h3 id="2union-all">坑 ②：<code>UNION ALL</code> 在菱形上必然重复计数</h3>
+<p>上面同一段代码的最后两行就是：<strong>不带 path、只换成 <code>UNION ALL</code>，照样是 9 行、<code>src.crm</code> 两次。</strong>
+⭐ 判据很简单：<strong><code>UNION ALL</code> 一条边都不去重，图里有几条不同的路径，汇点就被算几遍。</strong></p>
+<h3 id="3-depthunion">坑 ③：💀 加一列 <code>depth</code>，<code>UNION</code> 的防环就没了</h3>
+<p>真实血缘图<strong>会有环</strong>（有人把模型打分写回了 CRM 表，就是一条回边）。
+很多人以为「<code>UNION</code> 会去重，所以有环也不怕」—— ⚠️ <strong>只在你没带任何随轮次变化的列时才成立</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
+
+<span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE TABLE edges (child TEXT, parent TEXT)&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="s2">&quot;INSERT INTO edges VALUES (?,?)&quot;</span><span class="p">,</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s2">&quot;train_v37&quot;</span><span class="p">,</span> <span class="s2">&quot;feat_user_wide&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;train_v37&quot;</span><span class="p">,</span> <span class="s2">&quot;feat_label&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;feat_user_wide&quot;</span><span class="p">,</span> <span class="s2">&quot;dw.user_profile_wide&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;feat_user_wide&quot;</span><span class="p">,</span> <span class="s2">&quot;dim_city&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;feat_label&quot;</span><span class="p">,</span> <span class="s2">&quot;dw.repay_label&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;dw.user_profile_wide&quot;</span><span class="p">,</span> <span class="s2">&quot;src.crm&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;dw.user_profile_wide&quot;</span><span class="p">,</span> <span class="s2">&quot;src.app_log&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;dw.repay_label&quot;</span><span class="p">,</span> <span class="s2">&quot;src.crm&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;dim_city&quot;</span><span class="p">,</span> <span class="s2">&quot;src.geo&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;src.crm&quot;</span><span class="p">,</span> <span class="s2">&quot;train_v37&quot;</span><span class="p">),</span>      <span class="c1"># ⚠️ 一条回边：有人把模型打分写回了 CRM，成环</span>
+<span class="p">])</span>
+
+<span class="n">q_plain</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">WITH RECURSIVE up(node) AS (</span>
+<span class="s2">    SELECT parent FROM edges WHERE child = &#39;train_v37&#39;</span>
+<span class="s2">  UNION</span>
+<span class="s2">    SELECT e.parent FROM edges e JOIN up ON e.child = up.node</span>
+<span class="s2">)</span>
+<span class="s2">SELECT COUNT(*) FROM up</span>
+<span class="s2">&quot;&quot;&quot;</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;① 有环 + UNION + 不带 depth →&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">q_plain</span><span class="p">)</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()[</span><span class="mi">0</span><span class="p">],</span> <span class="s2">&quot;行（自己停住）&quot;</span><span class="p">)</span>
+
+<span class="k">for</span> <span class="n">cap</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">):</span>
+    <span class="n">q_depth</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">    WITH RECURSIVE up(node, depth) AS (</span>
+<span class="s2">        SELECT parent, 1 FROM edges WHERE child = &#39;train_v37&#39;</span>
+<span class="s2">      UNION</span>
+<span class="s2">        SELECT e.parent, up.depth + 1 FROM edges e JOIN up ON e.child = up.node</span>
+<span class="s2">        WHERE up.depth &lt; </span><span class="si">{</span><span class="n">cap</span><span class="si">}</span>
+<span class="s2">    )</span>
+<span class="s2">    SELECT COUNT(*), COUNT(DISTINCT node) FROM up</span>
+<span class="s2">    &quot;&quot;&quot;</span>
+    <span class="n">n</span><span class="p">,</span> <span class="n">d</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">q_depth</span><span class="p">)</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;② 有环 + UNION + 带 depth（刹车 depth &lt; </span><span class="si">{</span><span class="n">cap</span><span class="si">}</span><span class="s2">）→ </span><span class="si">{</span><span class="n">n</span><span class="si">}</span><span class="s2"> 行 / </span><span class="si">{</span><span class="n">d</span><span class="si">}</span><span class="s2"> 个不同节点&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">① 有环 + UNION + 不带 depth</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">9 行（自己停住）</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 有环 + UNION + 带 depth（刹车 depth &lt; 5）</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">11 行 / 9 个不同节点</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 有环 + UNION + 带 depth（刹车 depth &lt; 10）</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">23 行 / 9 个不同节点</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 有环 + UNION + 带 depth（刹车 depth &lt; 20）</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">45 行 / 9 个不同节点</span></div></div></section>
+<p>⭐ <strong>看第二组三行：节点数永远是 9，行数却随刹车线一路涨到 45。</strong>
+因为绕一圈回来时 <code>node</code> 虽然一样，<code>depth</code> 已经 +1，整行是新的，<code>UNION</code> 拦不住。
+💀 <strong>真正让它停下来的是 <code>WHERE up.depth &lt; N</code> 这个刹车，不是 <code>UNION</code>。</strong> 把刹车去掉，这条查询不会返回。</p>
+<p>⚠️ 顺带看第一行：<strong>没有环的时候是 8 个节点，加了那条回边变成 9 个</strong> ——
+多出来的正是 <code>train_v37</code> 自己。⭐ <strong>「一个产出物出现在自己的上游列表里」是环的报警信号</strong>，
+血缘查询里值得单独加一条断言。</p>
+<hr />
+<h2 id="_2">🧯 六、可以照抄的安全写法</h2>
+<p>把三个坑一次堵上：<strong><code>path</code> 判环 + <code>depth</code> 兜底刹车 + 最后按节点收敛</strong>。</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
+
+<span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE TABLE edges (child TEXT, parent TEXT)&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="s2">&quot;INSERT INTO edges VALUES (?,?)&quot;</span><span class="p">,</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s2">&quot;train_v37&quot;</span><span class="p">,</span> <span class="s2">&quot;feat_user_wide&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;train_v37&quot;</span><span class="p">,</span> <span class="s2">&quot;feat_label&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;feat_user_wide&quot;</span><span class="p">,</span> <span class="s2">&quot;dw.user_profile_wide&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;feat_user_wide&quot;</span><span class="p">,</span> <span class="s2">&quot;dim_city&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;feat_label&quot;</span><span class="p">,</span> <span class="s2">&quot;dw.repay_label&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;dw.user_profile_wide&quot;</span><span class="p">,</span> <span class="s2">&quot;src.crm&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;dw.user_profile_wide&quot;</span><span class="p">,</span> <span class="s2">&quot;src.app_log&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;dw.repay_label&quot;</span><span class="p">,</span> <span class="s2">&quot;src.crm&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;dim_city&quot;</span><span class="p">,</span> <span class="s2">&quot;src.geo&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;src.crm&quot;</span><span class="p">,</span> <span class="s2">&quot;train_v37&quot;</span><span class="p">),</span>     <span class="c1"># 回边，成环</span>
+<span class="p">])</span>
+
+<span class="n">q</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">WITH RECURSIVE up(node, depth, path) AS (</span>
+<span class="s2">    SELECT parent, 1, &#39;&gt;&#39; || parent || &#39;&gt;&#39;</span>
+<span class="s2">      FROM edges WHERE child = &#39;train_v37&#39;</span>
+<span class="s2">  UNION ALL</span>
+<span class="s2">    SELECT e.parent, up.depth + 1, up.path || e.parent || &#39;&gt;&#39;</span>
+<span class="s2">      FROM edges e JOIN up ON e.child = up.node</span>
+<span class="s2">     WHERE instr(up.path, &#39;&gt;&#39; || e.parent || &#39;&gt;&#39;) = 0     -- ⭐ 判环：这条路上来过就不再走</span>
+<span class="s2">       AND up.depth &lt; 50                                  -- ⭐ 兜底刹车，永远要有</span>
+<span class="s2">)</span>
+<span class="s2">SELECT node, MIN(depth) AS d FROM up GROUP BY node ORDER BY d, node   -- ⭐ 按节点收敛</span>
+<span class="s2">&quot;&quot;&quot;</span>
+<span class="k">for</span> <span class="n">node</span><span class="p">,</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">q</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  深度 </span><span class="si">{</span><span class="n">d</span><span class="si">}</span><span class="s2">  </span><span class="si">{</span><span class="n">node</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;节点总数 :&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;SELECT COUNT(*) FROM (</span><span class="si">{</span><span class="n">q</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()[</span><span class="mi">0</span><span class="p">])</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>深度 1 feat_label</p><p>深度 1 feat_user_wide</p><p>深度 2 dim_city</p><p>深度 2 dw.repay_label</p><p>深度 2 dw.user_profile_wide</p><p>深度 3 src.app_log</p><p>深度 3 src.crm</p><p>深度 3 src.geo</p><p>深度 4 train_v37</p><p>节点总数 : 9</p></div></section>
+<p><strong>三件事各由谁负责</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>想要的</th>
+<th>靠什么</th>
+<th>⚠️ 不能靠什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>不在环里打转</td>
+<td><code>instr(path, …) = 0</code> 逐路径判环</td>
+<td>❌ <code>UNION</code> 去重 —— 带了 <code>depth</code>/<code>path</code> 就失效</td>
+</tr>
+<tr>
+<td>极端情况下也能返回</td>
+<td>⭐ <code>depth &lt; 50</code> 兜底</td>
+<td>❌ 「我们的图没有环」 —— 这句话的保质期是到下次有人加一条边</td>
+</tr>
+<tr>
+<td>每个节点只算一次</td>
+<td>最后 <code>GROUP BY node</code> 取 <code>MIN(depth)</code></td>
+<td>❌ 递归里去重 —— 那正是坑 ①</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>⭐ <strong><code>MIN(depth)</code> 顺带给了一个免费的读法</strong>：深度 1 是直接上游，深度大的是「隔了几层才影响到我」。
+排查「哪张表挂了导致我今天没数据」时，<strong>从深度小的往大的看</strong>。</p>
+</blockquote>
+<p>⚠️ <strong>本章只解决「边表已经有了」之后的那一半。</strong> 边表怎么来（<code>inputs</code> 数组怎么落盘、指纹怎么算、
+临时表和跨库依赖怎么记）全部在 17 章 —— <strong>没有那一半，这一章的查询无处可跑。</strong></p>
+<hr />
+<h2 id="_3">🔗 这一章连到哪里</h2>
+<table>
+<thead>
+<tr>
+<th>相关的地方</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../数据这一关/17-数据版本与血缘.html">数据这一关 17 数据版本与血缘</a></td>
+<td>⭐ <strong>成对的另一半</strong>：那边讲血缘该记什么（manifest / 指纹 / 保留期），这一章讲记下来之后怎么查。它第四节那个 <code>inputs</code> 数组，就是本章第四节那张 <code>edges</code> 表</td>
+</tr>
+<tr>
+<td><a href="05-子查询的三种形状.html">05-子查询的三种形状.html</a></td>
+<td>CTE 是子查询的可读形态。<code>IN</code> / <code>EXISTS</code> 那一套语义在 CTE 里一个字都没变，只是从括号里挪到了上面</td>
+</tr>
+<tr>
+<td><a href="07-窗口函数.html">07-窗口函数.html</a></td>
+<td>下一章。CTE 和窗口函数是天然搭档：先用 CTE 把数据整形，再在最后一段开窗 —— 因为窗口函数不能写在 <code>WHERE</code> 里，想按排名过滤就<strong>必须</strong>先 CTE 再筛</td>
+</tr>
+<tr>
+<td><a href="08-窗口帧.html">08-窗口帧.html</a></td>
+<td>本章那根日历骨架在那里会再用一次：<strong>数据有缺口时，「最近 3 行」和「最近 3 天」不是一回事</strong></td>
+</tr>
+<tr>
+<td><a href="02-JOIN的几种语义.html">02-JOIN的几种语义.html</a></td>
+<td>日历骨架靠 <code>LEFT JOIN</code> 才能把「不存在的那几天」变成 <code>NULL</code> 行；⚠️ 那一章也讲了扇出 —— 血缘边表一旦有重复边，递归会连带放大</td>
+</tr>
+<tr>
+<td><a href="../AI全栈/06-关系数据库.html">AI全栈 06 关系数据库</a></td>
+<td>那一章讲 <code>messages</code> / <code>conversations</code> 怎么建表、怎么迁移。⭐ 本章的 <code>edges</code> 表同理：<strong>血缘表也是一张普通的表</strong>，不需要图数据库</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_4">✅ 检查点</h2>
+<ol>
+<li><code>WITH</code> 相比嵌套子查询，实际改变了什么、没有改变什么？</li>
+<li>同一个 CTE 名字能被引用几次？嵌套子查询做得到吗？</li>
+<li><code>WITH RECURSIVE</code> 的两段分别叫什么？递归什么时候停？</li>
+<li>表里只有 6 天的数据，为什么 <code>GROUP BY dt</code> 数不出「缺了 4 天」？该怎么办？</li>
+<li>血缘边表的两列各是什么含义？想问「这张表一改会影响谁」要怎么改这条查询？</li>
+<li>那张菱形图上，<code>train_v37</code> 的上游有几个节点？加一列 <code>path</code> 之后结果变成几行、为什么？</li>
+<li>有环的时候，<code>UNION</code> 能不能防住？带上 <code>depth</code> 列之后呢？实测 <code>depth &lt; 10</code> 和 <code>depth &lt; 20</code> 各跑出多少行、多少个节点？</li>
+<li>安全写法里的三件事分别防的是什么？为什么「我们的图没有环」不能当理由？</li>
+<li>加了回边之后，上游节点从 8 个变成 9 个，多出来的是谁？这说明什么？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li>改变的是<strong>可读性</strong>：从「括号最里层往外读」变成「从上往下读、每段有名字」。没有改变结果、语义，⚠️ 也不是性能优化 —— 数据库可能物化也可能展开（SQLite 3.35+ 可以用 <code>MATERIALIZED</code> / <code>NOT MATERIALIZED</code> 显式指定，本机 3.50.4 两种写法都能跑，但默认不要去指定）。</li>
+<li><strong>想引用几次都行</strong>（后面的 CTE 能引用前面的、外层能引用任意一个）。嵌套子查询做不到，只能把整段复制一遍。</li>
+<li>① <strong>种子查询</strong>（第一批行，不引用自己）② 递归步（<code>JOIN</code> 自己，拿上一批算下一批），中间用 <code>UNION</code> / <code>UNION ALL</code> 连接。直到某一轮不再产生新行就停。</li>
+<li>因为缺的那 4 天在表里是<strong>不存在的行</strong>，聚合只能对已有的行分组，不存在的行不会以任何形式出现。办法是用 <code>WITH RECURSIVE</code> 造一根日历骨架，再 <code>LEFT JOIN</code> 事实表 —— 缺的天就变成 <code>n_rows IS NULL</code> 的行。实测：日历 10 天、缺 4 天、表里 6 行。</li>
+<li><code>child</code> = 产出物，<code>parent</code> = 它的上游输入。⚠️ 方向反了查出来的是下游。想问「一改会影响谁」，<strong>把 <code>child</code> 和 <code>parent</code> 对调</strong>即可 —— 同一张表、同一个写法，一个是上游闭包，一个是下游闭包（改口径前的通知名单）。</li>
+<li><strong>8 个</strong>（<code>feat_user_wide</code> / <code>feat_label</code> / <code>dw.user_profile_wide</code> / <code>dim_city</code> / <code>dw.repay_label</code> / <code>src.crm</code> / <code>src.app_log</code> / <code>src.geo</code>）。加 <code>path</code> 后变成 9 行，因为 <code>src.crm</code> 有两条路径可达，两行的 <code>node</code> 相同但 <code>path</code> 不同 —— <code>UNION</code> 去的是「整行」的重，不是「节点」的重。⚠️ 拿它 <code>COUNT(*)</code> 会报出 9，真实答案是 8。</li>
+<li>不带任何随轮次变化的列时，<code>UNION</code> <strong>能</strong>防住（实测有环时 9 行就停）。⚠️ 一旦带上 <code>depth</code> 就防不住 —— 绕一圈回来 <code>node</code> 一样但 <code>depth</code> 已经 +1，整行是新的。实测：<code>depth &lt; 10</code> → 23 行 / 9 个节点，<code>depth &lt; 20</code> → 45 行 / 9 个节点。💀 真正的刹车是 <code>WHERE up.depth &lt; N</code>，不是 <code>UNION</code>；去掉刹车这条查询不会返回。</li>
+<li><code>instr(path, …) = 0</code> 防<strong>在环里打转</strong>；<code>depth &lt; 50</code> 是兜底刹车（极端情况下也能返回）；最后 <code>GROUP BY node</code> 取 <code>MIN(depth)</code> 保证每个节点只算一次。「我们的图没有环」不能当理由，因为这句话的保质期只到下次有人加一条边为止。</li>
+<li>多出来的是 <strong><code>train_v37</code> 自己</strong>（它经由回边成了自己的上游）。「一个产出物出现在自己的上游列表里」是环的报警信号，值得在血缘查询里单独加一条断言。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_5">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong></p>
+<blockquote>
+<p>⭐ <strong><code>WITH</code> 是可读性，<code>WITH RECURSIVE</code> 是能力。</strong></p>
+<p>前者把「从括号最里层往外读」的嵌套子查询摊成一条从上往下读、每段有名字的流水线——⭐ <strong>判据：一旦你开始从最里层往外读，就该换成 CTE</strong>。⚠️ 它不改结果、不改语义，<strong>也不是性能优化</strong>。它真正的好处是<strong>一次定义、多处引用</strong>，而嵌套子查询只能整段复制。</p>
+<p><strong><code>WITH RECURSIVE</code> 是两段式</strong>：种子（第一批行）+ 递归步（<code>JOIN</code> 自己，拿上一批算下一批），<strong>直到某一轮不再产生新行就停</strong>。</p>
+<p>⭐ 最小用法是<strong>造日历骨架</strong>：<code>GROUP BY 日期</code> 永远数不出「缺了几天」，<strong>因为缺的那几天是不存在的行</strong>——先造出完整日历再左连接，缺口才会显形。</p>
+<p>⭐ <strong>血缘图就是一张两列边表</strong>，「全部上游」= 传递闭包 = 一条递归查询。实测一个菱形依赖里，真正的上游是 8 个节点——⭐ <strong>这 8 个才是「保留期 ≥ 追溯期」要盯的清单，而不是 manifest 里直接列的那 2 个</strong>。把两列对调就得到下游闭包，那是改口径前的通知名单。</p>
+<p>💀 三个坑：① <strong><code>UNION</code> 去的是「整行」的重，不是「节点」的重</strong>——多带一列 <code>path</code> 就会让同一个节点出现两次，拿去计数直接把上游数报多；② <code>UNION ALL</code> 在菱形上<strong>必然重复计数</strong>；③ ⭐ <strong>加一列 <code>depth</code>，<code>UNION</code> 的防环就失效了</strong>（绕一圈回来节点一样但 depth 已经 +1，整行是新的）——<strong>真正的刹车是 <code>WHERE depth &lt; N</code>，不是 <code>UNION</code></strong>。</p>
+</blockquote>
+<p><strong>下一节</strong> 👉 <a href="07-窗口函数.html">07-窗口函数.md</a></p>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="05-子查询的三种形状.html"><div class="dir">← 上一节</div>🪆 05 · 子查询的三种形状</a><a class="next" href="07-窗口函数.html"><div class="dir">下一节 →</div>🪟 07 · 窗口函数</a></nav>
+</main>
+<script>(function(){
+  var KEY="sql-progress", FILE="06-CTE\u4e0e\u9012\u5f52\u67e5\u8be2.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script></body></html>

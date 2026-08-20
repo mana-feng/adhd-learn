@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>09 · 执行计划里的连接，和写法怎么毁掉索引 · SQL 查询这一关</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:1.9em;line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:1.42em;margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:1.14em;margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:.88em;background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:.85em}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:.92em}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:.8em;color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:.85em;color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:.92em}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:.78em;
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:.92em;border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:.93em;line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:.9em;line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:.93em;line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:.92em}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:1.15em;opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:.82em;
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
+
+.dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:.95em;margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:.93em;line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.02em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:.93em;break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">09 · 计划里的连接与索引失效</span>
+  <span class="prevnext"><a href="08-窗口帧.html">←</a>
+  <a href="10-拿SQL审问一份数据.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#_2">🧭 一、先划清这一章不讲什么</a></li>
+<li><a href="#_3">🔤 二、怎么读一份计划：两个动词，一个陷阱</a></li>
+<li><a href="#_4">🔗 三、连接顺序：同一对表，谁在外层差十倍</a></li>
+<li><a href="#sargability">🧨 四、sargability：六种把索引废掉的写法</a></li>
+<li><a href="#or-like">🔧 五、OR 的三种命运，和一个 LIKE 的意外</a></li>
+<li><a href="#_5">🧯 六、一条查询慢了，按什么顺序查</a></li>
+<li><a href="#_6">🔗 这一章连到哪里</a></li>
+<li><a href="#_7">✅ 检查点</a></li>
+<li><a href="#_8">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<h1 id="09">09 · 执行计划里的连接，和写法怎么毁掉索引</h1>
+<p>⏱ <strong>104 分钟</strong> ｜ ⚠️ <strong>实测：索引在、计划里也写着 <code>COVERING INDEX</code>，它照样是 <code>SCAN</code> 全表</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong>执行计划里只有两个动词要认：<code>SCAN</code> = 从头读一遍，<code>SEARCH</code> = 直接定位过去。</strong>
+⭐ <strong>索引名出现在计划里，不代表索引在起作用</strong> —— 判据是动词，不是索引名。
+本章只讲两件让 SQL 从「对」变成「快」的事：连接顺序，和写法怎么把已经建好的索引废掉。</p>
+<hr />
+<h2 id="_2">🧭 一、先划清这一章不讲什么</h2>
+<p><a href="01-一条查询是怎么跑的.html">01 章</a>第四节留了一句话：<strong>逻辑顺序回答「结果为什么是这样」，物理计划回答「为什么这么慢」</strong>，
+后半句欠到这里。但「慢」这个话题很大，本教程只拿走其中<strong>跟怎么写 SQL 有关</strong>的那一半：</p>
+<table>
+<thead>
+<tr>
+<th>话题</th>
+<th>在哪</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>索引该不该建、怎么建、复合索引的列序</strong></td>
+<td><a href="../AI全栈/06-关系数据库.html">AI 全栈 06 关系数据库</a>（那边有一组 200 次查询 <strong>3.802 秒 → 0.0019 秒</strong>的实测）</td>
+</tr>
+<tr>
+<td><strong>覆盖索引该不该建</strong>、为什么别把大字段塞进索引</td>
+<td>同上。⭐ 本章只教你<strong>在计划里认出它</strong>，不教你建</td>
+</tr>
+<tr>
+<td><code>COUNT(*)</code> 在大表上的成本、游标分页怎么用</td>
+<td><a href="../AI全栈/06b-列表接口与分页.html">AI 全栈 06b 列表接口与分页</a></td>
+</tr>
+<tr>
+<td>表怎么设计、事务、连接池、扩容</td>
+<td>不在本教程范围内</td>
+</tr>
+<tr>
+<td>⭐ <strong>连接顺序为什么会差十倍</strong></td>
+<td><strong>本章第三节</strong></td>
+</tr>
+<tr>
+<td>⭐ <strong>写法怎么让已有的索引用不上</strong></td>
+<td><strong>本章第四到六节</strong></td>
+</tr>
+</tbody>
+</table>
+<p>⚠️⚠️ <strong>还有一条免责声明必须写在最前面：执行计划的长相是每个数据库自己的方言。</strong>
+本章用 SQLite（<code>EXPLAIN QUERY PLAN</code>），Postgres 是 <code>EXPLAIN (ANALYZE, BUFFERS)</code>、
+MySQL 是 <code>EXPLAIN FORMAT=TREE</code>，输出的字面完全不一样。
+⭐ 可迁移的是判据（「有没有做全表扫」「索引用上没有」「有没有额外排序」），不可迁移的是字面。
+所以下面每一处我都会先说结论、再给 SQLite 的原文，⚠️ <strong>别去背原文</strong>。</p>
+<hr />
+<h2 id="_3">🔤 二、怎么读一份计划：两个动词，一个陷阱</h2>
+<p>一张 20 万行的事件表，<code>user_id</code> 上有索引。六种查询各看一次计划：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span><span class="o">,</span><span class="w"> </span><span class="nn">random</span>
+
+<span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE TABLE ev (id INTEGER PRIMARY KEY, user_id TEXT, ts TEXT, amount REAL)&quot;</span><span class="p">)</span>
+<span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="s2">&quot;INSERT INTO ev VALUES (?,?,?,?)&quot;</span><span class="p">,</span> <span class="p">[</span>
+    <span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="s2">&quot;u</span><span class="si">%05d</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">50000</span><span class="p">),</span>
+     <span class="s2">&quot;2026-03-</span><span class="si">%02d</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">30</span><span class="p">),</span> <span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">()</span> <span class="o">*</span> <span class="mi">100</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">200001</span><span class="p">)])</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE INDEX ix_user ON ev(user_id)&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;ANALYZE&quot;</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">plan</span><span class="p">(</span><span class="n">sql</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;EXPLAIN QUERY PLAN &quot;</span> <span class="o">+</span> <span class="n">sql</span><span class="p">):</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;   &quot;</span><span class="p">,</span> <span class="n">r</span><span class="p">[</span><span class="mi">3</span><span class="p">])</span>
+
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;① 没有条件 —— 整张表都要读&quot;</span><span class="p">)</span>
+<span class="n">plan</span><span class="p">(</span><span class="s2">&quot;SELECT * FROM ev&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;② 条件用上了索引 —— SEARCH&quot;</span><span class="p">)</span>
+<span class="n">plan</span><span class="p">(</span><span class="s2">&quot;SELECT * FROM ev WHERE user_id = &#39;u00123&#39;&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;③ 只要索引里有的列 —— COVERING INDEX，不回表&quot;</span><span class="p">)</span>
+<span class="n">plan</span><span class="p">(</span><span class="s2">&quot;SELECT user_id FROM ev WHERE user_id = &#39;u00123&#39;&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;④ 多要一列 amount —— 索引里没有，必须回表&quot;</span><span class="p">)</span>
+<span class="n">plan</span><span class="p">(</span><span class="s2">&quot;SELECT user_id, amount FROM ev WHERE user_id = &#39;u00123&#39;&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;⑤ 💀 计划里写着 COVERING INDEX，动作却是 SCAN&quot;</span><span class="p">)</span>
+<span class="n">plan</span><span class="p">(</span><span class="s2">&quot;SELECT COUNT(*) FROM ev WHERE substr(user_id, 2) = &#39;00123&#39;&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;⑥ ORDER BY 能不能白嫖索引的顺序&quot;</span><span class="p">)</span>
+<span class="n">plan</span><span class="p">(</span><span class="s2">&quot;SELECT user_id FROM ev ORDER BY user_id LIMIT 10&quot;</span><span class="p">)</span>
+<span class="n">plan</span><span class="p">(</span><span class="s2">&quot;SELECT user_id FROM ev ORDER BY amount LIMIT 10&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p><strong>实测输出</strong>（Python 3.13.14 / SQLite 3.50.4）：</p>
+<div class="codehilite"><pre><span></span><code>① 没有条件 —— 整张表都要读
+    SCAN ev
+② 条件用上了索引 —— SEARCH
+    SEARCH ev USING INDEX ix_user (user_id=?)
+③ 只要索引里有的列 —— COVERING INDEX，不回表
+    SEARCH ev USING COVERING INDEX ix_user (user_id=?)
+④ 多要一列 amount —— 索引里没有，必须回表
+    SEARCH ev USING INDEX ix_user (user_id=?)
+⑤ 💀 计划里写着 COVERING INDEX，动作却是 SCAN
+    SCAN ev USING COVERING INDEX ix_user
+⑥ ORDER BY 能不能白嫖索引的顺序
+    SCAN ev USING COVERING INDEX ix_user
+    SCAN ev
+    USE TEMP B-TREE FOR ORDER BY
+</code></pre></div>
+
+<p><strong>逐个拆：</strong></p>
+<table>
+<thead>
+<tr>
+<th>计划里出现</th>
+<th>意思</th>
+<th>好还是坏</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SCAN 表名</code></td>
+<td><strong>把这个东西从头到尾读一遍</strong></td>
+<td>⚠️ 大表上通常是坏消息</td>
+</tr>
+<tr>
+<td><code>SEARCH 表名 USING INDEX ix (col=?)</code></td>
+<td>拿索引<strong>直接定位</strong>，只读要的那几行</td>
+<td>✅ 通常是好消息</td>
+</tr>
+<tr>
+<td><code>USING COVERING INDEX</code></td>
+<td>要的列<strong>全在索引里</strong>，连表都不用碰</td>
+<td>✅ 更好一档</td>
+</tr>
+<tr>
+<td><code>USE TEMP B-TREE FOR ORDER BY</code></td>
+<td>结果<strong>没法按索引顺序出来</strong>，得先全捞出来再排一遍</td>
+<td>⚠️ 数据一大就是主要开销</td>
+</tr>
+<tr>
+<td><code>AUTOMATIC …INDEX</code></td>
+<td>⭐ <strong>数据库临时给你造了个索引</strong> —— 等于它在说「这儿缺一个」</td>
+<td>⚠️ 见下一节</td>
+</tr>
+</tbody>
+</table>
+<p>💀💀 <strong>⑤ 是本章的卖点，也是最容易被计划骗到的一次。</strong>
+它写着 <code>COVERING INDEX ix_user</code>，索引名清清楚楚，看起来「索引用上了」。
+⚠️ <strong>但动词是 <code>SCAN</code></strong> —— 它把 <code>ix_user</code> 这个索引从头到尾读了一遍，20 万行一行不落，
+只是省掉了回表而已。这不叫用上了索引，这叫在索引上做全表扫。</p>
+<p>⭐ <strong>判据：先看动词，再看索引名。<code>SCAN … USING … INDEX</code> 依然是全扫。</strong></p>
+<p>⚠️ <strong>反过来也一样：<code>SEARCH</code> 不等于快。</strong>
+第四节会看到 <code>WHERE user_id IS NOT NULL</code> 实测是 <code>SEARCH ev USING COVERING INDEX ix_user (user_id&gt;?)</code> ——
+动词是 <code>SEARCH</code>，耗时却是 2.5847 ms（同表命中一个 <code>user_id</code> 只要 0.0028 ms）。
+因为它「定位」到的范围里装着几乎全部的行。
+⭐ <strong>动词只告诉你「怎么找」，不告诉你「找到多少」。</strong></p>
+<p><strong>③④ 那一对值得单独说一句</strong>：同一个 <code>WHERE</code>，只多要了一列 <code>amount</code>，
+计划就从 <code>COVERING INDEX</code> 退回 <code>INDEX</code> —— 因为 <code>amount</code> 不在索引里，必须回表拿。
+⭐ <strong>这正是 <a href="01-一条查询是怎么跑的.html">01 章</a>说「<code>SELECT *</code> 让覆盖索引永远不可能生效」的完整版</strong>。
+⚠️ 但请别倒过来读成「那就把所有列塞进索引」——<a href="../AI全栈/06-关系数据库.html">AI 全栈 06</a> 明确否掉了这条路（那等于把整张表再复制一遍）。</p>
+<p><strong>⑥ 是很多人不知道索引还能干的事</strong>：<code>ORDER BY user_id</code> 不需要排序，因为索引本来就是按 <code>user_id</code> 有序存的，
+计划里干干净净；换成 <code>ORDER BY amount</code> 就冒出 <code>USE TEMP B-TREE FOR ORDER BY</code>。
+⭐ <strong><code>ORDER BY</code> + <code>LIMIT</code> 的分页查询要是慢，先去计划里找这一行。</strong></p>
+<hr />
+<h2 id="_4">🔗 三、连接顺序：同一对表，谁在外层差十倍</h2>
+<p><a href="02-JOIN的几种语义.html">02 章</a>讲了 <code>JOIN</code> 的<strong>语义</strong>，欠着<strong>代价</strong>。代价的核心只有一句话：</p>
+<blockquote>
+<p>⭐ <strong>最基础的连接算法是「嵌套循环」：外层表每出一行，就拿连接键去内层表找一次。</strong>
+总代价 ≈ <strong>外层的行数 × 内层每次查找的代价</strong>。
+于是「谁在外层」和「内层能不能用索引」这两件事，直接决定快慢。</p>
+</blockquote>
+<p>2000 个用户、20 万条事件，⭐ SQLite 里 <code>CROSS JOIN</code> 的作用<strong>就是禁止优化器重排顺序</strong>，正好拿来手工指定谁在外层：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span><span class="o">,</span><span class="w"> </span><span class="nn">random</span><span class="o">,</span><span class="w"> </span><span class="nn">time</span>
+
+<span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE TABLE users  (id INTEGER PRIMARY KEY, city TEXT)&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE TABLE events (id INTEGER PRIMARY KEY, user_id INTEGER, amount REAL)&quot;</span><span class="p">)</span>
+<span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">7</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="s2">&quot;INSERT INTO users VALUES (?,?)&quot;</span><span class="p">,</span>
+               <span class="p">[(</span><span class="n">i</span><span class="p">,</span> <span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="s2">&quot;ABCDE&quot;</span><span class="p">))</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2001</span><span class="p">)])</span>
+<span class="n">db</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="s2">&quot;INSERT INTO events VALUES (?,?,?)&quot;</span><span class="p">,</span>
+               <span class="p">[(</span><span class="n">i</span><span class="p">,</span> <span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2000</span><span class="p">),</span> <span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">()</span> <span class="o">*</span> <span class="mi">100</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">200001</span><span class="p">)])</span>
+<span class="n">db</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;users 2000 行，events 200000 行&quot;</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="n">label</span><span class="p">,</span> <span class="n">sql</span><span class="p">):</span>
+    <span class="n">p</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;EXPLAIN QUERY PLAN &quot;</span> <span class="o">+</span> <span class="n">sql</span><span class="p">)]</span>
+    <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">sql</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>                      <span class="c1"># 预热</span>
+    <span class="n">t</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">5</span><span class="p">):</span>
+        <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">sql</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="si">%-14s</span><span class="s2"> </span><span class="si">%7.4f</span><span class="s2"> s&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">label</span><span class="p">,</span> <span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t</span><span class="p">)</span> <span class="o">/</span> <span class="mi">5</span><span class="p">))</span>
+    <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">p</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;               &quot;</span><span class="p">,</span> <span class="n">line</span><span class="p">)</span>
+
+
+<span class="c1"># ⭐ SQLite 里 CROSS JOIN 的作用就是【禁止优化器重排顺序】，用它来手工指定谁在外层</span>
+<span class="n">A</span> <span class="o">=</span> <span class="s2">&quot;SELECT COUNT(*) FROM users u CROSS JOIN events e ON e.user_id=u.id WHERE u.city=&#39;A&#39;&quot;</span>
+<span class="n">B</span> <span class="o">=</span> <span class="s2">&quot;SELECT COUNT(*) FROM events e CROSS JOIN users u ON u.id=e.user_id WHERE u.city=&#39;A&#39;&quot;</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">===== 没有任何索引 =====&quot;</span><span class="p">)</span>
+<span class="n">run</span><span class="p">(</span><span class="s2">&quot;users 在外层&quot;</span><span class="p">,</span> <span class="n">A</span><span class="p">)</span>
+<span class="n">run</span><span class="p">(</span><span class="s2">&quot;events 在外层&quot;</span><span class="p">,</span> <span class="n">B</span><span class="p">)</span>
+
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE INDEX ix_ev_user ON events(user_id)&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">===== 给 events(user_id) 建了索引之后 =====&quot;</span><span class="p">)</span>
+<span class="n">run</span><span class="p">(</span><span class="s2">&quot;users 在外层&quot;</span><span class="p">,</span> <span class="n">A</span><span class="p">)</span>
+<span class="n">run</span><span class="p">(</span><span class="s2">&quot;events 在外层&quot;</span><span class="p">,</span> <span class="n">B</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">===== 换成普通 JOIN，让优化器自己选 =====&quot;</span><span class="p">)</span>
+<span class="n">run</span><span class="p">(</span><span class="s2">&quot;优化器自选&quot;</span><span class="p">,</span> <span class="s2">&quot;SELECT COUNT(*) FROM users u JOIN events e ON e.user_id=u.id WHERE u.city=&#39;A&#39;&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<div class="codehilite"><pre><span></span><code>users 2000 行，events 200000 行
+
+===== 没有任何索引 =====
+users 在外层       0.2380 s
+                SCAN u
+                BLOOM FILTER ON e (user_id=?)
+                SEARCH e USING AUTOMATIC COVERING INDEX (user_id=?)
+events 在外层      0.0440 s
+                SCAN e
+                SEARCH u USING INTEGER PRIMARY KEY (rowid=?)
+
+===== 给 events(user_id) 建了索引之后 =====
+users 在外层       0.0019 s
+                SCAN u
+                SEARCH e USING COVERING INDEX ix_ev_user (user_id=?)
+events 在外层      0.0140 s
+                SCAN e USING COVERING INDEX ix_ev_user
+                SEARCH u USING INTEGER PRIMARY KEY (rowid=?)
+
+===== 换成普通 JOIN，让优化器自己选 =====
+优化器自选           0.0019 s
+                SCAN u
+                SEARCH e USING COVERING INDEX ix_ev_user (user_id=?)
+</code></pre></div>
+
+<p>⚠️ <strong>绝对耗时随机器和当时的机器负载变</strong>（本机复跑四次，第一格在 0.2380 ~ 0.4739 秒之间跳）。
+⭐ <strong>但四次跑出来的计划一字不差，下面这三条关系也每次都一样 —— 它们是结构性的，不是噪声。</strong></p>
+<p><strong>① 没索引时，大表在外层反而快（0.0440 s vs 0.2380 s，约 5 倍）。</strong>
+<code>users</code> 在外层时，内层的 <code>events</code> 没有可用索引，数据库只好现造一个——
+计划里那句 <code>SEARCH e USING AUTOMATIC COVERING INDEX</code> 就是它在说：「这儿缺一个索引，我先临时建一个用用。」
+⭐ <strong>看到 <code>AUTOMATIC</code> 就该去 <a href="../AI全栈/06-关系数据库.html">AI 全栈 06</a> 补一个真索引</strong> —— 临时索引每次查询都要重建一遍。
+（旁边那句 <code>BLOOM FILTER</code> 是 SQLite 3.38+ 的优化：先用一个便宜的过滤器挡掉大部分注定连不上的行。）</p>
+<p><strong>② 建完索引之后，最优顺序反了过来（0.0019 s vs 0.0140 s，约 7 倍，方向和上一条相反）。</strong>
+现在 <code>users</code> 在外层才是对的：先用 <code>city='A'</code> 把外层缩到约 400 行，每行拿索引去 <code>events</code> 精准定位。
+⭐ <strong>同一对表、同一个问题，最优连接顺序会因为「有没有索引」而反转</strong> ——
+这就是不要手工钉死连接顺序的理由。</p>
+<p><strong>③ 交给优化器，它选对了。</strong>
+把 <code>CROSS JOIN</code> 换回普通 <code>JOIN</code>，它给出的计划和手工最优那条<strong>一字不差</strong>（<code>SCAN u</code> + <code>SEARCH e USING COVERING INDEX</code>）。</p>
+<blockquote>
+<p>⭐ <strong>实践判据</strong>：<strong>先看计划、再考虑改写，而不是先改写。</strong>
+手工调顺序（<code>CROSS JOIN</code>、MySQL 的 <code>STRAIGHT_JOIN</code>、各种 hint）是<strong>最后一招</strong>——
+它把「今天的数据分布」和「今天的索引」焊进了 SQL 里，⚠️ 而这两样都会变。</p>
+</blockquote>
+<p>⚠️ 🗓️ <strong>未实跑 —— SQLite 只有嵌套循环这一种连接算法。</strong>
+Postgres / MySQL 8.0 还有 Hash Join（把小表做成哈希表，适合大表连大表且没有合适索引）
+和 Merge Join（两边都已排好序时像拉链一样合并）。
+⭐ <strong>你只需要知道：看到计划里写着 Hash / Merge，说明它没在走「逐行去索引里找」那条路</strong>，
+剩下的细节属于数据库调优，不在本教程范围内。</p>
+<hr />
+<!--MIDSTOP-->
+<blockquote>
+<p>🛑 <strong>读到这里可以停</strong> —— 前半章讲完了（约 34 分钟）。
+<strong>后半章还有</strong>：sargability：六种把索引废掉的写法 · <code>OR</code> 的三种命运，和一个 <code>LIKE</code> 的意外 · 一条查询慢了，按什么顺序查
+回来的时候不用重读，直接从下一节接着看就行。</p>
+</blockquote>
+<hr />
+<h2 id="sargability">🧨 四、sargability：六种把索引废掉的写法</h2>
+<p>前面都是「索引够不够」，这一节反过来 —— ⭐ <strong>索引明明在，是你的写法让它用不上。</strong></p>
+<p>这件事有个专门的词：<strong>sargable</strong>（Search ARGument ABLE，「能当搜索条件用的」）。
+⭐ <strong>判据只有一句：索引列必须自己一个人待在比较符的一边，不能被任何东西包住。</strong></p>
+<p>20 万行，<code>user_id</code> 和 <code>ts</code> 上都有索引：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span><span class="o">,</span><span class="w"> </span><span class="nn">random</span><span class="o">,</span><span class="w"> </span><span class="nn">time</span>
+
+<span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE TABLE ev (id INTEGER PRIMARY KEY, user_id TEXT, ts TEXT, amount REAL)&quot;</span><span class="p">)</span>
+<span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="s2">&quot;INSERT INTO ev VALUES (?,?,?,?)&quot;</span><span class="p">,</span> <span class="p">[</span>
+    <span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="s2">&quot;u</span><span class="si">%05d</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">50000</span><span class="p">),</span>
+     <span class="s2">&quot;2026-03-</span><span class="si">%02d</span><span class="s2"> </span><span class="si">%02d</span><span class="s2">:00:00&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">30</span><span class="p">),</span> <span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">23</span><span class="p">)),</span>
+     <span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">()</span> <span class="o">*</span> <span class="mi">100</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">200001</span><span class="p">)])</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE INDEX ix_user ON ev(user_id)&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE INDEX ix_ts   ON ev(ts)&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;ANALYZE&quot;</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">show</span><span class="p">(</span><span class="n">label</span><span class="p">,</span> <span class="n">sql</span><span class="p">):</span>
+    <span class="n">p</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;EXPLAIN QUERY PLAN &quot;</span> <span class="o">+</span> <span class="n">sql</span><span class="p">)]</span>
+    <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">sql</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>                      <span class="c1"># 预热</span>
+    <span class="n">t</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">20</span><span class="p">):</span>
+        <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">sql</span><span class="p">)</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()</span>
+    <span class="n">ms</span> <span class="o">=</span> <span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t</span><span class="p">)</span> <span class="o">/</span> <span class="mi">20</span> <span class="o">*</span> <span class="mi">1000</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="si">%-24s</span><span class="s2"> </span><span class="si">%9.4f</span><span class="s2"> ms   </span><span class="si">%s</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">label</span><span class="p">,</span> <span class="n">ms</span><span class="p">,</span> <span class="n">p</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
+
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;== ① 函数包住列 ==&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;substr(ts,1,10)=&#39;...&#39;&quot;</span><span class="p">,</span> <span class="s2">&quot;SELECT COUNT(*) FROM ev WHERE substr(ts,1,10)=&#39;2026-03-05&#39;&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;date(ts)=&#39;...&#39;&quot;</span><span class="p">,</span>        <span class="s2">&quot;SELECT COUNT(*) FROM ev WHERE date(ts)=&#39;2026-03-05&#39;&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;✅ 半开区间&quot;</span><span class="p">,</span>            <span class="s2">&quot;SELECT COUNT(*) FROM ev WHERE ts&gt;=&#39;2026-03-05&#39; AND ts&lt;&#39;2026-03-06&#39;&quot;</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;== ② CAST 包住列 ==&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;CAST(user_id AS TEXT)&quot;</span><span class="p">,</span> <span class="s2">&quot;SELECT COUNT(*) FROM ev WHERE CAST(user_id AS TEXT)=&#39;u00123&#39;&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;✅ 直接比&quot;</span><span class="p">,</span>              <span class="s2">&quot;SELECT COUNT(*) FROM ev WHERE user_id=&#39;u00123&#39;&quot;</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;== ③ 列上做算术 ==&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;amount*2 &gt; 199&quot;</span><span class="p">,</span>       <span class="s2">&quot;SELECT COUNT(*) FROM ev WHERE amount*2 &gt; 199&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;user_id||&#39;&#39; = &#39;u00123&#39;&quot;</span><span class="p">,</span> <span class="s2">&quot;SELECT COUNT(*) FROM ev WHERE user_id||&#39;&#39;=&#39;u00123&#39;&quot;</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;== ④ 前导通配 ==&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;LIKE &#39;%00123&#39;&quot;</span><span class="p">,</span>        <span class="s2">&quot;SELECT COUNT(*) FROM ev WHERE user_id LIKE &#39;%00123&#39;&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;✅ 范围改写&quot;</span><span class="p">,</span>            <span class="s2">&quot;SELECT COUNT(*) FROM ev WHERE user_id&gt;=&#39;u00123&#39; AND user_id&lt;&#39;u00124&#39;&quot;</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;== ⑤ 否定条件 ==&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;user_id &lt;&gt; &#39;u00123&#39;&quot;</span><span class="p">,</span>  <span class="s2">&quot;SELECT COUNT(*) FROM ev WHERE user_id&lt;&gt;&#39;u00123&#39;&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;user_id IS NOT NULL&quot;</span><span class="p">,</span>  <span class="s2">&quot;SELECT COUNT(*) FROM ev WHERE user_id IS NOT NULL&quot;</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;== ⑥ OR 一侧没索引 ==&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;OR amount&gt;99.9&quot;</span><span class="p">,</span>       <span class="s2">&quot;SELECT COUNT(*) FROM ev WHERE user_id=&#39;u00123&#39; OR amount&gt;99.9&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;OR 两侧都有索引&quot;</span><span class="p">,</span>        <span class="s2">&quot;SELECT COUNT(*) FROM ev WHERE user_id=&#39;u00123&#39; OR ts&gt;=&#39;2026-03-30&#39;&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<div class="codehilite"><pre><span></span><code>== ① 函数包住列 ==
+substr(ts,1,10)=&#39;...&#39;      16.2629 ms   SCAN ev USING COVERING INDEX ix_ts
+date(ts)=&#39;...&#39;             26.2926 ms   SCAN ev USING COVERING INDEX ix_ts
+✅ 半开区间                      0.2750 ms   SEARCH ev USING COVERING INDEX ix_ts (ts&gt;? AND ts&lt;?)
+== ② CAST 包住列 ==
+CAST(user_id AS TEXT)      10.5548 ms   SCAN ev USING COVERING INDEX ix_user
+✅ 直接比                       0.0028 ms   SEARCH ev USING COVERING INDEX ix_user (user_id=?)
+== ③ 列上做算术 ==
+amount*2 &gt; 199             11.7823 ms   SCAN ev
+user_id||&#39;&#39; = &#39;u00123&#39;     12.0084 ms   SCAN ev USING COVERING INDEX ix_user
+== ④ 前导通配 ==
+LIKE &#39;%00123&#39;              14.0207 ms   SCAN ev USING COVERING INDEX ix_user
+✅ 范围改写                      0.0042 ms   SEARCH ev USING COVERING INDEX ix_user (user_id&gt;? AND user_id&lt;?)
+== ⑤ 否定条件 ==
+user_id &lt;&gt; &#39;u00123&#39;         9.9813 ms   SCAN ev USING COVERING INDEX ix_user
+user_id IS NOT NULL         2.5847 ms   SEARCH ev USING COVERING INDEX ix_user (user_id&gt;?)
+== ⑥ OR 一侧没索引 ==
+OR amount&gt;99.9             21.2903 ms   SCAN ev
+OR 两侧都有索引                   0.6862 ms   MULTI-INDEX OR
+</code></pre></div>
+
+<p>⚠️ <strong>绝对毫秒数随机器和缓存状态变，量级差异是结构性的。</strong> 一张表读完：</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>写法</th>
+<th>计划动词</th>
+<th>实测</th>
+<th>为什么</th>
+<th>✅ 怎么改</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>①</td>
+<td><code>substr(ts,1,10)='2026-03-05'</code></td>
+<td><code>SCAN</code></td>
+<td>16.2629 ms</td>
+<td>索引存的是 <code>ts</code> 的值，不是 <code>substr(ts)</code> 的值</td>
+<td>⭐ <strong>半开区间</strong> <code>ts&gt;='2026-03-05' AND ts&lt;'2026-03-06'</code>，<strong>0.2750 ms</strong>（约 59 倍）</td>
+</tr>
+<tr>
+<td>①</td>
+<td><code>date(ts)='2026-03-05'</code></td>
+<td><code>SCAN</code></td>
+<td>26.2926 ms</td>
+<td>同上，而且函数更贵</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>②</td>
+<td><code>CAST(user_id AS TEXT)='u00123'</code></td>
+<td><code>SCAN</code></td>
+<td>10.5548 ms</td>
+<td>⭐ <strong><code>CAST</code> 也是函数</strong></td>
+<td>直接比，<strong>0.0028 ms</strong>（约 <strong>3800 倍</strong>）</td>
+</tr>
+<tr>
+<td>③</td>
+<td><code>amount*2 &gt; 199</code></td>
+<td><code>SCAN</code></td>
+<td>11.7823 ms</td>
+<td>列上做了算术</td>
+<td>把算术挪到<strong>另一边</strong>：<code>amount &gt; 99.5</code></td>
+</tr>
+<tr>
+<td>③</td>
+<td><code>user_id</code> 拼上空串再比（上面代码块第三段）</td>
+<td><code>SCAN</code></td>
+<td>12.0084 ms</td>
+<td>字符串拼接也是把列包住了</td>
+<td>把那个拼接去掉，直接比</td>
+</tr>
+<tr>
+<td>④</td>
+<td><code>user_id LIKE '%00123'</code></td>
+<td><code>SCAN</code></td>
+<td>14.0207 ms</td>
+<td>索引按<strong>前缀</strong>有序，不知道后缀在哪</td>
+<td>⚠️ 没有等价改写。真要按后缀查就换工具（全文索引 / 反转列）</td>
+</tr>
+<tr>
+<td>⑤</td>
+<td><code>user_id &lt;&gt; 'u00123'</code></td>
+<td><code>SCAN</code></td>
+<td>9.9813 ms</td>
+<td>「不等于」意味着<strong>几乎所有行都要</strong>，索引帮不上忙</td>
+<td>通常没法改 —— ⭐ <strong>这条本来就该全扫</strong></td>
+</tr>
+<tr>
+<td>⑤</td>
+<td><code>user_id IS NOT NULL</code></td>
+<td><code>SEARCH</code></td>
+<td>2.5847 ms</td>
+<td>⭐ 动词是 <code>SEARCH</code>，但范围覆盖几乎全表</td>
+<td>⚠️ <strong><code>SEARCH</code> ≠ 快，见第二节</strong></td>
+</tr>
+<tr>
+<td>⑥</td>
+<td><code>… OR amount&gt;99.9</code></td>
+<td><code>SCAN</code></td>
+<td>21.2903 ms</td>
+<td><code>amount</code> 没索引，一侧塌了整条就塌</td>
+<td>见下一节</td>
+</tr>
+</tbody>
+</table>
+<p>⭐ <strong>①②③ 是同一个错误的三种衣服</strong>：<code>substr()</code>、<code>date()</code>、<code>CAST()</code>、<code>*2</code>、<code>|| ''</code> ——
+<strong>只要索引列被任何东西包住，索引就用不上了</strong>，因为索引里存的是列本身的值，
+而数据库没法从「<code>substr(ts,1,10)</code> 等于某值」反推出「<code>ts</code> 落在哪个区间」。</p>
+<blockquote>
+<p>⭐ <strong>改法几乎永远是同一句：把变形从列这边挪到常量那边。</strong>
+<code>date(ts) = '2026-03-05'</code> → <code>ts &gt;= '2026-03-05' AND ts &lt; '2026-03-06'</code>
+<code>amount * 2 &gt; 199</code> → <code>amount &gt; 99.5</code>
+<code>YEAR(created) = 2026</code> → <code>created &gt;= '2026-01-01' AND created &lt; '2027-01-01'</code>
+⚠️ 注意右端一律用 <code>&lt;</code> 不用 <code>&lt;=</code>（<strong>半开区间</strong>）—— 用 <code>&lt;= '2026-03-05 23:59:59'</code> 会漏掉那一秒里的毫秒。</p>
+</blockquote>
+<p>⚠️ <strong>另一条路是给表达式本身建索引</strong>（Postgres/SQLite 的表达式索引、MySQL 的生成列索引）。
+它有效，但<strong>属于「索引怎么建」，是 <a href="../AI全栈/06-关系数据库.html">AI 全栈 06</a> 的题目</strong>。
+⭐ 本教程的立场：能改写就改写 —— 改写不用加对象、不占空间、不用维护，而且改写之后换个库照样快。</p>
+<hr />
+<!--MIDSTOP2-->
+<blockquote>
+<p>🛑 <strong>第二个休息点</strong> —— 中段讲完了（约 23 分钟）。
+<strong>最后一段还有</strong>：<code>OR</code> 的三种命运，和一个 <code>LIKE</code> 的意外 · 一条查询慢了，按什么顺序查
+这一章确实长，分三次读完全没问题 —— 回来直接从下一节接着看。</p>
+</blockquote>
+<hr />
+<!--MIDSTOP-->
+<blockquote>
+<p>🛑 <strong>读到这里可以停</strong> —— 已经读了约 57 分钟。
+<strong>最后一段还有</strong>（约 26 分钟）：<code>OR</code> 的三种命运，和一个 <code>LIKE</code> 的意外 · 一条查询慢了，按什么顺序查
+回来的时候不用重读，直接从下一节接着看就行。</p>
+</blockquote>
+<hr />
+<h2 id="or-like">🔧 五、<code>OR</code> 的三种命运，和一个 <code>LIKE</code> 的意外</h2>
+<p><code>OR</code> 值得单独一节，因为它是<strong>唯一一个「同一个写法，命运取决于另一侧」</strong>的坑：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span><span class="o">,</span><span class="w"> </span><span class="nn">random</span><span class="o">,</span><span class="w"> </span><span class="nn">time</span>
+
+<span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE TABLE ev (id INTEGER PRIMARY KEY, user_id TEXT, uid_int INTEGER, amount REAL)&quot;</span><span class="p">)</span>
+<span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">11</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="s2">&quot;INSERT INTO ev VALUES (?,?,?,?)&quot;</span><span class="p">,</span>
+               <span class="p">[(</span><span class="n">i</span><span class="p">,</span> <span class="s2">&quot;u</span><span class="si">%05d</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">50000</span><span class="p">),</span> <span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">50000</span><span class="p">),</span>
+                 <span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">()</span> <span class="o">*</span> <span class="mi">100</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">200001</span><span class="p">)])</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE INDEX ix_user   ON ev(user_id)&quot;</span><span class="p">)</span>     <span class="c1"># TEXT 列</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE INDEX ix_uidint ON ev(uid_int)&quot;</span><span class="p">)</span>     <span class="c1"># INTEGER 列</span>
+<span class="n">db</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;ANALYZE&quot;</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">show</span><span class="p">(</span><span class="n">label</span><span class="p">,</span> <span class="n">sql</span><span class="p">):</span>
+    <span class="n">p</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;EXPLAIN QUERY PLAN &quot;</span> <span class="o">+</span> <span class="n">sql</span><span class="p">)]</span>
+    <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">sql</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+    <span class="n">t</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">20</span><span class="p">):</span>
+        <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">sql</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="si">%-22s</span><span class="s2"> </span><span class="si">%8.4f</span><span class="s2"> ms&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">label</span><span class="p">,</span> <span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t</span><span class="p">)</span> <span class="o">/</span> <span class="mi">20</span> <span class="o">*</span> <span class="mi">1000</span><span class="p">))</span>
+    <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">p</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;                       &quot;</span><span class="p">,</span> <span class="n">line</span><span class="p">)</span>
+
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;== OR 的三种命运（20 万行）==&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;① 两侧都有索引&quot;</span><span class="p">,</span> <span class="s2">&quot;SELECT id FROM ev WHERE user_id=&#39;u00123&#39; OR uid_int=7&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;② 改写成 UNION&quot;</span><span class="p">,</span>
+     <span class="s2">&quot;SELECT id FROM ev WHERE user_id=&#39;u00123&#39; UNION SELECT id FROM ev WHERE uid_int=7&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;③ 一侧没有索引&quot;</span><span class="p">,</span> <span class="s2">&quot;SELECT id FROM ev WHERE user_id=&#39;u00123&#39; OR amount&gt;99.9&quot;</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">== 类型对不上时，SQLite 会不会丢索引 ==&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;TEXT 列 = 整数字面量&quot;</span><span class="p">,</span> <span class="s2">&quot;SELECT COUNT(*) FROM ev WHERE user_id = 123&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;INTEGER 列 = 字符串&quot;</span><span class="p">,</span> <span class="s2">&quot;SELECT COUNT(*) FROM ev WHERE uid_int = &#39;123&#39;&quot;</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">== LIKE 前缀能不能用索引，取决于一个 PRAGMA ==&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;LIKE &#39;u00123%&#39;（默认）&quot;</span><span class="p">,</span> <span class="s2">&quot;SELECT COUNT(*) FROM ev WHERE user_id LIKE &#39;u00123%&#39;&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;PRAGMA case_sensitive_like=ON&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;同一句，PRAGMA 打开后&quot;</span><span class="p">,</span> <span class="s2">&quot;SELECT COUNT(*) FROM ev WHERE user_id LIKE &#39;u00123%&#39;&quot;</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;范围改写（永远有效）&quot;</span><span class="p">,</span> <span class="s2">&quot;SELECT COUNT(*) FROM ev WHERE user_id&gt;=&#39;u00123&#39; AND user_id&lt;&#39;u00124&#39;&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<div class="codehilite"><pre><span></span><code>== OR 的三种命运（20 万行）==
+① 两侧都有索引                 0.0066 ms
+                        MULTI-INDEX OR
+                        INDEX 1
+                        SEARCH ev USING INDEX ix_user (user_id=?)
+                        INDEX 2
+                        SEARCH ev USING INDEX ix_uidint (uid_int=?)
+② 改写成 UNION              0.0179 ms
+                        COMPOUND QUERY
+                        LEFT-MOST SUBQUERY
+                        SEARCH ev USING COVERING INDEX ix_user (user_id=?)
+                        UNION USING TEMP B-TREE
+                        SEARCH ev USING COVERING INDEX ix_uidint (uid_int=?)
+③ 一侧没有索引                15.7034 ms
+                        SCAN ev
+
+== 类型对不上时，SQLite 会不会丢索引 ==
+TEXT 列 = 整数字面量           0.0024 ms
+                        SEARCH ev USING COVERING INDEX ix_user (user_id=?)
+INTEGER 列 = 字符串          0.0022 ms
+                        SEARCH ev USING COVERING INDEX ix_uidint (uid_int=?)
+
+== LIKE 前缀能不能用索引，取决于一个 PRAGMA ==
+LIKE &#39;u00123%&#39;（默认）      10.3474 ms
+                        SCAN ev USING COVERING INDEX ix_user
+同一句，PRAGMA 打开后           0.0033 ms
+                        SEARCH ev USING COVERING INDEX ix_user (user_id&gt;? AND user_id&lt;?)
+范围改写（永远有效）               0.0034 ms
+                        SEARCH ev USING COVERING INDEX ix_user (user_id&gt;? AND user_id&lt;?)
+</code></pre></div>
+
+<p><strong>三件事：</strong></p>
+<p><strong>① <code>OR</code> 两侧都有索引时，现代数据库能各走各的索引再合并</strong>（计划里那句 <code>MULTI-INDEX OR</code>，实测 0.0066 ms）。
+⭐ <strong>所以「<code>OR</code> 一定用不上索引」是个过时的说法。</strong>
+🗓️ 未实跑：MySQL 管这叫 <code>index_merge</code>，Postgres 叫 <code>BitmapOr</code>，⚠️ 三家的触发条件都不一样。</p>
+<p>② 只要有一侧没索引，整条就塌成 <code>SCAN</code>（实测 15.7034 ms，比①慢约 2400 倍）。
+⭐ <strong>这是 <code>OR</code> 真正的危险之处：它不是「<code>OR</code> 慢」，是「<code>OR</code> 的速度由最差的那一侧决定」。</strong>
+💀 于是加一个看起来无害的过滤条件，能让一条一直很快的查询突然变慢一千倍，而 SQL 只多了七个字。
+⚠️ 手工改写成 <code>UNION</code> 在本机反而更慢（0.0179 ms，因为多了一步去重的 <code>TEMP B-TREE</code>）——
+⭐ <strong>别背「<code>OR</code> 要改 <code>UNION</code>」这条口诀，先看计划。</strong></p>
+<p><strong>③ 两个和直觉相反的实测</strong>，都值得单独记住：</p>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>实测</th>
+<th>⭐ 该记住的</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>user_id</code>（TEXT 列）<code>= 123</code>（整数）</td>
+<td><strong>仍然 <code>SEARCH</code></strong>，0.0024 ms</td>
+<td>SQLite 有「类型亲和」，会把字面量转成列的类型再比。⚠️ <strong>它不丢索引</strong></td>
+</tr>
+<tr>
+<td><code>user_id LIKE 'u00123%'</code>（前缀，没有前导通配）</td>
+<td>💀 <strong>默认是 <code>SCAN</code></strong>，10.3474 ms</td>
+<td>因为 SQLite 的 <code>LIKE</code> <strong>默认不区分大小写</strong>，而索引是区分的，对不上就不敢用</td>
+</tr>
+<tr>
+<td>同一句，<code>PRAGMA case_sensitive_like=ON</code> 之后</td>
+<td><code>SEARCH</code>，0.0033 ms（约 <strong>3100 倍</strong>）</td>
+<td>⭐ <strong>同一句 SQL、同一个索引，快慢由一个连接级开关决定</strong></td>
+</tr>
+</tbody>
+</table>
+<p>⚠️⚠️ <strong>②③ 合起来给出本节最该带走的一条</strong>：
+<strong>「这个写法能不能用上索引」不是 SQL 语言的性质，是你这个数据库这一版这一套设置下的性质。</strong>
+⭐ 所以判据永远是去看计划，不是背清单。上面那张清单是给你猜方向用的，不是给你下结论用的。</p>
+<p>⭐ <strong>关于类型，02 章那条结论仍然成立且更重要</strong>：
+<a href="02-JOIN的几种语义.html">02 章</a>实测过 <code>'1'</code> 和 <code>1</code> 在 SQLite 里 <code>JOIN</code> 连不上（结果少一半、不报错），
+而 MySQL 会隐式转换连上、🗓️ 代价是索引失效。
+⭐ <strong>两边加起来的结论是：别指望数据库替你转类型 —— 有的库转了会错，有的库转了会慢。数据进库之前把类型统一掉。</strong></p>
+<hr />
+<h2 id="_5">🧯 六、一条查询慢了，按什么顺序查</h2>
+<p>⭐ <strong>这一节是前面所有内容的使用说明。</strong></p>
+<p><strong>第 0 步：先确认慢的真是这条 SQL。</strong>
+⚠️ 「接口慢」里有相当一部分根本不在数据库：连接池排队、一次取回十万行的序列化、
+⭐ 以及<strong>在循环里发了 200 条查询</strong>（N+1）—— 每条都是 0.1 ms，加起来 20 ms 全花在往返上，
+而你去看单条计划，每条都完美。先看「跑了几条」，再看「每条多快」。</p>
+<p><strong>第 1 步：<code>EXPLAIN</code>，只找三样东西。</strong></p>
+<table>
+<thead>
+<tr>
+<th>找什么</th>
+<th>看到了意味着</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>有没有 <code>SCAN 大表</code></td>
+<td>全表扫。⚠️ <strong><code>SCAN … USING … INDEX</code> 也算</strong>（第二节 ⑤）</td>
+</tr>
+<tr>
+<td>有没有 <code>TEMP B-TREE</code></td>
+<td>在做额外的排序或去重</td>
+</tr>
+<tr>
+<td>有没有 <code>AUTOMATIC INDEX</code></td>
+<td>⭐ 数据库在明说「这儿缺一个索引」</td>
+</tr>
+</tbody>
+</table>
+<p><strong>第 2 步：看到 <code>SCAN</code> 大表，按顺序问三句。</strong></p>
+<ol>
+<li>⭐ <strong><code>WHERE</code> 里那个列被什么东西包住了吗？</strong>（第四节的六种）——<strong>这一条最常中，而且改起来最便宜。</strong></li>
+<li><strong>这个列上到底有没有索引？</strong> 没有就去 <a href="../AI全栈/06-关系数据库.html">AI 全栈 06</a>，那是它的题目。</li>
+<li>⭐ <strong>是不是本来就该全扫？</strong> 「统计全表」「取走大半张表」时，<code>SCAN</code> 是<strong>正确答案</strong> ——
+   ⚠️ 逐行走索引再回表反而更慢。<strong>优化器算过这笔账，别硬掰它。</strong></li>
+</ol>
+<p><strong>第 3 步：改完再看一次计划，并且量一次。</strong>
+⭐ <strong>两样都要</strong>：只看计划可能计划变漂亮了但更慢，只看耗时可能只是缓存热了。</p>
+<p>⚠️ <strong>两条容易忘的</strong>：</p>
+<ul>
+<li><strong>优化器是靠统计信息猜的。</strong> 本章脚本里那句 <code>ANALYZE</code> 就是在更新统计。
+  💀 表刚灌完数据、统计还停留在「这表是空的」时，它会做出荒唐的选择 —— <strong>计划突然变差，先想想统计是不是过期了。</strong></li>
+<li><strong>计划会变。</strong> 数据量变了、索引加了、统计更新了，同一条 SQL 的计划就可能换一个。
+  ⭐ 这是好事（第三节实测过：最优连接顺序会因为有没有索引而反转），⚠️ 也意味着<strong>今天量到的快，不等于下季度还快</strong>。</li>
+</ul>
+<blockquote>
+<p>💀 <strong>最后一条，也是最容易的一次自我欺骗</strong>：<strong>「计划里有索引名」和「这条查询快」是两件事。</strong>
+本章第二节 ⑤ 那条 <code>SCAN ev USING COVERING INDEX ix_user</code>，
+拿去给任何一个只扫一眼的人看，都会得到「索引用上了呀」的结论。</p>
+</blockquote>
+<hr />
+<h2 id="_6">🔗 这一章连到哪里</h2>
+<table>
+<thead>
+<tr>
+<th>相关的地方</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="01-一条查询是怎么跑的.html">01-一条查询是怎么跑的.html</a></td>
+<td>⭐ 它欠的就是这一章：「逻辑顺序答为什么是这样，物理计划答为什么这么慢」。它讲的 <code>SELECT *</code> 让覆盖索引失效，在本章第二节 ③④ 有完整实测</td>
+</tr>
+<tr>
+<td><a href="02-JOIN的几种语义.html">02-JOIN的几种语义.html</a></td>
+<td>那一章讲连接的<strong>语义</strong>（含扇出把 150 变成 250），本章补<strong>代价</strong>：谁在外层、内层能不能走索引</td>
+</tr>
+<tr>
+<td><a href="05-子查询的三种形状.html">05-子查询的三种形状.html</a></td>
+<td><code>IN</code> / <code>EXISTS</code> / <code>JOIN</code> 选哪个，最终也要落到计划上看 —— ⭐ 那一章给语义判据，本章给验证手段</td>
+</tr>
+<tr>
+<td><a href="04-NULL与三值逻辑.html">04-NULL与三值逻辑.html</a></td>
+<td><code>IS NOT NULL</code> 实测是 <code>SEARCH</code> 却要 2.5847 ms —— ⚠️ 想清楚 <code>NULL</code> 的语义之后，还得看它到底筛掉了多少行</td>
+</tr>
+<tr>
+<td><a href="08-窗口帧.html">08-窗口帧.html</a></td>
+<td>上一章。那里的问题是「数对不对」，这一章的问题是「快不快」—— ⭐ <strong>顺序别反：先把数弄对</strong></td>
+</tr>
+<tr>
+<td><a href="10-拿SQL审问一份数据.html">10-拿SQL审问一份数据.html</a></td>
+<td>下一章把前九章的东西合起来用在一份真数据上</td>
+</tr>
+<tr>
+<td><a href="../AI全栈/06-关系数据库.html">AI 全栈 06 关系数据库</a></td>
+<td>⭐ <strong>索引怎么建全在那边</strong>（复合索引列序、覆盖索引该不该建、200 次查询 3.802 秒 → 0.0019 秒）。本章看到 <code>AUTOMATIC INDEX</code> 或「这列压根没索引」时，就是去那一章的时候</td>
+</tr>
+<tr>
+<td><a href="../AI全栈/06b-列表接口与分页.html">AI 全栈 06b 列表接口与分页</a></td>
+<td>那一章实测过 <code>COUNT(*)</code> 走覆盖索引 0.031 ms、命不中索引的 <code>LIKE '%..%'</code> 要 30.7 ms —— ⭐ 两条<strong>都是 <code>SCAN</code></strong>，用本章第二节的动词判据正好能读懂它那张表</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_7">✅ 检查点</h2>
+<ol>
+<li>执行计划里必须认的两个动词是什么？各代表什么动作？</li>
+<li>⭐ 看到 <code>SCAN ev USING COVERING INDEX ix_user</code>，该怎么判断？为什么它是本章的卖点？</li>
+<li>同一个 <code>WHERE</code>，<code>SELECT user_id</code> 和 <code>SELECT user_id, amount</code> 的计划为什么不一样？这解释了 01 章的哪句话？</li>
+<li><code>USE TEMP B-TREE FOR ORDER BY</code> 什么时候出现、什么时候不出现？</li>
+<li>⭐ 2000 用户 / 20 万事件那组实测：没索引时谁在外层快？建完索引之后呢？这个反转说明了什么实践判据？</li>
+<li>计划里出现 <code>AUTOMATIC COVERING INDEX</code> 是什么意思？该怎么办？</li>
+<li>sargable 的判据是哪一句话？<code>substr(ts,1,10)='2026-03-05'</code> 为什么用不上索引、该怎么改、实测快了多少？</li>
+<li><code>amount * 2 &gt; 199</code> 和 <code>YEAR(created) = 2026</code> 分别该怎么改写？为什么右端要用 <code>&lt;</code> 不用 <code>&lt;=</code>？</li>
+<li>⭐ <code>OR</code> 的三种命运各是什么？实测差多少？为什么说「别背『<code>OR</code> 要改 <code>UNION</code>』」？</li>
+<li><code>user_id LIKE 'u00123%'</code> 没有前导通配，为什么实测还是 <code>SCAN</code>？这件事说明判据应该是什么？</li>
+<li>一条查询慢了，第 0 步先确认什么？看到 <code>SCAN</code> 大表之后按顺序问哪三句？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li><strong><code>SCAN</code> = 把这个东西从头到尾读一遍</strong>；<code>SEARCH</code> = 拿索引直接定位过去，只读要的那几行。判据是动词，不是索引名。</li>
+<li><strong>动词是 <code>SCAN</code>，所以它把 <code>ix_user</code> 这个索引整个读了一遍</strong>（20 万行一行不落），只是省掉了回表 —— 这叫在索引上做全表扫，不叫用上了索引。它是卖点因为「索引名清清楚楚出现在计划里」会让人一眼判成「索引生效了」。⚠️ 反过来 <code>SEARCH</code> 也不等于快：<code>IS NOT NULL</code> 是 <code>SEARCH</code> 却要 2.5847 ms（命中单个 <code>user_id</code> 只要 0.0028 ms），因为它定位到的范围里装着几乎所有行。动词只说「怎么找」，不说「找到多少」。</li>
+<li>只要 <code>user_id</code> 时索引里什么都有 → <code>SEARCH … USING COVERING INDEX</code>；多要一列 <code>amount</code> 时索引里没有、必须<strong>回表</strong> → 退回 <code>SEARCH … USING INDEX</code>。这就是 01 章那句「<code>SELECT *</code> 让覆盖索引永远不可能生效」的完整版。⚠️ 但别倒过来把所有列塞进索引（AI 全栈 06 否掉了这条路）。</li>
+<li><code>ORDER BY user_id</code> 时<strong>不出现</strong>（索引本来就按它有序）；<code>ORDER BY amount</code> 时出现（得先全捞出来再排）。<code>ORDER BY</code> + <code>LIMIT</code> 的分页慢，先去计划里找这一行。</li>
+<li>没索引时 <strong><code>events</code> 在外层快</strong>（0.0440 s vs 0.2380 s，约 5 倍）；建完 <code>events(user_id)</code> 索引后反过来，<code>users</code> 在外层快（0.0019 s vs 0.0140 s，约 7 倍）。说明最优连接顺序取决于有没有索引，所以不要手工钉死连接顺序（<code>CROSS JOIN</code> / hint 是最后一招，它把今天的数据分布和索引焊进了 SQL）。换回普通 <code>JOIN</code> 让优化器自己选，它给出的计划和手工最优那条一字不差。</li>
+<li>数据库在说「<strong>这儿缺一个索引，我先临时建一个</strong>」—— 而临时索引每次查询都要重建。看到它就该去 <a href="../AI全栈/06-关系数据库.html">AI 全栈 06</a> 补一个真索引。</li>
+<li><strong>索引列必须自己一个人待在比较符的一边，不能被任何东西包住。</strong> <code>substr()</code> 把列包住了，而索引里存的是 <code>ts</code> 本身的值，数据库没法反推出 <code>ts</code> 落在哪个区间。✅ 改成半开区间 <code>ts&gt;='2026-03-05' AND ts&lt;'2026-03-06'</code>：16.2629 ms → 0.2750 ms，约 59 倍。（<code>CAST</code> 也是函数，实测 10.5548 ms → 0.0028 ms。）</li>
+<li><code>amount*2 &gt; 199</code> → <strong><code>amount &gt; 99.5</code></strong>；<code>YEAR(created)=2026</code> → <code>created &gt;= '2026-01-01' AND created &lt; '2027-01-01'</code>。改法永远是把变形从列这边挪到常量那边。右端用 <code>&lt;</code> 是因为 <code>&lt;= '2026-03-05 23:59:59'</code> 会漏掉那一秒里的毫秒。</li>
+<li>① 两侧都有索引 → <code>MULTI-INDEX OR</code>，各走各的索引再合并，<strong>0.0066 ms</strong>；② 手工改 <code>UNION</code> → 0.0179 ms，反而更慢（多了去重的 <code>TEMP B-TREE</code>）；③ 一侧没索引 → 整条塌成 <code>SCAN</code>，15.7034 ms，比①慢约 2400 倍。所以 <code>OR</code> 的真正危险不是「<code>OR</code> 慢」，是「速度由最差的那一侧决定」—— 加一个看起来无害的条件就能让查询慢一千倍。口诀不能背，因为①②的对比表明改写有可能更慢，先看计划。</li>
+<li>因为 SQLite 的 <code>LIKE</code> <strong>默认不区分大小写</strong>，而索引是区分的，对不上就不敢用。打开 <code>PRAGMA case_sensitive_like=ON</code> 之后同一句变成 <code>SEARCH</code>，10.3474 ms → 0.0033 ms，约 3100 倍。说明「能不能用上索引」不是 SQL 语言的性质，是这个库这一版这套设置下的性质 —— 判据永远是去看计划，清单只用来猜方向。（✅ 范围改写 <code>&gt;= AND &lt;</code> 不受这个开关影响，永远有效。）</li>
+<li><strong>第 0 步：先确认慢的真是这条 SQL</strong> —— 连接池排队、一次取十万行的序列化、尤其是循环里发了 200 条查询（N+1，每条 0.1 ms 单看都完美）。看到 <code>SCAN</code> 大表后按顺序问：① <code>WHERE</code> 里的列被包住了吗（最常中、最便宜）② 这列到底有没有索引（有就去 AI 全栈 06）③ 是不是本来就该全扫（统计全表、取走大半张表时 <code>SCAN</code> 就是正确答案，别硬掰优化器）。改完要同时看计划和量耗时。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_8">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong></p>
+<blockquote>
+<p>⭐ <strong>执行计划里只有两个动词要认：<code>SCAN</code> 是从头读一遍，<code>SEARCH</code> 是直接定位过去。</strong> 💀 <strong>索引名出现在计划里，并不代表索引在起作用——判据是动词不是索引名。</strong> 本章卖点就是那条「<code>SCAN … USING COVERING INDEX</code>」：索引名清清楚楚，动词却是 <code>SCAN</code>，它把索引整个读了一遍，<strong>这叫在索引上全表扫</strong>。</p>
+<p>⚠️ 反过来 <strong><code>SEARCH</code> 也不等于快</strong>：定位到的范围里如果装着几乎所有行，照样慢——<strong>动词只说「怎么找」，不说「找到多少」</strong>。</p>
+<p>另外三个记号：<strong><code>USING COVERING INDEX</code></strong>（要的列全在索引里，连表都不碰——多要一列就退回回表，⭐ 这正是「<code>SELECT *</code> 让覆盖索引永远不可能生效」的完整版）、<strong><code>USE TEMP B-TREE FOR ORDER BY</code></strong>（分页慢先找它）、<strong><code>AUTOMATIC INDEX</code></strong>（⭐ 数据库在说「这儿缺一个索引」）。</p>
+<p>🔗 <strong>连接的代价就一句话：嵌套循环，代价 ≈ 外层行数 × 内层每次查找的代价。</strong> ⭐ <strong>同一对表、同一个问题，最优连接顺序会因为有没有索引而反转</strong>——所以别手工钉死顺序，那等于把今天的数据分布焊进 SQL。</p>
+<p>🧨 <strong>全章最实用的是 sargability，判据只有一句：索引列必须自己一个人待在比较符的一边，不能被任何东西包住。</strong> 因为索引里存的是<strong>列本身的值</strong>。函数包住、类型转换、算术、拼接——全都让索引失效，实测差几十到几千倍。⭐ <strong>改法永远是把变形从列那边挪到常量这边</strong>，右端用 <code>&lt;</code> 不用 <code>&lt;=</code>（半开区间，否则会漏掉边界那一秒的毫秒）。⚠️ 前缀通配的 <code>LIKE '%…'</code> <strong>没有等价改写</strong>。</p>
+<p>🔧 ⚠️ <strong><code>OR</code> 的速度由最差的那一侧决定</strong>：两侧都有索引时很快，<strong>一侧没索引整条就塌成全扫</strong>——加一个看似无害的条件就能慢上千倍。</p>
+</blockquote>
+<p><strong>下一节</strong> 👉 <a href="10-拿SQL审问一份数据.html">10-拿SQL审问一份数据.md</a></p>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="08-窗口帧.html"><div class="dir">← 上一节</div>🖼️ 08 · 窗口帧：ROWS 数行，RANGE 数值</a><a class="next" href="10-拿SQL审问一份数据.html"><div class="dir">下一节 →</div>🕵️ 10 · 拿 SQL 审问一份数据</a></nav>
+</main>
+<script>(function(){
+  var KEY="sql-progress", FILE="09-\u8ba1\u5212\u91cc\u7684\u8fde\u63a5\u4e0e\u7d22\u5f15\u5931\u6548.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script></body></html>
