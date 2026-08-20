@@ -19,7 +19,7 @@ if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
  --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
  --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
 *{box-sizing:border-box}html{scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--fg);font-size:17px;line-height:1.85;
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
  font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
  -webkit-font-smoothing:antialiased}
 #scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
@@ -45,8 +45,7 @@ blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
  border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
 blockquote p{margin:.4em 0}
 ul,ol{padding-left:1.5em}li{margin:.35em 0}
-table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em;display:block;
- overflow-x:auto}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
 th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
 th{background:var(--quote-bg)}
 tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
@@ -138,6 +137,16 @@ figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 aut
 figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
  margin-top:8px;line-height:1.6}
 figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:.82em;
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
 
 .dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
 .dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
@@ -287,35 +296,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <strong>融合就是把这个数字乘以 N 的手段。</strong></p>
 <hr />
 <h2 id="kernel-hbm">🔥 一、问题：kernel 之间必须过 HBM</h2>
-<div class="codehilite"><pre><span></span><code>   y = gelu(x @ W + b) * scale
-
-   PyTorch eager 模式下会跑【四个】kernel：
-   ① tmp1 = x @ W      → 写 HBM
-   ② tmp2 = tmp1 + b   → 读 HBM，写 HBM
-   ③ tmp3 = gelu(tmp2) → 读 HBM，写 HBM
-   ④ y = tmp3 * scale  → 读 HBM，写 HBM
-
-   ⭐ 中间结果被写出去又读回来【三次】
-     而每次 kernel 只做一点点计算 → 纯带宽浪费
-</code></pre></div>
-
-<div class="codehilite"><pre><span></span><code>   融合后：
-   ① 一个 kernel：读 x 和 W → 在寄存器/Shared Memory 里
-      完成 matmul、加 bias、gelu、乘 scale → 写 y
-
-   ⭐ HBM 往返从 4 次降到 1 次
-</code></pre></div>
-
+<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">y = gelu(x @ W + b) * scale</span></div><div class="vb-flow-row"><span class="vb-flow-step">PyTorch eager 模式下会跑【四个】kernel：</span></div><div class="vb-flow-row"><span class="vb-flow-step">① tmp1 = x @ W</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">写 HBM</span></div><div class="vb-flow-row"><span class="vb-flow-step">② tmp2 = tmp1 + b</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">读 HBM，写 HBM</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ tmp3 = gelu(tmp2)</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">读 HBM，写 HBM</span></div><div class="vb-flow-row"><span class="vb-flow-step">④ y = tmp3 * scale</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">读 HBM，写 HBM</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 中间结果被写出去又读回来【三次】</span></div><div class="vb-flow-row"><span class="vb-flow-step">而每次 kernel 只做一点点计算</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">纯带宽浪费</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">融合后：</span></div><div class="vb-flow-row"><span class="vb-flow-step">① 一个 kernel：读 x 和 W</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">在寄存器/Shared Memory 里</span></div><div class="vb-flow-row"><span class="vb-flow-step">完成 matmul、加 bias、gelu、乘 scale</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">写 y</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ HBM 往返从 4 次降到 1 次</span></div></div></section>
 <p><strong>收益估算</strong>：</p>
-<div class="codehilite"><pre><span></span><code>   一个 [8192, 8192] 的 BF16 张量 = 134 MB
-
-   融合前（4 个 kernel）：约 7 次 HBM 读写 ≈ 940 MB
-   融合后（1 个 kernel）：约 2 次        ≈ 270 MB
-
-   → A100 2TB/s 下，节省约 0.34 毫秒
-   → 一个 32 层的模型每步就是 ~10 毫秒 ⭐
-</code></pre></div>
-
+<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>一个 [8192, 8192] 的 BF16 张量 = 134 MB</p><p>融合前（4 个 kernel）：约 7 次 HBM 读写 ≈ 940 MB</p><p>融合后（1 个 kernel）：约 2 次 ≈ 270 MB</p><p>→ A100 2TB/s 下，节省约 0.34 毫秒</p><p>→ 一个 32 层的模型每步就是 ~10 毫秒 ⭐</p></div></section>
 <blockquote>
 <p>💡 <strong>还有一个常被忽略的收益：kernel 启动开销。</strong>
 每次 kernel 启动约 3–10 微秒。一个模型一步跑几千个 kernel，
@@ -323,16 +307,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <hr />
 <h2 id="torchcompile">🪄 二、<code>torch.compile</code>：先试这个</h2>
-<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 🧩 骨架：`model` 来自你自己的代码，这一段只看写法</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="n">model</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>          <span class="c1"># ⭐ 就这一行</span>
 </code></pre></div>
 
-<p><strong>它做的事</strong>：</p>
-<div class="codehilite"><pre><span></span><code>   ① TorchDynamo：把 Python 字节码抓成计算图
-   ② AOTAutograd：连反向图一起抓
-   ③ Inductor：生成融合后的 Triton kernel
-</code></pre></div>
-
+<p>它做的事：</p>
+<section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>TorchDynamo：把 Python 字节码抓成计算图</li><li>AOTAutograd：连反向图一起抓</li><li>Inductor：生成融合后的 Triton kernel</li></ol></section>
 <table>
 <thead>
 <tr>
@@ -355,7 +336,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table>
-<p><strong>典型收益</strong>：训练 <strong>10–30%</strong>，推理（小 batch）<strong>可达 2 倍</strong>。</p>
+<p>典型收益：训练 <strong>10–30%</strong>，推理（小 batch）可达 2 倍。</p>
 <h3 id="_2">⚠️ 五个会让它失效的坑</h3>
 <table>
 <thead>
@@ -417,7 +398,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     <span class="n">tl</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">out_ptr</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>  <span class="c1"># ⭐ 一次写</span>
 </code></pre></div>
 
-<p><strong>Triton vs CUDA</strong>：</p>
+<p>Triton vs CUDA：</p>
 <table>
 <thead>
 <tr>
@@ -466,9 +447,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <hr />
 <h2 id="_3">📦 四、现成的融合实现（优先用这些）</h2>
-<div class="codehilite"><pre><span></span><code>   ⭐ 顺序：现成库 &gt; torch.compile &gt; 手写 Triton &gt; 手写 CUDA
-</code></pre></div>
-
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>⭐ 顺序：现成库 &gt; torch.compile &gt; 手写 Triton &gt; 手写 CUDA</p></div></section>
 <table>
 <thead>
 <tr>
@@ -499,7 +478,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table>
-<div class="codehilite"><pre><span></span><code><span class="c1"># ⭐ 融合优化器：把 Adam 的几十个小 kernel 合成一个</span>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 🧩 骨架：`model` 来自你自己的代码，这一段只看写法</span>
+<span class="c1"># ⭐ 融合优化器：把 Adam 的几十个小 kernel 合成一个</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="n">opt</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">AdamW</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">3e-4</span><span class="p">,</span> <span class="n">fused</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="c1">#                                                    ↑ 常有 5-10% 提升</span>
@@ -507,17 +487,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <hr />
 <h2 id="cuda-graph">🧊 五、CUDA Graph：消灭启动开销</h2>
-<div class="codehilite"><pre><span></span><code>   问题：每个 kernel 启动都有 CPU 开销（3-10 微秒）
-        小模型 / 推理时，CPU 可能【喂不饱 GPU】
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>问题：每个 kernel 启动都有 CPU 开销（3-10 微秒）</p><p>小模型 / 推理时，CPU 可能【喂不饱 GPU】</p><p>CUDA Graph：把一整串 kernel 调用【录制】下来，</p><p>之后一次性提交给 GPU</p><p>⭐ 收益：小 batch 推理可达 20-50%</p><p>⚠️ 限制：形状必须固定，不能有动态控制流</p></div></section>
 
-   CUDA Graph：把一整串 kernel 调用【录制】下来，
-              之后一次性提交给 GPU
-
-   ⭐ 收益：小 batch 推理可达 20-50%
-   ⚠️ 限制：形状必须固定，不能有动态控制流
-</code></pre></div>
-
-<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 🧩 骨架：`model` 来自你自己的代码，这一段只看写法</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="n">model</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;reduce-overhead&quot;</span><span class="p">)</span>   <span class="c1"># ⭐ 自动用 CUDA Graph</span>
 </code></pre></div>
 
@@ -578,11 +551,11 @@ profiler 的时间轴上，<strong>GPU 行有大量空隙，CPU 行满满当当<
 <summary>👀 答案</summary>
 <ol>
 <li>因为每个 kernel 的输出必须写回 HBM 供下一个 kernel 读取。造成<strong>中间结果反复往返显存</strong>——一串 4 个 kernel 要 7 次 HBM 读写，而每个 kernel 只做一点点计算，纯带宽浪费。</li>
-<li><strong>kernel 启动开销</strong>（每次 3-10 微秒）。<strong>小模型上这一项比带宽更致命</strong>——一步跑几千个 kernel，光启动就几十毫秒。</li>
+<li><strong>kernel 启动开销</strong>（每次 3-10 微秒）。小模型上这一项比带宽更致命——一步跑几千个 kernel，光启动就几十毫秒。</li>
 <li>①TorchDynamo 抓计算图 ②AOTAutograd 连反向一起抓 ③Inductor 生成融合的 Triton kernel。收益：<strong>训练 10-30%，小 batch 推理可达 2 倍</strong>。</li>
-<li>用 <strong>CUDA Graph</strong> 把一串 kernel 调用录制下来一次性提交，<strong>消除启动开销</strong>。适合<strong>小模型/小 batch 推理</strong>。</li>
+<li>用 <strong>CUDA Graph</strong> 把一串 kernel 调用录制下来一次性提交，消除启动开销。适合小模型/小 batch 推理。</li>
 <li><strong>graph break</strong>——一个 break 把图切成两半，跨边界的融合机会全丢。用 <code>TORCH_LOGS="graph_breaks,recompiles"</code> 查。常见诱因：<code>.item()</code>、<code>print</code>、数据依赖的控制流。</li>
-<li>不用管<strong>内存合并、shared memory、warp 调度</strong>（只管 block 级别）。性能能到手写 CUDA 的 <strong>80-95%</strong>。</li>
+<li>不用管<strong>内存合并、shared memory、warp 调度</strong>（只管 block 级别）。性能能到手写 CUDA 的 80-95%。</li>
 <li>①torch.compile 试过了，profiler 显示某 kernel 仍是瓶颈 ②这个模式框架里没有 ③<strong>你能算出理论上限且当前实现离它很远</strong>。三条不全满足就别写。</li>
 <li><strong>GPU 行有大量空隙，CPU 行满满当当</strong>。这时算力优化毫无意义，要解决的是启动开销（CUDA Graph）。</li>
 </ol>
@@ -591,9 +564,14 @@ profiler 的时间轴上，<strong>GPU 行有大量空隙，CPU 行满满当当<
 <h2 id="_6">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>⭐<strong>十个逐元素操作往返显存十趟，融合成一个 kernel 只往返一趟</strong>——这是第 3 章"逐元素算术强度只有 0.17"的解药。<code>y=gelu(x@W+b)*scale</code> 在 eager 下跑 4 个 kernel、<strong>中间结果写出去又读回来 3 次</strong>；融合后 HBM 往返从 4 次降到 1 次（8192² 张量上一层省 0.34ms，32 层就是 ~10ms）。💡<strong>还有 kernel 启动开销</strong>（每次 3-10μs，一步几千个 kernel = 几十毫秒），<strong>小模型上这项比带宽更致命</strong>。⭐<strong>先试 <code>torch.compile(model)</code> 一行</strong>（Dynamo 抓图 → AOTAutograd 抓反向 → Inductor 生成 Triton kernel），<strong>训练 10-30%、小 batch 推理可达 2 倍</strong>；<code>mode="reduce-overhead"</code> 用 <strong>CUDA Graph 消除启动开销</strong>。⚠️⭐<strong>"编译了没变快"最常见原因是 graph break</strong>（一个 break 切断跨边界的融合机会，一个训练循环几十个 break 很常见）→ <strong><code>TORCH_LOGS="graph_breaks,recompiles"</code></strong>；诱因：<code>.item()</code>、<code>print</code>、数据依赖控制流、<strong>动态形状反复重编译</strong>（分桶补齐）。<strong>Triton</strong>：Python 语法、只管 block 级别（<strong>内存合并/shared memory/warp 调度自动处理</strong>）、性能到手写 CUDA 的 <strong>80-95%</strong>、几小时上手。⭐<strong>什么时候才手写</strong>：compile 试过了+profiler 显示仍是瓶颈+<strong>能算出理论上限且离得很远</strong>——三条不全就别写。⭐<strong>优先级：现成库 &gt; torch.compile &gt; Triton &gt; CUDA</strong>；现成的有 <strong>FlashAttention / <code>F.scaled_dot_product_attention</code>（自动选 FA 后端）/ Apex 融合 LayerNorm / <code>AdamW(fused=True)</code>（5-10%）</strong>。⭐<strong>判断 CPU 喂不饱 GPU：profiler 时间轴上 GPU 行有空隙、CPU 行满</strong>——这时算力优化毫无意义。</p>
+<p>⭐ <strong>十个逐元素操作要往返显存十趟，融合成一个 kernel 只往返一趟</strong>——这是「逐元素运算算术强度极低」那条的解药。一串小操作在 eager 下每一步都<strong>把中间结果写出去又读回来</strong>，融合之后往返次数直接降到一次；⚠️ 层数一多，省下的就是几毫秒到几十毫秒的量级。</p>
+<p>💡 还有第二笔账：<strong>kernel 启动开销</strong>。单次只有几微秒，⭐ <strong>但一步几千个 kernel 就是几十毫秒——小模型上这一项比带宽更致命。</strong></p>
+<p>⭐ <strong>先试一行 <code>torch.compile</code></strong>（抓图、抓反向、生成 kernel），训练能拿到一两成、小 batch 推理能到成倍；专门的模式还会用 CUDA Graph 把启动开销也消掉。</p>
+<p>⚠️⭐ <strong>「编译了没变快」最常见的原因是 graph break</strong>：<strong>一个 break 就切断跨越它的融合机会</strong>，而一个训练循环有几十个 break 很常见。⭐ <strong>别猜，开日志看</strong>。常见诱因：把张量取成 Python 标量、打印、数据依赖的控制流、⚠️ <strong>动态形状反复触发重编译</strong>（分桶补齐）。</p>
+<p>⭐ <strong>什么时候才轮到自己写 kernel：三条必须同时成立</strong>——<code>torch.compile</code> 试过了、profiler 显示它仍是瓶颈、<strong>而且你能算出理论上限并确认离得很远</strong>。⭐ 优先级永远是：<strong>现成库 &gt; 编译器 &gt; Triton &gt; 手写 CUDA</strong>。</p>
+<p>⭐ 最后一条判据最省事：<strong>profiler 时间轴上 GPU 那行有空隙、CPU 那行是满的，就说明 CPU 喂不饱 GPU——这时候做任何算力优化都毫无意义。</strong></p>
 </blockquote>
-<p><strong>下一节</strong> 👉 <a href="08-FlashAttention.html">08-FlashAttention.md</a> ⭐⭐</p>
+<p><strong>下一节</strong> 👉 <a href="08-FlashAttention.html">08-FlashAttention.md</a> ⭐</p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="06-混合精度.html"><div class="dir">← 上一节</div>⭐ 混合精度</a><a class="next" href="08-FlashAttention.html"><div class="dir">下一节 →</div>⭐⭐ FlashAttention</a></nav>
@@ -620,4 +598,4 @@ profiler 的时间轴上，<strong>GPU 行有大量空隙，CPU 行满满当当<
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script></body></html>
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script></body></html>

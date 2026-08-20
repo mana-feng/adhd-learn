@@ -43,8 +43,7 @@ blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
  border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
 blockquote p{margin:.4em 0}
 ul,ol{padding-left:1.5em}li{margin:.35em 0}
-table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em;display:block;
- overflow-x:auto}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
 th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
 th{background:var(--quote-bg)}
 tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
@@ -247,12 +246,20 @@ table.xref td:first-child{white-space:nowrap;font-weight:600}
 </tbody>
 </table>
 <p><strong>核心权衡</strong>：</p>
-<div class="codehilite"><pre><span></span><code>              准确度 ↑                 候选数量 ↑
-   召回  ┃  ▁▁▁▁                    ████████████████
-   粗排  ┃  ▃▃▃▃▃▃                  ████
-   精排  ┃  ████████████            ▃
-   重排  ┃  ██████ (+业务规则)       ▁
-</code></pre></div>
+<figure class="dia" aria-label="召回到重排的准确度与候选数量权衡">
+<svg viewBox="0 0 800 350" role="img" aria-labelledby="ranking-tradeoff-title ranking-tradeoff-desc" xmlns="http://www.w3.org/2000/svg">
+  <title id="ranking-tradeoff-title">推荐四阶段的准确度和候选数量变化</title>
+  <desc id="ranking-tradeoff-desc">从召回到重排，候选数量持续减少，单个候选能获得的计算资源和准确度提高。</desc>
+  <rect x="22" y="22" width="756" height="306" rx="20" fill="var(--card,#fff)" stroke="var(--border,#e2e8f0)" stroke-width="2"/>
+  <text x="56" y="62" font-size="20" font-weight="700" fill="var(--fg,#172033)">同一条链路里的交换：候选越少，越能算得细</text>
+  <g font-size="15" font-weight="700" fill="var(--muted,#64748b)"><text x="268" y="102">单个候选的判断精细度</text><text x="546" y="102">进入下一层的候选数量</text></g>
+  <g font-size="16" font-weight="700" fill="var(--fg,#172033)"><text x="58" y="145">召回</text><text x="58" y="190">粗排</text><text x="58" y="235">精排</text><text x="58" y="280">重排</text></g>
+  <g fill="var(--link,#2563eb)"><rect x="150" y="125" width="74" height="20" rx="10"/><rect x="150" y="170" width="145" height="20" rx="10"/><rect x="150" y="215" width="245" height="20" rx="10"/><rect x="150" y="260" width="182" height="20" rx="10"/></g>
+  <g fill="var(--accent,#e8590c)"><rect x="470" y="125" width="242" height="20" rx="10"/><rect x="470" y="170" width="112" height="20" rx="10"/><rect x="470" y="215" width="43" height="20" rx="10"/><rect x="470" y="260" width="18" height="20" rx="9"/></g>
+  <g font-size="14" fill="var(--muted,#64748b)"><text x="233" y="141">宁滥勿缺</text><text x="305" y="186">快速筛掉明显不合适的</text><text x="405" y="231">大模型与多目标融合</text><text x="342" y="276">兼顾业务规则与多样性</text><text x="720" y="141">约 8,000</text><text x="592" y="186">约 500</text><text x="523" y="231">约 50</text><text x="498" y="276">约 10</text></g>
+</svg>
+<figcaption><strong>看两列条形：</strong>右边每走一层都大幅收窄；左边则表示每个候选能被更昂贵、更细的模型判断。不是后面“更重要”，而是算力终于够用了。</figcaption>
+</figure>
 
 <blockquote>
 <p>💡 <strong>一句话记住</strong>：<strong>越往后，模型越贵，候选越少。总计算量在每一层大致相当。</strong></p>
@@ -332,7 +339,7 @@ table.xref td:first-child{white-space:nowrap;font-weight:600}
 <hr />
 <h2 id="2">② 粗排：一个「妥协」的产物</h2>
 <p>粗排本质是个<strong>工程妥协</strong>：召回出了 1 万个，但精排模型只跑得动 500 个，中间需要一刀。</p>
-<p><strong>关键设计约束</strong>：粗排必须比精排<strong>快至少 10 倍</strong>，同时<strong>尽可能像精排</strong>。</p>
+<p><strong>关键设计约束</strong>：粗排必须比精排<strong>快至少 10 倍</strong>，同时尽可能像精排。</p>
 <h3 id="_6">常见做法</h3>
 <table>
 <thead>
@@ -364,13 +371,8 @@ table.xref td:first-child{white-space:nowrap;font-weight:600}
 <h2 id="3">③ 精排：全系统的核心战场</h2>
 <p>这里是模型最复杂、投入最大、收益最直接的地方。</p>
 <h3 id="_8">特征规模</h3>
-<div class="codehilite"><pre><span></span><code>用户特征     ID、画像、长期兴趣、短期行为序列（近500次）……      ~百维
-物品特征     ID、类目、作者、时长、统计特征、多模态Embedding……  ~百维
-上下文特征   时间、地点、设备、网络、当前会话……                 ~几十维
-交叉特征     用户类目偏好 × 物品类目、用户价格带 × 物品价格……    ~几百维
-────────────────────────────────────────────────────────────
-总计         几百到几千维，Embedding 表可达 TB 级
-</code></pre></div>
+<div class="table-scroll"><table><thead><tr><th>特征类型</th><th>典型内容</th><th>规模</th></tr></thead><tbody><tr><th>用户特征</th><td>ID、画像、长期兴趣、近 500 次短期行为序列</td><td>约百维</td></tr><tr><th>物品特征</th><td>ID、类目、作者、时长、统计特征、多模态 Embedding</td><td>约百维</td></tr><tr><th>上下文特征</th><td>时间、地点、设备、网络、当前会话</td><td>约几十维</td></tr><tr><th>交叉特征</th><td>用户类目偏好 × 物品类目、用户价格带 × 物品价格</td><td>约几百维</td></tr></tbody></table></div>
+<p class="dia-lead">合起来是几百到几千维；真正占大头的往往是 Embedding 表，规模可达 TB 级。</p>
 
 <h3 id="_9">⭐ 多目标：精排真正复杂的地方</h3>
 <p>用户在一个视频上可以做很多事，<strong>每一件都是一个预估任务</strong>：</p>
@@ -449,32 +451,31 @@ table.xref td:first-child{white-space:nowrap;font-weight:600}
 </ul>
 <hr />
 <h2 id="_12">🗺️ 一次完整请求的时序图</h2>
-<div class="codehilite"><pre><span></span><code> t=0ms    用户请求到达
-          ↓
- t=0-10   【特征服务】拉用户画像、实时行为序列 (Redis/特征平台)
-          ↓
- t=10-40  【召回】20 路并行 ────┬─ ItemCF 查倒排  (2ms)
-                               ├─ 双塔 ANN 检索   (8ms)
-                               ├─ 标签召回        (3ms)
-                               ├─ 热门(缓存)      (1ms)
-                               └─ ... 取最慢的那路
-          ↓ 8000 个候选
- t=40-60  【粗排】小模型批量打分 → 留 500
-          ↓
- t=60-140 【精排】大模型批量打分 → 多目标融合 → 留 50
-          ↓
- t=140-150【重排】打散 + 多样性 + 业务规则 → 留 10
-          ↓
- t=150    返回结果
-          ↓
- [异步]   曝光埋点 → 消息队列 → 实时特征更新 + 样本落盘 → 模型训练
-</code></pre></div>
+<figure class="dia" aria-label="一次推荐请求从特征服务到返回结果的时序">
+<svg viewBox="0 0 800 590" role="img" aria-labelledby="request-timeline-title request-timeline-desc" xmlns="http://www.w3.org/2000/svg">
+  <title id="request-timeline-title">一次完整推荐请求的同步链路与异步反馈</title>
+  <desc id="request-timeline-desc">请求先取特征，再并行召回，随后经过粗排、精排和重排，在一百五十毫秒返回十条结果。曝光反馈异步进入后续训练。</desc>
+  <rect x="22" y="22" width="756" height="546" rx="20" fill="var(--card,#fff)" stroke="var(--border,#e2e8f0)" stroke-width="2"/>
+  <text x="56" y="62" font-size="20" font-weight="700" fill="var(--fg,#172033)">一次请求：同步路径必须快，反馈路径可以慢</text>
+  <g font-family="PingFang SC,Microsoft YaHei,sans-serif"><line x1="188" y1="86" x2="188" y2="490" stroke="var(--border,#e2e8f0)" stroke-width="3" stroke-dasharray="6 7"/>
+  <g font-size="14" fill="var(--muted,#64748b)" text-anchor="end"><text x="160" y="113">0 ms</text><text x="160" y="178">0–10 ms</text><text x="160" y="263">10–40 ms</text><text x="160" y="329">40–60 ms</text><text x="160" y="395">60–140 ms</text><text x="160" y="461">140–150 ms</text></g>
+  <g><rect x="214" y="88" width="210" height="38" rx="10" fill="var(--quote-bg,#f4f1ea)"/><text x="232" y="113" font-size="15" font-weight="700" fill="var(--fg,#172033)">用户请求到达</text>
+  <rect x="214" y="150" width="452" height="48" rx="10" fill="var(--accent-soft,#fff0e6)"/><text x="232" y="180" font-size="15" font-weight="700" fill="var(--fg,#172033)">特征服务：用户画像 + 实时行为序列</text>
+  <rect x="214" y="220" width="226" height="96" rx="10" fill="var(--quote-bg,#f4f1ea)"/><text x="232" y="248" font-size="15" font-weight="700" fill="var(--fg,#172033)">召回：20 路并行</text><text x="232" y="273" font-size="13" fill="var(--muted,#64748b)">ItemCF / ANN / 标签 / 热门</text><text x="232" y="295" font-size="13" fill="var(--muted,#64748b)">等待最慢一路，得到约 8,000 条</text>
+  <rect x="214" y="324" width="452" height="43" rx="10" fill="var(--quote-bg,#f4f1ea)"/><text x="232" y="352" font-size="15" font-weight="700" fill="var(--fg,#172033)">粗排：批量打分 → 留 500</text>
+  <rect x="214" y="388" width="452" height="43" rx="10" fill="var(--quote-bg,#f4f1ea)"/><text x="232" y="416" font-size="15" font-weight="700" fill="var(--fg,#172033)">精排：多目标融合 → 留 50</text>
+  <rect x="214" y="452" width="452" height="43" rx="10" fill="var(--accent-soft,#fff0e6)"/><text x="232" y="480" font-size="15" font-weight="700" fill="var(--fg,#172033)">重排：多样性 + 业务规则 → 返回 10 条</text></g>
+  <path d="M440 268 H590 V214 H720" fill="none" stroke="var(--link,#0b6bcb)" stroke-width="3" stroke-dasharray="6 5"/><text x="604" y="208" font-size="13" fill="var(--link,#0b6bcb)">最快 2 ms，最慢 8 ms</text>
+  <path d="M440 495 V526 H690" fill="none" stroke="var(--done,#2f9e44)" stroke-width="3" stroke-dasharray="6 5"/><text x="478" y="547" font-size="13" fill="var(--done,#2f9e44)">异步：曝光埋点 → 特征更新 / 样本落盘 / 训练</text></g>
+</svg>
+<figcaption><strong>先分清两条路：</strong>读者正在等的是 150 ms 内的同步链路；曝光后的数据回流不挡住用户，异步用于更新特征和训练下一版模型。</figcaption>
+</figure>
 
-<p>⚠️ <strong>端到端预算通常是 200–500ms</strong>。超时怎么办？<strong>降级</strong>：跳过精排直接用粗排结果，或直接返回缓存/热门。<strong>永远不能返回空。</strong></p>
+<p>⚠️ <strong>端到端预算通常是 200–500ms</strong>。超时怎么办？降级：跳过精排直接用粗排结果，或直接返回缓存/热门。<strong>永远不能返回空。</strong></p>
 <hr />
 <h2 id="_13">💡 三个反直觉但极其重要的经验</h2>
 <h3 id="1_1">1. 各层的优化收益不同，且随时间变化</h3>
-<p>早期系统：<strong>加召回路</strong> 收益最大。
+<p>早期系统：加召回路 收益最大。
 成熟系统：<strong>精排模型 + 特征</strong> 收益最大。
 超大规模系统：<strong>重排和多样性</strong> 反而成为增长点（因为单点准确度已经饱和）。</p>
 <h3 id="2_1">2. 「链路一致性」是隐形杀手</h3>
@@ -552,4 +553,4 @@ table.xref td:first-child{white-space:nowrap;font-weight:600}
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script></body></html>
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script></body></html>

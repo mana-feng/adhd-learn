@@ -19,7 +19,7 @@ if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
  --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
  --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
 *{box-sizing:border-box}html{scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--fg);font-size:17px;line-height:1.85;
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
  font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
  -webkit-font-smoothing:antialiased}
 #scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
@@ -45,8 +45,7 @@ blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
  border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
 blockquote p{margin:.4em 0}
 ul,ol{padding-left:1.5em}li{margin:.35em 0}
-table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em;display:block;
- overflow-x:auto}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
 th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
 th{background:var(--quote-bg)}
 tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
@@ -138,6 +137,16 @@ figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 aut
 figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
  margin-top:8px;line-height:1.6}
 figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:.82em;
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
 
 .dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
 .dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
@@ -280,13 +289,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="18c">18c · 剪枝与稀疏化</h1>
-<p>⏱ <strong>36 分钟</strong> ｜ ⭐⭐ <strong>稀疏度和加速比几乎没有关系</strong></p>
+<p>⏱ <strong>36 分钟</strong> ｜ ⭐ <strong>稀疏度和加速比几乎没有关系</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>剪枝是压缩三件套里唯一一个"做完了可能一点收益都没有"的。</strong>
 90% 的权重扔掉、精度基本不掉 —— 论文里漂亮得不像话；
 上线一测：<strong>显存一个字节没省，延迟一毫秒没降，decode 上甚至更慢了。</strong>
-这一章讲清楚为什么会这样，以及<strong>哪一种剪枝是真的有用的</strong>。</p>
+这一章讲清楚为什么会这样，以及哪一种剪枝是真的有用的。</p>
 <hr />
 <h2 id="_2">✂️ 一、非结构化剪枝：纸面很美，上线归零</h2>
 <h3 id="_3">⭐ 本章最重要的一条</h3>
@@ -333,36 +342,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <p><strong>实跑结果</strong>（4 线程 CPU，绝对数字随机器变，两条结论不变）：</p>
-<div class="codehilite"><pre><span></span><code>   稀疏度        : 90.0%
-   原张量占用    : 64.0 MiB
-   剪枝后占用    : 64.0 MiB      ⭐ 一个字节没省
-   CSR 占用      : 19.2 MiB      （值 25.6MB 的 1/4，但索引又吃掉一大块）
-
-   B=1     稠密   1.61 ms   稀疏   1.76 ms   ⭐ 比值 1.09x  ← 反而更慢！
-   B=64    稠密  14.56 ms   稀疏   5.26 ms      比值 0.36x
-   B=1024  稠密 366.22 ms   稀疏 215.33 ms      比值 0.59x
-</code></pre></div>
-
-<div class="codehilite"><pre><span></span><code>   ⭐ 90% 的乘法被省掉了，但最好的情况也只快了不到 3 倍，
-     而在 B=1（也就是【自回归解码的形状】）上【反而更慢】💀
-</code></pre></div>
-
+<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>稀疏度 : 90.0%</p><p>原张量占用 : 64.0 MiB</p><p>剪枝后占用 : 64.0 MiB ⭐ 一个字节没省</p><p>CSR 占用 : 19.2 MiB （值 25.6MB 的 1/4，但索引又吃掉一大块）</p><p>B=1 稠密 1.61 ms 稀疏 1.76 ms ⭐ 比值 1.09x ← 反而更慢！</p><p>B=64 稠密 14.56 ms 稀疏 5.26 ms 比值 0.36x</p><p>B=1024 稠密 366.22 ms 稀疏 215.33 ms 比值 0.59x</p></div></section>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>⭐ 90% 的乘法被省掉了，但最好的情况也只快了不到 3 倍，</p><p>而在 B=1（也就是【自回归解码的形状】）上【反而更慢】💀</p></div></section>
 <p><strong>为什么？回到<a href="03-显存与带宽墙.html">第 3 章</a>的访存模型：</strong></p>
-<div class="codehilite"><pre><span></span><code>   稠密 matmul 为什么快：
-   · 权重在显存里【连续】→ 访存可以合并（coalesced），带宽跑满
-   · 形状规整 → 直接进 Tensor Core
-
-   稀疏 matmul 为什么不快：
-   · 每个非零值旁边还得读一个【索引】→ 多搬了 50~100% 的字节 ⚠️
-   · 索引指向的位置是【随机的】→ 访存合并失效，实际带宽掉一大截
-   · 形状不规整 → Tensor Core 用不上，退回普通 CUDA core 💀
-
-   ⭐ 最关键的一条：
-     剪枝省掉的是【乘法次数】= 算力，
-     而解码本来就是【带宽瓶颈】，算力有 95% 在闲置（第 15 章）——
-     你省掉了一个本来就不是瓶颈的东西，等于没省。
-</code></pre></div>
-
+<section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">稠密 matmul 为什么快：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 权重在显存里【连续】</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">访存可以合并（coalesced），带宽跑满</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 形状规整</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">直接进 Tensor Core</span></div><div class="vb-flow-row"><span class="vb-flow-step">稀疏 matmul 为什么不快：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 每个非零值旁边还得读一个【索引】</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">多搬了 50~100% 的字节 ⚠️</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 索引指向的位置是【随机的】</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">访存合并失效，实际带宽掉一大截</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 形状不规整</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">Tensor Core 用不上，退回普通 CUDA core 💀</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 最关键的一条：</span></div><div class="vb-flow-row"><span class="vb-flow-step">剪枝省掉的是【乘法次数】= 算力，</span></div><div class="vb-flow-row"><span class="vb-flow-step">而解码本来就是【带宽瓶颈】，算力有 95% 在闲置（第 15 章）——</span></div><div class="vb-flow-row"><span class="vb-flow-step">你省掉了一个本来就不是瓶颈的东西，等于没省。</span></div></div></section>
 <blockquote>
 <p>⭐ <strong>这条要背下来</strong>：
 <strong>非结构化稀疏度和实际加速比几乎没有关系。</strong>
@@ -371,16 +354,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <hr />
 <h2 id="24">🧱 二、半结构化 2:4：能真加速的最低门槛</h2>
-<div class="codehilite"><pre><span></span><code>   规则：每【连续 4 个权重】里，恰好有 2 个是 0
-
-   [ w0  w1  w2  w3 ] → [ 0  w1  0  w3 ]   ✅ 合法
-                      → [ 0   0  0  w3 ]   ❌ 不合法（3 个零）
-
-   ⭐ Ampere（A100）起，稀疏 Tensor Core 原生支持这个模式
-      → 理论 2 倍算力，实测 1.3~1.7 倍
-   ⚠️ 但稀疏度被【锁死在 50%】，压缩比远不如非结构化
-</code></pre></div>
-
+<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">规则：每【连续 4 个权重】里，恰好有 2 个是 0</span></div><div class="vb-flow-row"><span class="vb-flow-step">[ w0 w1 w2 w3 ]</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">[ 0 w1 0 w3 ] ✅ 合法</span></div><div class="vb-flow-row"><span class="vb-flow-step">[ 0 0 0 w3 ] ❌ 不合法（3 个零）</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ Ampere（A100）起，稀疏 Tensor Core 原生支持这个模式</span></div><div class="vb-flow-row"><span class="vb-flow-step">理论 2 倍算力，实测 1.3~1.7 倍</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 但稀疏度被【锁死在 50%】，压缩比远不如非结构化</span></div></div></section>
 <hr />
 <h2 id="_4">🪓 三、结构化剪枝：唯一确定加速的那种</h2>
 <p><strong>整头、整通道、整层地删。</strong> 删完之后剩下的<strong>还是一个稠密张量</strong>，只是变小了 —— 所以它一定加速，加速比就是尺寸比，不需要任何特殊 kernel。</p>
@@ -424,14 +398,7 @@ Sheared-LLaMA、Minitron 这类工作都是这个套路 ——
 </blockquote>
 <hr />
 <h2 id="_5">🎯 四、剪谁：幅度剪枝和它的改良</h2>
-<div class="codehilite"><pre><span></span><code>   幅度剪枝（magnitude pruning）：|w| 越小越先剪
-   → 极简单、极强的 baseline，至今没被大幅超越
-
-   ⚠️ 全局阈值 vs 逐层阈值：
-     全局排序容易把某一层【整层剪光】（各层权重尺度天然不同）
-     → 实践上按层设配额更稳
-</code></pre></div>
-
+<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">幅度剪枝（magnitude pruning）：|w| 越小越先剪</span></div><div class="vb-flow-row"><span class="vb-flow-step">极简单、极强的 baseline，至今没被大幅超越</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 全局阈值 vs 逐层阈值：</span></div><div class="vb-flow-row"><span class="vb-flow-step">全局排序容易把某一层【整层剪光】（各层权重尺度天然不同）</span></div><div class="vb-flow-row"><span class="vb-flow-step">实践上按层设配额更稳</span></div></div></section>
 <p><strong>LLM 上的两个改良，思路和量化那边一模一样</strong>：</p>
 <table>
 <thead>
@@ -459,32 +426,16 @@ Sheared-LLaMA、Minitron 这类工作都是这个套路 ——
 </blockquote>
 <hr />
 <h2 id="_6">🎟️ 五、迭代剪枝与彩票假说</h2>
-<div class="codehilite"><pre><span></span><code>   ⭐ 一次剪到 90% ≠ 分 5 次剪到 90%
-
-   一次到位：  90% ────────────▶ 精度崩
-   迭代：      50% → 微调 → 70% → 微调 → 85% → 微调 → 90%  ✅
-                                        每次让网络有机会重新分配容量
-</code></pre></div>
-
-<p><strong>彩票假说</strong>一句话就够：<em>随机初始化的大网络里，存在一个小子网络，用同样的初始化单独训练就能达到原网络的精度。</em> ⚠️ <strong>但你必须先把大网络训完才能找到这张彩票</strong> —— 所以它是个漂亮的理论结果，<strong>不是省训练成本的方法</strong>。</p>
+<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⭐ 一次剪到 90% ≠ 分 5 次剪到 90%</span></div><div class="vb-flow-row"><span class="vb-flow-step">一次到位： 90% → 精度崩</span></div><div class="vb-flow-row"><span class="vb-flow-step">迭代： 50%</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">微调</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">70%</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">微调</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">85%</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">微调</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">90% ✅</span></div><div class="vb-flow-row"><span class="vb-flow-step">每次让网络有机会重新分配容量</span></div></div></section>
+<p><strong>彩票假说</strong>一句话就够：<em>随机初始化的大网络里，存在一个小子网络，用同样的初始化单独训练就能达到原网络的精度。</em> ⚠️ <strong>但你必须先把大网络训完才能找到这张彩票</strong> —— 所以它是个漂亮的理论结果，不是省训练成本的方法。</p>
 <hr />
 <h2 id="90-0">💀 六、事故复盘：90% 稀疏度，显存省了 0，延迟没变</h2>
-<p><strong>发生了什么</strong>：一个 13B 推理服务做非结构化剪枝，剪到 90% 稀疏。团队按「非零参数量 13B → 1.3B」报了排期：<strong>显存预计 26GB → 2.6GB，部署从 2×A100 降到 1×A10，采购单都提了。</strong> 上线前压测：</p>
-<div class="codehilite"><pre><span></span><code>   预期                    实测
-   显存 26GB → 2.6GB      💀 26.1GB（不降反升，mask 本身还占了 0.1GB）
-   P50 decode 41ms        💀 43ms（略微变慢）
-</code></pre></div>
-
-<p><strong>为什么没发现</strong>：整个验证过程只盯着两个指标 —— <strong>稀疏度</strong>和<strong>精度</strong>，两个都很漂亮。而剪枝框架产出的是 <code>mask + 原张量</code>，训练脚本里打印的"参数量"是按 mask 里的非零数算的，<strong>看起来就是降了 10 倍</strong>。没有任何人跑过一次端到端的显存快照和延迟压测。</p>
-<p><strong>代价</strong>：三周（两周剪枝迭代 + 一周精度恢复微调）报废，A10 采购单撤回，还耽误了一个季度的降本目标。</p>
-<p><strong>补什么</strong>：</p>
-<div class="codehilite"><pre><span></span><code>   ⭐ ① 压缩项的验收指标只有两个：【显存快照】和【P50/P99 延迟】
-        「稀疏度」「参数量」「压缩比」全是过程指标，不能当验收
-   ⭐ ② 立项当天先做 30 分钟的「形状体检」（本节那段代码）：
-        在【目标硬件】上确认这种稀疏到底能不能被吃掉
-      ③ 要真加速就换路线：结构化剪枝，或者 2:4 半结构化
-</code></pre></div>
-
+<p>发生了什么：一个 13B 推理服务做非结构化剪枝，剪到 90% 稀疏。团队按「非零参数量 13B → 1.3B」报了排期：<strong>显存预计 26GB → 2.6GB，部署从 2×A100 降到 1×A10，采购单都提了。</strong> 上线前压测：</p>
+<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">预期 实测</span></div><div class="vb-flow-row"><span class="vb-flow-step">显存 26GB</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">2.6GB 💀 26.1GB（不降反升，mask 本身还占了 0.1GB）</span></div><div class="vb-flow-row"><span class="vb-flow-step">P50 decode 41ms 💀 43ms（略微变慢）</span></div></div></section>
+<p><strong>为什么没发现</strong>：整个验证过程只盯着两个指标 —— <strong>稀疏度</strong>和精度，两个都很漂亮。而剪枝框架产出的是 <code>mask + 原张量</code>，训练脚本里打印的"参数量"是按 mask 里的非零数算的，看起来就是降了 10 倍。没有任何人跑过一次端到端的显存快照和延迟压测。</p>
+<p>代价：三周（两周剪枝迭代 + 一周精度恢复微调）报废，A10 采购单撤回，还耽误了一个季度的降本目标。</p>
+<p>补什么：</p>
+<section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>⭐ ① 压缩项的验收指标只有两个：【显存快照】和【P50/P99 延迟】</li><li>「稀疏度」「参数量」「压缩比」全是过程指标，不能当验收</li><li>⭐ ② 立项当天先做 30 分钟的「形状体检」（本节那段代码）：</li><li>在【目标硬件】上确认这种稀疏到底能不能被吃掉</li><li>要真加速就换路线：结构化剪枝，或者 2:4 半结构化</li></ol></section>
 <blockquote>
 <p>💥 <strong>它和<a href="18b-知识蒸馏.html">上一章</a>那个蒸馏事故是同一个形状</strong>：
 <strong>压缩不会报错。</strong> 剪枝不会告诉你"我没加速"，蒸馏不会告诉你"我伤了长尾"。
@@ -503,7 +454,7 @@ Sheared-LLaMA、Minitron 这类工作都是这个套路 ——
 <tbody>
 <tr>
 <td><a href="03-显存与带宽墙.html">第 3 章</a> 访存合并与算术强度</td>
-<td>⭐⭐ <strong>非结构化剪枝不加速的根因</strong>：稀疏破坏了访存模式</td>
+<td>⭐ <strong>非结构化剪枝不加速的根因</strong>：稀疏破坏了访存模式</td>
 </tr>
 <tr>
 <td><a href="15-推理和训练是两回事.html">第 15 章</a> 解码是带宽瓶颈</td>
@@ -547,22 +498,28 @@ Sheared-LLaMA、Minitron 这类工作都是这个套路 ——
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>（表层）</strong> 稀疏矩阵每个非零值旁边要额外读一个索引，多搬 50~100% 的字节；索引指向的位置<strong>随机</strong>，访存合并失效；形状不规整，<strong>Tensor Core 用不上</strong>。<strong>（根本）</strong> ⭐ <strong>剪枝省掉的是乘法次数即算力，而解码本来就是带宽瓶颈、算力有 95% 在闲置</strong> —— 省掉一个本来就不是瓶颈的东西，等于没省。</li>
-<li><strong>完全不变</strong>（64 MiB → 64 MiB）。置零<strong>不改变张量形状，dtype 也没变</strong>，显存一个字节都不省。要省必须换稀疏格式（CSR），但索引本身也要占空间（实测 19.2 MiB，而不是理想的 6.4 MiB）。</li>
-<li><strong>自回归解码（decode）</strong>。实测比值 1.09x —— <strong>稀疏反而更慢</strong>，正好落在最要命的那个形状上。</li>
-<li>每<strong>连续 4 个权重</strong>里恰好 2 个是 0。代价是<strong>稀疏度被锁死在 50%</strong>，压缩比远不如非结构化；收益是 Ampere 起的稀疏 Tensor Core 原生支持，实测能拿到 1.3~1.7 倍。</li>
-<li>因为它整头、整通道、整层地删，<strong>剩下的还是一个稠密张量</strong>，只是变小了 —— 加速比就是尺寸比，不需要任何特殊 kernel。⭐ <strong>LLM 参数大头在 FFN，缩中间维收益最大</strong>（11008 → 8192）。</li>
+<li><strong>（表层）</strong> 稀疏矩阵每个非零值旁边要额外读一个索引，多搬 50~100% 的字节；索引指向的位置随机，访存合并失效；形状不规整，Tensor Core 用不上。（根本） 剪枝省掉的是乘法次数即算力，而解码本来就是带宽瓶颈、算力有 95% 在闲置 —— 省掉一个本来就不是瓶颈的东西，等于没省。</li>
+<li><strong>完全不变</strong>（64 MiB → 64 MiB）。置零不改变张量形状，dtype 也没变，显存一个字节都不省。要省必须换稀疏格式（CSR），但索引本身也要占空间（实测 19.2 MiB，而不是理想的 6.4 MiB）。</li>
+<li><strong>自回归解码（decode）</strong>。实测比值 1.09x —— 稀疏反而更慢，正好落在最要命的那个形状上。</li>
+<li>每<strong>连续 4 个权重</strong>里恰好 2 个是 0。代价是稀疏度被锁死在 50%，压缩比远不如非结构化；收益是 Ampere 起的稀疏 Tensor Core 原生支持，实测能拿到 1.3~1.7 倍。</li>
+<li>因为它整头、整通道、整层地删，<strong>剩下的还是一个稠密张量</strong>，只是变小了 —— 加速比就是尺寸比，不需要任何特殊 kernel。LLM 参数大头在 FFN，缩中间维收益最大（11008 → 8192）。</li>
 <li>各层权重尺度天然不同，全局排序容易把<strong>某一层整层剪光</strong>。实践上按层设配额更稳。</li>
-<li>$\lvert w \rvert \times \lVert x \rVert$ —— <strong>权重大小 × 对应输入激活的范数</strong>。它和量化那边的 <strong>AWQ</strong> 是同一句话：⭐ <strong>重要性看它被用得多不多，不看它本身多大。</strong></li>
-<li>一次剪到 90% 精度会崩；分几次剪、每次微调，<strong>网络有机会重新分配容量</strong>。彩票假说⚠️ <strong>不能省训练成本</strong> —— 你必须先把大网络训完才能找到那张彩票，它是个理论结果不是方法。</li>
-<li>团队只盯 <strong>稀疏度</strong>和<strong>精度</strong>，两个都很漂亮。⭐ 验收指标应该只有两个：<strong>显存快照</strong>和 <strong>P50/P99 延迟</strong> —— 稀疏度、参数量、压缩比全是<strong>过程指标</strong>，不能当验收。另外立项当天就该在<strong>目标硬件</strong>上做一次 30 分钟的「形状体检」。</li>
+<li>$\lvert w \rvert \times \lVert x \rVert$ —— <strong>权重大小 × 对应输入激活的范数</strong>。它和量化那边的 AWQ 是同一句话：重要性看它被用得多不多，不看它本身多大。</li>
+<li>一次剪到 90% 精度会崩；分几次剪、每次微调，<strong>网络有机会重新分配容量</strong>。彩票假说⚠️ 不能省训练成本 —— 你必须先把大网络训完才能找到那张彩票，它是个理论结果不是方法。</li>
+<li>团队只盯 <strong>稀疏度</strong>和精度，两个都很漂亮。验收指标应该只有两个：显存快照和 P50/P99 延迟 —— 稀疏度、参数量、压缩比全是过程指标，不能当验收。另外立项当天就该在目标硬件上做一次 30 分钟的「形状体检」。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_9">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>⭐⭐<strong>这一章只有一条主线：稀疏度和加速比几乎没有关系。</strong>非结构化剪枝逐个权重置零、90% 扔掉精度基本不掉，纸面漂亮；但实跑 4096×4096 剪到 90%：<strong>张量占用 64MiB 一个字节没省</strong>（⭐<strong>置零不改变形状，dtype 也没变</strong>），换成 CSR 稀疏格式是 19.2MiB 而不是理想的 6.4MiB（<strong>索引本身也要钱</strong>），而且<strong>B=1 时稀疏比稠密还慢 1.09 倍</strong>——B=1 正是<strong>自回归解码的形状</strong>，最要命的那个。⭐<strong>两层原因</strong>：<strong>表层</strong>是每个非零值要额外读索引、多搬 50~100% 字节、索引位置随机导致访存合并失效、形状不规整用不上 Tensor Core；⭐<strong>根本原因是剪枝省的是乘法次数即算力，而解码本来就是带宽瓶颈、算力有 95% 在闲置</strong>——省掉一个本来就不是瓶颈的东西等于没省（第 3、15 章）。<strong>判断标准从来不是稀疏度，而是目标硬件上有没有能吃这种稀疏的 kernel。</strong><strong>真能加速的两条路</strong>：<strong>2:4 半结构化</strong>（每连续 4 个里恰好 2 个零，Ampere 起稀疏 Tensor Core 原生支持，实测 1.3~1.7 倍，⚠️但稀疏度锁死 50%）；⭐<strong>结构化剪枝</strong>（删头、缩 FFN 中间维、砍层、缩 hidden）——<strong>剩下的还是稠密张量，所以一定加速，加速比就是尺寸比</strong>，<strong>LLM 参数大头在 FFN，缩中间维收益最大</strong>。⭐<strong>现在 LLM 的主流不是纯剪枝而是组合拳：结构化剪枝选出小架构 → 立刻用原模型当 teacher 蒸馏恢复</strong>（Sheared-LLaMA、Minitron），这也是它和上一章紧挨着的原因。<strong>剪谁</strong>：幅度剪枝是极强的 baseline 至今没被大幅超越，⚠️<strong>全局阈值会把某一层整层剪光</strong>（各层尺度不同），按层配额更稳；改良里 <strong>Wanda = |w| × 激活范数</strong>，⭐<strong>和量化那边的 AWQ 是同一句话：重要性看被用得多不多，不看本身多大</strong>。<strong>迭代剪枝远好于一次剪到位</strong>（每次微调让网络重新分配容量）；彩票假说漂亮但⚠️<strong>必须先训完大网络才能找到那张彩票，不省训练成本</strong>。💀<strong>事故</strong>：13B 服务剪到 90% 稀疏，按「非零参数 13B→1.3B」报了<strong>显存 26GB→2.6GB、2×A100 降 1×A10</strong>，采购单都提了；实测<strong>显存 26.1GB 不降反升</strong>（mask 自己还占 0.1GB）、<strong>P50 从 41ms 变 43ms 略微变慢</strong>。没发现的原因是全程只看<strong>稀疏度和精度</strong>两个都很漂亮的指标，而框架产出的是 <code>mask + 原张量</code>、打印的"参数量"是按非零数算的，看起来就是降了 10 倍，<strong>没有任何人跑过一次端到端显存快照和延迟压测</strong>。代价：三周报废、采购单撤回、耽误一个季度降本目标。⭐<strong>补丁：压缩项的验收指标只有显存快照和 P50/P99 延迟，稀疏度/参数量/压缩比全是过程指标不能当验收</strong>；立项当天先在<strong>目标硬件</strong>上做 30 分钟形状体检。💥<strong>和上一章那个蒸馏事故是同一个形状：压缩不会报错</strong>——剪枝不会告诉你"我没加速"，蒸馏不会告诉你"我伤了长尾"，<strong>唯一的防线是事先定义好的、足够细的验收指标</strong>。</p>
+<p>⭐ <strong>这一章只有一条主线：稀疏度和加速比几乎没有关系。</strong></p>
+<p>非结构化剪枝逐个权重置零、扔掉九成精度基本不掉，纸面漂亮；但实跑下来 ⭐ <strong>张量占用一个字节没省</strong>（置零不改变形状，dtype 也没变），换成稀疏格式也省不到理想值（索引本身要钱），⚠️ 而且 <strong>batch=1 时稀疏比稠密还慢</strong>——<strong>而 batch=1 正是自回归解码的形状</strong>。</p>
+<p>⭐ <strong>根本原因</strong>：剪枝省的是乘法次数、也就是算力，<strong>而解码本来就是带宽瓶颈，算力大部分在闲置</strong>——<strong>省掉一个本来就不是瓶颈的东西，等于没省。</strong></p>
+<p>⭐ <strong>判断标准从来不是稀疏度，而是目标硬件上有没有能吃这种稀疏的 kernel。</strong> 真能加速的两条路：<strong>2:4 半结构化</strong>（硬件原生支持，⚠️ 但稀疏度锁死在一半）和<strong>结构化剪枝</strong>（删头、缩 FFN 中间维、砍层——⭐ <strong>剩下的还是稠密张量，所以一定加速，加速比就是尺寸比</strong>）。</p>
+<p>⭐ 现在 LLM 的主流不是纯剪枝，而是<strong>结构化剪枝选出小架构 → 立刻用原模型当 teacher 蒸馏恢复</strong>。</p>
+<p>剪谁：<strong>幅度剪枝是极强的 baseline</strong>，⚠️ 但全局阈值会把某一层整层剪光，按层配额更稳。⭐ 改良版的那句话和量化那边的 AWQ 是同一句：<strong>重要性看被用得多不多，不看本身多大。</strong></p>
+<p>💀 那个事故的形状：按「非零参数从 130 亿降到 13 亿」报了显存和机型的采购单，<strong>而实测显存不降反升</strong>（mask 自己还要占），延迟也没改善。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="19-投机解码.html">19-投机解码.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
@@ -591,4 +548,4 @@ Sheared-LLaMA、Minitron 这类工作都是这个套路 ——
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script></body></html>
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script></body></html>

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>02e · SwiGLU 与 RoPE · 大模型全景导论</title>
+<title>专题 B · SwiGLU：模型怎样筛选信息 · 大模型全景导论</title>
 <script>(function(){var t=localStorage.getItem('recsys-theme');
 if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
 @font-face{font-family:"CodeCJK";
@@ -19,7 +19,7 @@ if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
  --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
  --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
 *{box-sizing:border-box}html{scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--fg);font-size:17px;line-height:1.85;
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
  font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
  -webkit-font-smoothing:antialiased}
 #scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
@@ -45,8 +45,7 @@ blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
  border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
 blockquote p{margin:.4em 0}
 ul,ol{padding-left:1.5em}li{margin:.35em 0}
-table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em;display:block;
- overflow-x:auto}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
 th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
 th{background:var(--quote-bg)}
 tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
@@ -138,6 +137,16 @@ figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 aut
 figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
  margin-top:8px;line-height:1.6}
 figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:.82em;
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
 
 .dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
 .dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
@@ -258,709 +267,74 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
-  <span class="title">02e · 现代架构改动（下）</span>
+  <span class="title">专题 B · SwiGLU：筛选信息</span>
   <span class="prevnext"><a href="02b-现代LLM架构的四处改动.html">←</a>
-  <a href="02c-为什么都是Decoder-only.html">→</a></span>
+  <a href="02f-RoPE与位置感.html">→</a></span>
   <button class="js-done-btn">☐ 打卡</button>
   <button id="themeToggle" title="切换深浅色">🌗</button>
 </div></header>
 <main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
-<li><a href="#_2">🚪 接着上一章</a></li>
-<li><a href="#ffn">🧩 一、FFN 怎么突然多出了一个矩阵</a></li>
-<li><a href="#relu">🌊 二、为什么没人再用 ReLU 了</a></li>
-<li><a href="#_3">🎚️ 三、多出来的那一路是干什么的</a></li>
-<li><a href="#_4">⚖️ 四、多一个矩阵，参数量不就白涨了吗</a></li>
-<li><a href="#_5">🪞 五、诚实的部分：它到底为什么更好</a></li>
-<li><a href="#2k-100">🌀 六、上下文从 2K 撑到 100 万，靠的是什么</a></li>
-<li><a href="#_7">🧭 七、先别看公式：位置是一根指针</a></li>
-<li><a href="#_8">🔁 八、为什么「隔了几个」自己就冒出来了</a></li>
-<li><a href="#_10">⏰ 九、为什么每个平面转速都不一样</a></li>
-<li><a href="#4096-32768">🧯 十、训练时只见过 4096，喂进 32768 会怎样</a></li>
-<li><a href="#config">🧰 十一、看 config 时补两句</a></li>
-<li><a href="#_11">🔗 这一章连到哪里</a></li>
-<li><a href="#_12">✅ 检查点</a></li>
-<li><a href="#_13">🛑 可以停在这里</a></li>
+<li><a href="#_2">它真正解决什么问题</a></li>
+<li><a href="#_3">为什么参数没有暴涨</a></li>
+<li><a href="#_4">它和注意力的分工</a></li>
+<li><a href="#_5">✅ 检查点</a></li>
+<li><a href="#_6">🛑 可以停在这里</a></li>
 </ul>
 </div>
 </details>
-<h1 id="02e-swiglu-rope">02e · SwiGLU 与 RoPE</h1>
-<p>⏱ <strong>80 分钟</strong> ｜ ⭐⭐ <strong>一处让 FFN 凭空多出一个矩阵，一处让上下文能撑到 100 万</strong></p>
+<h1 id="b-swiglu">专题 B · SwiGLU：模型怎样筛选信息</h1>
+<p>⏱ <strong>8 分钟</strong> ｜ 可选专题</p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>这两处改动都不是「换个更好的公式」，而是给一个具体的死结解绑。</strong>
-SwiGLU 让 FFN 能对不同的 token 走出不同的行为，代价是三个矩阵要塞进两个矩阵的预算里；
-RoPE 把位置从「加上去的一串数」改成「转过的一个角度」，于是「隔了几个词」变成了几何送的，不花一个参数。</p>
-<hr />
-<h2 id="_2">🚪 接着上一章</h2>
-<p><a href="02b-现代LLM架构的四处改动.html">上一章 02b</a> 那两处改动（<strong>Pre-LN</strong> 和 <strong>RMSNorm</strong>）有个共同点：<strong>它们修的是「训练稳不稳、跑得快不快」，不改模型能做什么。</strong> 换回去，模型还是那个模型，只是更难训、更慢。</p>
-<p>这一章的两处不一样：</p>
-<div class="codehilite"><pre><span></span><code>   SwiGLU：同样的参数量，模型学到的东西不一样了
-   RoPE  ：换掉它，模型的【上下文长度上限】就锁死了
-</code></pre></div>
+<p>普通 FFN 是“把每个 token 放大加工再压回去”；SwiGLU 在中间多加了一扇可学习的门：<strong>不是所有加工结果都同样放行。</strong></p>
+<figure class="dia"><svg viewBox="0 0 760 190" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="SwiGLU 用两条支路与一个门筛选信息"><defs><marker id="b" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8z" fill="var(--accent)"/></marker></defs><rect x="28" y="76" width="115" height="42" rx="10" fill="var(--card)" stroke="var(--border)" stroke-width="2"/><text class="dia-t" x="85" y="103" text-anchor="middle" font-size="15" fill="var(--fg)">一个 token</text><path d="M143 97 H205 V46 H270 M205 97 V148 H270" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#b)"/><rect x="278" y="24" width="150" height="44" rx="10" fill="var(--card)" stroke="var(--link)" stroke-width="2"/><text class="dia-t" x="353" y="52" text-anchor="middle" font-size="14" fill="var(--link)">内容支路：提取特征</text><rect x="278" y="126" width="150" height="44" rx="10" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/><text class="dia-t" x="353" y="154" text-anchor="middle" font-size="14" fill="var(--accent)">门控支路：决定放多少</text><line x1="428" y1="46" x2="500" y2="89" stroke="var(--accent)" stroke-width="2" marker-end="url(#b)"/><line x1="428" y1="148" x2="500" y2="105" stroke="var(--accent)" stroke-width="2" marker-end="url(#b)"/><circle cx="532" cy="97" r="27" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/><text class="dia-t" x="532" y="104" text-anchor="middle" font-size="22" fill="var(--accent)">×</text><line x1="559" y1="97" x2="630" y2="97" stroke="var(--accent)" stroke-width="2" marker-end="url(#b)"/><rect x="638" y="76" width="98" height="42" rx="10" fill="var(--card)" stroke="var(--border)" stroke-width="2"/><text class="dia-t" x="687" y="103" text-anchor="middle" font-size="14" fill="var(--fg)">筛过的结果</text></svg><figcaption>“乘起来”就是门：门值小的特征被压下去，门值大的特征更容易通过。</figcaption></figure>
 
-<blockquote>
-<p>🔑 <strong>两节彼此独立，可以只挑一处看。</strong> 想读懂 LLaMA 的 FFN 代码 → 第一到五节；
-想搞清「上下文怎么从 2K 撑到 100 万」→ 直接跳第六节。</p>
-</blockquote>
-<hr />
-<h2 id="ffn">🧩 一、FFN 怎么突然多出了一个矩阵</h2>
-<p>先从一个你迟早会撞上的现象说起。翻开任意一份 LLaMA 系模型的前馈网络，是<strong>三个</strong>投影矩阵：</p>
-<div class="codehilite"><pre><span></span><code><span class="bp">self</span><span class="o">.</span><span class="n">gate_proj</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">hidden_size</span><span class="p">,</span> <span class="n">intermediate_size</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-<span class="bp">self</span><span class="o">.</span><span class="n">up_proj</span>   <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">hidden_size</span><span class="p">,</span> <span class="n">intermediate_size</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-<span class="bp">self</span><span class="o">.</span><span class="n">down_proj</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">intermediate_size</span><span class="p">,</span> <span class="n">hidden_size</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-</code></pre></div>
-
-<p>而所有讲 Transformer 的材料里，FFN 都是<strong>两个</strong>——升维、激活、降维，一条路走到底：</p>
-<p>$$\text{FFN}(x) = W_2 \cdot \text{ReLU}(W_1 x)$$</p>
-<p><a href="02-Transformer原理.html">第 2 章</a>讲过 FFN 的职责（「每个 token 单独深加工」、参数量的大头），但没打开它看里面。现在打开：<strong>里面就是两个矩阵，中间把维度放大 4 倍。</strong></p>
-<p>先把老的账算清楚，后面全靠它：</p>
-<div class="codehilite"><pre><span></span><code>   W₁: d × 4d = 4d²      ← 升维
-   W₂: 4d × d = 4d²      ← 降维
-   ────────────────────
-   合计 8d²              ⭐ 记住这个数，第四节要拿它算一笔账
-</code></pre></div>
-
-<p><strong>于是问题很具体</strong>：多出来的那个矩阵干什么用？多一个矩阵，参数量不就白涨了吗？</p>
-<p>第三、四节回答这两句。中间先补一格——在多出第三个矩阵之前，还发生过一次更小的改动。</p>
-<hr />
-<h2 id="relu">🌊 二、为什么没人再用 ReLU 了</h2>
-<p>原始 Transformer 用 ReLU，GPT-2 / GPT-3 / BERT 换成 <strong>GELU</strong>，LLaMA 这一代的门控用 <strong>Swish</strong>（PyTorch 里叫 <code>SiLU</code>，同一个东西）。</p>
-<p>三者差别只在负半轴。<strong>下面的数字是实跑的</strong>（PyTorch 2.13，<code>F.relu / F.gelu / F.silu</code>）：</p>
+<h2 id="_2">它真正解决什么问题</h2>
+<p>FFN 要把“当前 token 已经知道的东西”转成更有用的内部特征。普通激活函数像固定规则：超过某个范围就通过多少。SwiGLU 给模型一条额外支路，能根据当前输入动态决定“这类特征这次值不值得放大”。</p>
+<p>这不是一个外部开关，也不是人规定“看到代码就开、看到中文就关”。门的参数和其他参数一起从数据中学出来。</p>
+<h2 id="_3">为什么参数没有暴涨</h2>
+<p>SwiGLU 多了一条投影，但现代模型会把中间层宽度相应缩小。因此总参数量大致保持接近，换来更灵活的非线性加工。你只要记住：<strong>三个矩阵不代表白白多花一倍成本；尺寸已经重新平衡。</strong></p>
+<h2 id="_4">它和注意力的分工</h2>
 <table>
 <thead>
 <tr>
-<th>输入 x</th>
-<th>ReLU</th>
-<th>GELU</th>
-<th>SiLU（Swish）</th>
+<th>零件</th>
+<th>它问的问题</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>−2.0</td>
-<td>0.0000</td>
-<td>−0.0455</td>
-<td>−0.2384</td>
+<td>注意力</td>
+<td>我该从哪些 token 那里取信息？</td>
 </tr>
 <tr>
-<td>−0.1</td>
-<td>0.0000</td>
-<td>−0.0460</td>
-<td>−0.0475</td>
-</tr>
-<tr>
-<td>0.5</td>
-<td>0.5000</td>
-<td>0.3457</td>
-<td>0.3112</td>
-</tr>
-<tr>
-<td>2.0</td>
-<td>2.0000</td>
-<td>1.9545</td>
-<td>1.7616</td>
+<td>SwiGLU FFN</td>
+<td>拿到后，我自己的哪些特征值得放大？</td>
 </tr>
 </tbody>
 </table>
-<p><strong>ReLU 在负半轴是一条死平线，GELU / SiLU 留了一点点。</strong> 那「一点点」为什么值钱：</p>
-<div class="codehilite"><pre><span></span><code>   ReLU 在 x &lt; 0 时输出是 0，【导数也是 0】
-   → 神经元一旦被推到负区，拿到的梯度就是 0
-   → 它再也不会被更新，等于永久死了 💀（这叫&quot;死 ReLU&quot;）
-
-   GELU / SiLU 在负区输出很小但不是 0，导数也不是 0
-   → 还有机会被拉回来；而且处处光滑可导，优化器走得更顺
-</code></pre></div>
-
-<p>⭐ <strong>一句话记住区别</strong>：ReLU 是「大于 0 全放，小于 0 一刀切」，GELU 是「<strong>按这个值有多大，按概率放过一部分</strong>」——写成公式就是 $\text{GELU}(x) = x \cdot \Phi(x)$，$\Phi$ 是标准正态的累积分布函数，<strong>那个乘数就是"概率"</strong>。Swish 把 $\Phi$ 换成更便宜的 sigmoid：$\text{Swish}(x) = x \cdot \sigma(x)$。</p>
-<p>⚠️ 代价：GELU 要算 erf（或 tanh 近似），比 ReLU 贵。FLOPs 上不算什么，但它是<strong>逐元素算子</strong>，和 RMSNorm 一样卡在显存带宽上——所以框架都会把它和相邻算子融进同一个 kernel。</p>
-<p>（🔗 激活函数为什么必须非线性、不加激活为什么等于一层，在<a href="../机器学习与深度学习基础/07-从线性到神经网络.html">《ML 基础》第 7 章</a>。）</p>
-<hr />
-<h2 id="_3">🎚️ 三、多出来的那一路是干什么的</h2>
-<p>那三个矩阵不是「三层」，而是<strong>两路并行 + 一路收口</strong>。</p>
-<figure class="dia">
-<svg viewBox="0 0 700 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="老式两矩阵 FFN 与 SwiGLU 三矩阵 FFN 的对比：SwiGLU 把输入分成闸门路和内容路，两路逐元素相乘后再降维">
-
-  <text class="dia-t" x="350" y="20" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">一个 x 进去，分成两路，最后逐元素乘回来</text>
-
-  <text class="dia-t" x="20" y="52" font-size="11.5" fill="var(--muted)">老式：一路走到底</text>
-
-  <rect x="20" y="64" width="56" height="34" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/>
-  <text class="dia-t" x="48" y="86" font-size="12" text-anchor="middle" fill="var(--fg)">x</text>
-  <line x1="76" y1="81" x2="96" y2="81" stroke="var(--muted)" stroke-width="1.6"/>
-  <polygon points="96,76 96,86 103,81" fill="var(--muted)"/>
-
-  <rect x="108" y="64" width="136" height="34" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/>
-  <text class="dia-t" x="176" y="86" font-size="11.5" text-anchor="middle" fill="var(--fg)">W₁：d → 4d</text>
-  <line x1="244" y1="81" x2="264" y2="81" stroke="var(--muted)" stroke-width="1.6"/>
-  <polygon points="264,76 264,86 271,81" fill="var(--muted)"/>
-
-  <rect x="276" y="64" width="90" height="34" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/>
-  <text class="dia-t" x="321" y="86" font-size="11.5" text-anchor="middle" fill="var(--fg)">GELU</text>
-  <line x1="366" y1="81" x2="386" y2="81" stroke="var(--muted)" stroke-width="1.6"/>
-  <polygon points="386,76 386,86 393,81" fill="var(--muted)"/>
-
-  <rect x="398" y="64" width="136" height="34" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/>
-  <text class="dia-t" x="466" y="86" font-size="11.5" text-anchor="middle" fill="var(--fg)">W₂：4d → d</text>
-  <text class="dia-t" x="560" y="86" font-size="11.5" fill="var(--muted)">参数 8d²</text>
-
-  <line x1="20" y1="112" x2="680" y2="112" stroke="var(--border)" stroke-width="1.2" stroke-dasharray="4 4"/>
-
-  <text class="dia-t" x="20" y="132" font-size="11.5" fill="var(--accent)" font-weight="700">SwiGLU：分两路，再乘回来</text>
-
-  <rect x="20" y="192" width="56" height="34" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/>
-  <text class="dia-t" x="48" y="214" font-size="12" text-anchor="middle" fill="var(--fg)">x</text>
-  <line x1="76" y1="209" x2="94" y2="209" stroke="var(--accent)" stroke-width="1.8"/>
-  <line x1="94" y1="155" x2="94" y2="263" stroke="var(--accent)" stroke-width="1.8"/>
-  <line x1="94" y1="155" x2="122" y2="155" stroke="var(--accent)" stroke-width="1.8"/>
-  <polygon points="122,150 122,160 129,155" fill="var(--accent)"/>
-  <line x1="94" y1="263" x2="122" y2="263" stroke="var(--accent)" stroke-width="1.8"/>
-  <polygon points="122,258 122,268 129,263" fill="var(--accent)"/>
-
-  <rect x="134" y="138" width="126" height="34" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.8"/>
-  <text class="dia-t" x="197" y="159" font-size="11.5" text-anchor="middle" fill="var(--accent)" font-weight="700">W_gate：d → h</text>
-  <line x1="260" y1="155" x2="278" y2="155" stroke="var(--accent)" stroke-width="1.8"/>
-  <polygon points="278,150 278,160 285,155" fill="var(--accent)"/>
-  <rect x="290" y="138" width="90" height="34" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.8"/>
-  <text class="dia-t" x="335" y="159" font-size="11.5" text-anchor="middle" fill="var(--accent)" font-weight="700">SiLU</text>
-
-  <text class="dia-t" x="134" y="186" font-size="11" fill="var(--accent)">① 闸门路：过 SiLU 之后当阀门用</text>
-
-  <rect x="134" y="246" width="126" height="34" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/>
-  <text class="dia-t" x="197" y="267" font-size="11.5" text-anchor="middle" fill="var(--fg)">W_up：d → h</text>
-  <line x1="260" y1="263" x2="278" y2="263" stroke="var(--muted)" stroke-width="1.8"/>
-  <polygon points="278,258 278,268 285,263" fill="var(--muted)"/>
-  <rect x="290" y="246" width="90" height="34" rx="8" fill="none" stroke="var(--border)" stroke-width="1.5" stroke-dasharray="4 3"/>
-  <text class="dia-t" x="335" y="267" font-size="11" text-anchor="middle" fill="var(--muted)">不过激活</text>
-
-  <text class="dia-t" x="134" y="238" font-size="11" fill="var(--accent)">② 内容路：不过激活，这一路才是内容</text>
-
-  <line x1="380" y1="155" x2="440" y2="155" stroke="var(--accent)" stroke-width="1.8"/>
-  <line x1="440" y1="155" x2="440" y2="182" stroke="var(--accent)" stroke-width="1.8"/>
-  <polygon points="435,182 445,182 440,189" fill="var(--accent)"/>
-  <line x1="380" y1="263" x2="440" y2="263" stroke="var(--muted)" stroke-width="1.8"/>
-  <line x1="440" y1="263" x2="440" y2="236" stroke="var(--muted)" stroke-width="1.8"/>
-  <polygon points="435,236 445,236 440,229" fill="var(--muted)"/>
-
-  <circle cx="440" cy="209" r="18" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.8"/>
-  <text class="dia-t" x="440" y="214" font-size="16" text-anchor="middle" fill="var(--accent)" font-weight="700">⊗</text>
-
-  <line x1="458" y1="209" x2="476" y2="209" stroke="var(--accent)" stroke-width="1.8"/>
-  <polygon points="476,204 476,214 483,209" fill="var(--accent)"/>
-  <rect x="488" y="192" width="140" height="34" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.8"/>
-  <text class="dia-t" x="558" y="214" font-size="11.5" text-anchor="middle" fill="var(--accent)" font-weight="700">W_down：h → d</text>
-  <line x1="628" y1="209" x2="646" y2="209" stroke="var(--accent)" stroke-width="1.8"/>
-  <polygon points="646,204 646,214 653,209" fill="var(--accent)"/>
-  <rect x="656" y="192" width="42" height="34" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/>
-  <text class="dia-t" x="677" y="214" font-size="11.5" text-anchor="middle" fill="var(--fg)">输出</text>
-
-  <text class="dia-t" x="20" y="308" font-size="11.5" fill="var(--accent)" font-weight="700">⭐ 闸门≈0 → 这个通道被关掉；闸门≈1 → 完整放行</text>
-  <text class="dia-t" x="20" y="330" font-size="11" fill="var(--muted)">→ 同一套 FFN 对不同 token 走出不同的行为，这是纯加权和做不到的</text>
-</svg>
-<figcaption>上下两行的输入输出形状<b>完全一样</b>，可以直接替换。差别只在中间：老式 FFN 一路走到底，SwiGLU 分成「闸门路」和「内容路」，<b>两路逐元素相乘</b>之后才降维。注意内容路上<b>没有激活函数</b>——它是纯线性的。</figcaption>
-</figure>
-
-<p>先不看公式，想一个具体的画面：</p>
-<div class="codehilite"><pre><span></span><code>   内容路算出 h 个数字，这是&quot;我想往下传的东西&quot;
-   闸门路算出 h 个数字，每个都在 0 附近到 1 附近之间
-
-   然后【一一对应地相乘】：
-     第 37 个闸门 = 0.98 → 第 37 个内容几乎原样通过
-     第 51 个闸门 = 0.02 → 第 51 个内容被掐掉了 ⭐
-</code></pre></div>
-
-<p>⭐ <strong>关键在于闸门是算出来的，不是固定的。</strong> 同一个 FFN，喂进「猫」和喂进「因此」，闸门那一路给出的开合模式完全不同——<strong>相当于对每个 token 动态地选一组子通道</strong>。</p>
-<p><strong>这是纯加权和做不到的事。</strong> 老式 FFN 里每个输出通道拿到的是输入的加权和再过激活，本质是<strong>加法组合</strong>，权重训练完就固定、对所有 token 一视同仁。门控引入了<strong>乘法交互</strong>：两路输出相乘，其中一路可以按内容把另一路逐维度关掉。</p>
-<p>写成公式这就是 <strong>GLU（Gated Linear Unit）</strong>，闸门那一路的激活选成 Swish 就叫 <strong>SwiGLU</strong>：</p>
-<p>$$\text{SwiGLU-FFN}(x) = W_{\text{down}} \Big( \text{Swish}(W_{\text{gate}}\,x) \odot (W_{\text{up}}\,x) \Big)$$</p>
-<p>（$\odot$ 是逐元素相乘。再强调一次：$W_{\text{up}}$ 那一路<strong>没有激活函数</strong>。）</p>
-<blockquote>
-<p>⚠️ <strong>一个常见的记混点</strong>：SwiGLU <strong>不是一个激活函数</strong>，它是<strong>一整个 FFN 的结构</strong>。
-「Swish」才是激活函数。你没法像换 <code>nn.ReLU()</code> 那样把 SwiGLU 换进去——它改的是矩阵的个数。</p>
-</blockquote>
-<hr />
-<h2 id="_4">⚖️ 四、多一个矩阵，参数量不就白涨了吗</h2>
-<p>这是全章最该想明白的一步，也是面试问「2/3 是怎么来的」时想听的答案。</p>
-<p><strong>先算笔账</strong>，看看什么都不改会发生什么：</p>
-<div class="codehilite"><pre><span></span><code>   三个矩阵的中间维度还用 4d 的话：
-     W_gate: d × 4d ， W_up: d × 4d ， W_down: 4d × d
-     合计 3 × 4d² = 12d²        ← 老式是 8d²，多了整整 50% 💀
-
-   💀 那这个对比就【作弊】了：
-      它效果好，可能只是因为它更大，而不是因为门控有用
-</code></pre></div>
-
-<p>要让它公平，就得把中间维度调小到参数量持平。设中间维度为 $h$：</p>
-<p>$$3 \times d \times h = 8d^2 \quad \Longrightarrow \quad h = \frac{8d}{3} = \frac{2}{3} \times 4d$$</p>
-<p>⭐ <strong>这就是那个 2/3 的全部来历</strong>：不是什么神秘常数，就是「<strong>三个矩阵要装进两个矩阵的预算里</strong>」。</p>
-<h3 id="llama-7b-11008">LLaMA-7B 的 11008 是怎么来的</h3>
-<div class="codehilite"><pre><span></span><code>   d      = 4096
-   4d     = 16384
-   × 2/3  = 10922.67          ← 不是整数，GPU 不喜欢
-   向上对齐到 256 的倍数 → 11008   ⭐ 这就是 LLaMA-7B config 里的 intermediate_size
-</code></pre></div>
-
-<p>⚠️ 为什么要对齐：GPU 的矩阵乘单元（tensor core）按固定块大小吃数据，维度不是 128/256 的倍数时会补零空转，<strong>利用率掉一截</strong>。</p>
-<p>下面这段<strong>单独复制到空文件就能跑</strong>（PyTorch 2.13 CPU 实跑）：</p>
-<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
-
-<span class="k">class</span><span class="w"> </span><span class="nc">SwiGLU</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;LLaMA 式 FFN：三个矩阵，不是两个。&quot;&quot;&quot;</span>
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">hidden</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
-        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">w_gate</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">dim</span><span class="p">,</span> <span class="n">hidden</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>   <span class="c1"># ⭐ 闸门那一路</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">w_up</span>   <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">dim</span><span class="p">,</span> <span class="n">hidden</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>   <span class="c1"># ⭐ 内容那一路（无激活）</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">w_down</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">hidden</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">w_down</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">silu</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">w_gate</span><span class="p">(</span><span class="n">x</span><span class="p">))</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">w_up</span><span class="p">(</span><span class="n">x</span><span class="p">))</span>   <span class="c1"># ⭐ 逐元素相乘 = 门控</span>
-
-<span class="k">def</span><span class="w"> </span><span class="nf">llama_hidden</span><span class="p">(</span><span class="n">dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">multiple_of</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">256</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-    <span class="n">h</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="p">(</span><span class="mi">4</span> <span class="o">*</span> <span class="n">dim</span><span class="p">)</span> <span class="o">/</span> <span class="mi">3</span><span class="p">)</span>                                   <span class="c1"># ⭐ 4d 先乘 2/3</span>
-    <span class="k">return</span> <span class="n">multiple_of</span> <span class="o">*</span> <span class="p">((</span><span class="n">h</span> <span class="o">+</span> <span class="n">multiple_of</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="n">multiple_of</span><span class="p">)</span>   <span class="c1"># 再向上对齐</span>
-
-<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;intermediate_size =&quot;</span><span class="p">,</span> <span class="n">llama_hidden</span><span class="p">(</span><span class="mi">4096</span><span class="p">))</span>
-
-<span class="n">ffn</span> <span class="o">=</span> <span class="n">SwiGLU</span><span class="p">(</span><span class="mi">4096</span><span class="p">,</span> <span class="n">llama_hidden</span><span class="p">(</span><span class="mi">4096</span><span class="p">))</span>
-<span class="n">p_new</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">ffn</span><span class="o">.</span><span class="n">parameters</span><span class="p">())</span>
-<span class="n">p_old</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="mi">4096</span> <span class="o">*</span> <span class="p">(</span><span class="mi">4</span> <span class="o">*</span> <span class="mi">4096</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;SwiGLU </span><span class="si">{</span><span class="n">p_new</span><span class="o">/</span><span class="mf">1e6</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">M ｜ 老式 </span><span class="si">{</span><span class="n">p_old</span><span class="o">/</span><span class="mf">1e6</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">M ｜ 比值 </span><span class="si">{</span><span class="n">p_new</span><span class="o">/</span><span class="n">p_old</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;形状不变：&quot;</span><span class="p">,</span> <span class="n">ffn</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">4096</span><span class="p">))</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
-</code></pre></div>
-
-<p>实跑输出：</p>
-<div class="codehilite"><pre><span></span><code>intermediate_size = 11008
-SwiGLU 135.3M ｜ 老式 134.2M ｜ 比值 1.008
-形状不变： torch.Size([2, 5, 4096])
-</code></pre></div>
-
-<p>⭐ <strong>比值 1.008</strong>——只多 0.8%，那点零头全部来自「向上对齐到 11008」。<strong>这就是「公平比较」四个字的具体含义。</strong></p>
-<hr />
-<h2 id="_5">🪞 五、诚实的部分：它到底为什么更好</h2>
-<p>「怎么做」讲完了。「为什么这样更好」——<strong>诚实的答案是：没人说得清。</strong></p>
-<p>提出这个改动的论文（Noam Shazeer, <em>GLU Variants Improve Transformer</em>, 2020）在做完一堆同参数量的对照实验、确认 SwiGLU / GeGLU 确实更好之后，结尾写了一句圈内很出名的话，大意是：<strong>我们对这些架构为什么 work 不提供解释，把它的成功归于神的恩赐。</strong></p>
-<blockquote>
-<p>⭐ <strong>这句话值得记住，不是因为它幽默，而是因为它诚实。</strong>
-深度学习里有相当一部分架构选择就是这样：<strong>大量对照实验证明它好，但没有令人满意的理论解释。</strong>
-正确的态度是「知道它在同参数量下经过了公平比较」，<strong>而不是硬编一个说得通的故事</strong>——
-你在网上看到的那些「因为门控增强了表达能力所以……」，大多是事后附会。</p>
-</blockquote>
-<p>⚠️ <strong>上一节那个「乘法交互」的说法也要这样看待</strong>：它是一个<strong>能说通的直觉</strong>，不是被证明的机制。它解释了「为什么门控可能有用」，<strong>没解释「为什么实测就是好这么多」</strong>。</p>
-<p><strong>代价那一栏必须一起看</strong>：</p>
-<table>
-<thead>
-<tr>
-<th>代价</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>多一次矩阵乘</strong></td>
-<td>三次 GEMM 而不是两次。参数量持平，但 kernel 启动和访存次数都变多</td>
-</tr>
-<tr>
-<td><strong>维度不好对齐</strong></td>
-<td>$8d/3$ 基本不会是漂亮的数，必须手动向上取整到 128/256 的倍数（11008 就是这么来的）</td>
-</tr>
-<tr>
-<td><strong>训练峰值显存变高</strong></td>
-<td>要为 gate 和 up 两路<strong>各存一份中间激活</strong>给反向传播用。🔗 这属于「激活显存」这一类问题，<a href="../AI基础设施/09-显存优化全家桶.html">《AI基础设施》第 9 章</a>有梯度检查点等七件武器</td>
-</tr>
-</tbody>
-</table>
-<hr />
-<!--MIDSTOP-->
-<blockquote>
-<p>🛑 <strong>读到这里可以停</strong> —— SwiGLU 讲完了（约 28 分钟）。
-你已经拿到：<strong>三个矩阵是「两路并行 + 一路收口」、闸门是算出来的（乘法交互）、2/3 来自「三个矩阵装进两个矩阵的预算」、11008 的完整算法</strong>，以及<strong>论文自己承认解释不了它为什么更好</strong>。
-<strong>后半章讲 RoPE</strong>：位置为什么改成「转角度」· 相对位置怎么自己冒出来 · 转速为什么每个平面都不同 · 长上下文外推到底卡在哪。
-这一节可以独立读，回来直接从下一节接着看就行。</p>
-</blockquote>
-<hr />
-<h2 id="2k-100">🌀 六、上下文从 2K 撑到 100 万，靠的是什么</h2>
-<p>第二处改动。先看一组你在模型卡上天天见的数字：</p>
-<div class="codehilite"><pre><span></span><code>   BERT (2018)     ：512
-   GPT-3 (2020)    ：2048
-   LLaMA-2 (2023)  ：4096
-   现在的主流       ：128K，长文版本 100 万 ⭐
-</code></pre></div>
-
-<p><strong>这条曲线的陡峭程度，不是「显卡变好了」能解释的。</strong> 显存和算力这几年涨了大约一个量级，上下文涨了三个量级。中间那两个量级，一大半来自<strong>位置编码换了一种做法</strong>。（另一半在注意力的算法和显存布局：🔗 <a href="../AI基础设施/08-FlashAttention.html">《AI基础设施》第 8 章 FlashAttention</a>。）</p>
-<h3 id="_6">旧做法：把位置「加」进去</h3>
-<p>原始 Transformer 算一堆不同频率的 sin/cos，<strong>加到输入 embedding 上</strong>，只在第 0 层加一次。GPT-2 换成可学习的位置向量，做法一样，也是加在输入。</p>
-<p>两个毛病，第二个是致命的：</p>
-<div class="codehilite"><pre><span></span><code>   毛病一：加法会被稀释
-     位置信息和语义信息挤进【同一组数字】里，往上传几十层、
-     经过几十次注意力混合和 FFN 变换，还剩多少是位置？
-     没人说得清 —— 它从来没有被单独保护过
-
-   毛病二：换长度就废 💀
-     可学习位置编码：训练时只见过 0~511 号位置
-       → 第 512 号位置的向量【压根不存在】，不是效果差，是没有这个东西
-     正弦位置编码：理论上能外推，实际一超出训练长度就崩
-</code></pre></div>
-
-<p>⭐ <strong>毛病二决定了上限</strong>：在这套做法下，「支持多长上下文」是<strong>训练时就写死的</strong>，事后加不了。</p>
-<hr />
-<h2 id="_7">🧭 七、先别看公式：位置是一根指针</h2>
-<p>RoPE 的核心一句话是：<strong>把位置编成「转过的角度」，而不是「加上去的向量」。</strong> 要读懂它只需要两个几何概念——都很简单，但没人挑明的话，读公式时一定会卡住。</p>
-<p><strong>「平面」是什么</strong>：$q$ 是一串数字，比如 128 个。<strong>把它们从头两两配对</strong>，第 0 和第 1 一对、第 2 和第 3 一对……一共 64 对。<strong>每一对就是一张纸上的一个点</strong>：一个数当横坐标，一个数当纵坐标。这张纸就是数学里说的「<strong>二维平面</strong>」。于是 128 维的向量被看成 <strong>64 个平面上的 64 个点</strong>。</p>
-<p><strong>「旋转」是什么</strong>：把这个点<strong>绕原点转一个角度</strong>。转的时候<strong>长度不变，只是方向变了</strong>——就像时钟的指针，长度永远一样，只有指向在变。</p>
-<figure class="dia">
-<svg viewBox="0 0 700 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="RoPE 的配对与旋转示意：向量的数字两两配对成若干个二维平面，位置 m 让每个平面上的点绕原点旋转 m 乘 theta 的角度">
-
-  <text class="dia-t" x="350" y="20" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">两个数配成一对，就是一张纸上的一个点</text>
-
-  <text class="dia-t" x="26" y="44" font-size="11.5" fill="var(--fg)">q 的 d 个数字，从头两两配对</text>
-
-  <rect x="26" y="56" width="82" height="40" rx="8" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-dasharray="4 3"/>
-  <rect x="106" y="56" width="82" height="40" rx="8" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-dasharray="4 3"/>
-  <rect x="186" y="56" width="82" height="40" rx="8" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-dasharray="4 3"/>
-
-  <rect x="30" y="62" width="34" height="28" rx="5" fill="var(--card)" stroke="var(--border)" stroke-width="1.3"/>
-  <text class="dia-t" x="47" y="81" font-size="11" text-anchor="middle" fill="var(--fg)">x₀</text>
-  <rect x="70" y="62" width="34" height="28" rx="5" fill="var(--card)" stroke="var(--border)" stroke-width="1.3"/>
-  <text class="dia-t" x="87" y="81" font-size="11" text-anchor="middle" fill="var(--fg)">x₁</text>
-  <rect x="110" y="62" width="34" height="28" rx="5" fill="var(--card)" stroke="var(--border)" stroke-width="1.3"/>
-  <text class="dia-t" x="127" y="81" font-size="11" text-anchor="middle" fill="var(--fg)">x₂</text>
-  <rect x="150" y="62" width="34" height="28" rx="5" fill="var(--card)" stroke="var(--border)" stroke-width="1.3"/>
-  <text class="dia-t" x="167" y="81" font-size="11" text-anchor="middle" fill="var(--fg)">x₃</text>
-  <rect x="190" y="62" width="34" height="28" rx="5" fill="var(--card)" stroke="var(--border)" stroke-width="1.3"/>
-  <text class="dia-t" x="207" y="81" font-size="11" text-anchor="middle" fill="var(--fg)">x₄</text>
-  <rect x="230" y="62" width="34" height="28" rx="5" fill="var(--card)" stroke="var(--border)" stroke-width="1.3"/>
-  <text class="dia-t" x="247" y="81" font-size="11" text-anchor="middle" fill="var(--fg)">x₅</text>
-
-  <text class="dia-t" x="67" y="114" font-size="11" text-anchor="middle" fill="var(--accent)">第 0 张纸</text>
-  <text class="dia-t" x="147" y="114" font-size="11" text-anchor="middle" fill="var(--accent)">第 1 张纸</text>
-  <text class="dia-t" x="227" y="114" font-size="11" text-anchor="middle" fill="var(--accent)">第 2 张纸</text>
-
-  <text class="dia-t" x="26" y="142" font-size="11" fill="var(--muted)">d 维就有 d/2 张纸。⭐「一张纸」＝ 一个二维平面</text>
-  <text class="dia-t" x="26" y="166" font-size="11" fill="var(--muted)">⭐ 转多少度只由【位置】决定，和这个词是什么无关</text>
-  <text class="dia-t" x="26" y="190" font-size="11" fill="var(--muted)">⚠️ 只有 Q 和 K 转，V 不转</text>
-
-  <circle cx="520" cy="140" r="76" fill="none" stroke="var(--border)" stroke-width="1.3" stroke-dasharray="4 3"/>
-  <circle cx="520" cy="140" r="3" fill="var(--muted)"/>
-
-  <line x1="520" y1="140" x2="596" y2="140" stroke="var(--muted)" stroke-width="2"/>
-  <polygon points="588,135 588,145 596,140" fill="var(--muted)"/>
-  <line x1="520" y1="140" x2="589" y2="108" stroke="var(--accent)" stroke-width="2"/>
-  <polygon points="584,116 580,107 589,108" fill="var(--accent)"/>
-  <line x1="520" y1="140" x2="569" y2="82" stroke="var(--accent)" stroke-width="2"/>
-  <polygon points="568,91 560,85 569,82" fill="var(--accent)"/>
-  <line x1="520" y1="140" x2="540" y2="67" stroke="var(--accent)" stroke-width="2"/>
-  <polygon points="542,76 533,73 540,67" fill="var(--accent)"/>
-
-  <text class="dia-t" x="612" y="144" font-size="11" fill="var(--muted)">位置 0</text>
-  <text class="dia-t" x="603" y="102" font-size="11" fill="var(--accent)">位置 1</text>
-  <text class="dia-t" x="579" y="70" font-size="11" fill="var(--accent)">位置 2</text>
-  <text class="dia-t" x="544" y="52" font-size="11" fill="var(--accent)">位置 3</text>
-  <text class="dia-t" x="520" y="168" font-size="11" text-anchor="middle" fill="var(--accent)">每一步都转 θ</text>
-  <text class="dia-t" x="520" y="236" font-size="11.5" text-anchor="middle" fill="var(--muted)">位置 m 的向量，在这张纸上转 m·θ</text>
-</svg>
-<figcaption>左边：向量的数字两两配对，每一对就是一张纸（一个二维平面）上的点。右边：位置 0 不转，位置 1 转 θ，位置 2 转 2θ……<b>转多少完全由位置决定，和这个词是什么无关</b>。指针长度始终不变——旋转不改变向量的长度，这一点第八节要用。</figcaption>
-</figure>
-
-<p>⚠️ <strong>它作用在哪里，是它和旧方案最大的不同</strong>：</p>
-<div class="codehilite"><pre><span></span><code>   旧方案：位置向量【加】在第 0 层的输入 embedding 上，只加一次
-   RoPE ：位置角度【转】在【每一层】注意力的 Q 和 K 上 ⭐
-</code></pre></div>
-
-<p><strong>每层都转一次，所以不会被深层稀释——毛病一当场解决。</strong> 而 <strong>V 不转</strong>：V 是要被加权取回来的<strong>内容</strong>，给它加位置信息没有意义；打分的是 Q·K，位置只需要影响打分。</p>
-<hr />
-<h2 id="_8">🔁 八、为什么「隔了几个」自己就冒出来了</h2>
-<p>这是 RoPE 最漂亮的地方，也是面试最爱问的一句。<strong>先看图，再看公式。</strong></p>
-<figure class="dia">
-<svg viewBox="0 0 700 310" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="RoPE 的相对位置示意图：位置 2 和位置 5 的向量夹角，与位置 12 和位置 15 的向量夹角完全相同，都等于 3θ">
-
-  <text class="dia-t" x="350" y="20" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">同一个二维平面上，只有「夹角差」进内积</text>
-
-  <circle cx="150" cy="170" r="78" fill="none" stroke="var(--border)" stroke-width="1.3" stroke-dasharray="4 3"/>
-  <circle cx="150" cy="170" r="3" fill="var(--muted)"/>
-
-  <line x1="150" y1="170" x2="200" y2="105" stroke="var(--accent)" stroke-width="2.2"/>
-  <polygon points="196,100 205,99 200,108" fill="var(--accent)"/>
-  <text class="dia-t" x="210" y="98" font-size="11.5" fill="var(--accent)" font-weight="700">q 在位置 2</text>
-  <text class="dia-t" x="210" y="114" font-size="11" fill="var(--muted)">转了 2θ</text>
-
-  <line x1="150" y1="170" x2="105" y2="101" stroke="var(--done)" stroke-width="2.2"/>
-  <polygon points="102,96 111,105 100,107" fill="var(--done)"/>
-  <text class="dia-t" x="30" y="92" font-size="11.5" fill="var(--done)" font-weight="700">k 在位置 5</text>
-  <text class="dia-t" x="30" y="108" font-size="11" fill="var(--muted)">转了 5θ</text>
-
-  <text class="dia-t" x="150" y="146" font-size="12" text-anchor="middle" fill="var(--fg)" font-weight="700">夹角 3θ</text>
-  <text class="dia-t" x="150" y="272" font-size="11.5" text-anchor="middle" fill="var(--muted)">位置 2 和位置 5</text>
-
-  <circle cx="390" cy="170" r="78" fill="none" stroke="var(--border)" stroke-width="1.3" stroke-dasharray="4 3"/>
-  <circle cx="390" cy="170" r="3" fill="var(--muted)"/>
-
-  <line x1="390" y1="170" x2="429" y2="233" stroke="var(--accent)" stroke-width="2.2"/>
-  <polygon points="424,231 433,228 430,238" fill="var(--accent)"/>
-  <text class="dia-t" x="352" y="256" font-size="11.5" fill="var(--accent)" font-weight="700">q 在位置 12</text>
-
-  <line x1="390" y1="170" x2="465" y2="145" stroke="var(--done)" stroke-width="2.2"/>
-  <polygon points="461,140 470,143 462,150" fill="var(--done)"/>
-  <text class="dia-t" x="428" y="130" font-size="11.5" fill="var(--done)" font-weight="700">k 在位置 15</text>
-
-  <text class="dia-t" x="420" y="190" font-size="12" text-anchor="middle" fill="var(--fg)" font-weight="700">夹角 3θ</text>
-  <text class="dia-t" x="390" y="272" font-size="11.5" text-anchor="middle" fill="var(--muted)">位置 12 和位置 15</text>
-
-  <rect x="500" y="96" width="180" height="112" rx="9" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"/>
-  <text class="dia-t" x="516" y="118" font-size="11.5" fill="var(--accent)" font-weight="700">两个内积完全相等</text>
-  <text class="dia-t" x="516" y="140" font-size="11" fill="var(--fg)">二维向量的内积</text>
-  <text class="dia-t" x="516" y="158" font-size="11" fill="var(--fg)">＝ 长度乘积 × cos(夹角)</text>
-  <text class="dia-t" x="516" y="180" font-size="11" fill="var(--accent)" font-weight="700">夹角只由 (m−n) 决定</text>
-  <text class="dia-t" x="516" y="198" font-size="11" fill="var(--accent)" font-weight="700">绝对位置自己抵消了 ⭐</text>
-</svg>
-<figcaption>位置 2 与位置 5 的夹角是 3θ；位置 12 与位置 15 的夹角<b>还是</b> 3θ。注意力打的分只看内积，内积只看长度和夹角——所以模型看到的永远是「隔了 3 个位置」，而不是「一个在第 2 个在第 5」。<b>相对位置是被旋转这个操作自动带出来的，不是额外加进去的。</b></figcaption>
-</figure>
-
-<p>图看懂了，公式就只剩一行：</p>
-<div class="codehilite"><pre><span></span><code>   把 q 转 m·θ，把 k 转 n·θ，然后算内积
-
-   内积 = |q| · |k| · cos( 原来的夹角 + (m − n)·θ )
-                                        ↑
-             ⭐ m 和 n 只以【差】的形式出现，绝对位置消失了
-</code></pre></div>
-
-<p><strong>长度那两项为什么不受影响</strong>：旋转不改变长度（上一节那句「指针长度始终不变」就是为这里准备的）。所以旋转之后 $|q|$、$|k|$ 还是原值，位置只从 cos 那一项进来。</p>
-<blockquote>
-<p>🔑 <strong>这就是那句标准答案的完整含义</strong>：
-<strong>RoPE 用绝对位置的方式实现</strong>（每个 token 独立地转一个只跟自己位置有关的角度，不需要知道别人在哪），
-<strong>却得到相对位置的效果</strong>（注意力分数只依赖两者之差）。
-而且不用像 T5 那样为每个相对距离额外学一张偏置表——<strong>相对性是几何送的，不花参数。</strong></p>
-</blockquote>
-<h3 id="_9">别信它，自己跑一遍</h3>
-<p>下面这段<strong>单独复制到空文件就能跑</strong>。它把同一对 $q$、$k$ 放在三组不同的绝对位置上，但位置差都是 3：</p>
-<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-
-<span class="k">def</span><span class="w"> </span><span class="nf">build_rope_cache</span><span class="p">(</span><span class="n">seq_len</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">head_dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">base</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">10000.0</span><span class="p">):</span>
-    <span class="c1"># ⭐ θ_i = base^(−2i/d)：i 越大转得越慢。head_dim/2 个平面，每个一个转速</span>
-    <span class="n">inv_freq</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="n">base</span> <span class="o">**</span> <span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">head_dim</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">float</span><span class="p">()</span> <span class="o">/</span> <span class="n">head_dim</span><span class="p">))</span>
-    <span class="n">angles</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">outer</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">seq_len</span><span class="p">)</span><span class="o">.</span><span class="n">float</span><span class="p">(),</span> <span class="n">inv_freq</span><span class="p">)</span>   <span class="c1"># (seq_len, d/2)</span>
-    <span class="k">return</span> <span class="n">angles</span><span class="o">.</span><span class="n">cos</span><span class="p">(),</span> <span class="n">angles</span><span class="o">.</span><span class="n">sin</span><span class="p">()</span>
-
-<span class="k">def</span><span class="w"> </span><span class="nf">apply_rope</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">cos</span><span class="p">,</span> <span class="n">sin</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;x: (batch, heads, seq, head_dim)。两两配对，在每个平面上转一下。&quot;&quot;&quot;</span>
-    <span class="n">x1</span><span class="p">,</span> <span class="n">x2</span> <span class="o">=</span> <span class="n">x</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="mi">0</span><span class="p">::</span><span class="mi">2</span><span class="p">],</span> <span class="n">x</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="mi">1</span><span class="p">::</span><span class="mi">2</span><span class="p">]</span>
-    <span class="n">cos</span><span class="p">,</span> <span class="n">sin</span> <span class="o">=</span> <span class="n">cos</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">],</span> <span class="n">sin</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]</span>
-    <span class="n">out1</span> <span class="o">=</span> <span class="n">x1</span> <span class="o">*</span> <span class="n">cos</span> <span class="o">-</span> <span class="n">x2</span> <span class="o">*</span> <span class="n">sin</span>                   <span class="c1"># ⭐ 就是二维旋转矩阵，没有别的</span>
-    <span class="n">out2</span> <span class="o">=</span> <span class="n">x1</span> <span class="o">*</span> <span class="n">sin</span> <span class="o">+</span> <span class="n">x2</span> <span class="o">*</span> <span class="n">cos</span>
-    <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">stack</span><span class="p">((</span><span class="n">out1</span><span class="p">,</span> <span class="n">out2</span><span class="p">),</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">flatten</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">)</span>
-
-<span class="n">cos</span><span class="p">,</span> <span class="n">sin</span> <span class="o">=</span> <span class="n">build_rope_cache</span><span class="p">(</span><span class="n">seq_len</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">head_dim</span><span class="o">=</span><span class="mi">16</span><span class="p">)</span>
-<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-<span class="n">qv</span><span class="p">,</span> <span class="n">kv</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">16</span><span class="p">),</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">16</span><span class="p">)</span>        <span class="c1"># 同一对 q/k，只换绝对位置</span>
-
-<span class="k">def</span><span class="w"> </span><span class="nf">score</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">n</span><span class="p">):</span>
-    <span class="n">qm</span> <span class="o">=</span> <span class="n">apply_rope</span><span class="p">(</span><span class="n">qv</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">16</span><span class="p">),</span> <span class="n">cos</span><span class="p">[</span><span class="n">m</span><span class="p">:</span><span class="n">m</span><span class="o">+</span><span class="mi">1</span><span class="p">],</span> <span class="n">sin</span><span class="p">[</span><span class="n">m</span><span class="p">:</span><span class="n">m</span><span class="o">+</span><span class="mi">1</span><span class="p">])</span>
-    <span class="n">kn</span> <span class="o">=</span> <span class="n">apply_rope</span><span class="p">(</span><span class="n">kv</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">16</span><span class="p">),</span> <span class="n">cos</span><span class="p">[</span><span class="n">n</span><span class="p">:</span><span class="n">n</span><span class="o">+</span><span class="mi">1</span><span class="p">],</span> <span class="n">sin</span><span class="p">[</span><span class="n">n</span><span class="p">:</span><span class="n">n</span><span class="o">+</span><span class="mi">1</span><span class="p">])</span>
-    <span class="k">return</span> <span class="p">(</span><span class="n">qm</span> <span class="o">*</span> <span class="n">kn</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
-
-<span class="k">for</span> <span class="n">m</span><span class="p">,</span> <span class="n">n</span> <span class="ow">in</span> <span class="p">[(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span> <span class="p">(</span><span class="mi">12</span><span class="p">,</span> <span class="mi">15</span><span class="p">),</span> <span class="p">(</span><span class="mi">40</span><span class="p">,</span> <span class="mi">43</span><span class="p">),</span> <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">6</span><span class="p">)]:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;位置 (</span><span class="si">{</span><span class="n">m</span><span class="si">:</span><span class="s2">&gt;2</span><span class="si">}</span><span class="s2">,</span><span class="si">{</span><span class="n">n</span><span class="si">:</span><span class="s2">&gt;2</span><span class="si">}</span><span class="s2">)　差 </span><span class="si">{</span><span class="n">n</span><span class="o">-</span><span class="n">m</span><span class="si">}</span><span class="s2"> 　→ 分数 </span><span class="si">{</span><span class="n">score</span><span class="p">(</span><span class="n">m</span><span class="p">,</span><span class="w"> </span><span class="n">n</span><span class="p">)</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</code></pre></div>
-
-<p>实跑输出：</p>
-<div class="codehilite"><pre><span></span><code>位置 ( 2, 5)　差 3 　→ 分数 -3.160643
-位置 (12,15)　差 3 　→ 分数 -3.160645
-位置 (40,43)　差 3 　→ 分数 -3.160644
-位置 ( 2, 6)　差 4 　→ 分数 -1.315803
-</code></pre></div>
-
-<p>⭐ <strong>前三行的差异在小数点后第 6 位，那是 float32 的舍入误差。</strong> 位置差是 3 就是同一个分数，差一变成 4 分数立刻变了。<strong>旋转矩阵那四行代码，就是全部的机制。</strong></p>
-<p>⚠️ <strong>一个真实的坑</strong>：上面用的是「相邻两个配对」（<code>0::2</code> 和 <code>1::2</code>），而 HuggingFace 那套实现用「<strong>前半段和后半段配对</strong>」，因为那样的张量操作更快。<strong>两种配对方式不通用，权重不能混用</strong>——这是加载别人权重时一类经典的、不报错但输出乱码的故障。</p>
-<hr />
-<!--MIDSTOP-->
-<blockquote>
-<p>🛑 <strong>第二个歇脚处</strong> —— RoPE 的核心机制讲完了（约 44 分钟）。
-你已经拿到：<strong>位置＝角度、只转每层的 Q 和 K（V 不转）、相对位置是几何送的（内积只剩 (m−n)θ）</strong>。
-<strong>剩下的是「为什么能撑长」</strong>：转速为什么每个平面不同 · 外推到底卡在哪一头 · PI/NTK/YaRN 动的是什么。
-回来的时候不用重读，直接从下一节接着看就行。</p>
-</blockquote>
-<hr />
-<h2 id="_10">⏰ 九、为什么每个平面转速都不一样</h2>
-<p>如果所有平面都转同一个 θ，RoPE 就废了：转满一圈就绕回来，位置 0 和位置「一圈」长得一模一样。所以每个平面有自己的转速：</p>
-<p>$$\theta_i = \text{base}^{-2i/d}, \qquad \text{base 通常取 } 10000$$</p>
-<p>💡 <strong>一个好用的类比：钟表。</strong></p>
-<div class="codehilite"><pre><span></span><code>   秒针（高频，i 小）：转得快，能分辨&quot;差了几秒&quot;，但转一圈就绕回来 → 分不清远距离
-   时针（低频，i 大）：转得慢，一天才走半圈，能区分&quot;上午还是下午&quot; → 但分不清秒
-
-   ⭐ 一起看，才能唯一确定一个时刻
-</code></pre></div>
-
-<p>RoPE 就是这样：<strong>高频那些平面负责精细的邻近关系，低频那些负责粗糙的长距离关系</strong>，合起来才唯一地标出一个位置。</p>
-<p><strong>这个类比可以量化。</strong> 下面这段算的是「每个平面转满一圈要跨多少个 token」：</p>
-<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-
-<span class="n">head_dim</span><span class="p">,</span> <span class="n">base</span><span class="p">,</span> <span class="n">train_len</span> <span class="o">=</span> <span class="mi">128</span><span class="p">,</span> <span class="mf">10000.0</span><span class="p">,</span> <span class="mi">4096</span>          <span class="c1"># LLaMA-2 的头维度就是 128</span>
-<span class="n">inv_freq</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="n">base</span> <span class="o">**</span> <span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">head_dim</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">float</span><span class="p">()</span> <span class="o">/</span> <span class="n">head_dim</span><span class="p">))</span>
-
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;一共 </span><span class="si">{</span><span class="n">head_dim</span><span class="w"> </span><span class="o">//</span><span class="w"> </span><span class="mi">2</span><span class="si">}</span><span class="s2"> 个平面。i 越大转得越慢：&quot;</span><span class="p">)</span>
-<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="mi">48</span><span class="p">,</span> <span class="mi">63</span><span class="p">):</span>
-    <span class="n">theta</span> <span class="o">=</span> <span class="n">inv_freq</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
-    <span class="n">lam</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">math</span><span class="o">.</span><span class="n">pi</span> <span class="o">/</span> <span class="n">theta</span>                   <span class="c1"># ⭐ 转满一圈要跨多少个位置</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  平面 </span><span class="si">{</span><span class="n">i</span><span class="si">:</span><span class="s2">&gt;2</span><span class="si">}</span><span class="s2">：转一圈要 </span><span class="si">{</span><span class="n">lam</span><span class="si">:</span><span class="s2">&gt;9.1f</span><span class="si">}</span><span class="s2"> 个位置 → 4096 个位置里转了 &quot;</span>
-          <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">train_len</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">lam</span><span class="si">:</span><span class="s2">&gt;8.3f</span><span class="si">}</span><span class="s2"> 圈&quot;</span><span class="p">)</span>
-</code></pre></div>
-
-<p>实跑输出：</p>
-<div class="codehilite"><pre><span></span><code>一共 64 个平面。i 越大转得越慢：
-  平面  0：转一圈要       6.3 个位置 → 4096 个位置里转了  651.899 圈
-  平面 32：转一圈要     628.3 个位置 → 4096 个位置里转了    6.519 圈
-  平面 48：转一圈要    6283.2 个位置 → 4096 个位置里转了    0.652 圈
-  平面 63：转一圈要   54410.1 个位置 → 4096 个位置里转了    0.075 圈
-</code></pre></div>
-
-<p>⭐ <strong>看最后一行</strong>：最慢的那个平面，在整个 4096 的训练长度里<strong>只转了 0.075 圈（27 度）</strong>——它连一圈都没走完。<strong>这个数字是下一节的全部关键。</strong></p>
-<hr />
-<h2 id="4096-32768">🧯 十、训练时只见过 4096，喂进 32768 会怎样</h2>
-<p>RoPE 不是天生就能外推。（<strong>「外推」= 拿比训练时更长的输入去跑一个已经训好的模型。</strong>）答案是<strong>输出崩坏</strong>，但原因和大多数人第一反应想的不一样。</p>
-<div class="codehilite"><pre><span></span><code>   最慢的平面 63：
-     训练走到 4096，它才转了 27 度 —— 模型只见过 0°~27° 这一小段
-     喂进 32768，它转到 217 度 💀 —— 训练时【从没出现过的角度】
-
-   最快的平面 0：
-     训练时已经转了 651.9 圈，0°~360° 每个角度都见过无数遍
-     → 单看它，任何位置都是&quot;见过的角度&quot; ⭐
-</code></pre></div>
-
-<p>⭐ <strong>所以卡住外推的是【低频】那一头，不是高频。</strong> 这个方向搞反了，下面三个方法为什么那么设计就全讲不通。</p>
-<p>（严格说高频也有一份责任：<strong>所有平面的角度组合在一起</strong>才唯一标定一个位置，而位置 20000 的那个组合是全新的。但可以被针对性修复的病灶，是那些连一圈都没转完的低频平面。）</p>
-<p><strong>三种解法动的是同一个旋钮：每个频率的指针该转慢多少。区别只在调得均不均匀。</strong></p>
-<table>
-<thead>
-<tr>
-<th>方法</th>
-<th>做法</th>
-<th>直觉</th>
-<th>代价</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>PI（位置插值）</strong></td>
-<td>把位置索引统一除以 s（比如 8）</td>
-<td><strong>所有指针一律转慢 8 倍</strong>，32768 个位置被压回 4096 的角度范围内，全落在见过的区间</td>
-<td><strong>一刀切</strong>：高频本来不用管也被压慢了 → 相邻位置的角度差变小，<strong>精细分辨率变差</strong></td>
-</tr>
-<tr>
-<td><strong>NTK-aware</strong></td>
-<td>不均匀缩放：高频几乎不动、低频缩得多（等价于把 base 从 10000 调大）</td>
-<td>「高频本来就能外推，别动它；低频没转完一圈，缩它」</td>
-<td>比 PI 温和得多，但仍需少量微调才最优</td>
-</tr>
-<tr>
-<td><strong>YaRN</strong></td>
-<td>NTK 的精细版：按「训练长度内转了几圈」把平面分成三档区别对待，<strong>同时</strong>调低注意力温度</td>
-<td>上一节那张实跑表就是它的分档依据</td>
-<td>实现最复杂，效果最好</td>
-</tr>
-</tbody>
-</table>
-<p>⭐ <strong>实践里最简单粗暴的一招</strong>：<strong>把 <code>rope_theta</code> 从 10000 改成 1000000</strong>，再在长数据上继续训一小段。用上一节的口径就能说清它为什么管用：base 这么一改，<strong>最慢那个平面转一圈要跨的位置数从 54410 涨到约 506 万</strong>——所有指针都转慢了，同样多的位置被压进更小的角度范围。本质就是 NTK 的思路，只是不做分频段处理。LLaMA 3、Qwen 的长文版本都做了这件事。</p>
-<p>⚠️ <strong>别漏掉「继续训一小段」</strong>：改 base 只是把角度挪进了更安全的范围，模型仍然没在那个范围上训练过。<strong>纯改配置不续训，效果通常会掉。</strong></p>
-<p>🔗 <a href="03-Tokenizer与上下文.html">第 3 章</a>问的「上下文窗口是怎么撑到 100 万的」，位置编码这一侧的答案就在这里；而那一章同时提醒你另外半句：<strong>窗口撑大了不等于有效</strong>——大海捞针能过，不代表长文推理能过（「中间迷失」）。</p>
-<hr />
-<h2 id="config">🧰 十一、看 config 时补两句</h2>
-<p><a href="02b-现代LLM架构的四处改动.html">上一章 02b 第二节</a>那张 <code>config.json</code> 速查表里，<code>intermediate_size</code>、<code>rope_theta</code>、<code>rope_scaling</code> 三行指向的就是本章。读完这一章，那三行补两个判据：</p>
-<p>⚠️ <strong>「比值 ≈ 2.67 就是 SwiGLU」有反例，别当铁律。</strong> 2/3 只是<strong>最初那一版</strong>的取法，后来的模型经常按自己的训练预算另定这个数（LLaMA 3 / Mistral 这一代把 4096 配到了 14336，比值 3.5）。⭐ <strong>可靠的判据是看权重名</strong>：出现 <code>gate_proj</code>（或同时出现 <code>w1</code> 和 <code>w3</code> 两个升维矩阵）就是 GLU 家族；只有一个升维矩阵才是老式两矩阵 FFN。</p>
-<p>⭐ <strong><code>rope_theta</code> 是一条时间线索</strong>：等于 10000 多半是 2023 年那一代的原始配置；是 500000 或 1000000，说明这个模型<strong>专门为长上下文调过</strong>，而且大概率还在长数据上续训过——<strong>没续训的话那个数字是白改的。</strong></p>
-<hr />
-<h2 id="_11">🔗 这一章连到哪里</h2>
-<table>
-<thead>
-<tr>
-<th>去哪</th>
-<th>为什么</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><a href="02b-现代LLM架构的四处改动.html">02b · 上一章</a></td>
-<td>Pre-LN 和 RMSNorm 在那里，那两处修的是「训练稳不稳」。<strong>它第二节那张 config 速查表是本章第十一节的底</strong></td>
-</tr>
-<tr>
-<td><a href="02-Transformer原理.html">02 · Transformer 原理</a></td>
-<td>本章是它的下游。FFN 的职责、Q/K/V 各是什么都在那里——不熟的话，「多出一个矩阵」和「只转 Q 和 K」会看不出改的是什么</td>
-</tr>
-<tr>
-<td><a href="02c-为什么都是Decoder-only.html">02c · 为什么都是 Decoder-only</a></td>
-<td>这一章讲「块里的零件换了什么」，那一章讲「整个模型为什么长成这个形状」</td>
-</tr>
-<tr>
-<td><a href="02d-MoE混合专家.html">02d · MoE 混合专家</a></td>
-<td>MoE 里每个专家现在基本就是本章这个 SwiGLU FFN。<strong>本章讲 FFN 怎么变强，那一章讲 FFN 怎么变多</strong></td>
-</tr>
-<tr>
-<td><a href="03-Tokenizer与上下文.html">03 · Tokenizer 与上下文</a></td>
-<td>RoPE 外推只是「窗口怎么撑到 100 万」的一半答案，另一半（大海捞针、中间迷失）在那一章</td>
-</tr>
-<tr>
-<td><a href="../机器学习与深度学习基础/14-通往Transformer.html">《ML 基础》14 · 通往 Transformer</a></td>
-<td>位置编码有哪几种选项、<strong>相对位置为什么更符合语言的规律</strong>，那里讲过。本章第八节是那一段的具体实现</td>
-</tr>
-<tr>
-<td><a href="../机器学习与深度学习基础/07-从线性到神经网络.html">《ML 基础》07 · 从线性到神经网络</a></td>
-<td>激活函数为什么必须非线性。读第二节之前最好先有这个底</td>
-</tr>
-<tr>
-<td><a href="../AI基础设施/16-KV-Cache.html">《AI基础设施》16 · KV Cache</a></td>
-<td>⭐ <strong>本章是那一章「解耦式 RoPE」的前置</strong>：MLA 把 K 压成潜向量之后，「按位置给每层的 K 转个角度」就做不了了，那一章讲它怎么绕开</td>
-</tr>
-<tr>
-<td><a href="../AI基础设施/08-FlashAttention.html">《AI基础设施》08 · FlashAttention</a></td>
-<td>长上下文的另一半答案。本章管「位置编码撑不撑得住」，那一章管「注意力算不算得动」</td>
-</tr>
-<tr>
-<td><a href="../AI基础设施/09-显存优化全家桶.html">《AI基础设施》09 · 显存优化全家桶</a></td>
-<td>SwiGLU 训练时要多存一路中间激活，属于「激活显存」这一类问题</td>
-</tr>
-</tbody>
-</table>
-<hr />
-<h2 id="_12">✅ 检查点</h2>
-<ol>
-<li>LLaMA 的 FFN 里那三个矩阵分别叫什么、各自干什么？哪一路<strong>没有</strong>激活函数？</li>
-<li>ReLU 的「死神经元」具体是怎么发生的？GELU / SiLU 靠什么避开它？</li>
-<li>门控引入了什么「纯加权和」做不到的东西？为什么说「闸门是算出来的」这一点才是关键？</li>
-<li>中间维度为什么要乘 2/3？不乘的话参数量变成多少，为什么那样的对比不公平？LLaMA-7B 的 <code>intermediate_size</code> 是多少，从 4096 出发完整算一遍。</li>
-<li>SwiGLU 到底为什么效果更好？提出它的论文怎么说的？</li>
-<li>RoPE 作用在哪些张量上、在第几层？V 为什么不转？</li>
-<li>「相对位置自动出现」是怎么回事？为什么内积里的 $|q|$、$|k|$ 两项不受位置影响？</li>
-<li>一共有多少个「平面」？为什么每个平面的转速要不一样？用钟表类比说一遍。</li>
-<li>训练长度 4096、直接喂 32768 会崩，<strong>卡住的是高频平面还是低频平面</strong>？用「转了几圈」这个数字说明。</li>
-<li>PI / NTK-aware / YaRN 动的是同一个旋钮，是什么？实践里最简单的一招是什么，为什么不能只改配置不续训？</li>
-</ol>
+<h2 id="_5">✅ 检查点</h2>
+<ul>
+<li>SwiGLU 是 FFN 内部的门控激活，不是另一套模型。</li>
+<li>它让每个 token 的“自己加工”更有选择性。</li>
+<li>注意力负责 token 之间交流；FFN 负责 token 自己加工。</li>
+</ul>
 <details>
-<summary>👀 答案</summary>
-<ol>
-<li><code>gate_proj</code>（闸门路）、<code>up_proj</code>（内容路）、<code>down_proj</code>（降维收口）。前两个都是 <code>d → h</code> <strong>并行</strong>走，输出<strong>逐元素相乘</strong>之后才进 <code>down_proj</code>。⭐ <strong><code>up_proj</code> 那一路没有激活函数</strong>，激活（SiLU）只加在 <code>gate_proj</code> 那一路上。</li>
-<li>ReLU 在 <code>x &lt; 0</code> 时输出是 0、<strong>导数也是 0</strong>；神经元一旦被推到负区，梯度就是 0，<strong>再也不会被更新</strong>。GELU / SiLU 在负区输出很小但<strong>不为 0</strong>，导数也不为 0（实测 GELU(−0.1) = <strong>−0.0460</strong>、SiLU(−0.1) = <strong>−0.0475</strong>），还有机会被拉回来，而且处处光滑可导。</li>
-<li><strong>乘法交互</strong>。老式 FFN 每个输出通道拿到的是输入的加权和再过激活，是<strong>加法组合</strong>，权重训练完就固定、对所有 token 一视同仁。⭐ 关键在于<strong>闸门是从当前输入算出来的</strong>：喂「猫」和喂「因此」，开合模式完全不同——<strong>相当于对每个 token 动态选一组子通道</strong>，闸门≈0 的通道直接被掐掉。</li>
-<li>因为<strong>矩阵从两个变成了三个</strong>：中间维度还用 4d 就是 <code>3 × 4d² = 12d²</code>，比老式的 <code>8d²</code> <strong>多 50%</strong>，那它效果好可能只是因为它更大。令 <code>3 × d × h = 8d²</code> 得 <strong>h = 8d/3</strong>。LLaMA-7B：4096 → 16384 → ×2/3 = <strong>10922.67</strong> → <strong>向上对齐到 256 的倍数 = 11008</strong>（对齐是因为 tensor core 按固定块吃数据，不对齐会补零空转）。实跑核对：135.3M vs 134.2M，<strong>比值 1.008</strong>。</li>
-<li><strong>没人说得清。</strong> 提出它的论文（Shazeer 2020）做完一堆同参数量对照实验后，结尾说<strong>不对这些架构为什么 work 提供解释，把成功归于神的恩赐</strong>。⚠️「乘法交互」只是能说通的<strong>直觉</strong>，不是被证明的机制。</li>
-<li>作用在<strong>每一层</strong>注意力的 <strong>Q 和 K</strong> 上（旧方案只加在第 0 层输入 embedding 上，所以<strong>会被深层稀释</strong>）。<strong>V 不转</strong>：V 是要被加权取回来的<strong>内容</strong>，位置只需要影响打分，而打分的是 Q·K。</li>
-<li>q 转 <code>m·θ</code>、k 转 <code>n·θ</code> 之后，二维内积 = <code>|q|·|k|·cos(原夹角 + (m−n)θ)</code>——<strong>m 和 n 只以「差」的形式出现，绝对位置抵消了</strong>。<code>|q|</code>、<code>|k|</code> 不受影响是因为<strong>旋转不改变向量长度</strong>。⭐ 这个相对性<strong>是几何送的，不像 T5 那样要额外学一张相对距离偏置表</strong>。实跑可验：位置差同为 3 的 (2,5)/(12,15)/(40,43) 分数都是 <strong>−3.16064</strong>（差别只在第 6 位小数，是 float32 舍入），差变成 4 时是 <strong>−1.3158</strong>。</li>
-<li><strong>d/2 个</strong>（head_dim=128 → <strong>64 个平面</strong>）。转速都一样的话转满一圈就绕回来，远处的位置会和近处撞车。<code>θᵢ = base^(−2i/d)</code>。<strong>钟表类比</strong>：秒针（高频、i 小）能分辨"差了几秒"但一圈就绕回来；时针（低频、i 大）能区分上午下午但分不清秒。<strong>高频管精细的邻近关系，低频管粗糙的长距离关系，合起来才唯一确定一个位置。</strong></li>
-<li>⭐ <strong>卡住的是低频那一头。</strong> 实跑（base=10000、head_dim=128）：<strong>最慢的平面 63 转一圈要 54410 个位置</strong>，4096 内<strong>只转了 0.075 圈＝27 度</strong>；喂到 32768 它转到 <strong>217 度</strong>，是训练时从没出现过的角度。而<strong>平面 0 在 4096 内已转了 651.9 圈</strong>，每个角度都熟。（高频也有一份责任——所有平面的角度<strong>组合</strong>是全新的——但可修复的病灶在低频。）</li>
-<li>都在动<strong>「每个频率的指针该转慢多少」</strong>。<strong>PI</strong> 一刀切转慢 s 倍，代价是高频本来不用管也被压慢、精细分辨率变差；<strong>NTK-aware</strong> 高频几乎不动、低频缩得多（等价于调大 base）；<strong>YaRN</strong> 按「转了几圈」分三档，还调低注意力温度。最简单的一招是<strong>把 <code>rope_theta</code> 从 10000 改成 1000000</strong>——最慢平面一圈从 54410 涨到约 506 万。⚠️ <strong>必须在长数据上续训一小段</strong>：改 base 只把角度挪进了更安全的范围，模型仍然没在那个范围上训练过。</li>
-</ol>
+<summary>点开核对</summary>
+<p>SwiGLU 是 FFN 里面的门：一条支路产生内容，另一条支路决定放行多少。它不负责 token 之间的关系，那仍是注意力的任务。</p>
 </details>
-<hr />
-<h2 id="_13">🛑 可以停在这里</h2>
+<h2 id="_6">🛑 可以停在这里</h2>
+<p>只用 API 或做应用时，知道它是“更会筛信息的 FFN”就足够。源码里的 <code>gate_proj / up_proj / down_proj</code> 是同一张图的代码名字。</p>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>上一章那两处只管「训练稳不稳」，这两处<strong>改的是模型能做什么</strong>。③<strong>FFN → SwiGLU</strong>：LLaMA 的 FFN 是 <strong><code>gate_proj</code> / <code>up_proj</code> / <code>down_proj</code> 三个矩阵</strong>，老式只有两个（升到 4d 再降回来，合计 <strong>8d²</strong>）。中间先有一次小改动 <strong>ReLU → GELU/SiLU</strong>：<strong>ReLU 在负区输出 0、导数也是 0，神经元被推进去就永久死掉</strong>；实测 GELU(−0.1)=<strong>−0.0460</strong>、SiLU(−0.1)=<strong>−0.0475</strong>，留一点就能被拉回来。三个矩阵不是三层，是<strong>两路并行 + 一路收口</strong>：<strong>闸门路过 SiLU、内容路不过激活</strong>，两路<strong>逐元素相乘</strong>。⭐ 门控带来<strong>乘法交互</strong>——老式 FFN 是加法组合、权重对所有 token 固定，而<strong>闸门是从当前输入算出来的</strong>，闸门≈0 的通道直接被掐掉，<strong>相当于每个 token 动态选一组子通道</strong>。⭐<strong>2/3 的来历就是「三个矩阵要装进两个矩阵的预算里」</strong>：还用 4d 就是 <code>3×4d²=12d²</code>，比 8d² 多 50%，对比就作弊了；令 <code>3×d×h=8d²</code> 得 <strong>h=8d/3</strong>。<strong>LLaMA-7B：4096 → 16384 → ×2/3 = 10922.67 → 向上对齐 256 得 11008</strong>，实跑 135.3M vs 134.2M，<strong>比值 1.008</strong>。⚠️ 为什么更好？<strong>论文自己说给不出解释，把成功归于神的恩赐</strong>——「乘法交互」只是直觉，不是被证明的机制。④<strong>绝对位置 → RoPE</strong>：旧方案把位置<strong>加</strong>在第 0 层输入上，毛病是<strong>往上传几十层被稀释</strong>、以及<strong>换长度就废</strong>（第 512 号位置的向量压根不存在）。RoPE 把 d 个数字<strong>两两配对成 d/2 个二维平面</strong>（128 维 → <strong>64 个平面</strong>），位置 m 让每个点<strong>转 m·θᵢ</strong>，⭐<strong>只作用在每一层的 Q 和 K 上，V 不转</strong>。⭐<strong>相对位置自动出现</strong>：内积 = <code>|q||k|·cos(原夹角 + (m−n)θ)</code>，<strong>m、n 只以差的形式出现</strong>；<code>|q|</code>、<code>|k|</code> 不受影响是因为<strong>旋转不改长度</strong>。实跑验证：位置差都是 3 的 (2,5)/(12,15)/(40,43) 分数都是 <strong>−3.16064</strong>，差变成 4 就是 <strong>−1.3158</strong>。⚠️ 配对方式有两种（相邻 vs 前后半段），<strong>不通用，权重混用会输出乱码</strong>。<strong>θᵢ = base^(−2i/d) 让每个平面转速不同</strong>，像钟表的秒针和时针：高频管精细邻近、低频管粗糙长距。💀 <strong>外推为什么崩——卡住的是【低频】不是高频</strong>：<strong>最慢的平面 63 转一圈要 54410 个位置，4096 内只转了 0.075 圈＝27 度</strong>，喂到 32768 转到 <strong>217 度</strong>，是从没见过的角度；而<strong>平面 0 在 4096 内已转了 651.9 圈</strong>。<strong>PI / NTK / YaRN 动的是同一个旋钮——每个频率该转慢多少</strong>：PI 一刀切（高频精度陪葬）、NTK 高频少动低频多缩（等价于调大 base）、YaRN 按转圈数分三档并调低注意力温度。⭐ 最简单的一招是<strong>把 <code>rope_theta</code> 从 10000 改成 1000000</strong>（最慢平面一圈涨到约 506 万），⚠️<strong>但必须在长数据上续训一小段</strong>。看 config：⚠️<strong>「比值 ≈2.67 就是 SwiGLU」有反例</strong>（LLaMA 3 / Mistral 是 4096→14336，比值 3.5），⭐<strong>可靠判据是权重名里有没有 <code>gate_proj</code></strong>。</p>
+<p>SwiGLU 就是在 FFN 里加一扇会学习的门：信息不是全盘放大，而是根据当前 token 筛选。下一专题看模型如何知道词与词隔了多远。</p>
 </blockquote>
-<p><strong>下一节</strong> 👉 <a href="02c-为什么都是Decoder-only.html">02c-为什么都是Decoder-only.md</a></p>
+<p>👉 <a href="02f-RoPE与位置感.html">02f-RoPE与位置感.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
-<nav class="pagenav"><a href="02b-现代LLM架构的四处改动.html"><div class="dir">← 上一节</div>🔩 02b · 现代架构改动（上）</a><a class="next" href="02c-为什么都是Decoder-only.html"><div class="dir">下一节 →</div>➡️ 02c · 为什么 Decoder-only</a></nav>
+<nav class="pagenav"><a href="02b-现代LLM架构的四处改动.html"><div class="dir">← 上一节</div>🔩 专题 A · 训练为什么更稳</a><a class="next" href="02f-RoPE与位置感.html"><div class="dir">下一节 →</div>🌀 专题 C · RoPE：位置感</a></nav>
 </main>
 <script>(function(){
   var KEY="overview-progress", FILE="02e-SwiGLU\u4e0eRoPE.md";
@@ -984,4 +358,4 @@ SwiGLU 135.3M ｜ 老式 134.2M ｜ 比值 1.008
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script></body></html>
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script></body></html>

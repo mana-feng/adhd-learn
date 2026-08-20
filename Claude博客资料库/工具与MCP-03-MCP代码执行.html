@@ -43,8 +43,7 @@ blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
  border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
 blockquote p{margin:.4em 0}
 ul,ol{padding-left:1.5em}li{margin:.35em 0}
-table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em;display:block;
- overflow-x:auto}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
 th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
 th{background:var(--quote-bg)}
 tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
@@ -213,11 +212,20 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>直接工具调用要求所有结果流经模型上下文。典型例子：从 Google Drive 下载会议转录并附加到 Salesforce——完整转录文本要过境上下文两次（一次作为检索结果，一次写入更新调用）。一场 2 小时会议可能多耗 50,000 token。</p>
 <h2 id="_2">解法：代码执行</h2>
 <p>把 MCP server 组织成文件系统结构：</p>
-<div class="codehilite"><pre><span></span><code>servers/
-├── google-drive/
-├── salesforce/
-└── ...
-</code></pre></div>
+<figure class="dia" aria-label="按文件夹组织的 MCP 工具服务">
+<svg viewBox="0 0 800 280" role="img" aria-labelledby="mcp-folder-title mcp-folder-desc" xmlns="http://www.w3.org/2000/svg">
+  <title id="mcp-folder-title">把 MCP 服务组织成可探索的文件夹</title>
+  <desc id="mcp-folder-desc">一个 servers 根目录下包含 Google Drive、Salesforce 和其他按需发现的工具目录。</desc>
+  <rect x="24" y="24" width="752" height="232" rx="20" fill="var(--card,#fff)" stroke="var(--border,#e2e8f0)" stroke-width="2"/>
+  <rect x="286" y="50" width="228" height="48" rx="12" fill="var(--accent-soft,#fff0e6)" stroke="var(--accent,#e8590c)" stroke-width="2"/>
+  <text x="326" y="81" font-size="19" font-weight="700" fill="var(--fg,#172033)">📁 servers/</text>
+  <path d="M400 98 V128 M150 128 H650 M150 128 V150 M400 128 V150 M650 128 V150" fill="none" stroke="var(--muted,#64748b)" stroke-width="3"/>
+  <g font-family="PingFang SC,Microsoft YaHei,sans-serif"><rect x="66" y="150" width="168" height="62" rx="13" fill="var(--quote-bg,#f4f1ea)"/><text x="88" y="179" font-size="16" font-weight="700" fill="var(--fg,#172033)">📁 google-drive/</text><text x="88" y="200" font-size="13" fill="var(--muted,#64748b)">按需加载接口</text>
+  <rect x="316" y="150" width="168" height="62" rx="13" fill="var(--quote-bg,#f4f1ea)"/><text x="342" y="179" font-size="16" font-weight="700" fill="var(--fg,#172033)">📁 salesforce/</text><text x="338" y="200" font-size="13" fill="var(--muted,#64748b)">按需加载接口</text>
+  <rect x="566" y="150" width="168" height="62" rx="13" fill="var(--quote-bg,#f4f1ea)"/><text x="602" y="179" font-size="16" font-weight="700" fill="var(--fg,#172033)">📁 其他服务</text><text x="588" y="200" font-size="13" fill="var(--muted,#64748b)">需要时再探索</text></g>
+</svg>
+<figcaption><strong>关键不是目录长相：</strong>Agent 不必先把所有工具说明塞进上下文；它可以从入口开始，只在任务需要时打开相应服务的接口。</figcaption>
+</figure>
 
 <p>每个工具是一个带类型接口的 TypeScript 文件。Agent 通过探索文件系统按需发现和加载工具，编写代码直接处理数据，只把最终结果返回给模型。</p>
 <p><strong>效果：</strong> 文中案例 token 用量从 150,000 降到 2,000——<strong>节省 98.7%</strong>。</p>
@@ -251,7 +259,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 <div class="recap"><h2 id="recap">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong><br />
-⭐<strong>与其逐次调用工具把每个结果读回上下文，不如让模型写一段代码在沙箱里一次跑完</strong>。<strong>省下的主要是上下文</strong>（中间变量留在执行环境，只有最终结果回到模型），外加多轮往返的延迟。⭐<strong>适合的任务：多步组合且中间结果很大</strong>（批量处理文件、数据筛选聚合、需要循环分支）；<strong>判断标准是「中间结果模型其实不需要看」</strong>；反之<strong>每步都要模型判断后再决定下一步的任务不适合</strong>。⚠️<strong>新风险：代码执行的权限面比单个工具大得多</strong>——单个工具边界明确，而代码理论上能做沙箱允许的任何事；<strong>沙箱隔离/网络白名单/文件系统范围限制必须到位</strong>，<strong>提示注入场景下尤其重要，因为注入的指令现在能变成可执行代码</strong>。</p></div>
+⭐<strong>与其逐次调用工具把每个结果读回上下文，不如让模型写一段代码在沙箱里一次跑完</strong>。<br class="prose-beat">省下的主要是上下文（中间变量留在执行环境，只有最终结果回到模型），外加多轮往返的延迟。<br class="prose-beat">⭐适合的任务：多步组合且中间结果很大（批量处理文件、数据筛选聚合、需要循环分支）；判断标准是「中间结果模型其实不需要看」；反之每步都要模型判断后再决定下一步的任务不适合。<br class="prose-beat">⚠️新风险：代码执行的权限面比单个工具大得多——单个工具边界明确，而代码理论上能做沙箱允许的任何事；<strong>沙箱隔离/网络白名单/文件系统范围限制必须到位</strong>，提示注入场景下尤其重要，因为注入的指令现在能变成可执行代码。</p></div>
 <nav class="pagenav"><a href="index.html"><div class="dir">← 返回</div>📚 资料库目录</a>
 <a class="next" href="../智能体工程教程/index.html"><div class="dir">系统学习 →</div>🎓 智能体工程教程</a></nav>
 </main><script>(function(){
@@ -265,4 +273,4 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script></body></html>
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script></body></html>

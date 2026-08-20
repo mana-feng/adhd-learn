@@ -19,7 +19,7 @@ if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
  --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
  --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
 *{box-sizing:border-box}html{scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--fg);font-size:17px;line-height:1.85;
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
  font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
  -webkit-font-smoothing:antialiased}
 #scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
@@ -45,8 +45,7 @@ blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
  border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
 blockquote p{margin:.4em 0}
 ul,ol{padding-left:1.5em}li{margin:.35em 0}
-table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em;display:block;
- overflow-x:auto}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
 th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
 th{background:var(--quote-bg)}
 tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
@@ -138,6 +137,16 @@ figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 aut
 figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
  margin-top:8px;line-height:1.6}
 figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:.82em;
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
 
 .dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
 .dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
@@ -286,7 +295,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>把模型按层切段，每张卡负责几层，数据像流水线一样流过去。</strong>
 它的通信量比<a href="12-张量并行.html">张量并行</a>小两个数量级，<strong>所以它是唯一能舒服跨机的模型并行</strong> ——
-<strong>但它天生会浪费一部分算力，而这一章就是在和那个浪费搏斗。</strong></p>
+但它天生会浪费一部分算力，而这一章就是在和那个浪费搏斗。</p>
 <hr />
 <h2 id="_2">🏭 一、基本结构</h2>
 <figure class="dia">
@@ -323,118 +332,41 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <figcaption>真正跨卡的地方只有卡与卡之间那<b>三处接缝</b>；底下那条回路是反向传播沿原路折返，走的还是同样三处。</figcaption>
 </figure>
 
-<div class="codehilite"><pre><span></span><code>   通信量对比（batch=8, seq=2048, hidden=8192）：
-
-   张量并行：每层 4 次 AllReduce → 80 层共 86 GB/步
-   流水线并行：每个切分点传一次激活
-              3 个切分点 × 268MB × 2（前向+反向）≈ 1.6 GB/步
-
-   ⭐ 差了 50 倍以上 —— 这就是它能跨机的原因
-</code></pre></div>
-
+<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>通信量对比（batch=8, seq=2048, hidden=8192）：</p><p>张量并行：每层 4 次 AllReduce → 80 层共 86 GB/步</p><p>流水线并行：每个切分点传一次激活</p><p>3 个切分点 × 268MB × 2（前向+反向）≈ 1.6 GB/步</p><p>⭐ 差了 50 倍以上 —— 这就是它能跨机的原因</p></div></section>
 <hr />
 <h2 id="_3">🫧 二、气泡：流水线的原罪</h2>
-<div class="codehilite"><pre><span></span><code>   朴素做法（一个 batch 走完再来下一个）：
-
-   时间 ────────────────────────────────────►
-   GPU0  [F1]                    [B1]
-   GPU1       [F1]          [B1]
-   GPU2            [F1] [B1]
-   GPU3                 [F1][B1]
-         ░░░░░  ← 大量空闲（气泡）░░░░░
-
-   ⭐ 任何时刻只有【一张卡】在干活，其他 3 张在等 💀
-   → 4 卡的效率还不如 1 卡
-</code></pre></div>
-
+<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">朴素做法（一个 batch 走完再来下一个）：</span></div><div class="vb-flow-row"><span class="vb-flow-step">时间 →</span></div><div class="vb-flow-row"><span class="vb-flow-step">GPU0 [F1] [B1]</span></div><div class="vb-flow-row"><span class="vb-flow-step">GPU1 [F1] [B1]</span></div><div class="vb-flow-row"><span class="vb-flow-step">GPU2 [F1] [B1]</span></div><div class="vb-flow-row"><span class="vb-flow-step">GPU3 [F1][B1]</span></div><div class="vb-flow-row"><span class="vb-flow-step">░░░░░ ← 大量空闲（气泡）░░░░░</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 任何时刻只有【一张卡】在干活，其他 3 张在等 💀</span></div><div class="vb-flow-row"><span class="vb-flow-step">4 卡的效率还不如 1 卡</span></div></div></section>
 <p><strong>解法：把 batch 切成 micro-batch</strong></p>
-<div class="codehilite"><pre><span></span><code>   GPipe（把 batch 切成 4 个 micro-batch）：
-
-   GPU0  F1 F2 F3 F4                B4 B3 B2 B1
-   GPU1     F1 F2 F3 F4          B4 B3 B2 B1
-   GPU2        F1 F2 F3 F4    B4 B3 B2 B1
-   GPU3           F1 F2 F3 F4 B4 B3 B2 B1
-        ░░░░░░░░░           ░░░░░░░░░░
-        ↑ 开头的气泡        ↑ 结尾的气泡
-</code></pre></div>
-
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>GPipe（把 batch 切成 4 个 micro-batch）：</p><p>GPU0 F1 F2 F3 F4 B4 B3 B2 B1</p><p>GPU1 F1 F2 F3 F4 B4 B3 B2 B1</p><p>GPU2 F1 F2 F3 F4 B4 B3 B2 B1</p><p>GPU3 F1 F2 F3 F4 B4 B3 B2 B1</p><p>░░░░░░░░░ ░░░░░░░░░░</p><p>↑ 开头的气泡 ↑ 结尾的气泡</p></div></section>
 <p>$$\text{气泡占比} = \frac{P-1}{M+P-1}$$</p>
 <p>（P = 流水线级数，M = micro-batch 数）</p>
-<div class="codehilite"><pre><span></span><code>   P=4, M=4  → 气泡 3/7 = 43%    💀
-   P=4, M=16 → 气泡 3/19 = 16%   ⚠️
-   P=4, M=64 → 气泡 3/67 = 4.5%  ✅
-   P=8, M=64 → 气泡 7/71 = 10%
-</code></pre></div>
-
+<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>P=4, M=4 → 气泡 3/7 = 43% 💀</p><p>P=4, M=16 → 气泡 3/19 = 16% ⚠️</p><p>P=4, M=64 → 气泡 3/67 = 4.5% ✅</p><p>P=8, M=64 → 气泡 7/71 = 10%</p></div></section>
 <blockquote>
 <p>🔑 <strong>黄金法则：M ≥ 4P</strong>，最好 M ≥ 8P。
 <strong>但 micro-batch 越多，需要缓存的激活也越多</strong> —— 这就是下面 1F1B 要解决的。</p>
 </blockquote>
 <hr />
 <h2 id="1f1b">⚡ 三、1F1B：现代标准调度</h2>
-<div class="codehilite"><pre><span></span><code>   GPipe 的问题：所有 F 做完才开始 B
-   → 【M 个 micro-batch 的激活】全部要缓存 💀
-
-   ✅ 1F1B（One Forward One Backward）：
-     进入稳定态后，每做一次前向就【立刻】做一次反向
-     → 反向做完就能释放那个 micro-batch 的激活
-
-   ⭐ 激活显存从 O(M) 降到 O(P)
-     而气泡率【完全不变】—— 纯赚 ⭐
-</code></pre></div>
-
-<div class="codehilite"><pre><span></span><code>   1F1B 时间轴（P=4）：
-   GPU0  F1 F2 F3 F4 B1 F5 B2 F6 B3 ...
-   GPU1     F1 F2 F3 B1 F4 B2 F5 B3 ...
-   GPU2        F1 F2 B1 F3 B2 F4 B3 ...
-   GPU3           F1 B1 F2 B2 F3 B3 ...
-                  ↑ 最深的卡最早开始反向
-</code></pre></div>
-
+<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">GPipe 的问题：所有 F 做完才开始 B</span></div><div class="vb-flow-row"><span class="vb-flow-step">【M 个 micro-batch 的激活】全部要缓存 💀</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 1F1B（One Forward One Backward）：</span></div><div class="vb-flow-row"><span class="vb-flow-step">进入稳定态后，每做一次前向就【立刻】做一次反向</span></div><div class="vb-flow-row"><span class="vb-flow-step">反向做完就能释放那个 micro-batch 的激活</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 激活显存从 O(M) 降到 O(P)</span></div><div class="vb-flow-row"><span class="vb-flow-step">而气泡率【完全不变】—— 纯赚 ⭐</span></div></div></section>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>1F1B 时间轴（P=4）：</p><p>GPU0 F1 F2 F3 F4 B1 F5 B2 F6 B3 ·</p><p>GPU1 F1 F2 F3 B1 F4 B2 F5 B3 ·</p><p>GPU2 F1 F2 B1 F3 B2 F4 B3 ·</p><p>GPU3 F1 B1 F2 B2 F3 B3 ·</p><p>↑ 最深的卡最早开始反向</p></div></section>
 <blockquote>
 <p>💡 <strong>注意 GPU3（最后一级）几乎没有等待</strong> —— 它的前向一做完就能立刻反向。
 而 GPU0 要等最久。<strong>这种不均衡是流水线的固有特征。</strong></p>
 </blockquote>
 <h3 id="1f1binterleaved">⭐ 交错式 1F1B（Interleaved）</h3>
-<div class="codehilite"><pre><span></span><code>   想法：让每张卡负责【不连续的多段】层
-
-   GPU0: 层 1-10  和  层 41-50
-   GPU1: 层 11-20 和  层 51-60
-   ...
-
-   → 流水线&quot;变长&quot;了（虚拟级数 = P × v）
-   → 气泡占比降到 (P-1)/(v·M+P-1)  ⭐ 再降 v 倍
-   ⚠️ 代价：通信次数变成 v 倍
-</code></pre></div>
-
+<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">想法：让每张卡负责【不连续的多段】层</span></div><div class="vb-flow-row"><span class="vb-flow-step">GPU0: 层 1-10 和 层 41-50</span></div><div class="vb-flow-row"><span class="vb-flow-step">GPU1: 层 11-20 和 层 51-60</span></div><div class="vb-flow-row"><span class="vb-flow-step">·</span></div><div class="vb-flow-row"><span class="vb-flow-step">流水线&quot;变长&quot;了（虚拟级数 = P × v）</span></div><div class="vb-flow-row"><span class="vb-flow-step">气泡占比降到 (P-1)/(v·M+P-1) ⭐ 再降 v 倍</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 代价：通信次数变成 v 倍</span></div></div></section>
 <hr />
 <h2 id="_4">⚖️ 四、切分策略：负载均衡是关键</h2>
-<div class="codehilite"><pre><span></span><code>   ⚠️ 流水线的速度取决于【最慢的那一级】
-
-   常见的不均衡来源：
-   ├─ 第一级要算 Embedding（词表很大）
-   ├─ 最后一级要算 LM Head + 损失（词表 × hidden，很重）⭐
-   └─ 有些层结构不同（比如 MoE 层）
-</code></pre></div>
-
-<div class="codehilite"><pre><span></span><code>   ❌ 均匀切：每卡 20 层
-      → 最后一级因为 LM Head 慢 30%
-      → 【所有卡都被它拖慢 30%】
-
-   ✅ 按实测耗时切：
-      GPU0: 22 层（含 Embedding）
-      GPU1: 21 层
-      GPU2: 21 层
-      GPU3: 16 层 + LM Head   ⭐ 层数少一些来补偿
-</code></pre></div>
-
+<section class="visual-block visual-block-tree" aria-label="结构路径"><p class="visual-block-title">结构路径</p><div class="vb-tree-flow"><div class="vb-tree-row"><span class="vb-tree-node">⚠️ 流水线的速度取决于【最慢的那一级】</span></div><div class="vb-tree-row"><span class="vb-tree-node">常见的不均衡来源：</span></div><div class="vb-tree-row"><span class="vb-tree-node">第一级要算 Embedding（词表很大）</span></div><div class="vb-tree-row"><span class="vb-tree-node">最后一级要算 LM Head + 损失（词表 × hidden，很重）⭐</span></div><div class="vb-tree-row"><span class="vb-tree-node">有些层结构不同（比如 MoE 层）</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">❌ 均匀切：每卡 20 层</span></div><div class="vb-flow-row"><span class="vb-flow-step">最后一级因为 LM Head 慢 30%</span></div><div class="vb-flow-row"><span class="vb-flow-step">【所有卡都被它拖慢 30%】</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 按实测耗时切：</span></div><div class="vb-flow-row"><span class="vb-flow-step">GPU0: 22 层（含 Embedding）</span></div><div class="vb-flow-row"><span class="vb-flow-step">GPU1: 21 层</span></div><div class="vb-flow-row"><span class="vb-flow-step">GPU2: 21 层</span></div><div class="vb-flow-row"><span class="vb-flow-step">GPU3: 16 层 + LM Head ⭐ 层数少一些来补偿</span></div></div></section>
 <blockquote>
 <p>🔑 <strong>实践建议</strong>：<strong>先跑一次 profiling，测出每层的实际耗时，再切。</strong>
 均匀切层数几乎总是次优的。</p>
 </blockquote>
 <hr />
 <h2 id="_5">🔨 五、代码</h2>
-<div class="codehilite"><pre><span></span><code><span class="c1"># PyTorch 原生（2.x）</span>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 🧩 骨架：`model` 来自你自己的代码，这一段只看写法</span>
+<span class="c1"># PyTorch 原生（2.x）</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.pipelining</span><span class="w"> </span><span class="kn">import</span> <span class="n">pipeline</span><span class="p">,</span> <span class="n">ScheduleGPipe</span><span class="p">,</span> <span class="n">Schedule1F1B</span>
 
 <span class="n">pipe</span> <span class="o">=</span> <span class="n">pipeline</span><span class="p">(</span><span class="n">module</span><span class="o">=</span><span class="n">model</span><span class="p">,</span> <span class="n">mb_args</span><span class="o">=</span><span class="p">(</span><span class="n">example_input</span><span class="p">,),</span>
@@ -577,7 +509,7 @@ M 个 micro-batch 的梯度是累加的，所以<strong>等效 batch = micro_bat
 <td>那里它只是"省显存的招"；<strong>在流水线里它是气泡公式的 M，直接决定效率</strong> ⭐</td>
 </tr>
 <tr>
-<td><a href="../大模型全景导论/02-Transformer原理.html">《大模型全景导论》02 Transformer 原理</a> 一层长什么样</td>
+<td><a href="../大模型全景导论/02-Transformer原理.html">《大模型全景导论》主线 2 · 模型怎样看懂一句话</a> 一层长什么样</td>
 <td><strong>切分点必须落在层边界上</strong>；embedding / lm_head 比中间层重得多，<strong>是负载不均的主因</strong></td>
 </tr>
 </tbody>
@@ -598,15 +530,15 @@ M 个 micro-batch 的梯度是累加的，所以<strong>等效 batch = micro_bat
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>按层切段</strong>，每卡负责几层，数据像流水线流过。通信量小是因为<strong>卡之间只在切分点传递激活</strong>——3 个切分点约 1.6GB/步，而张量并行是 86GB/步，<strong>差 50 倍以上</strong>。</li>
-<li>气泡是<strong>流水线填充和排空阶段的空闲</strong>。朴素做法下任何时刻只有一张卡在干活，<strong>4 卡的效率还不如 1 卡</strong>。</li>
-<li><strong>(P−1)/(M+P−1)</strong>。P=4,M=4 → 3/7 = <strong>43%</strong>；P=4,M=64 → 3/67 = <strong>4.5%</strong>。</li>
-<li><strong>M ≥ 4P</strong>（最好 8P）。不能无限增大是因为 <strong>micro-batch 越多需要缓存的激活越多</strong>（GPipe 下是 O(M)）。</li>
-<li>进入稳定态后<strong>每做一次前向立刻做一次反向</strong>，反向完就释放该 micro-batch 的激活 → <strong>激活显存从 O(M) 降到 O(P)</strong>，而<strong>气泡率完全不变，纯赚</strong>。</li>
-<li>让每卡负责<strong>不连续的多段</strong>层，虚拟级数变成 P×v，<strong>气泡降到 (P−1)/(v·M+P−1)，再降 v 倍</strong>。代价：<strong>通信次数变成 v 倍</strong>。</li>
-<li>因为<strong>流水线的速度取决于最慢的一级</strong>，而第一级有 Embedding、<strong>最后一级有 LM Head（词表×hidden，很重）</strong>。均匀切会让最后一级拖慢所有卡。应该<strong>先 profiling 测每层实际耗时再切</strong>。</li>
-<li>M 个 micro-batch 的梯度是<strong>累加</strong>的，所以<strong>等效 batch = micro_batch × M</strong>，学习率要按等效 batch 调，不是按 micro_batch。</li>
-<li><strong>数据并行和流水线并行能跨机</strong>，张量并行不能。<strong>只有张量并行能救"单层装不下"</strong>。</li>
+<li><strong>按层切段</strong>，每卡负责几层，数据像流水线流过。通信量小是因为卡之间只在切分点传递激活——3 个切分点约 1.6GB/步，而张量并行是 86GB/步，差 50 倍以上。</li>
+<li>气泡是<strong>流水线填充和排空阶段的空闲</strong>。朴素做法下任何时刻只有一张卡在干活，4 卡的效率还不如 1 卡。</li>
+<li><strong>(P−1)/(M+P−1)</strong>。P=4,M=4 → 3/7 = 43%；P=4,M=64 → 3/67 = 4.5%。</li>
+<li><strong>M ≥ 4P</strong>（最好 8P）。不能无限增大是因为 micro-batch 越多需要缓存的激活越多（GPipe 下是 O(M)）。</li>
+<li>进入稳定态后<strong>每做一次前向立刻做一次反向</strong>，反向完就释放该 micro-batch 的激活 → 激活显存从 O(M) 降到 O(P)，而气泡率完全不变，纯赚。</li>
+<li>让每卡负责<strong>不连续的多段</strong>层，虚拟级数变成 P×v，气泡降到 (P−1)/(v·M+P−1)，再降 v 倍。代价：通信次数变成 v 倍。</li>
+<li>因为<strong>流水线的速度取决于最慢的一级</strong>，而第一级有 Embedding、最后一级有 LM Head（词表×hidden，很重）。均匀切会让最后一级拖慢所有卡。应该先 profiling 测每层实际耗时再切。</li>
+<li>M 个 micro-batch 的梯度是<strong>累加</strong>的，所以等效 batch = micro_batch × M，学习率要按等效 batch 调，不是按 micro_batch。</li>
+<li><strong>数据并行和流水线并行能跨机</strong>，张量并行不能。只有张量并行能救"单层装不下"。</li>
 </ol>
 </details>
 <hr />
@@ -615,7 +547,7 @@ M 个 micro-batch 的梯度是累加的，所以<strong>等效 batch = micro_bat
 <blockquote>
 <p><strong>流水线并行 = 按层切段，数据像流水线流过</strong>；⭐<strong>通信量只有张量并行的 1/50</strong>（1.6GB vs 86GB 每步，因为<strong>只在切分点传激活</strong>）→ <strong>唯一能舒服跨机的模型并行</strong>。💀<strong>原罪是气泡</strong>：朴素做法下任何时刻只有一张卡干活，<strong>4 卡还不如 1 卡</strong>。解法是切 micro-batch，⭐<strong>气泡占比 = (P−1)/(M+P−1)</strong>（P=4,M=4 → <strong>43%</strong>；M=64 → <strong>4.5%</strong>）→ ⭐<strong>黄金法则 M ≥ 4P</strong>，但 <strong>M 越大缓存的激活越多</strong>。⭐<strong>1F1B</strong>：稳定态后每做一次前向立刻做一次反向，反向完就释放激活 → <strong>激活显存从 O(M) 降到 O(P)，而气泡率完全不变，纯赚</strong>（最后一级几乎不等待，GPU0 等最久，<strong>这种不均衡是固有的</strong>）。<strong>交错式 1F1B</strong>：每卡负责不连续的多段，虚拟级数 P×v，<strong>气泡再降 v 倍</strong>，代价是通信次数 v 倍。⭐<strong>负载均衡是关键——速度取决于最慢的一级</strong>：第一级有 Embedding、<strong>最后一级有 LM Head（很重）</strong>，⭐<strong>均匀切层数几乎总是次优，要先 profiling 测每层耗时再切</strong>（最后一级少给几层来补偿）。⚠️<strong>四个坑</strong>：M 太少、切分不均衡、<strong>BatchNorm 跨 micro-batch 统计会错（用 LayerNorm）</strong>、调试困难（先单卡跑通）；💥<strong>还有一个容易忽略的：等效 batch = micro_batch × M，学习率要按等效 batch 调</strong>。<strong>三种并行对比</strong>：数据并行不省显存但能跨机、<strong>张量并行通信巨大必须机内但唯一能救"单层装不下"</strong>、流水线通信极小能跨机但有气泡——⭐<strong>三者互补不是三选一</strong>。</p>
 </blockquote>
-<p><strong>下一节</strong> 👉 <a href="14-并行策略怎么组合.html">14-并行策略怎么组合.md</a> ⭐⭐</p>
+<p><strong>下一节</strong> 👉 <a href="14-并行策略怎么组合.html">14-并行策略怎么组合.md</a> ⭐</p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="12-张量并行.html"><div class="dir">← 上一节</div>⭐ 张量并行</a><a class="next" href="14-并行策略怎么组合.html"><div class="dir">下一节 →</div>⭐⭐ 并行策略组合</a></nav>
@@ -642,4 +574,4 @@ M 个 micro-batch 的梯度是累加的，所以<strong>等效 batch = micro_bat
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script></body></html>
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script></body></html>

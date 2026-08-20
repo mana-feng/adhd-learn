@@ -19,7 +19,7 @@ if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
  --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
  --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
 *{box-sizing:border-box}html{scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--fg);font-size:17px;line-height:1.85;
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
  font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
  -webkit-font-smoothing:antialiased}
 #scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
@@ -45,8 +45,7 @@ blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
  border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
 blockquote p{margin:.4em 0}
 ul,ol{padding-left:1.5em}li{margin:.35em 0}
-table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em;display:block;
- overflow-x:auto}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
 th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
 th{background:var(--quote-bg)}
 tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
@@ -138,6 +137,16 @@ figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 aut
 figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
  margin-top:8px;line-height:1.6}
 figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:.82em;
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
 
 .dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
 .dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
@@ -288,36 +297,26 @@ Git 里的硬编码密钥、永不轮换的凭据、日志里的明文 token —
 <strong>这才是密码系统真实的死因。</strong></p>
 <hr />
 <h2 id="_2">🗝️ 一、密钥的分层</h2>
-<div class="codehilite"><pre><span></span><code>   根密钥 / 主密钥（KEK）      ← 存在 HSM / KMS 里，【永不导出】⭐
-        │ 加密
-        ▼
-   数据加密密钥（DEK）          ← 加密实际数据，可以有很多个
-        │ 派生
-        ▼
-   会话密钥                     ← 每次连接新生成，用完就删
-</code></pre></div>
-
+<section class="visual-block visual-block-tree" aria-label="结构路径"><p class="visual-block-title">结构路径</p><div class="vb-tree-flow"><div class="vb-tree-row"><span class="vb-tree-node">根密钥 / 主密钥（KEK）</span><span class="vb-tree-note">存在 HSM / KMS 里，【永不导出】⭐</span></div><div class="vb-tree-row"><span class="vb-tree-node">加密</span></div><div class="vb-tree-row"><span class="vb-tree-node">数据加密密钥（DEK）</span><span class="vb-tree-note">加密实际数据，可以有很多个</span></div><div class="vb-tree-row"><span class="vb-tree-node">派生</span></div><div class="vb-tree-row"><span class="vb-tree-node">会话密钥</span><span class="vb-tree-note">每次连接新生成，用完就删</span></div></div></section>
 <blockquote>
 <p>🔑 <strong>这个分层叫「信封加密」，是云上的标准做法</strong>：
 <strong>数据用 DEK 加密，DEK 用 KEK 加密后和数据存在一起。</strong></p>
-<div class="codehilite"><pre><span></span><code>   好处：
-   ├─ 轮换 KEK 只需重新加密那些很短的 DEK，不用重新加密 TB 级数据 ⭐
-   ├─ KEK 永不离开 HSM
-   └─ 不同数据可以用不同 DEK，隔离爆炸半径
-</code></pre></div>
-
+<p><strong>这样分层的三个好处：</strong></p>
+<ul>
+<li>轮换 KEK 时，只需重新加密很短的 DEK；不用重新加密 TB 级数据 ⭐</li>
+<li>KEK 永不离开 HSM。</li>
+<li>不同数据可用不同 DEK，隔离爆炸半径。</li>
+</ul>
 </blockquote>
 <hr />
 <h2 id="_3">🌱 二、密钥派生：一个主密钥生出很多个</h2>
-<div class="codehilite"><pre><span></span><code>   ❌ 错误：多个用途共用同一个密钥
-      → 一处泄露全线崩溃
-      → 某些组合还会互相打穿（第 17 章的密钥复用）
+<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">❌ 错误：多个用途共用同一个密钥</span></div><div class="vb-flow-row"><span class="vb-flow-step">一处泄露全线崩溃</span></div><div class="vb-flow-row"><span class="vb-flow-step">某些组合还会互相打穿（第 17 章的密钥复用）</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 正确：用 KDF 从主密钥派生</span></div></div></section>
 
-   ✅ 正确：用 KDF 从主密钥派生
-</code></pre></div>
-
-<div class="codehilite"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">cryptography.hazmat.primitives.kdf.hkdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">HKDF</span>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cryptography.hazmat.primitives.kdf.hkdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">HKDF</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">cryptography.hazmat.primitives</span><span class="w"> </span><span class="kn">import</span> <span class="n">hashes</span>
+
+<span class="n">master</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">urandom</span><span class="p">(</span><span class="mi">32</span><span class="p">)</span>          <span class="c1"># ⭐ 主密钥就该是这样一串随机字节</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">derive</span><span class="p">(</span><span class="n">master</span><span class="p">,</span> <span class="n">purpose</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">,</span> <span class="n">salt</span><span class="p">:</span> <span class="nb">bytes</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">HKDF</span><span class="p">(</span><span class="n">algorithm</span><span class="o">=</span><span class="n">hashes</span><span class="o">.</span><span class="n">SHA256</span><span class="p">(),</span> <span class="n">length</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
@@ -327,12 +326,8 @@ Git 里的硬编码密钥、永不轮换的凭据、日志里的明文 token —
 <span class="n">mac_key</span> <span class="o">=</span> <span class="n">derive</span><span class="p">(</span><span class="n">master</span><span class="p">,</span> <span class="sa">b</span><span class="s2">&quot;myapp/v1/authentication&quot;</span><span class="p">)</span>   <span class="c1"># ⭐ 不同用途不同密钥</span>
 </code></pre></div>
 
-<p><strong>HKDF 的两个阶段</strong>：</p>
-<div class="codehilite"><pre><span></span><code>   Extract：把一个【分布不均匀】的输入（如 DH 的 g^ab）
-            压成一个均匀的伪随机密钥 ⭐
-   Expand： 从它扩展出任意多个、任意长度的子密钥
-</code></pre></div>
-
+<p>HKDF 的两个阶段：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>Extract：把一个【分布不均匀】的输入（如 DH 的 g^ab）</p><p>压成一个均匀的伪随机密钥 ⭐</p><p>Expand： 从它扩展出任意多个、任意长度的子密钥</p></div></section>
 <blockquote>
 <p>⚠️ <strong>别把用户口令直接喂给 HKDF</strong>：
 口令<strong>熵太低</strong>，HKDF 很快，等于没保护。
@@ -344,11 +339,7 @@ Git 里的硬编码密钥、永不轮换的凭据、日志里的明文 token —
 </blockquote>
 <hr />
 <h2 id="_4">🔄 三、轮换与生命周期</h2>
-<div class="codehilite"><pre><span></span><code>   生成 → 分发 → 使用 → 轮换 → 归档 → 销毁
-                          ▲
-                          └── 这一步最常被跳过 ⭐
-</code></pre></div>
-
+<section class="visual-block visual-block-tree" aria-label="结构路径"><p class="visual-block-title">结构路径</p><div class="vb-tree-flow"><div class="vb-tree-row"><span class="vb-tree-node">生成 → 分发 → 使用 → 轮换 → 归档 → 销毁</span></div><div class="vb-tree-row"></div><div class="vb-tree-row"><span class="vb-tree-node">这一步最常被跳过 ⭐</span></div></div></section>
 <p><strong>为什么必须轮换</strong>：</p>
 <table>
 <thead>
@@ -376,34 +367,15 @@ Git 里的硬编码密钥、永不轮换的凭据、日志里的明文 token —
 </tr>
 </tbody>
 </table>
-<p><strong>轮换的工程难点</strong>：</p>
-<div class="codehilite"><pre><span></span><code>   ⭐ 关键：轮换必须支持【新旧密钥共存】的过渡期
-
-   ① 新数据用新密钥加密
-   ② 旧数据仍能用旧密钥解密
-   ③ 后台逐步把旧数据重加密
-   ④ 全部迁移完成后才销毁旧密钥
-
-   💡 所以密文里必须带【密钥版本号】⭐
-      形如：v2 | nonce | ciphertext | tag
-</code></pre></div>
-
+<p>轮换的工程难点：</p>
+<section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>⭐ 关键：轮换必须支持【新旧密钥共存】的过渡期</li><li>新数据用新密钥加密</li><li>旧数据仍能用旧密钥解密</li><li>后台逐步把旧数据重加密</li><li>全部迁移完成后才销毁旧密钥</li><li>💡 所以密文里必须带【密钥版本号】⭐</li><li>形如：v2 | nonce | ciphertext | tag</li></ol></section>
 <blockquote>
 <p>💥 <strong>不带版本号的后果</strong>：轮换那天所有旧数据全部解不开 ——
 这是一个非常常见的生产事故。</p>
 </blockquote>
 <hr />
 <h2 id="_5">💥 四、真实世界的密钥泄露方式（按频率排序）</h2>
-<div class="codehilite"><pre><span></span><code>   ① 代码仓库里的硬编码密钥 ⭐⭐  ← 头号杀手
-      GitHub 上每天泄露【数千】个有效凭据
-   ② 日志 / 错误信息里打印了密钥或 token
-   ③ 配置文件被打进容器镜像 / 前端 bundle
-   ④ CI/CD 的环境变量泄露到构建日志
-   ⑤ 备份文件未加密
-   ⑥ 内部人员
-   ⑦ ……很久之后才是&quot;算法被攻破&quot; 💀
-</code></pre></div>
-
+<section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>代码仓库里的硬编码密钥 ⭐ ← 头号杀手</li><li>GitHub 上每天泄露【数千】个有效凭据</li><li>日志 / 错误信息里打印了密钥或 token</li><li>配置文件被打进容器镜像 / 前端 bundle</li><li>CI/CD 的环境变量泄露到构建日志</li><li>备份文件未加密</li><li>内部人员</li><li>……很久之后才是&quot;算法被攻破&quot; 💀</li></ol></section>
 <p><strong>防御清单</strong>：</p>
 <table>
 <thead>
@@ -443,27 +415,9 @@ Git 里的硬编码密钥、永不轮换的凭据、日志里的明文 token —
 </blockquote>
 <hr />
 <h2 id="hsm-kms">🏦 五、HSM 与 KMS</h2>
-<div class="codehilite"><pre><span></span><code>   HSM（硬件安全模块）：
-   ├─ 密钥在专用硬件里生成，【永不以明文离开】⭐
-   ├─ 你只能发&quot;用这把密钥签这个&quot;的请求，拿到结果
-   ├─ 物理防拆（拆开就自毁）
-   └─ 用于：根 CA、支付系统、证书签发
-
-   KMS（云密钥管理服务）：
-   ├─ AWS KMS / GCP KMS / Azure Key Vault
-   ├─ 提供 生成/存储/轮换/审计/访问控制
-   └─ ⚠️ 代价：你必须【信任云厂商】
-</code></pre></div>
-
+<section class="visual-block visual-block-tree" aria-label="结构路径"><p class="visual-block-title">结构路径</p><div class="vb-tree-flow"><div class="vb-tree-row"><span class="vb-tree-node">HSM（硬件安全模块）：</span></div><div class="vb-tree-row"><span class="vb-tree-node">密钥在专用硬件里生成，【永不以明文离开】⭐</span></div><div class="vb-tree-row"><span class="vb-tree-node">你只能发&quot;用这把密钥签这个&quot;的请求，拿到结果</span></div><div class="vb-tree-row"><span class="vb-tree-node">物理防拆（拆开就自毁）</span></div><div class="vb-tree-row"><span class="vb-tree-node">用于：根 CA、支付系统、证书签发</span></div><div class="vb-tree-row"><span class="vb-tree-node">KMS（云密钥管理服务）：</span></div><div class="vb-tree-row"><span class="vb-tree-node">AWS KMS / GCP KMS / Azure Key Vault</span></div><div class="vb-tree-row"><span class="vb-tree-node">提供 生成/存储/轮换/审计/访问控制</span></div><div class="vb-tree-row"><span class="vb-tree-node">⚠️ 代价：你必须【信任云厂商】</span></div></div></section>
 <p><strong>云 KMS 的信任边界问题</strong>：</p>
-<div class="codehilite"><pre><span></span><code>   ⭐ 你把密钥交给云，就是把&quot;最终解密能力&quot;交给了云
-
-   缓解方案：
-   ├─ BYOK（自带密钥）：你生成密钥再导入
-   ├─ HYOK（自持密钥）：密钥留在你自己的 HSM 里，云只调用
-   └─ 客户端加密：数据【上传前】就在你这边加密，云只存密文 ⭐
-</code></pre></div>
-
+<section class="visual-block visual-block-tree" aria-label="结构路径"><p class="visual-block-title">结构路径</p><div class="vb-tree-flow"><div class="vb-tree-row"><span class="vb-tree-node">⭐ 你把密钥交给云，就是把&quot;最终解密能力&quot;交给了云</span></div><div class="vb-tree-row"><span class="vb-tree-node">缓解方案：</span></div><div class="vb-tree-row"><span class="vb-tree-node">BYOK（自带密钥）：你生成密钥再导入</span></div><div class="vb-tree-row"><span class="vb-tree-node">HYOK（自持密钥）：密钥留在你自己的 HSM 里，云只调用</span></div><div class="vb-tree-row"><span class="vb-tree-node">客户端加密：数据【上传前】就在你这边加密，云只存密文 ⭐</span></div></div></section>
 <hr />
 <h2 id="_6">🤝 六、多方持有一个密钥</h2>
 <table>
@@ -572,23 +526,30 @@ Git 里的硬编码密钥、永不轮换的凭据、日志里的明文 token —
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>数据用 DEK 加密，<strong>DEK 用 KEK 加密后和数据存在一起</strong>。好处：①<strong>轮换 KEK 只需重新加密很短的 DEK，不用重加密 TB 级数据</strong> ②KEK 永不离开 HSM ③不同数据用不同 DEK，隔离爆炸半径。</li>
-<li>因为<strong>一处泄露会全线崩溃</strong>，某些组合还会互相打穿。用 <strong>HKDF 派生</strong>，把用途字符串放进 <code>info</code> 参数做域分隔。</li>
-<li><strong>Extract</strong>：把分布不均匀的输入（如 DH 的 g^ab）压成均匀的伪随机密钥；<strong>Expand</strong>：从它扩展出任意多个任意长度的子密钥。</li>
-<li>因为口令<strong>熵太低</strong>，而 HKDF 很快，等于没保护。必须用 <strong>Argon2id / scrypt</strong>——慢的、抗 GPU 的。规则：高熵输入走 HKDF，低熵输入走 Argon2id。</li>
+<li>数据用 DEK 加密，<strong>DEK 用 KEK 加密后和数据存在一起</strong>。好处：①轮换 KEK 只需重新加密很短的 DEK，不用重加密 TB 级数据 ②KEK 永不离开 HSM ③不同数据用不同 DEK，隔离爆炸半径。</li>
+<li>因为<strong>一处泄露会全线崩溃</strong>，某些组合还会互相打穿。用 HKDF 派生，把用途字符串放进 <code>info</code> 参数做域分隔。</li>
+<li><strong>Extract</strong>：把分布不均匀的输入（如 DH 的 g^ab）压成均匀的伪随机密钥；Expand：从它扩展出任意多个任意长度的子密钥。</li>
+<li>因为口令<strong>熵太低</strong>，而 HKDF 很快，等于没保护。必须用 Argon2id / scrypt——慢的、抗 GPU 的。规则：高熵输入走 HKDF，低熵输入走 Argon2id。</li>
 <li>①限制爆炸半径 ②<strong>限制同一密钥加密的数据量</strong>（生日界）③人员流动 ④合规要求。</li>
-<li>必须支持<strong>新旧密钥共存的过渡期</strong>：新数据用新密钥，旧数据仍能解密，后台逐步重加密，全部迁移完才销毁旧密钥。<strong>所以密文必须带密钥版本号</strong>。不做的话<strong>轮换那天所有旧数据全部解不开</strong>。</li>
+<li>必须支持<strong>新旧密钥共存的过渡期</strong>：新数据用新密钥，旧数据仍能解密，后台逐步重加密，全部迁移完才销毁旧密钥。所以密文必须带密钥版本号。不做的话轮换那天所有旧数据全部解不开。</li>
 <li><strong>代码仓库里的硬编码密钥</strong>。GitHub 上每天泄露数千个有效凭据。</li>
-<li><strong>不够</strong>。那个 commit 可能已被 clone、fork、爬虫抓走。<strong>唯一正确的反应是立刻轮换那把密钥。</strong></li>
-<li><strong>k 个点唯一确定一条 k−1 次多项式</strong>。秘密作常数项，每人拿一个点，k 个点插值还原后 f(0) 就是秘密。k−1 个点时<strong>剩下的自由度让 f(0) 可以是任何值</strong>，所以是<strong>信息论意义上零泄露</strong>（和 OTP 一样不依赖计算假设）。</li>
-<li>多签是"n 个签名都放链上"（占空间、暴露策略）；<strong>门限签名产出一个普通签名，外界看不出它是多方协作的</strong>，且<strong>私钥从未被完整重建过</strong>。</li>
+<li><strong>不够</strong>。那个 commit 可能已被 clone、fork、爬虫抓走。唯一正确的反应是立刻轮换那把密钥。</li>
+<li><strong>k 个点唯一确定一条 k−1 次多项式</strong>。秘密作常数项，每人拿一个点，k 个点插值还原后 f(0) 就是秘密。k−1 个点时剩下的自由度让 f(0) 可以是任何值，所以是信息论意义上零泄露（和 OTP 一样不依赖计算假设）。</li>
+<li>多签是"n 个签名都放链上"（占空间、暴露策略）；<strong>门限签名产出一个普通签名，外界看不出它是多方协作的</strong>，且私钥从未被完整重建过。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_9">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>⭐<strong>算法几乎从不被攻破，密钥管理天天出事</strong>。<strong>分层（信封加密）</strong>：KEK 在 HSM 里永不导出 → 加密 DEK → 派生会话密钥；⭐<strong>好处是轮换 KEK 只需重加密很短的 DEK，不用动 TB 级数据</strong>。<strong>派生</strong>：用 <strong>HKDF</strong>，把用途放 <code>info</code> 做域分隔（<strong>不同用途必须不同密钥</strong>）；两阶段 <strong>Extract</strong>（把 DH 的 g^ab 这类不均匀输入压成均匀密钥）+ <strong>Expand</strong>。⚠️⭐<strong>用户口令不能喂 HKDF</strong>（熵太低且 HKDF 快）——<strong>低熵走 Argon2id，高熵走 HKDF</strong>。<strong>轮换</strong>四个理由：限制爆炸半径、⭐<strong>限制同一密钥的加密数据量（生日界）</strong>、人员流动、合规；⭐<strong>工程关键是支持新旧密钥共存的过渡期 → 密文必须带版本号</strong>（<code>v2|nonce|ct|tag</code>），💥不带的话<strong>轮换那天旧数据全部解不开</strong>。⭐<strong>真实泄露方式按频率</strong>：①<strong>代码仓库硬编码</strong>（头号杀手，GitHub 每天泄露数千个有效凭据）②日志打印 token ③配置进镜像/前端bundle ④CI 环境变量 ⑤备份未加密 ⑥内部人员 ⑦……很久之后才是算法被破。防御：<strong>gitleaks 扫描</strong>、Vault/KMS 集中管理、⭐<strong>短期凭据（OIDC 换临时凭据，根本不存长期密钥）</strong>、日志脱敏；⚠️⭐<strong>从 git 历史删掉 ≠ 没泄露</strong>——commit 可能已被 clone/fork/爬虫抓走，<strong>唯一正确反应是立刻轮换</strong>。<strong>HSM</strong>：密钥永不明文离开硬件，物理防拆；<strong>云 KMS</strong> 方便但<strong>你必须信任云厂商</strong> → 缓解用 BYOK/HYOK/⭐<strong>客户端加密</strong>（上传前就加密，云只存密文）。<strong>多方持有</strong>：⭐<strong>Shamir 秘密共享</strong>（<strong>k 个点唯一确定 k−1 次多项式</strong>，秘密作常数项；<strong>k−1 份时 f(0) 可以是任何值 ⟹ 信息论零泄露</strong>，和 OTP 一样）、<strong>门限签名</strong>（<strong>私钥从未被完整重建</strong>，且<strong>产出普通签名外界看不出是多方协作</strong>，优于多签）。</p>
+<p>⭐⭐ <strong>算法几乎从不被攻破，密钥管理天天出事。</strong></p>
+<p><strong>分层（信封加密）</strong>：主密钥锁在硬件里永不导出，用它加密数据密钥。⭐ <strong>好处是轮换主密钥只需重新加密那一小段数据密钥，不用动 TB 级数据。</strong></p>
+<p>派生要做<strong>域分隔</strong>——⭐ <strong>不同用途必须是不同密钥</strong>。⚠️⭐ <strong>但用户口令不能走这条路：熵太低而且它太快</strong>——<strong>低熵口令要走专门的慢哈希，高熵材料才走密钥派生函数。</strong></p>
+<p>轮换四个理由里有一个纯技术的：⭐ <strong>限制同一把密钥加密的数据量</strong>。⭐ <strong>工程上的关键是支持新旧共存的过渡期，所以密文必须带版本号</strong>——💥 <strong>不带的话，轮换那天旧数据全部解不开。</strong></p>
+<p>⭐⭐ <strong>真实泄露方式按频率排，排在最前面的是「代码仓库里硬编码」</strong>——<strong>公开仓库每天泄露数千个有效凭据</strong>；接着是日志打印、配置进镜像或前端包、CI 环境变量、备份没加密、内部人员……⭐ <strong>算法被破排在很后面。</strong></p>
+<p>⚠️⭐ <strong>从 git 历史里删掉不等于没泄露</strong>：那个 commit 可能已经被克隆、被 fork、被爬虫抓走了——⭐ <strong>唯一正确的反应是立刻轮换。</strong></p>
+<p>防御里最彻底的一条是 ⭐ <strong>短期凭据：换成临时凭据之后，你根本不存长期密钥。</strong> 云托管方便，<strong>但你必须信任云厂商</strong>——⭐ 最强的缓解是<strong>客户端加密：上传前就加密，云只存密文。</strong></p>
+<p>⭐ 多方持有两件事：<strong>秘密分享</strong>（少一份时秘密可以是任何值，⭐ <strong>所以是信息论意义上的零泄露</strong>）和<strong>门限签名</strong>——⭐ <strong>私钥从未被完整重建过，而且产出的是普通签名，外界看不出是多方协作。</strong></p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="20-区块链.html">20-区块链.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
@@ -617,4 +578,4 @@ Git 里的硬编码密钥、永不轮换的凭据、日志里的明文 token —
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script></body></html>
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script></body></html>
