@@ -19,7 +19,7 @@ if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
  --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
  --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
 *{box-sizing:border-box}html{scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--fg);font-size:17px;line-height:1.85;
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
  font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
  -webkit-font-smoothing:antialiased}
 #scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
@@ -45,8 +45,7 @@ blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
  border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
 blockquote p{margin:.4em 0}
 ul,ol{padding-left:1.5em}li{margin:.35em 0}
-table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em;display:block;
- overflow-x:auto}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
 th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
 th{background:var(--quote-bg)}
 tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
@@ -138,6 +137,16 @@ figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 aut
 figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
  margin-top:8px;line-height:1.6}
 figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:.82em;
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
 
 .dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
 .dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
@@ -290,30 +299,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h2 id="_2">✂️ 一、两种切法</h2>
 <p>设一层是 $Y = \text{GeLU}(XA)$，权重 $A$ 要切开。</p>
 <h3 id="1-a">① 列并行（按列切 A）</h3>
-<div class="codehilite"><pre><span></span><code>   A = [A₁ | A₂]        ← 竖着切
-
-   GPU0 算 Y₁ = GeLU(X A₁)
-   GPU1 算 Y₂ = GeLU(X A₂)
-
-   ⭐ 关键：GeLU 是逐元素的，可以【各算各的】，不需要通信！
-     结果拼起来就是完整的 Y = [Y₁ | Y₂]
-</code></pre></div>
-
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>A = [A₁ | A₂] ← 竖着切</p><p>GPU0 算 Y₁ = GeLU(X A₁)</p><p>GPU1 算 Y₂ = GeLU(X A₂)</p><p>⭐ 关键：GeLU 是逐元素的，可以【各算各的】，不需要通信！</p><p>结果拼起来就是完整的 Y = [Y₁ | Y₂]</p></div></section>
 <h3 id="2-a">② 行并行（按行切 A）</h3>
-<div class="codehilite"><pre><span></span><code>   A = ⎡A₁⎤              ← 横着切
-       ⎣A₂⎦
-
-   输入也要按列切：X = [X₁ | X₂]
-
-   GPU0 算 X₁A₁
-   GPU1 算 X₂A₂
-
-   ⚠️ Y = X₁A₁ + X₂A₂ → 必须 AllReduce 求和
-</code></pre></div>
-
+<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">A = ⎡A₁⎤ ← 横着切</span></div><div class="vb-flow-row"><span class="vb-flow-step">⎣A₂⎦</span></div><div class="vb-flow-row"><span class="vb-flow-step">输入也要按列切：X = [X₁ | X₂]</span></div><div class="vb-flow-row"><span class="vb-flow-step">GPU0 算 X₁A₁</span></div><div class="vb-flow-row"><span class="vb-flow-step">GPU1 算 X₂A₂</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ Y = X₁A₁ + X₂A₂</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">必须 AllReduce 求和</span></div></div></section>
 <hr />
 <h2 id="megatron">🧩 二、Megatron 的经典组合（⭐ 这一节是核心）</h2>
-<p><strong>MLP 块</strong>：$Y = \text{GeLU}(XA) \cdot B$</p>
+<p>MLP 块：$Y = \text{GeLU}(XA) \cdot B$</p>
 <figure class="dia">
 <svg viewBox="0 0 700 290" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Megatron 的 MLP 张量并行：两张 GPU 各自把 X 过一遍列并行的第一层、GeLU、再过行并行的第二层，两条支路直到最后才汇入一次 AllReduce 得到输出">
 <text class="dia-t" x="350" y="22" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">⭐ 精妙之处：第一层用【列并行】，第二层用【行并行】</text>
@@ -383,34 +374,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <strong>而行并行需要的输入恰好就是"按列切开的"</strong> —— 严丝合缝。
 如果顺序反过来（先行后列），中间就要多一次通信。</p>
 </blockquote>
-<p><strong>Attention 块</strong>：更自然</p>
-<div class="codehilite"><pre><span></span><code>   多头注意力本来就是【多个独立的头】
-
-   → 直接把头分给不同的卡：GPU0 拿头 1-8，GPU1 拿头 9-16
-   → 各自算完整的 attention（Q、K、V 投影都按列并行）
-   → 最后的输出投影用行并行 → 一次 AllReduce ⭐
-</code></pre></div>
-
-<div class="codehilite"><pre><span></span><code>   ⭐ 一个 Transformer 层的总通信：
-   前向：MLP 一次 AllReduce + Attention 一次 AllReduce = 2 次
-   反向：同样 2 次
-   → 每层 4 次 AllReduce
-</code></pre></div>
-
+<p>Attention 块：更自然</p>
+<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">多头注意力本来就是【多个独立的头】</span></div><div class="vb-flow-row"><span class="vb-flow-step">直接把头分给不同的卡：GPU0 拿头 1-8，GPU1 拿头 9-16</span></div><div class="vb-flow-row"><span class="vb-flow-step">各自算完整的 attention（Q、K、V 投影都按列并行）</span></div><div class="vb-flow-row"><span class="vb-flow-step">最后的输出投影用行并行</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">一次 AllReduce ⭐</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⭐ 一个 Transformer 层的总通信：</span></div><div class="vb-flow-row"><span class="vb-flow-step">前向：MLP 一次 AllReduce + Attention 一次 AllReduce = 2 次</span></div><div class="vb-flow-row"><span class="vb-flow-step">反向：同样 2 次</span></div><div class="vb-flow-row"><span class="vb-flow-step">每层 4 次 AllReduce</span></div></div></section>
 <hr />
 <h2 id="_3">📉 三、通信代价：为什么它必须在机内</h2>
-<div class="codehilite"><pre><span></span><code>   每次 AllReduce 的数据量 = batch × seq_len × hidden × 2 字节
-
-   例：batch=8, seq=2048, hidden=8192, BF16
-   → 8 × 2048 × 8192 × 2 = 268 MB
-   → 每层 4 次 = 1.07 GB
-   → 80 层 = 86 GB【每一步】⭐
-
-   在 NVLink 900GB/s：约 0.1 秒       ✅ 可接受
-   在 PCIe 64GB/s：   约 1.3 秒       ⚠️ 慢 13 倍
-   跨机 IB 25GB/s：   约 3.4 秒       💀 完全不可用
-</code></pre></div>
-
+<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>每次 AllReduce 的数据量 = batch × seq_len × hidden × 2 字节</p><p>例：batch=8, seq=2048, hidden=8192, BF16</p><p>→ 8 × 2048 × 8192 × 2 = 268 MB</p><p>→ 每层 4 次 = 1.07 GB</p><p>→ 80 层 = 86 GB【每一步】⭐</p><p>在 NVLink 900GB/s：约 0.1 秒 ✅ 可接受</p><p>在 PCIe 64GB/s： 约 1.3 秒 ⚠️ 慢 13 倍</p><p>跨机 IB 25GB/s： 约 3.4 秒 💀 完全不可用</p></div></section>
 <blockquote>
 <p>🔑 <strong>这个数字直接给出了铁律</strong>：
 <strong>张量并行度不要超过单机的 GPU 数（通常是 8）。</strong>
@@ -448,8 +417,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
         <span class="k">return</span> <span class="n">out</span>
 </code></pre></div>
 
-<p><strong>实际使用（别自己写）</strong>：</p>
-<div class="codehilite"><pre><span></span><code><span class="c1"># ⭐ PyTorch 原生（2.x）</span>
+<p>实际使用（别自己写）：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 🧩 骨架：`model` 来自你自己的代码，这一段只看写法</span>
+<span class="c1"># ⭐ PyTorch 原生（2.x）</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.tensor.parallel</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">parallelize_module</span><span class="p">,</span> <span class="n">ColwiseParallel</span><span class="p">,</span> <span class="n">RowwiseParallel</span><span class="p">)</span>
 
@@ -469,24 +439,14 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <hr />
 <h2 id="_5">🧵 五、序列并行：一个重要的补充</h2>
-<div class="codehilite"><pre><span></span><code>   ⚠️ 张量并行有个盲区：LayerNorm 和 Dropout 【没有被切】
-      → 每张卡都要存完整的激活
-      → 长序列时这部分显存很可观
-
-   ✅ 序列并行（Sequence Parallel）：
-     在 LayerNorm/Dropout 这些地方，按【序列维度】切开
-     → 和张量并行【交替使用】，用 AllGather/ReduceScatter 转换
-
-   ⭐ 效果：激活显存再降 TP 倍，而【通信总量不变】
-     （因为 AllReduce 被拆成了 ReduceScatter + AllGather）
-</code></pre></div>
-
+<section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 张量并行有个盲区：LayerNorm 和 Dropout 【没有被切】</span></div><div class="vb-flow-row"><span class="vb-flow-step">每张卡都要存完整的激活</span></div><div class="vb-flow-row"><span class="vb-flow-step">长序列时这部分显存很可观</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 序列并行（Sequence Parallel）：</span></div><div class="vb-flow-row"><span class="vb-flow-step">在 LayerNorm/Dropout 这些地方，按【序列维度】切开</span></div><div class="vb-flow-row"><span class="vb-flow-step">和张量并行【交替使用】，用 AllGather/ReduceScatter 转换</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 效果：激活显存再降 TP 倍，而【通信总量不变】</span></div><div class="vb-flow-row"><span class="vb-flow-step">（因为 AllReduce 被拆成了 ReduceScatter + AllGather）</span></div></div></section>
 <blockquote>
 <p>💡 <strong>又是那个恒等式</strong>（<a href="05-互联与集群拓扑.html">第 5 章</a>、<a href="11-ZeRO与FSDP.html">第 11 章</a>）：
 <strong>AllReduce = ReduceScatter + AllGather。</strong>
 这已经是它第三次出场了 —— <strong>它是分布式训练里最有用的一个等式。</strong></p>
 </blockquote>
-<div class="codehilite"><pre><span></span><code><span class="c1"># Megatron 里开启</span>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 🧩 骨架：`sequence` 来自你自己的代码，这一段只看写法</span>
+<span class="c1"># Megatron 里开启</span>
 <span class="o">--</span><span class="n">sequence</span><span class="o">-</span><span class="n">parallel</span>     <span class="c1"># ⭐ 几乎总是该开，和 TP 配套</span>
 </code></pre></div>
 
@@ -546,7 +506,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <td>对比：ZeRO 能跨机，TP 不能</td>
 </tr>
 <tr>
-<td><a href="../大模型全景导论/02-Transformer原理.html">全景导论第 2 章</a> MLP 和多头注意力</td>
+<td><a href="../大模型全景导论/02-Transformer原理.html">全景导论主线 2 · 模型怎样看懂一句话</a> MLP 和多头注意力</td>
 <td>本章切的就是它们</td>
 </tr>
 <tr>
@@ -571,22 +531,28 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>列并行按列切权重，各卡各算各的、不需要通信</strong>（因为 GeLU 是逐元素的）；<strong>行并行按行切，需要 AllReduce 求和</strong>。</li>
+<li><strong>列并行按列切权重，各卡各算各的、不需要通信</strong>（因为 GeLU 是逐元素的）；行并行按行切，需要 AllReduce 求和。</li>
 <li>因为<strong>列并行的输出天然是按列切开的，而行并行需要的输入恰好就是按列切开的</strong>——严丝合缝，中间完全不用通信，整个 MLP 只需一次 AllReduce。反过来（先行后列）中间要多一次通信。</li>
-<li><strong>直接把头分给不同的卡</strong>（Q/K/V 投影列并行，输出投影行并行）。更自然是因为<strong>多头注意力本来就是多个独立的头</strong>。</li>
+<li><strong>直接把头分给不同的卡</strong>（Q/K/V 投影列并行，输出投影行并行）。更自然是因为多头注意力本来就是多个独立的头。</li>
 <li><strong>4 次</strong>：前向 MLP 一次 + Attention 一次，反向同样 2 次。</li>
-<li>每次 AllReduce = 8×2048×8192×2 = 268MB，每层 4 次 = 1.07GB，80 层 = <strong>86GB/步</strong>。NVLink 900GB/s ≈ <strong>0.1 秒</strong>；跨机 IB 25GB/s ≈ <strong>3.4 秒（完全不可用）</strong>。</li>
+<li>每次 AllReduce = 8×2048×8192×2 = 268MB，每层 4 次 = 1.07GB，80 层 = <strong>86GB/步</strong>。NVLink 900GB/s ≈ 0.1 秒；跨机 IB 25GB/s ≈ 3.4 秒（完全不可用）。</li>
 <li>因为<strong>跨机带宽撑不住</strong>——TP 度超过单机 GPU 数就要跨机通信，而跨机比 NVLink 慢 35 倍。这是带宽算出来的硬约束，不是建议。</li>
-<li><strong>通信量和 TP 度无关</strong>（TP=2 和 TP=8 通信量一样），但 TP 越大每卡分摊的计算越少 → <strong>通信占比上升，效率下降</strong>。所以 TP=8 通常是甜点。</li>
-<li>解决<strong>LayerNorm 和 Dropout 没被切、每卡都要存完整激活</strong>的问题。按序列维度切，和 TP 交替使用。靠 <strong>AllReduce = ReduceScatter + AllGather</strong>——所以<strong>激活显存降 TP 倍而通信总量不变</strong>。</li>
-<li>如果 TP 组内 dropout mask 相同，<strong>被切开的神经元会被同步丢弃，等效 dropout 率完全不对</strong>。隐蔽在于<strong>训练能跑、loss 也在降，但正则效果没了</strong>。</li>
+<li><strong>通信量和 TP 度无关</strong>（TP=2 和 TP=8 通信量一样），但 TP 越大每卡分摊的计算越少 → 通信占比上升，效率下降。所以 TP=8 通常是甜点。</li>
+<li>解决<strong>LayerNorm 和 Dropout 没被切、每卡都要存完整激活</strong>的问题。按序列维度切，和 TP 交替使用。靠 AllReduce = ReduceScatter + AllGather——所以激活显存降 TP 倍而通信总量不变。</li>
+<li>如果 TP 组内 dropout mask 相同，<strong>被切开的神经元会被同步丢弃，等效 dropout 率完全不对</strong>。隐蔽在于训练能跑、loss 也在降，但正则效果没了。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_9">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p><strong>张量并行把一层内部的矩阵切开分给多卡</strong>——<strong>唯一能救"单层都装不下"的办法</strong>，代价是每层都要通信。<strong>两种切法</strong>：<strong>列并行</strong>（竖着切权重，<strong>各算各的不用通信</strong>，因为 GeLU 是逐元素的）、<strong>行并行</strong>（横着切，<strong>必须 AllReduce 求和</strong>）。⭐<strong>Megatron 的精妙组合：MLP 先列并行再行并行</strong>——因为<strong>列并行的输出天然按列切开，而行并行需要的输入恰好就是按列切开的</strong>，严丝合缝 → <strong>整个 MLP 只要一次 AllReduce</strong>（反过来要多一次）。<strong>Attention 更自然</strong>：多头本来就独立，直接把头分给不同卡。⭐<strong>每层前向反向共 4 次 AllReduce</strong>。<strong>通信代价</strong>（80层/hidden8192/batch8/seq2048）：每次 268MB × 4 × 80 = <strong>86GB 每步</strong> → NVLink <strong>0.1 秒可接受</strong>、PCIe 1.3 秒、<strong>跨机 3.4 秒完全不可用</strong> → ⭐<strong>铁律：张量并行度不要超过单机 GPU 数（通常 8），这是带宽算出来的硬约束</strong>。⭐<strong>通信量和 TP 度无关但计算被分摊</strong> → <strong>TP 越大通信占比越高，TP=8 是甜点、TP=16 收益已很小</strong>。<strong>序列并行</strong>：TP 的盲区是 <strong>LayerNorm/Dropout 没被切</strong>，按序列维度切开与 TP 交替，⭐<strong>激活显存再降 TP 倍而通信总量不变</strong>——又是 <strong>AllReduce = ReduceScatter + AllGather</strong>（<strong>这个等式第三次出场，是分布式里最有用的一个</strong>）。⚠️<strong>四个坑</strong>：维度必须整除、⭐<strong>TP 组内 dropout 种子必须不同</strong>（相同则被切开的神经元同步丢弃，<strong>训练能跑 loss 也降但正则效果没了</strong>）、词表并行要 mask 掉不属于自己的 token、TP 度太大。<strong>别自己实现</strong>——用 Megatron-LM / PyTorch 原生 TP / vLLM 的 <code>tensor_parallel_size</code>。</p>
+<p><strong>张量并行把一层内部的矩阵切开分给多卡</strong>——⭐ <strong>唯一能救「单层都装不下」的办法</strong>，代价是每层都要通信。</p>
+<p>两种切法：一种切完各算各的、不用通信；另一种切完必须求和。⭐⭐ <strong>Megatron 的精妙之处是把两者按顺序组合</strong>：<strong>前一种的输出天然就是后一种需要的输入形状，严丝合缝</strong>——⭐ <strong>于是整个前馈块只要一次通信，反过来排就要多一次。</strong> 注意力那边更自然：<strong>多个头本来就独立，直接分给不同卡。</strong></p>
+<p>⭐⭐ <strong>通信代价直接推出一条铁律</strong>：把每层前向反向的同步量乘上层数，<strong>在机内高速互联上是可接受的，走 PCIe 就慢一个量级，跨机则完全不可用</strong>——⭐ <strong>所以张量并行度不要超过单机的卡数。这不是经验，是带宽算出来的硬约束。</strong></p>
+<p>⭐ 另一条也是算出来的：<strong>通信量和并行度无关，而计算被分摊了</strong>——⭐ <strong>所以并行度越大，通信占比越高</strong>，到某个点之后再加收益已经很小。</p>
+<p><strong>序列并行</strong>补的是它的盲区（归一化和随机丢弃没被切），⭐ <strong>激活显存再降一档而通信总量不变</strong>——<strong>又是「一次同步等于两次半同步」那个等式，这已经是它第三次出场，是分布式里最有用的一个。</strong></p>
+<p>⚠️ 四个坑里最阴的一个：⭐⭐ <strong>同一组内的随机种子必须不同</strong>——<strong>相同的话，被切开的神经元会被同步丢弃，训练照跑、loss 也降，但正则效果没了。</strong></p>
+<p>⭐ 最后一句：<strong>别自己实现，用现成的。</strong></p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="13-流水线并行.html">13-流水线并行.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
@@ -615,5 +581,5 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><script src="../assets/analytics.js" async></script>
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><script src="../assets/analytics.js" async></script>
 </body></html>

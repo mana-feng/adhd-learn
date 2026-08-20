@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>02 · autograd：图是什么时候建的，又是什么时候没的 · PyTorch 这个框架本身</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:1.9em;line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:1.42em;margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:1.14em;margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:.88em;background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:.85em}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:.92em}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:.8em;color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:.85em;color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:.92em}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:.78em;
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:.92em;border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:.93em;line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:.9em;line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:.93em;line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:.92em}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:1.15em;opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:.82em;
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
+
+.dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:.95em;margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:.93em;line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.02em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:.93em;break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">02 · autograd 怎么建图</span>
+  <span class="prevnext"><a href="01-张量到底是什么.html">←</a>
+  <a href="03-三种就地操作报错.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#_2">🧩 一、图不是你画的，是算出来的</a></li>
+<li><a href="#_3">🧩 二、图是动态的：每次前向都是一张新图</a></li>
+<li><a href="#backward">🧩 三、backward() 走完，图就没了</a></li>
+<li><a href="#_4">🧩 四、梯度是累加的，不是覆盖的</a></li>
+<li><a href="#grad">🧩 五、只有叶子会拿到 .grad</a></li>
+<li><a href="#backward_1">🧩 六、backward() 要一个标量</a></li>
+<li><a href="#_5">🧩 七、图到底占多少地方（实测）</a></li>
+<li><a href="#retain_graph">🧩 八、什么时候真的需要 retain_graph</a></li>
+<li><a href="#autogradgrad-grad">🧩 九、autograd.grad：要梯度但不写进 .grad</a></li>
+<li><a href="#_7">🔗 这一章连到哪里</a></li>
+<li><a href="#_8">✅ 检查点</a></li>
+<li><a href="#_9">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<h1 id="02-autograd">02 · autograd：图是什么时候建的，又是什么时候没的</h1>
+<p>⏱ <strong>80 分钟</strong> ｜ ⭐ <strong>实测：第二次 <code>backward()</code> 直接报 "Trying to backward through the graph a second time" —— 图默认用完就扔</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong>你从来没有「定义」过一张计算图 —— 图是前向的时候顺手记下来的，<code>backward()</code> 走完一遍就被扔掉了。</strong>
+本章要讲清四件事：图是<strong>什么时候</strong>建的（每次前向、每次都是新的）、图上存了什么（实测一次前向为反向存下 44.0 MB）、
+图是什么时候没的（<code>backward()</code> 一走完就释放）、以及为什么梯度是累加而不是覆盖。</p>
+<p>⚠️ <strong>本章不讲 <code>detach</code> / <code>no_grad</code> 怎么用</strong>，那是第 04 章。这里只讲图本身。</p>
+<hr />
+<h2 id="_2">🧩 一、图不是你画的，是算出来的</h2>
+<p>第 01 章说过，说明书上第六个字段 <code>requires_grad</code> 一开，「接下来对它做的每一步都要被记账」。
+记账的方式就是：<strong>每一次运算，都在结果张量上挂一个 <code>grad_fn</code></strong>。</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">2.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>   <span class="c1"># 叶子：你自己造的</span>
+<span class="n">y</span> <span class="o">=</span> <span class="n">x</span> <span class="o">*</span> <span class="mi">3</span>                                     <span class="c1"># 中间结果</span>
+<span class="n">z</span> <span class="o">=</span> <span class="n">y</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>                                   <span class="c1"># 标量</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;x  is_leaf&quot;</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">is_leaf</span><span class="p">,</span> <span class="s2">&quot; requires_grad&quot;</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">,</span> <span class="s2">&quot; grad_fn&quot;</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">grad_fn</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;y  is_leaf&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">.</span><span class="n">is_leaf</span><span class="p">,</span> <span class="s2">&quot; requires_grad&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">,</span> <span class="s2">&quot; grad_fn&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">.</span><span class="n">grad_fn</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;z  grad_fn&quot;</span><span class="p">,</span> <span class="n">z</span><span class="o">.</span><span class="n">grad_fn</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;y 的上游:&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">.</span><span class="n">grad_fn</span><span class="o">.</span><span class="n">next_functions</span><span class="p">)</span>   <span class="c1"># ⭐ AccumulateGrad 就是「把梯度攒到 x.grad 上」</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>x is_leaf True requires_grad True grad_fn None</p><p>y is_leaf False requires_grad True grad_fn &lt;MulBackward0 object at 0x000001C128091AE0&gt;</p><p>z grad_fn &lt;SumBackward0 object at 0x000001C1296599C0&gt;</p><p>y 的上游: ((&lt;AccumulateGrad object at 0x000001C1296C9480&gt;, 0), (None, 0))</p></div></section>
+<p>（内存地址每次跑都不一样，⚠️ 别对着地址找不同。）</p>
+<p>⭐ <strong>三个角色，一次分清</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>角色</th>
+<th>怎么认</th>
+<th>它是什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>叶子（leaf）</strong></td>
+<td><code>is_leaf == True</code>、<code>grad_fn is None</code></td>
+<td>⭐ 你自己造的张量：模型参数、输入数据。<strong>只有它会拿到 <code>.grad</code></strong></td>
+</tr>
+<tr>
+<td><strong>中间结果</strong></td>
+<td><code>is_leaf == False</code>、有 <code>grad_fn</code></td>
+<td>运算的产物。<code>requires_grad</code> 是<strong>继承</strong>来的，不是你设的</td>
+</tr>
+<tr>
+<td><strong><code>grad_fn</code> 节点</strong></td>
+<td><code>MulBackward0</code> / <code>SumBackward0</code> / <code>AccumulateGrad</code></td>
+<td>⭐ 真正的「图」。每个节点知道两件事：<strong>怎么反着算</strong>，和<strong>上游是谁</strong>（<code>next_functions</code>）</td>
+</tr>
+</tbody>
+</table>
+<p>⭐ <strong><code>AccumulateGrad</code> 这个名字本身就是答案</strong> —— 它不叫 <code>SetGrad</code>，叫「<strong>累加</strong>梯度」。
+第四节会看到这个命名有多要命。</p>
+<p>⭐ <strong>图是从输出往回连的</strong>：<code>z.grad_fn</code> 是 <code>SumBackward0</code>，它的上游是 <code>MulBackward0</code>，
+再往上是 <code>AccumulateGrad</code>（终点，把梯度写进 <code>x.grad</code>）。
+⚠️ <strong><code>x</code> 自己不在图上</strong> —— 图上是那个 <code>AccumulateGrad</code> 节点，它持有对 <code>x</code> 的引用。</p>
+<blockquote>
+<p>⭐ <strong><code>requires_grad</code> 是「或」传播的</strong>：只要输入里<strong>有一个</strong>要梯度，结果就要梯度。
+所以在一个网络里，从第一个带参数的层往后，<strong>每一个中间结果都在图上</strong>。</p>
+</blockquote>
+<hr />
+<h2 id="_3">🧩 二、图是动态的：每次前向都是一张新图</h2>
+<p>这是 PyTorch 和早期静态图框架最大的区别，也是它调试起来舒服的原因：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">f</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">flag</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">t</span> <span class="o">*</span> <span class="mi">2</span> <span class="k">if</span> <span class="n">flag</span> <span class="k">else</span> <span class="n">t</span> <span class="o">**</span> <span class="mi">3</span>     <span class="c1"># ⭐ 同一段代码，两条不同的路</span>
+
+
+<span class="k">for</span> <span class="n">flag</span> <span class="ow">in</span> <span class="p">(</span><span class="kc">True</span><span class="p">,</span> <span class="kc">False</span><span class="p">):</span>
+    <span class="n">t</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">2.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">f</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">flag</span><span class="p">)</span>
+    <span class="n">out</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;flag =&quot;</span><span class="p">,</span> <span class="n">flag</span><span class="p">,</span> <span class="s2">&quot; grad_fn =&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">grad_fn</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
+          <span class="s2">&quot; grad =&quot;</span><span class="p">,</span> <span class="n">t</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">item</span><span class="p">())</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>flag = True grad_fn = MulBackward0 grad = 2.0</p><p>flag = False grad_fn = PowBackward0 grad = 12.0</p></div></section>
+<p>⭐ <strong>同一个函数，两次跑出了两张不同的图。</strong> 你可以在 <code>forward</code> 里写 <code>if</code>、写 <code>while</code>、
+写「循环次数取决于输入内容」，autograd 只是跟着你实际走过的那条路记账。</p>
+<p>三个直接后果：</p>
+<table>
+<thead>
+<tr>
+<th>后果</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>⭐ <strong>可以用 <code>print</code> 和断点调试</strong></td>
+<td>图就是 Python 执行流本身，<code>pdb</code> 停在哪你就看到哪</td>
+</tr>
+<tr>
+<td>⭐ <strong>动态结构是免费的</strong></td>
+<td>变长序列、按内容决定的分支、递归结构，都不需要特殊 API</td>
+</tr>
+<tr>
+<td>⚠️ <strong>代价：每次前向都要重建一遍</strong></td>
+<td>建图有开销，而且<strong>图不能提前优化</strong>。<code>torch.compile</code> 想解决的正是这一条（第 10 章）</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong>一个容易记反的点</strong>：动态不等于「便宜」。图是每一步真的<strong>建出来</strong>的对象，
+第七节会量给你看它有多大。</p>
+<hr />
+<h2 id="backward">🧩 三、<code>backward()</code> 走完，图就没了</h2>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">3.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">loss</span> <span class="o">=</span> <span class="n">a</span> <span class="o">*</span> <span class="n">a</span>
+<span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;第一次 backward，a.grad =&quot;</span><span class="p">,</span> <span class="n">a</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>    <span class="c1"># 2a = 6</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>                                    <span class="c1"># ⚠️ 同一张图第二次</span>
+<span class="k">except</span> <span class="ne">RuntimeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;第二次 backward -&gt;&quot;</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出（⭐ <strong>报错是真实原文</strong>）：</p>
+<section class="visual-block visual-block-flow" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">第一次 backward，a.grad = [6.0]</span></div><div class="vb-flow-row"><span class="vb-flow-step">第二次 backward -&gt; Trying to backward through the graph a second time (or directly access saved tensors after they have already been freed). Saved intermediate values of the graph are freed when you call .backward() or autograd.grad(). Specify retain_graph=True if you need to backward through the graph a second time or if you need to access saved tensors after calling backward.</span></div></div></section>
+<p>⭐ <strong>报错原文里其实把机制说完了</strong>，拆开看：</p>
+<table>
+<thead>
+<tr>
+<th>原文片段</th>
+<th>意思</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Saved intermediate values of the graph are freed</code></td>
+<td>⭐ 被释放的<strong>不是图的结构</strong>，是节点为了反向而<strong>存下来的那些中间张量</strong></td>
+</tr>
+<tr>
+<td><code>when you call .backward() or autograd.grad()</code></td>
+<td>释放发生在反向<strong>走完</strong>的时候，不是别的时候</td>
+</tr>
+<tr>
+<td><code>Specify retain_graph=True</code></td>
+<td>修法之一</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong>为什么默认要扔</strong>：因为那些中间张量很占地方（第七节实测 44.0 MB）。
+一次训练迭代里，前向存下来的东西反向用完就再也用不到了，留着就是白占显存。
+⭐ <strong>默认释放是对的设计</strong>，不是缺陷。</p>
+<p><code>retain_graph=True</code> 是让它留着：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">b</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">3.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">loss</span> <span class="o">=</span> <span class="n">b</span> <span class="o">*</span> <span class="n">b</span>
+<span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">(</span><span class="n">retain_graph</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>      <span class="c1"># ⭐ 留着图</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;第一次后 b.grad =&quot;</span><span class="p">,</span> <span class="n">b</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+<span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>                       <span class="c1"># 最后一次不用留</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;第二次后 b.grad =&quot;</span><span class="p">,</span> <span class="n">b</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>   <span class="c1"># ⚠️ 12 不是 6 —— 梯度是累加的</span>
+
+<span class="n">b</span><span class="o">.</span><span class="n">grad</span> <span class="o">=</span> <span class="kc">None</span>                         <span class="c1"># 或者 b.grad.zero_()</span>
+<span class="n">loss2</span> <span class="o">=</span> <span class="n">b</span> <span class="o">*</span> <span class="n">b</span>
+<span class="n">loss2</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;清零后重算  =&quot;</span><span class="p">,</span> <span class="n">b</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>第一次后 b.grad = [6.0]</p><p>第二次后 b.grad = [12.0]</p><p>清零后重算 = [6.0]</p></div></section>
+<p>⚠️⚠️ <strong>注意第二行的 <code>12.0</code>。</strong> 两次 <code>backward()</code> 求的是同一个导数，答案当然都是 6 ——
+但 <code>b.grad</code> 变成了 <strong>12</strong>。这直接引出下一节。</p>
+<hr />
+<h2 id="_4">🧩 四、梯度是累加的，不是覆盖的</h2>
+<p>⭐ <strong>这是 <code>optimizer.zero_grad()</code> 存在的唯一原因，也是那个节点叫 <code>AccumulateGrad</code> 的原因。</strong></p>
+<p><code>backward()</code> 做的事是 <code>x.grad += 算出来的梯度</code>，<strong>不是</strong> <code>x.grad = 算出来的梯度</code>。</p>
+<table>
+<thead>
+<tr>
+<th>你以为</th>
+<th>实际</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>backward()</code> 把 <code>.grad</code> 写成这次的梯度</td>
+<td>⭐ <code>backward()</code> 把这次的梯度<strong>加到</strong> <code>.grad</code> 上</td>
+</tr>
+<tr>
+<td>不清零只是「不干净」</td>
+<td>⚠️ 不清零 = <strong>这一步的梯度是历史所有步的和</strong>，训练直接废</td>
+</tr>
+</tbody>
+</table>
+<p><a href="../机器学习与深度学习基础/15-PyTorch实战手册.html">ML 基础 15 章</a> 的六个高频 Bug 里第一条就是「忘了 <code>optimizer.zero_grad()</code> → 训练完全不收敛」。
+⭐ <strong>机制就是这一行</strong>。</p>
+<p><strong>那为什么要设计成累加？</strong> 因为累加让两件事变得不需要额外 API：</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>累加带来的好处</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>梯度累积</strong>（小显存模拟大 batch）</td>
+<td>⭐ 只要连着 <code>backward()</code> 几次再 <code>step()</code> 一次就行，不需要任何特殊支持</td>
+</tr>
+<tr>
+<td><strong>一个参数被多条路径用到</strong></td>
+<td>比如共享 embedding、多任务多个 loss —— 各条路的梯度<strong>自动加起来</strong>，这正是链式法则要的</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong><code>optimizer.zero_grad()</code> 和 <code>model.zero_grad()</code> 不完全等价</strong>：
+前者只清<strong>这个优化器管着的</strong>参数。如果你有两个优化器管不同部分，只清一个会漏。</p>
+<p>⚠️ <strong>清零的写法</strong>：现在的 <code>zero_grad()</code> 默认是 <code>set_to_none=True</code>，也就是把 <code>.grad</code> 直接设成 <code>None</code>
+而不是填 0。⭐ 所以<strong>训练循环里读 <code>p.grad</code> 之前要先判空</strong>，不然会撞上 <code>NoneType</code> 而不是一个全 0 张量。</p>
+<hr />
+<h2 id="grad">🧩 五、只有叶子会拿到 <code>.grad</code></h2>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">2.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">y</span> <span class="o">=</span> <span class="n">x</span> <span class="o">*</span> <span class="mi">3</span>
+<span class="n">z</span> <span class="o">=</span> <span class="n">y</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
+<span class="n">z</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;x.grad =&quot;</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">grad</span><span class="p">)</span>          <span class="c1"># 叶子，有值</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;y.grad =&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">.</span><span class="n">grad</span><span class="p">)</span>          <span class="c1"># ⚠️ 中间结果，是 None（还会打一条警告）</span>
+
+<span class="n">x2</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">2.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">y2</span> <span class="o">=</span> <span class="n">x2</span> <span class="o">*</span> <span class="mi">3</span>
+<span class="n">y2</span><span class="o">.</span><span class="n">retain_grad</span><span class="p">()</span>                   <span class="c1"># ⭐ 显式要求留下来</span>
+<span class="n">y2</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;retain_grad 之后 y2.grad =&quot;</span><span class="p">,</span> <span class="n">y2</span><span class="o">.</span><span class="n">grad</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出（⭐ 警告是真实原文，为省地方只留了关键的前半句）：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>UserWarning: The .grad attribute of a Tensor that is not a leaf Tensor is being accessed. Its .grad</p><p>attribute won&#x27;t be populated during autograd.backward(). If you indeed want the .grad field to be</p><p>populated for a non-leaf Tensor, use .retain_grad() on the non-leaf Tensor.</p><p>x.grad = tensor([3.])</p><p>y.grad = None</p><p>retain_grad 之后 y2.grad = tensor([1.])</p></div></section>
+<p>⚠️ <strong>注意这是 <code>UserWarning</code> 不是报错</strong> —— 程序照跑，<code>y.grad</code> 就是 <code>None</code>。
+💀 <strong>如果你写了个「梯度监控」在打印中间层的 <code>.grad</code>，它会一路打印 <code>None</code> 而不报错。</strong></p>
+<p>⭐ <strong>为什么中间结果的 <code>.grad</code> 默认不留</strong>：一次前向有成千上万个中间张量，
+把它们的梯度全存下来，显存会直接翻倍，而 99% 的场景根本不看。</p>
+<table>
+<thead>
+<tr>
+<th>你想做的事</th>
+<th>正确写法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>看某个中间张量的梯度</td>
+<td>⭐ <code>t.retain_grad()</code>（在前向之后、反向之前调用）</td>
+</tr>
+<tr>
+<td>看某一层的输入/输出梯度</td>
+<td><code>module.register_full_backward_hook(...)</code></td>
+</tr>
+<tr>
+<td>看参数的梯度</td>
+<td>参数是叶子，⭐ <strong>直接 <code>p.grad</code> 就有</strong>，不需要任何额外操作</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong>别把 <code>retain_grad</code>（留中间结果的 <code>.grad</code>）和 <code>retain_graph</code>（留图不释放）搞混。</strong>
+名字差一个字母，做的事完全不同。</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>全名</th>
+<th>干什么</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>retain_grad()</code></td>
+<td>retain <strong>grad</strong>ient</td>
+<td>让<strong>一个中间张量</strong>保留它的 <code>.grad</code></td>
+<td>多存一个和它同样大的张量</td>
+</tr>
+<tr>
+<td><code>retain_graph=True</code></td>
+<td>retain <strong>graph</strong></td>
+<td>让<strong>整张图</strong>的中间存量不被释放</td>
+<td>⚠️ 整张图的存量都不释放（实测量级见下一节）</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<!--MIDSTOP-->
+<blockquote>
+<p>🛑 <strong>读到这里可以停</strong> —— 前半章讲完了（约 30 分钟）。
+<strong>后半章还有</strong>：<code>backward()</code> 要一个标量 · 图到底占多少地方（实测） · 什么时候真的需要 <code>retain_graph</code> · <code>autograd.grad</code>：要梯度但不写进 <code>.grad</code>
+回来的时候不用重读，直接从下一节接着看就行。</p>
+</blockquote>
+<hr />
+<h2 id="backward_1">🧩 六、<code>backward()</code> 要一个标量</h2>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">c</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">c</span> <span class="o">*</span> <span class="mi">2</span>                      <span class="c1"># 输出是长度 2 的向量，不是标量</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">out</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="k">except</span> <span class="ne">RuntimeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;非标量 backward -&gt;&quot;</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+
+<span class="n">out2</span> <span class="o">=</span> <span class="n">c</span> <span class="o">*</span> <span class="mi">2</span>
+<span class="n">out2</span><span class="o">.</span><span class="n">backward</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">]))</span>   <span class="c1"># ⭐ 手动给「上游传下来的梯度」</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;给了 gradient 之后 c.grad =&quot;</span><span class="p">,</span> <span class="n">c</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">非标量 backward -&gt; grad can be implicitly created only for scalar outputs</span></div><div class="vb-flow-row"><span class="vb-flow-step">给了 gradient 之后 c.grad = [2.0, 2.0]</span></div></div></section>
+<p>⭐ <strong>为什么必须是标量</strong>：<code>backward()</code> 要从「输出对输出的导数」开始往回推，标量的话这个起点显然是 <code>1.0</code>，
+它可以默认填上。向量输出的话，<code>d(向量)/d(向量)</code> 是一个雅可比矩阵，<strong>PyTorch 不知道你想要哪个方向</strong>，
+所以要你自己给一个权重向量（<code>out.backward(v)</code> 算的是 <code>v</code> 和雅可比的乘积）。</p>
+<p>⚠️ <strong>实践中撞到这条，99% 是你忘了求 loss 的均值或和</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>你写的</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>loss = (pred - y) ** 2</code></td>
+<td>⚠️ 是一个 batch 长度的向量 → 报这个错</td>
+</tr>
+<tr>
+<td><code>loss = ((pred - y) ** 2).mean()</code></td>
+<td>⭐ 标量，正常</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong>别用 <code>backward(torch.ones_like(out))</code> 去「绕过」这个报错</strong> —— 那等价于 <code>out.sum().backward()</code>，
+也就是把 batch 内的损失求和而不是求平均。⭐ 后果是<strong>有效学习率跟着 batch size 变</strong>，
+换个 batch size 训练行为就变了，而且不报错。</p>
+<hr />
+<h2 id="_5">🧩 七、图到底占多少地方（实测）</h2>
+<p>反向传播需要「前向时的一些中间值」。到底存了多少？可以用 <code>saved_tensors_hooks</code> 数出来：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">measure</span><span class="p">(</span><span class="n">x_needs_grad</span><span class="p">):</span>
+    <span class="n">tot</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;n&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;b&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">pack</span><span class="p">(</span><span class="n">t</span><span class="p">):</span>            <span class="c1"># ⭐ 每有一个张量被「存给反向用」，这里就被调一次</span>
+        <span class="n">tot</span><span class="p">[</span><span class="s2">&quot;n&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="n">tot</span><span class="p">[</span><span class="s2">&quot;b&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="n">t</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">*</span> <span class="n">t</span><span class="o">.</span><span class="n">element_size</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">t</span>
+
+    <span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">net</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span><span class="o">*</span><span class="p">[</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">)</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">8</span><span class="p">)])</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">512</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="n">x_needs_grad</span><span class="p">)</span>
+    <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">graph</span><span class="o">.</span><span class="n">saved_tensors_hooks</span><span class="p">(</span><span class="n">pack</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="n">t</span><span class="p">):</span>
+        <span class="n">net</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">tot</span><span class="p">[</span><span class="s2">&quot;n&quot;</span><span class="p">],</span> <span class="n">tot</span><span class="p">[</span><span class="s2">&quot;b&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="mi">1024</span> <span class="o">/</span> <span class="mi">1024</span>
+
+
+<span class="n">n1</span><span class="p">,</span> <span class="n">m1</span> <span class="o">=</span> <span class="n">measure</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;输入不要梯度：存了 </span><span class="si">{</span><span class="n">n1</span><span class="si">}</span><span class="s2"> 个张量、</span><span class="si">{</span><span class="n">m1</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>
+<span class="n">n2</span><span class="p">,</span> <span class="n">m2</span> <span class="o">=</span> <span class="n">measure</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;输入要梯度  ：存了 </span><span class="si">{</span><span class="n">n2</span><span class="si">}</span><span class="s2"> 个张量、</span><span class="si">{</span><span class="n">m2</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>   <span class="c1"># ⭐ 多出来的正是第一层的权重</span>
+
+<span class="n">net</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span><span class="o">*</span><span class="p">[</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">)</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">8</span><span class="p">)])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;对比：模型参数本身&quot;</span><span class="p">,</span>
+      <span class="nb">round</span><span class="p">(</span><span class="nb">sum</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">net</span><span class="o">.</span><span class="n">parameters</span><span class="p">())</span> <span class="o">*</span> <span class="mi">4</span> <span class="o">/</span> <span class="mi">1024</span> <span class="o">/</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="s2">&quot;MB&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>输入不要梯度：存了 15 个张量、44.0 MB</p><p>输入要梯度 ：存了 16 个张量、48.0 MB</p><p>对比：模型参数本身 32.0 MB</p></div></section>
+<p>⭐ <strong>对着账算一遍</strong>（8 层 <code>Linear(1024, 1024)</code>，batch 512，全是 float32）：</p>
+<table>
+<thead>
+<tr>
+<th>存了什么</th>
+<th>一个多大</th>
+<th>几个</th>
+<th>小计</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>每层的<strong>输入</strong>（算权重梯度要用）</td>
+<td>512×1024×4 = 2 MB</td>
+<td>8</td>
+<td><strong>16 MB</strong></td>
+</tr>
+<tr>
+<td>每层的<strong>权重</strong>（算输入梯度要用）</td>
+<td>1024×1024×4 = 4 MB</td>
+<td>⭐ <strong>7</strong></td>
+<td><strong>28 MB</strong></td>
+</tr>
+<tr>
+<td>合计</td>
+<td></td>
+<td><strong>15</strong></td>
+<td><strong>44 MB</strong></td>
+</tr>
+</tbody>
+</table>
+<p>⭐ <strong>为什么权重只存了 7 个而不是 8 个</strong>：第一层的权重不用存 —— 因为输入 <code>x</code> 不要梯度，
+反向不需要再往 <code>x</code> 回传，那一步的乘法就不必做，权重也就不必留。
+把 <code>x</code> 改成 <code>requires_grad=True</code>，立刻变成 <strong>16 个 / 48.0 MB</strong>，多出来的正好是 4 MB（一个权重）。</p>
+<p>⭐ <strong>三条能直接用上的结论</strong>：</p>
+<ol>
+<li><strong>「图」不是抽象概念，它有明确的字节数。</strong> 这个例子里图存的 <strong>44 MB 比模型参数本身的 32 MB 还多</strong>。</li>
+<li>⭐ <strong>图的大小和 batch size 成正比，参数不是。</strong> 表里 16 MB 那一行跟着 512 走，28 MB 那一行不跟。
+   <strong>这就是「OOM 了先把 batch 调小」为什么有效。</strong></li>
+<li>⭐ <strong>少一段需要梯度的路，就少存一批东西。</strong> 上面 15 vs 16 是最小的例子；
+   把第一层参数冻住（<code>requires_grad_(False)</code>）省得更多 —— 这是第 04 章「冻结 backbone」的机制。</li>
+</ol>
+<blockquote>
+<p>⭐ <strong>这三条在站内的下一步</strong>：「怎么用更少的显存换更多的 batch」是 <a href="../AI基础设施/09-显存优化全家桶.html">AI 基础设施 09</a> 的正题
+（梯度检查点、offload、累加，各省多少各花多少）。<strong>这里只负责说清「存的是什么」。</strong></p>
+</blockquote>
+<hr />
+<h2 id="retain_graph">🧩 八、什么时候真的需要 <code>retain_graph</code></h2>
+<p>⚠️ 报错原文建议你 <code>Specify retain_graph=True</code>，但<strong>多数情况下那是错的修法</strong>。先看两个假需求：</p>
+<h3 id="1-loss-backward">假需求 ①：在循环里累加 loss，最后一起 backward</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">w</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="n">total</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">5</span><span class="p">):</span>
+    <span class="n">total</span> <span class="o">=</span> <span class="n">total</span> <span class="o">+</span> <span class="n">w</span> <span class="o">*</span> <span class="n">i</span>          <span class="c1"># ⚠️ total 一直挂在图上</span>
+<span class="n">depth</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">node</span> <span class="o">=</span> <span class="n">total</span><span class="o">.</span><span class="n">grad_fn</span>
+<span class="k">while</span> <span class="n">node</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">node</span><span class="o">.</span><span class="n">next_functions</span><span class="p">:</span>
+    <span class="n">depth</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="n">node</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">next_functions</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;累加 5 步之后，从 total 往回数的节点层数 =&quot;</span><span class="p">,</span> <span class="n">depth</span><span class="p">)</span>   <span class="c1"># ⚠️ 跟步数一起长</span>
+
+<span class="n">run</span> <span class="o">=</span> <span class="mf">0.0</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">5</span><span class="p">):</span>
+    <span class="n">run</span> <span class="o">+=</span> <span class="p">(</span><span class="n">w</span> <span class="o">*</span> <span class="n">i</span><span class="p">)</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>          <span class="c1"># ⭐ .item() 把值取出来，图当场断掉</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;用 .item() 累加，run 的类型是&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">run</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span> <span class="s2">&quot;值 =&quot;</span><span class="p">,</span> <span class="n">run</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>累加 5 步之后，从 total 往回数的节点层数 = 5</p><p>用 .item() 累加，run 的类型是 float 值 = 10.0</p></div></section>
+<p>⭐ <strong>节点层数跟着步数一起长。</strong> 训练循环里的典型写法长这样，跑一遍看深度怎么涨：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">depth_of</span><span class="p">(</span><span class="n">t</span><span class="p">):</span>                       <span class="c1"># 从 t 往回数图有多少层</span>
+    <span class="n">d</span><span class="p">,</span> <span class="n">node</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">t</span><span class="o">.</span><span class="n">grad_fn</span>
+    <span class="k">while</span> <span class="n">node</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">node</span><span class="o">.</span><span class="n">next_functions</span><span class="p">:</span>
+        <span class="n">d</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="n">node</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">next_functions</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">d</span>
+
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+<span class="n">batches</span> <span class="o">=</span> <span class="p">[(</span><span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">4</span><span class="p">)]</span>
+
+<span class="n">total_loss</span> <span class="o">=</span> <span class="mf">0.0</span>
+<span class="k">for</span> <span class="n">xb</span><span class="p">,</span> <span class="n">yb</span> <span class="ow">in</span> <span class="n">batches</span><span class="p">:</span>
+    <span class="n">loss</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">mse_loss</span><span class="p">(</span><span class="n">model</span><span class="p">(</span><span class="n">xb</span><span class="p">),</span> <span class="n">yb</span><span class="p">)</span>
+    <span class="n">total_loss</span> <span class="o">+=</span> <span class="n">loss</span>                 <span class="c1"># 💀 就是这一行：loss 是张量</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  这一步之后 total_loss 的图深度 =&quot;</span><span class="p">,</span> <span class="n">depth_of</span><span class="p">(</span><span class="n">total_loss</span><span class="p">))</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;total_loss 现在是&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">total_loss</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span> <span class="s2">&quot;requires_grad =&quot;</span><span class="p">,</span> <span class="n">total_loss</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">)</span>
+
+<span class="n">total_ok</span> <span class="o">=</span> <span class="mf">0.0</span>
+<span class="k">for</span> <span class="n">xb</span><span class="p">,</span> <span class="n">yb</span> <span class="ow">in</span> <span class="n">batches</span><span class="p">:</span>
+    <span class="n">loss</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">mse_loss</span><span class="p">(</span><span class="n">model</span><span class="p">(</span><span class="n">xb</span><span class="p">),</span> <span class="n">yb</span><span class="p">)</span>
+    <span class="n">total_ok</span> <span class="o">+=</span> <span class="n">loss</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>            <span class="c1"># ⭐ 修法：把值取出来</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;正确写法下 total_ok 是&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">total_ok</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>这一步之后 total_loss 的图深度 = 3</p><p>这一步之后 total_loss 的图深度 = 4</p><p>这一步之后 total_loss 的图深度 = 5</p><p>这一步之后 total_loss 的图深度 = 6</p><p>total_loss 现在是 Tensor requires_grad = True</p><p>正确写法下 total_ok 是 float</p></div></section>
+<p>⚠️ <strong>一个 batch 涨一层</strong>：3 → 4 → 5 → 6。<code>total_loss</code> 从 float 变成了挂在图上的张量，
+图和它存的中间张量一路不释放 —— 症状是「<strong>训练跑着跑着显存越来越大</strong>」，
+而且第二个 batch 的 <code>loss.backward()</code> 就可能报「a second time」。</p>
+<p>⭐ <strong>修法不是 <code>retain_graph=True</code>，是把值取出来</strong>：<code>total_loss += loss.item()</code>。
+（<a href="../机器学习与深度学习基础/15-PyTorch实战手册.html">ML 基础 15 章</a> 的模板写的正是 <code>total += loss.item() * len(xb)</code>。）</p>
+<h3 id="2-loss">假需求 ②：想对同一个 loss 反传两次</h3>
+<p>多半是你的代码结构错了。⭐ 正确做法是<strong>重新前向一次</strong>，得到一张新图。</p>
+<h3 id="_6">真需求：三种</h3>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>为什么必须</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>⭐ <strong>二阶导 / 高阶导</strong>（MAML、梯度惩罚、WGAN-GP）</td>
+<td>要对「梯度」再求一次梯度，第一次反向的图必须留着</td>
+</tr>
+<tr>
+<td><strong>一张图上有多个 loss 要分别反传到不同参数</strong></td>
+<td>比如 GAN 里从同一个生成结果同时反传到 D 和 G（⚠️ 更常见的写法是用 <code>detach</code>，见第 04 章）</td>
+</tr>
+<tr>
+<td><strong>截断 BPTT 里跨段共享的那部分</strong></td>
+<td>序列被切段，段与段之间有共享的隐状态</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong><code>retain_graph=True</code> 的代价就是第七节量出来的那个数</strong>（这个例子里 44 MB 不释放）。
+⭐ <strong>只在最后一次反向时省掉它</strong>，像第三节那段代码那样：前面几次带 <code>retain_graph=True</code>，最后一次不带。</p>
+<hr />
+<!--MIDSTOP-->
+<blockquote>
+<p>🛑 <strong>读到这里可以停</strong> —— 已经读了约 55 分钟。
+<strong>最后一段还有</strong>（约 23 分钟）：<code>autograd.grad</code>：要梯度但不写进 <code>.grad</code> · 检查点与走神救援
+回来的时候不用重读，直接从下一节接着看就行。</p>
+</blockquote>
+<hr />
+<h2 id="autogradgrad-grad">🧩 九、<code>autograd.grad</code>：要梯度但不写进 <code>.grad</code></h2>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">3.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">f</span> <span class="o">=</span> <span class="n">x</span> <span class="o">**</span> <span class="mi">3</span>
+
+<span class="p">(</span><span class="n">g</span><span class="p">,)</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">create_graph</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>   <span class="c1"># ⭐ 要二阶就得 create_graph</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;一阶 3x^2 在 x=3 处 =&quot;</span><span class="p">,</span> <span class="n">g</span><span class="o">.</span><span class="n">item</span><span class="p">())</span>
+
+<span class="p">(</span><span class="n">g2</span><span class="p">,)</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">g</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;二阶 6x  在 x=3 处 =&quot;</span><span class="p">,</span> <span class="n">g2</span><span class="o">.</span><span class="n">item</span><span class="p">())</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;x.grad 还是&quot;</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">grad</span><span class="p">,</span> <span class="s2">&quot; ← autograd.grad 不往 .grad 里写&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>一阶 3x^2 在 x=3 处 = 27.0</p><p>二阶 6x 在 x=3 处 = 18.0</p><p>x.grad 还是 None ← autograd.grad 不往 .grad 里写</p></div></section>
+<p>⭐ <strong>两个函数的分工</strong>：</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>loss.backward()</code></th>
+<th><code>torch.autograd.grad(out, inputs)</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>结果去哪</td>
+<td>⭐ <strong>累加进每个叶子的 <code>.grad</code></strong></td>
+<td>⭐ <strong>作为返回值给你</strong>，不碰任何 <code>.grad</code></td>
+</tr>
+<tr>
+<td>适合</td>
+<td>训练循环（优化器就是读 <code>.grad</code> 的）</td>
+<td>只想要梯度这个值：梯度惩罚、可视化、二阶</td>
+</tr>
+<tr>
+<td>副作用</td>
+<td>会和别处的累加混在一起</td>
+<td>⭐ <strong>没有副作用</strong></td>
+</tr>
+</tbody>
+</table>
+<p>⭐ <strong><code>create_graph=True</code> 是「让这次反向本身也被记账」</strong> —— 只有这样，算出来的梯度 <code>g</code> 才带着 <code>grad_fn</code>，
+才能对它再求一次导。⚠️ 它隐含了 <code>retain_graph=True</code>，<strong>显存开销更大</strong>，别随手加。</p>
+<hr />
+<h2 id="_7">🔗 这一章连到哪里</h2>
+<table>
+<thead>
+<tr>
+<th>相关的地方</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="01-张量到底是什么.html">01 · 张量到底是什么</a></td>
+<td>⭐ <code>requires_grad</code> 是说明书上的第六个字段，这一章是它展开的样子</td>
+</tr>
+<tr>
+<td><a href="03-三种就地操作报错.html">03 · 三种就地操作报错</a></td>
+<td>本章第七节说图「存下了每层的输入和权重」—— 你把那些张量就地改掉，就是下一章的三种报错</td>
+</tr>
+<tr>
+<td><a href="04-detach与no_grad.html">04 · detach 与 no_grad</a></td>
+<td>本章讲图怎么建，下一步是三种「不让它建」的办法，以及它们断的不是一个东西</td>
+</tr>
+<tr>
+<td><a href="09-自定义算子.html">09 · 自己写一个 autograd 算子</a></td>
+<td>⭐ 本章的 <code>grad_fn</code> 节点你也可以自己写一个 —— 那时才真正明白「前向存什么、反向还什么」</td>
+</tr>
+<tr>
+<td><a href="../机器学习与深度学习基础/15-PyTorch实战手册.html">ML 基础 15 · PyTorch 实战手册</a></td>
+<td>「忘了 <code>zero_grad()</code> 训练完全不收敛」的机制就是第四节的累加；那份模板里 <code>total += loss.item()</code> 的 <code>.item()</code> 就是第八节的修法</td>
+</tr>
+<tr>
+<td><a href="../机器学习与深度学习基础/08-反向传播.html">ML 基础 08 · 反向传播</a></td>
+<td>链式法则本身的数学。⭐ 本章讲的是「框架怎么把它自动化」，不重复推导</td>
+</tr>
+<tr>
+<td><a href="../AI基础设施/09-显存优化全家桶.html">AI 基础设施 09 · 显存优化全家桶</a></td>
+<td>⭐ 第七节量出「图存了 44 MB」之后的下一步：梯度检查点、offload、累加各省多少</td>
+</tr>
+<tr>
+<td><a href="../机器学习与深度学习基础/18-挑战项目A-手搓mini-torch.html">ML 基础 18 · 挑战项目 A 手搓 mini-torch</a></td>
+<td>读完这一章再去做那个项目，你要造的正是 <code>grad_fn</code> 和 <code>AccumulateGrad</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_8">✅ 检查点</h2>
+<ol>
+<li>图是什么时候建的？「叶子」「中间结果」「<code>grad_fn</code> 节点」三个角色分别怎么认？</li>
+<li><code>AccumulateGrad</code> 这个节点名说明了什么？它导致训练循环里必须写哪一行？</li>
+<li>第二次对同一个 loss <code>backward()</code> 的报错原文关键词是什么？被释放的到底是什么？</li>
+<li>实测那段代码里，<code>loss.backward(retain_graph=True)</code> 跑两次之后 <code>b.grad</code> 是多少？为什么不是 6？</li>
+<li>中间结果的 <code>.grad</code> 为什么是 <code>None</code>？这是报错还是警告？想看它该怎么办？</li>
+<li><code>retain_grad()</code> 和 <code>retain_graph=True</code> 的区别是什么？</li>
+<li><code>grad can be implicitly created only for scalar outputs</code> 通常是因为什么？为什么不该用 <code>backward(torch.ones_like(out))</code> 绕过？</li>
+<li>实测里一次前向为反向存下了多少个张量、多少 MB？把账拆开是哪两部分？为什么权重只存了 7 个而不是 8 个？</li>
+<li>「训练跑着跑着显存越来越大」的典型写法是哪一行？正确的修法是什么（不是 <code>retain_graph</code>）？</li>
+<li><code>loss.backward()</code> 和 <code>torch.autograd.grad(...)</code> 的结果分别去了哪里？<code>create_graph=True</code> 是干什么的？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li><strong>图是前向的时候顺手记下来的</strong>，不是你定义的：每一次运算在结果张量上挂一个 <code>grad_fn</code>。叶子：<code>is_leaf==True</code>、<code>grad_fn is None</code>，你自己造的（参数、输入），只有它会拿到 <code>.grad</code>；中间结果：<code>is_leaf==False</code>、有 <code>grad_fn</code>，<code>requires_grad</code> 是继承来的；<code>grad_fn</code> 节点：真正的图，每个节点知道「怎么反着算」和「上游是谁（<code>next_functions</code>）」。</li>
+<li>它叫「<strong>累加</strong>梯度」不叫「设置梯度」——<code>backward()</code> 做的是 <code>x.grad += ...</code> 而不是 <code>=</code>。所以训练循环里每一步必须 <code>optimizer.zero_grad()</code>，否则这一步的梯度是历史所有步的和，训练完全不收敛。</li>
+<li><code>Trying to backward through the graph a second time</code>。被释放的<strong>不是图的结构</strong>，是节点为反向存下来的中间张量（原文：<code>Saved intermediate values of the graph are freed</code>）。默认释放是对的设计 —— 那些东西很占地方（实测 44.0 MB）。</li>
+<li><strong>12.0</strong>。两次求的是同一个导数（都是 6），但梯度是累加的，所以 <code>.grad</code> 变成 6+6=12。清零（<code>b.grad = None</code>）后重算才是 6.0。</li>
+<li>因为一次前向有成千上万个中间张量，全存梯度会让显存翻倍而 99% 用不上。⚠️ <strong>这是 <code>UserWarning</code> 不是报错</strong>，程序照跑、值就是 <code>None</code> ——💀 所以写「梯度监控」打印中间层 <code>.grad</code> 会一路打印 <code>None</code> 而不报错。想看就在前向之后、反向之前调 <code>t.retain_grad()</code>（实测之后 <code>y2.grad = tensor([1.])</code>）。</li>
+<li><code>retain_grad()</code> 是让<strong>一个中间张量</strong>保留它的 <code>.grad</code>，代价是多存一个同样大的张量；<code>retain_graph=True</code> 是让整张图的中间存量不被释放，代价是那一整批（本例 44 MB）都不释放。名字差一个字母，做的事完全不同。</li>
+<li>99% 是<strong>忘了对 loss 求 <code>.mean()</code> 或 <code>.sum()</code></strong>，<code>(pred-y)2</code> 是一个 batch 长度的向量。⚠️ 不该用 <code>backward(torch.ones_like(out))</code> 绕过，因为那等价于求和而不是求平均 ——后果是有效学习率跟着 batch size 变**，换个 batch size 训练行为就变，而且不报错。</li>
+<li><strong>15 个张量、44.0 MB</strong>（8 层 <code>Linear(1024,1024)</code>、batch 512、float32）。拆开是：每层的输入 2 MB × 8 = 16 MB（算权重梯度要用）+ 每层的权重 4 MB × 7 = 28 MB（算输入梯度要用）。第一层权重不用存，因为输入 <code>x</code> 不要梯度、反向不需要再往回传；把 <code>x</code> 改成 <code>requires_grad=True</code> 立刻变成 16 个 / 48.0 MB。顺带两条：图的 44 MB 比模型参数本身的 32 MB 还多；图的大小和 batch size 成正比而参数不是，这就是「OOM 先调小 batch」为什么有效。</li>
+<li><code>total_loss += loss</code>（loss 是张量）。⚠️ 它让 <code>total_loss</code> 挂在图上、每个 batch 叠一层，图一路不释放。修法是 <code>total_loss += loss.item()</code> <strong>把值取出来</strong>，不是 <code>retain_graph=True</code>。实测「累加 5 步之后从 total 往回数的节点层数 = 5」。</li>
+<li><code>loss.backward()</code> 把梯度<strong>累加进每个叶子的 <code>.grad</code></strong>（优化器就是读 <code>.grad</code> 的）；<code>torch.autograd.grad(...)</code> 把梯度作为返回值给你、不碰任何 <code>.grad</code>（实测之后 <code>x.grad</code> 还是 <code>None</code>），没有副作用。<code>create_graph=True</code> 是让这次反向本身也被记账，这样算出的梯度才带 <code>grad_fn</code>、才能再求一次导（实测一阶 27.0、二阶 18.0）；⚠️ 它隐含 <code>retain_graph=True</code>，显存开销更大。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_9">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong></p>
+<blockquote>
+<p>⭐ <strong>图不是你定义的，是前向时顺手记下来的</strong>——每一次运算在结果上挂一个 <code>grad_fn</code>。三个角色：<strong>叶子</strong>（你自己造的参数和输入，⭐ <strong>只有它拿得到 <code>.grad</code></strong>）、中间结果、<code>grad_fn</code> 节点。</p>
+<p>⭐ 终点那个节点叫 <code>AccumulateGrad</code>，<strong>名字本身就是答案：它累加不是覆盖</strong>——这就是 <code>optimizer.zero_grad()</code> 存在的唯一原因，忘了就「训练完全不收敛」。</p>
+<p>图是动态的：同一个函数走不同分支就建出不同的图，所以能用 <code>print</code> 和断点调试、变长结构免费；⚠️ 代价是每次都要重建、无法提前优化（<code>torch.compile</code> 治的就是这条）。</p>
+<p>⭐ <code>backward()</code> 走完图就没了，而<strong>释放的不是结构是中间张量</strong>——实测一次前向为反向存下的量<strong>比模型参数本身还多</strong>。⭐ <strong>图的大小随 batch size 走、参数不随</strong>，这就是 OOM 先调小 batch 的机制。</p>
+<p>⚠️ 只有叶子有 <code>.grad</code>：中间结果是 <code>None</code> 并且只打一条 <strong>UserWarning 不是报错</strong>——所以梯度监控会一路打印 <code>None</code> 而你以为一切正常。要看就 <code>retain_grad()</code>；⚠️ 别把它和 <code>retain_graph=True</code>（留整张图）搞混。</p>
+<p><code>backward()</code> 要标量，⚠️ 别用 <code>backward(torch.ones_like(out))</code> 绕过——那等于求和，<strong>有效学习率会跟着 batch size 变</strong>。</p>
+<p>⭐ 最值钱的一条：<strong>报错建议的 <code>retain_graph=True</code> 多半是错的修法</strong>。真正的病常常是 <code>total_loss += loss</code>（累加的是张量），图会跟着步数一起长——修法是加 <code>.item()</code>。</p>
+</blockquote>
+<p><strong>下一节</strong> 👉 <a href="03-三种就地操作报错.html">03-三种就地操作报错.md</a></p>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="01-张量到底是什么.html"><div class="dir">← 上一节</div>🧊 01 · 张量到底是什么</a><a class="next" href="03-三种就地操作报错.html"><div class="dir">下一节 →</div>💥 03 · 三种就地操作报错</a></nav>
+</main>
+<script>(function(){
+  var KEY="torch-progress", FILE="02-autograd\u600e\u4e48\u5efa\u56fe.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><script src="../assets/analytics.js" async></script>
+</body></html>

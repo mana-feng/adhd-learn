@@ -19,7 +19,7 @@ if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
  --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
  --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
 *{box-sizing:border-box}html{scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--fg);font-size:17px;line-height:1.85;
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
  font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
  -webkit-font-smoothing:antialiased}
 #scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
@@ -45,8 +45,7 @@ blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
  border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
 blockquote p{margin:.4em 0}
 ul,ol{padding-left:1.5em}li{margin:.35em 0}
-table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em;display:block;
- overflow-x:auto}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
 th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
 th{background:var(--quote-bg)}
 tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
@@ -138,6 +137,16 @@ figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 aut
 figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
  margin-top:8px;line-height:1.6}
 figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:.82em;
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
 
 .dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
 .dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
@@ -283,7 +292,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>每张卡放一份完整的模型，各自吃不同的数据，算完梯度后求个平均。</strong>
-它是唯一一种<strong>不改变模型结构</strong>的并行方式 —— <strong>所以永远先试它。</strong></p>
+它是唯一一种不改变模型结构的并行方式 —— <strong>所以永远先试它。</strong></p>
 <hr />
 <h2 id="_2">🔄 一、它怎么工作</h2>
 <figure class="dia">
@@ -378,31 +387,17 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <hr />
 <h2 id="ddp">⚙️ 二、DDP 的两个关键优化</h2>
-<h3 id="1-bucketing">① 梯度桶（bucketing）+ 通信计算重叠 ⭐</h3>
-<div class="codehilite"><pre><span></span><code>   ❌ 朴素做法：等所有梯度算完，一次性 AllReduce
-      → 反向传播时 GPU 在算，网络完全闲置
-      → AllReduce 时网络在传，GPU 完全闲置
-
-   ✅ DDP 的做法：
-      反向传播是【从后往前】的
-      → 最后一层的梯度【最先】算出来
-      → 攒够一个&quot;桶&quot;（默认 25MB）就【立刻】开始 AllReduce
-      → 通信和后面层的计算【重叠】⭐
-</code></pre></div>
-
-<div class="codehilite"><pre><span></span><code>   时间轴：
-   计算  ████████████████████████
-   通信      ▓▓▓▓  ▓▓▓▓  ▓▓▓▓  ▓▓▓▓     ← 藏在计算后面
-             ↑ 桶1  ↑桶2  ↑桶3  ↑桶4
-</code></pre></div>
-
+<h3 id="1-bucketing">① 梯度桶（bucketing）+ 通信计算重叠</h3>
+<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">❌ 朴素做法：等所有梯度算完，一次性 AllReduce</span></div><div class="vb-flow-row"><span class="vb-flow-step">反向传播时 GPU 在算，网络完全闲置</span></div><div class="vb-flow-row"><span class="vb-flow-step">AllReduce 时网络在传，GPU 完全闲置</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ DDP 的做法：</span></div><div class="vb-flow-row"><span class="vb-flow-step">反向传播是【从后往前】的</span></div><div class="vb-flow-row"><span class="vb-flow-step">最后一层的梯度【最先】算出来</span></div><div class="vb-flow-row"><span class="vb-flow-step">攒够一个&quot;桶&quot;（默认 25MB）就【立刻】开始 AllReduce</span></div><div class="vb-flow-row"><span class="vb-flow-step">通信和后面层的计算【重叠】⭐</span></div></div></section>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>时间轴：</p><p>计算 ████████████████████████</p><p>通信 ▓▓▓▓ ▓▓▓▓ ▓▓▓▓ ▓▓▓▓ ← 藏在计算后面</p><p>↑ 桶1 ↑桶2 ↑桶3 ↑桶4</p></div></section>
 <blockquote>
 <p>💡 <strong>这就是为什么 DDP 比手写 AllReduce 快很多</strong>。
 桶大小可调：<code>DDP(model, bucket_cap_mb=25)</code> ——
 <strong>太小则通信次数多、开销大；太大则重叠机会少。</strong></p>
 </blockquote>
 <h3 id="2">② 梯度累积时要关掉同步</h3>
-<div class="codehilite"><pre><span></span><code><span class="c1"># ❌ 每个 micro batch 都 AllReduce → 通信量翻 N 倍</span>
+<div class="codehilite"><pre><span></span><code><span class="c1"># 🧩 骨架：`loader` 来自你自己的代码，这一段只看写法</span>
+<span class="c1"># ❌ 每个 micro batch 都 AllReduce → 通信量翻 N 倍</span>
 <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">batch</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">loader</span><span class="p">):</span>
     <span class="n">loss</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">batch</span><span class="p">)</span> <span class="o">/</span> <span class="n">accum</span>
     <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
@@ -423,23 +418,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <hr />
 <h2 id="ring-allreduce-5">🔁 三、Ring AllReduce（<a href="05-互联与集群拓扑.html">第 5 章</a>的展开）</h2>
-<div class="codehilite"><pre><span></span><code>   N 张卡排成环，梯度切成 N 份
-
-   阶段① ReduceScatter（转 N-1 步）：
-     每一步，每张卡把手里的一份发给下家、从上家收一份并累加
-     → 结束时，第 i 张卡持有【第 i 份的完整求和】
-
-   阶段② AllGather（再转 N-1 步）：
-     把各自那份完整结果传遍全环
-     → 结束时，所有卡都有完整的求和结果
-</code></pre></div>
-
-<div class="codehilite"><pre><span></span><code>   ⭐ 每张卡收发的数据量 = 2 × (N-1)/N × 数据量 ≈ 2 × 数据量
-      【和卡数几乎无关】
-
-   对比朴素的&quot;都发给 0 号卡&quot;：0 号要收发 N-1 倍 💀
-</code></pre></div>
-
+<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">N 张卡排成环，梯度切成 N 份</span></div><div class="vb-flow-row"><span class="vb-flow-step">阶段① ReduceScatter（转 N-1 步）：</span></div><div class="vb-flow-row"><span class="vb-flow-step">每一步，每张卡把手里的一份发给下家、从上家收一份并累加</span></div><div class="vb-flow-row"><span class="vb-flow-step">结束时，第 i 张卡持有【第 i 份的完整求和】</span></div><div class="vb-flow-row"><span class="vb-flow-step">阶段② AllGather（再转 N-1 步）：</span></div><div class="vb-flow-row"><span class="vb-flow-step">把各自那份完整结果传遍全环</span></div><div class="vb-flow-row"><span class="vb-flow-step">结束时，所有卡都有完整的求和结果</span></div></div></section>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>⭐ 每张卡收发的数据量 = 2 × (N-1)/N × 数据量 ≈ 2 × 数据量</p><p>【和卡数几乎无关】</p><p>对比朴素的&quot;都发给 0 号卡&quot;：0 号要收发 N-1 倍 💀</p></div></section>
 <details>
 <summary>📐 <b>为什么是 2×(N−1)/N（想看再点）</b></summary>
 <p>梯度总量 $D$，切成 $N$ 份，每份 $D/N$。</p>
@@ -449,46 +429,18 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ul>
 <p>合计 $2(N-1)D/N \approx 2D$（$N$ 大时）。</p>
 <p>💡 <strong>关键点：随着 N 增大，每卡的通信量趋于常数 2D，不随 N 增长。</strong>
-但<strong>步数</strong>是 $2(N-1)$，所以<strong>延迟随 N 线性增长</strong> —— 这是 Ring 的软肋。</p>
+但步数是 $2(N-1)$，所以<strong>延迟随 N 线性增长</strong> —— 这是 Ring 的软肋。</p>
 </details>
 <h3 id="allreduce">⭐ 分层 AllReduce：大规模的标准做法</h3>
-<div class="codehilite"><pre><span></span><code>   问题：跨机带宽只有机内 NVLink 的 1/15（第 5 章）
-        纯 Ring 会让慢链路成为瓶颈
-
-   ✅ 分层：
-   ① 机内 8 卡先做一次 ReduceScatter/AllReduce（NVLink，快）
-   ② 各机的代表跨机做一次 AllReduce（慢链路，但数据量只有 1/8）⭐
-   ③ 机内 Broadcast/AllGather 回去
-
-   → 跨机通信量降到 1/8
-</code></pre></div>
-
+<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">问题：跨机带宽只有机内 NVLink 的 1/15（第 5 章）</span></div><div class="vb-flow-row"><span class="vb-flow-step">纯 Ring 会让慢链路成为瓶颈</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 分层：</span></div><div class="vb-flow-row"><span class="vb-flow-step">① 机内 8 卡先做一次 ReduceScatter/AllReduce（NVLink，快）</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 各机的代表跨机做一次 AllReduce（慢链路，但数据量只有 1/8）⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 机内 Broadcast/AllGather 回去</span></div><div class="vb-flow-row"><span class="vb-flow-step">跨机通信量降到 1/8</span></div></div></section>
 <blockquote>
 <p>💡 <strong>NCCL 会自动根据拓扑选择算法</strong> —— 这也是为什么
 <a href="05-互联与集群拓扑.html">第 5 章</a>说要先确认拓扑被正确识别（<code>NCCL_DEBUG=INFO</code>）。</p>
 </blockquote>
 <hr />
 <h2 id="_3">📉 四、扩展效率：为什么卡越多效率越低</h2>
-<div class="codehilite"><pre><span></span><code>   每步时间 = 计算时间 + max(0, 通信时间 − 可重叠部分)
-
-   ⭐ 卡数增加时：
-   · 计算时间 ↓（每卡分到的数据变少）
-   · 通信量   ≈ 不变（Ring 的性质）
-   → 通信占比【上升】→ 效率下降
-</code></pre></div>
-
-<div class="codehilite"><pre><span></span><code>   一个具体的例子（7B 模型，BF16 梯度 14GB）：
-
-   通信量 = 2 × 14 GB = 28 GB/步
-
-   机内 NVLink 900GB/s   → 0.03 秒
-   跨机 IB 25GB/s        → 1.1 秒   ⭐ 差 35 倍
-
-   如果单步计算是 0.5 秒：
-   · 机内：通信可完全重叠 → 扩展效率 ~95%
-   · 跨机：通信 1.1 秒 &gt; 计算 0.5 秒 → 【通信成为瓶颈】💀
-</code></pre></div>
-
+<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">每步时间 = 计算时间 + max(0, 通信时间 − 可重叠部分)</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 卡数增加时：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 计算时间</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">（每卡分到的数据变少）</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 通信量 ≈ 不变（Ring 的性质）</span></div><div class="vb-flow-row"><span class="vb-flow-step">通信占比【上升】</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">效率下降</span></div></div></section>
+<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>一个具体的例子（7B 模型，BF16 梯度 14GB）：</p><p>通信量 = 2 × 14 GB = 28 GB/步</p><p>机内 NVLink 900GB/s → 0.03 秒</p><p>跨机 IB 25GB/s → 1.1 秒 ⭐ 差 35 倍</p><p>如果单步计算是 0.5 秒：</p><p>· 机内：通信可完全重叠 → 扩展效率 ~95%</p><p>· 跨机：通信 1.1 秒 &gt; 计算 0.5 秒 → 【通信成为瓶颈】💀</p></div></section>
 <blockquote>
 <p>🔑 <strong>这就是为什么大规模训练必须做三件事</strong>：
 ① <strong>梯度压缩/量化</strong>（FP16 甚至 FP8 通信）
@@ -596,13 +548,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>每张卡放完整模型副本，吃不同数据分片，算完梯度后 AllReduce <strong>求平均</strong>，所有卡拿到相同梯度各自 step，参数保持一致。求平均是因为<strong>等效 batch 变成 N 倍，求和相当于学习率被放大 N 倍</strong>。</li>
+<li>每张卡放完整模型副本，吃不同数据分片，算完梯度后 AllReduce <strong>求平均</strong>，所有卡拿到相同梯度各自 step，参数保持一致。求平均是因为等效 batch 变成 N 倍，求和相当于学习率被放大 N 倍。</li>
 <li><strong>每个 epoch 的数据顺序和划分完全一样，等于没有 shuffle</strong>。</li>
-<li>攒够一个桶（默认 25MB）就立刻开始 AllReduce，让<strong>通信和后面层的计算重叠</strong>。可能是因为<strong>反向传播是从后往前的，最后一层的梯度最先算出来</strong>，不用等全部算完。</li>
+<li>攒够一个桶（默认 25MB）就立刻开始 AllReduce，让<strong>通信和后面层的计算重叠</strong>。可能是因为反向传播是从后往前的，最后一层的梯度最先算出来，不用等全部算完。</li>
 <li><strong>通信量翻 N 倍</strong>（累积 8 步就是 8 倍必要通信量），而代码看起来完全正常——隐蔽的性能杀手。</li>
-<li><strong>≈ 2 × 数据量，和卡数几乎无关</strong>。软肋是<strong>步数为 2(N−1)，延迟随卡数线性增长</strong>。</li>
-<li>先在<strong>机内用 NVLink</strong> 做一次归约，只让<strong>各机的代表跨机通信</strong>（数据量变成 1/8），最后机内广播回去。</li>
-<li>因为卡数增加时<strong>计算时间下降（每卡数据变少）但通信量基本不变</strong>，所以<strong>通信占比上升</strong>。</li>
+<li><strong>≈ 2 × 数据量，和卡数几乎无关</strong>。软肋是步数为 2(N−1)，延迟随卡数线性增长。</li>
+<li>先在<strong>机内用 NVLink</strong> 做一次归约，只让各机的代表跨机通信（数据量变成 1/8），最后机内广播回去。</li>
+<li>因为卡数增加时<strong>计算时间下降（每卡数据变少）但通信量基本不变</strong>，所以通信占比上升。</li>
 <li><strong>一块都没省</strong>——每张卡都有完整的参数、梯度、优化器状态。省显存要用 ZeRO。</li>
 <li><strong>某张卡的数据比别人少一个 batch 提前退出循环</strong>，其他卡在等一个永远不来的 AllReduce。排查：<code>TORCH_NCCL_BLOCKING_WAIT=1</code> 让它超时报错而不是永久挂起。</li>
 </ol>
@@ -613,7 +565,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <blockquote>
 <p><strong>数据并行 = 每卡一份完整模型、吃不同数据、AllReduce 求平均</strong>（<strong>求平均不求和，否则等于学习率放大 N 倍</strong>）；它是<strong>唯一不改变模型结构的并行，所以永远先试它</strong>。⚠️<strong><code>sampler.set_epoch(epoch)</code> 最常被漏——不加等于没 shuffle</strong>。<strong>DDP 的两个关键优化</strong>：①⭐<strong>梯度桶 + 通信计算重叠</strong>（<strong>反向是从后往前的，最后一层梯度最先出来</strong>，攒够 25MB 桶就立刻 AllReduce，藏在后面层的计算后面）②⚠️<strong>梯度累积时必须 <code>model.no_sync()</code></strong>——忘了则<strong>通信量翻 N 倍</strong>而代码看起来完全正常。<strong>Ring AllReduce</strong> = ReduceScatter(N-1步) + AllGather(N-1步)，⭐<strong>每卡通信量 ≈ 2×数据量、和卡数无关</strong>，软肋是<strong>步数 2(N−1) 导致延迟随卡数线性增长</strong>。⭐<strong>分层 AllReduce</strong>：机内 NVLink 先归约 → <strong>只让各机代表跨机通信（数据量降到 1/8）</strong> → 机内广播。<strong>扩展效率下降的原因</strong>：卡多了<strong>计算时间下降但通信量不变 → 通信占比上升</strong>；具体数字：7B 模型通信 28GB/步，<strong>机内 NVLink 0.03 秒 vs 跨机 IB 1.1 秒（差 35 倍）</strong>，计算 0.5 秒时机内可完全重叠而跨机通信成瓶颈 → 该上 ZeRO 或模型并行。⚠️<strong>五个坑</strong>：忘 set_epoch、忘 no_sync、<strong>各卡 batch 不等长导致 AllReduce 挂死</strong>、BatchNorm 各算各的、随机性不一致。💥⭐<strong>"训练突然卡死、无报错、GPU 100%"= 某卡数据少一个 batch 提前退出，其他卡在等永不到来的 AllReduce</strong> → <code>TORCH_NCCL_BLOCKING_WAIT=1</code> 让它超时报错。⭐<strong>数据并行一块显存都没省</strong>。</p>
 </blockquote>
-<p><strong>下一节</strong> 👉 <a href="11-ZeRO与FSDP.html">11-ZeRO与FSDP.md</a> ⭐⭐</p>
+<p><strong>下一节</strong> 👉 <a href="11-ZeRO与FSDP.html">11-ZeRO与FSDP.md</a> ⭐</p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="09-显存优化全家桶.html"><div class="dir">← 上一节</div>⭐ 显存优化</a><a class="next" href="11-ZeRO与FSDP.html"><div class="dir">下一节 →</div>⭐⭐ ZeRO 与 FSDP</a></nav>
@@ -640,5 +592,5 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><script src="../assets/analytics.js" async></script>
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><script src="../assets/analytics.js" async></script>
 </body></html>

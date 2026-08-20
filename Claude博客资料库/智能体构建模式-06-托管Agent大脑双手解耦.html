@@ -43,8 +43,7 @@ blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
  border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
 blockquote p{margin:.4em 0}
 ul,ol{padding-left:1.5em}li{margin:.35em 0}
-table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em;display:block;
- overflow-x:auto}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
 th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
 th{background:var(--quote-bg)}
 tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
@@ -223,12 +222,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>最初的设计把所有组件塞进单个容器，带来一系列问题：
 - <strong>宠物问题：</strong> 容器挂了会话就永久丢失；容器无响应要人工「护理康复」
 - <strong>调试困难：</strong> 唯一的观察窗口是 WebSocket 事件流，无法定位故障来源；工程师需要 shell 访问装着用户数据的容器，造成安全和隐私障碍
-- <strong>网络假设：</strong> harness 假设所有资源都在自己的容器内，客户想接自己的私有 VPC 就要做网络对等</p>
+- 网络假设： harness 假设所有资源都在自己的容器内，客户想接自己的私有 VPC 就要做网络对等</p>
 <h2 id="_5">解耦后的架构</h2>
 <p><strong>harness 移到容器外部</strong>：不再运行在容器内，而是通过 <code>execute(name, input) → string</code> 把容器当工具调用——容器从「宠物」变成可互换的「牲畜」。容器失败时 harness 捕获错误，Claude 可以用标准配方重新拉起一个新容器重试。</p>
 <p><strong>harness 自身也可替换</strong>：因为 session 日志存在 harness 之外。失败的 harness 通过 <code>wake(sessionId)</code> 重启、<code>getSession(id)</code> 取回事件日志、恢复运行；运行中持续通过 <code>emitEvent(id, event)</code> 记录事件。</p>
-<p><strong>安全架构</strong>——耦合设计会把凭据暴露给同容器内 Claude 生成的代码（提示词注入即可窃取 token）。解耦后用两种模式：
-- <strong>资源绑定认证：</strong> 凭据在初始化时完成资源认证。git 仓库在沙箱搭建阶段就用内嵌 token 克隆好，后续 git 操作无需暴露凭据
+<p>安全架构——耦合设计会把凭据暴露给同容器内 Claude 生成的代码（提示词注入即可窃取 token）。<br class="prose-beat">解耦后用两种模式：
+- <strong>资源绑定认证：</strong> 凭据在初始化时完成资源认证。<br class="prose-beat">git 仓库在沙箱搭建阶段就用内嵌 token 克隆好，后续 git 操作无需暴露凭据
 - <strong>保险库认证（Vault-Based）：</strong> OAuth token 和自定义工具凭据留在外部安全保险库；Claude 通过 MCP 代理服务器用会话关联的令牌取用，凭据从不暴露给 harness</p>
 <h2 id="session">Session 作为外部上下文对象</h2>
 <p>长周期任务常常超出上下文窗口。与其做不可逆的取舍（摘要、选择性裁剪），不如让 session 在窗口之外提供一个<strong>持久的上下文对象</strong>。<code>getEvents()</code> 接口让 harness 可以：
@@ -237,7 +236,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 - 从上次停止的位置继续</p>
 <p>harness 还能在把事件送进 Claude 上下文前做变换，实现上下文组织和 prompt cache 优化。<strong>这把「可恢复的存储」与「上下文管理」分开了</strong>——未来的 harness 可以采用任何新出现的上下文工程技术。</p>
 <h2 id="_6">规模化：多大脑，多双手</h2>
-<p><strong>性能提升</strong>（不再要求每个会话都配容器后，首 token 延迟 TTFT 大幅改善）：
+<p>性能提升（不再要求每个会话都配容器后，首 token 延迟 TTFT 大幅改善）：
 - <strong>p50 TTFT 下降约 60%</strong>
 - <strong>p95 TTFT 下降超过 90%</strong></p>
 <p>原因：过去每个大脑都要有自己的容器并承担完整启动成本（克隆仓库、拉起进程、拉取事件）；现在容器只在工具调用需要时才配置，不需要沙箱交互的会话可以立即开始推理。</p>
@@ -269,7 +268,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 <div class="recap"><h2 id="recap">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong><br />
-⭐<strong>把「决定做什么」和「实际去做」拆开：大脑在托管环境推理，双手在你自己的环境执行</strong>，解决<strong>「想用托管的强模型，但数据和系统不能出内网」</strong>的矛盾。⚠️⭐⭐<strong>最容易误解的一点：「执行在本地」不等于「数据不出去」</strong>——<strong>工具的返回值仍会回到云端模型的上下文</strong>，所以<strong>返回值里包含什么需要专门审查和裁剪</strong>。<strong>新增复杂度</strong>：网络往返变多（延迟上升）、需要可靠的双向通道和鉴权、<strong>故障排查跨两个环境（日志要能对齐）</strong>、版本管理（本地工具行为变了云端提示词可能要跟着改）。</p></div>
+⭐把「决定做什么」和「实际去做」拆开：大脑在托管环境推理，双手在你自己的环境执行，解决<strong>「想用托管的强模型，但数据和系统不能出内网」</strong>的矛盾。<br class="prose-beat">⚠️⭐⭐<strong>最容易误解的一点：「执行在本地」不等于「数据不出去」</strong>——工具的返回值仍会回到云端模型的上下文，所以返回值里包含什么需要专门审查和裁剪。<br class="prose-beat">新增复杂度：网络往返变多（延迟上升）、需要可靠的双向通道和鉴权、故障排查跨两个环境（日志要能对齐）、版本管理（本地工具行为变了云端提示词可能要跟着改）。</p></div>
 <nav class="pagenav"><a href="index.html"><div class="dir">← 返回</div>📚 资料库目录</a>
 <a class="next" href="../智能体工程教程/index.html"><div class="dir">系统学习 →</div>🎓 智能体工程教程</a></nav>
 </main><script>(function(){
@@ -283,5 +282,5 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><script src="../assets/analytics.js" async></script>
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><script src="../assets/analytics.js" async></script>
 </body></html>

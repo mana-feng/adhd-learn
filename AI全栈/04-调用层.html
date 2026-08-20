@@ -19,7 +19,7 @@ if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
  --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
  --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
 *{box-sizing:border-box}html{scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--fg);font-size:17px;line-height:1.85;
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
  font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
  -webkit-font-smoothing:antialiased}
 #scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
@@ -45,8 +45,7 @@ blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
  border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
 blockquote p{margin:.4em 0}
 ul,ol{padding-left:1.5em}li{margin:.35em 0}
-table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em;display:block;
- overflow-x:auto}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
 th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
 th{background:var(--quote-bg)}
 tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
@@ -138,6 +137,16 @@ figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 aut
 figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
  margin-top:8px;line-height:1.6}
 figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:.82em;
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
 
 .dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
 .dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
@@ -364,7 +373,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <p>⭐ <strong><code>LLMResult</code> 是这一层最值钱的一行</strong>：它让「换 SDK」变成「改一个文件」。⚠️ 别偷懒把 SDK 的响应对象直接往上传——那等于把整个 SDK 的形状焊进业务代码。</p>
-<p><strong><code>FakeLLM</code> 也不是玩具</strong>：<strong>① 测试 / CI</strong> 不花钱不联网，上游抖动不再让你的测试变红；<strong>② 本地开发</strong> 前端不用等你的 Key；<strong>③ ⭐ 故障演练</strong>——让它<strong>故意</strong>抛 429、故意超时、故意返回半截 JSON，<strong>重试和降级路径只有这样才测得到</strong>。⭐ 它和 03 章那行 <code>app.dependency_overrides[...]</code> 是同一件事：<strong>「能被换掉」是这整套设计的目的。</strong></p>
+<p><strong><code>FakeLLM</code> 也不是玩具</strong>：<strong>① 测试 / CI</strong> 不花钱不联网，上游抖动不再让你的测试变红；② 本地开发 前端不用等你的 Key；③ ⭐ 故障演练——让它故意抛 429、故意超时、故意返回半截 JSON，重试和降级路径只有这样才测得到。⭐ 它和 03 章那行 <code>app.dependency_overrides[...]</code> 是同一件事：「能被换掉」是这整套设计的目的。</p>
 <hr />
 <h2 id="_2">⏳ 二、超时是<strong>两个</strong>数，不是一个</h2>
 <table>
@@ -391,8 +400,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⚠️ <strong>流式和非流式下，读取超时的含义完全不同</strong>：</p>
 <ul>
 <li><strong>非流式</strong>：整段生成完才有第一个字节回来。它必须<strong>大于最长的一次生成</strong>，否则正常的长回答被你自己砍断。</li>
-<li><strong>流式</strong>：字一段一段回来，它的实际含义变成 ⭐ <strong>「两次字节之间的最大间隔」</strong>——总时长不再受它约束，所以这个数<strong>可以比非流式小</strong>。
-  ⚠️ <strong>但绝不能按普通 API 的直觉设成几秒</strong>：模型在<strong>长上下文、工具调用中</strong>「想」的时候，连接上<strong>几十秒没有任何字节是正常的</strong>（<a href="05-流式输出.html">05 章第四节</a>）。设成 5 秒，砍掉的不是故障，是你自己<strong>正常的请求</strong>——而且专挑最贵、最慢的那类砍。</li>
+<li><strong>流式</strong>：字一段一段回来，它的实际含义变成 ⭐ <strong>「两次字节之间的最大间隔」</strong>——总时长不再受它约束，所以这个数可以比非流式小。
+  ⚠️ <strong>但绝不能按普通 API 的直觉设成几秒</strong>：模型在<strong>长上下文、工具调用中</strong>「想」的时候，连接上几十秒没有任何字节是正常的（<a href="05-流式输出.html">05 章第四节</a>）。设成 5 秒，砍掉的不是故障，是你自己正常的请求——而且专挑最贵、最慢的那类砍。</li>
 </ul>
 <blockquote>
 <p>⭐ <strong>判据</strong>：读取超时要大于「<strong>一次合法的静默能有多长</strong>」，这个长度由你最长的一次工具调用决定，<strong>不是由手感决定</strong>。
@@ -438,7 +447,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table>
 <p>⚠️ <strong>必须写成白名单</strong>：<code>except Exception: retry</code> 会把「prompt 超长」这种确定性错误也重试三遍，让本该 0.2 秒返回的 400 变成 8 秒——<strong>而且日志里看起来像上游在抖</strong>。</p>
-<p>⚠️ <strong>白名单漏一类，症状同样安静</strong>：比如漏了 <strong>5xx</strong>，上游一次瞬时故障就直接变成用户看见的报错，而<strong>日志里只有一次失败</strong>，看不出「它本该重试一次就好」。所以白名单要<strong>对着上面那张表逐行写</strong>，别凭记忆敲。</p>
+<p>⚠️ <strong>白名单漏一类，症状同样安静</strong>：比如漏了 <strong>5xx</strong>，上游一次瞬时故障就直接变成用户看见的报错，而日志里只有一次失败，看不出「它本该重试一次就好」。所以白名单要对着上面那张表逐行写，别凭记忆敲。</p>
 <div class="codehilite"><pre><span></span><code><span class="c1"># retry.py —— 哪些错该重试、退避怎么算（可直接跑，看得见退避序列）</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">random</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
@@ -496,8 +505,15 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
         <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;不可重试，一次就抛出来：&quot;</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
 </code></pre></div>
 
-<p>⭐ <strong>为什么一定要有抖动</strong>：上游抖一下，<strong>所有客户端在同一瞬间失败，也就在同一瞬间重试</strong>——第二波比第一波更集中，把刚要缓过来的上游又打回去。这叫重试风暴，<code>rng.uniform(0, 退避上限)</code> 就是解药：<strong>把大家回来的时间摊开</strong>。</p>
-<p>三条容易漏的：<strong>① 次数要有上限</strong>（三四次）；<strong>② 重试烧的 token 也是钱</strong>，所以下一节记账表里有 <code>retries</code>；<strong>③ ⭐ 流式首字发出去之后不能再静默重试</strong>——用户已经看见字了，重来一遍就是当着他的面推翻自己（05 章第五节）。</p>
+<p>⭐ <strong>为什么一定要有抖动</strong>：上游抖一下，<strong>所有客户端在同一瞬间失败，也就在同一瞬间重试</strong>——第二波比第一波更集中，把刚要缓过来的上游又打回去。这叫重试风暴，<code>rng.uniform(0, 退避上限)</code> 就是解药：把大家回来的时间摊开。</p>
+<p>三条容易漏的：<strong>① 次数要有上限</strong>（三四次）；<strong>② 重试烧的 token 也是钱</strong>，所以下一节记账表里有 <code>retries</code>；③ ⭐ 流式首字发出去之后不能再静默重试——用户已经看见字了，重来一遍就是当着他的面推翻自己（05 章第五节）。</p>
+<hr />
+<!--MIDSTOP-->
+<blockquote>
+<p>🛑 <strong>读到这里可以停</strong> —— 已经读了约 25 分钟。
+<strong>最后一段还有</strong>（约 27 分钟）：成本记账：<strong>不在这层做，之后就没地方做了</strong> · 缓存：不确定性让它变难了 · 换个栈怎么对应 · 检查点与走神救援
+回来的时候不用重读，直接从下一节接着看就行。</p>
+</blockquote>
 <hr />
 <h2 id="_4">💰 四、成本记账：<strong>不在这层做，之后就没地方做了</strong></h2>
 <table>
@@ -553,8 +569,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
         <span class="nb">print</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="s2">&quot;→&quot;</span><span class="p">,</span> <span class="n">record</span><span class="p">(</span><span class="s2">&quot;t1&quot;</span><span class="p">,</span> <span class="s2">&quot;u_9&quot;</span><span class="p">,</span> <span class="s2">&quot;摘要&quot;</span><span class="p">,</span> <span class="n">m</span><span class="p">,</span> <span class="mi">1200</span><span class="p">,</span> <span class="mi">800</span><span class="p">,</span> <span class="mi">940</span><span class="p">)[</span><span class="s2">&quot;cost&quot;</span><span class="p">])</span>
 </code></pre></div>
 
-<p>⚠️ <strong>单价必须是配置，不能是散落在代码里的字面量</strong>——🗓️ 它一年变好几次，而且新模型上线时你会<strong>忘了加</strong>。<code>cost_of</code> 对不认识的模型返回 <code>None</code> 而不是 <code>0</code>，就是为了让「忘了加」在报表里<strong>显形</strong>，而不是安静地变成一笔零元开销。</p>
-<p>⭐ <strong>三个归因维度一个都不能少：<code>user_id</code>（谁）、<code>feature</code>（哪个功能）、<code>model</code>（哪个模型）。</strong> 前两个只有业务层知道，所以得<strong>由调用方传进来</strong>——⚠️ <code>feature</code> 是最常被漏掉的那个，因为它是唯一一个「不传也能跑」的字段。漏了它，本节开头那个问题「聊天花的还是摘要花的」就<strong>永远答不出来</strong>，而且<strong>事后补不回去</strong>：历史记录里没有这一列。</p>
+<p>⚠️ <strong>单价必须是配置，不能是散落在代码里的字面量</strong>——🗓️ 它一年变好几次，而且新模型上线时你会<strong>忘了加</strong>。<code>cost_of</code> 对不认识的模型返回 <code>None</code> 而不是 <code>0</code>，就是为了让「忘了加」在报表里显形，而不是安静地变成一笔零元开销。</p>
+<p>⭐ <strong>三个归因维度一个都不能少：<code>user_id</code>（谁）、<code>feature</code>（哪个功能）、<code>model</code>（哪个模型）。</strong> 前两个只有业务层知道，所以得<strong>由调用方传进来</strong>——⚠️ <code>feature</code> 是最常被漏掉的那个，因为它是唯一一个「不传也能跑」的字段。漏了它，本节开头那个问题「聊天花的还是摘要花的」就永远答不出来，而且事后补不回去：历史记录里没有这一列。</p>
 <p>⭐ 有了这张表，12 章的配额扣减、15 章的成本看板都只是拿它做聚合——15 章那三条 <code>GROUP BY</code> 正是<strong>按天 / 按 <code>feature</code> / 按 <code>user_id</code></strong>。<strong>顺序不能反：先有记录，才谈得上限制。</strong></p>
 <hr />
 <h2 id="_5">🗄️ 五、缓存：不确定性让它变难了</h2>
@@ -607,7 +623,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;同问题、不同文档，key 相同吗：&quot;</span><span class="p">,</span> <span class="n">k</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">k</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>   <span class="c1"># ⭐ 必须 False</span>
 </code></pre></div>
 
-<p>💀 <strong>key 漏字段是这一节唯一真正危险的错误。</strong> 假设 key 只算 <code>prompt</code>，而提示词模板里拼进了检索到的文档——A 公司和 B 公司都问「这份合同有什么风险」，<strong>B 会拿到 A 的合同摘要</strong>。⚠️ 这类 bug <strong>没有任何报错</strong>，缓存命中率还会因此变得很好看。判据：<strong>凡是会影响输出的东西</strong>（模型、system、温度、文档 id 和版本、租户）都得进 key。</p>
+<p>💀 <strong>key 漏字段是这一节唯一真正危险的错误。</strong> 假设 key 只算 <code>prompt</code>，而提示词模板里拼进了检索到的文档——A 公司和 B 公司都问「这份合同有什么风险」，<strong>B 会拿到 A 的合同摘要</strong>。⚠️ 这类 bug 没有任何报错，缓存命中率还会因此变得很好看。判据：凡是会影响输出的东西（模型、system、温度、文档 id 和版本、租户）都得进 key。</p>
 <hr />
 <h2 id="_6">🔄 六、换个栈怎么对应</h2>
 <table>
@@ -695,21 +711,25 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>换模型、加日志、算成本、做缓存、测试替换</strong>。共同形状：都是「<strong>每次调用都要做、却和业务无关</strong>」的事——和依赖注入同类，只是那层管进来的边界，这层管出去的边界。</li>
-<li>连接超时卡 <strong>TCP + TLS 握手</strong>（请求还没发出去）；读取超时卡「<strong>发出之后多久没收到新字节</strong>」，非流式下它必须大于最长的一次生成；流式下变成 ⭐<strong>「两次字节之间的最大间隔」</strong>，可以比非流式小，但 ⚠️ <strong>不能按普通 API 的直觉设成几秒</strong>——长上下文、工具调用中<strong>几十秒没有字节是正常的</strong>，设 5 秒砍掉的是自己正常的请求。判据是「<strong>一次合法的静默能有多长</strong>」。不设超时的症状是「<strong>跑几天越来越慢，重启就好</strong>」，难注意是因为它<strong>太温和</strong>——不报错、不告警。</li>
-<li>黑名单会漏。<code>except Exception: retry</code> 会把 <strong>400 这类确定性错误也重试三遍</strong>，把本该 0.2 秒的错拖成 8 秒，<strong>而且日志里看起来像上游在抖</strong>。</li>
+<li><strong>换模型、加日志、算成本、做缓存、测试替换</strong>。共同形状：都是「每次调用都要做、却和业务无关」的事——和依赖注入同类，只是那层管进来的边界，这层管出去的边界。</li>
+<li>连接超时卡 <strong>TCP + TLS 握手</strong>（请求还没发出去）；读取超时卡「发出之后多久没收到新字节」，非流式下它必须大于最长的一次生成；流式下变成 「两次字节之间的最大间隔」，可以比非流式小，但 ⚠️ 不能按普通 API 的直觉设成几秒——长上下文、工具调用中几十秒没有字节是正常的，设 5 秒砍掉的是自己正常的请求。判据是「一次合法的静默能有多长」。不设超时的症状是「跑几天越来越慢，重启就好」，难注意是因为它太温和——不报错、不告警。</li>
+<li>黑名单会漏。<code>except Exception: retry</code> 会把 <strong>400 这类确定性错误也重试三遍</strong>，把本该 0.2 秒的错拖成 8 秒，而且日志里看起来像上游在抖。</li>
 <li>上游抖一下，所有客户端<strong>同一瞬间失败、同一瞬间重试</strong>，第二波更集中，把刚缓过来的上游又打回去（重试风暴）。抖动把大家回来的时间摊开。</li>
-<li>因为<strong>只有这一层同时知道两边</strong>：账单层只有一个总数（不知道谁、哪个功能），业务层不知道 <strong>token 数</strong>（它拿到的是一段文本）。三个归因维度是 ⭐ <strong><code>user_id</code>（谁）/ <code>feature</code>（哪个功能）/ <code>model</code>（哪个模型）</strong>——前两个只有业务层知道，得由调用方传进来，⚠️ <code>feature</code> 最容易漏，而漏了<strong>事后补不回去</strong>。</li>
-<li>为了让「<strong>新模型上线时忘了配单价</strong>」在报表里<strong>显形</strong>，而不是安静地变成一笔零元开销。</li>
-<li><strong>B 公司会拿到 A 公司的合同摘要</strong>——同一个问题、不同的检索文档，key 却一样。危险在于<strong>没有任何报错</strong>，而且命中率还会变得很好看。</li>
-<li>⭐ <strong>故障演练</strong>：故意抛 429、故意超时、故意返回半截 JSON，<strong>重试和降级路径只有这样才测得到</strong>。</li>
+<li>因为<strong>只有这一层同时知道两边</strong>：账单层只有一个总数（不知道谁、哪个功能），业务层不知道 token 数（它拿到的是一段文本）。三个归因维度是 <code>user_id</code>（谁）/ <code>feature</code>（哪个功能）/ <code>model</code>（哪个模型）——前两个只有业务层知道，得由调用方传进来，⚠️ <code>feature</code> 最容易漏，而漏了事后补不回去。</li>
+<li>为了让「<strong>新模型上线时忘了配单价</strong>」在报表里显形，而不是安静地变成一笔零元开销。</li>
+<li><strong>B 公司会拿到 A 公司的合同摘要</strong>——同一个问题、不同的检索文档，key 却一样。危险在于没有任何报错，而且命中率还会变得很好看。</li>
+<li><strong>故障演练</strong>：故意抛 429、故意超时、故意返回半截 JSON，重试和降级路径只有这样才测得到。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_9">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>调用层 = <strong>把「调模型」包成你自己的一个函数</strong>。五个理由：<strong>换模型 / 加日志 / 算成本 / 做缓存 / 测试替换</strong>——共同形状是「每次调用都要做、却和业务无关」，和 03 章依赖注入同类，只是那层管进来的边界、这层管出去的边界。地基两样：<strong>自己定的 <code>LLMResult</code></strong>（让换 SDK 变成改一个文件，⚠️ 别把 SDK 响应对象直接往上传）和<strong>假客户端</strong>（它唯一不可替代的用途是 ⭐ <strong>故障演练</strong>：故意抛 429、故意超时、故意返回半截 JSON，重试和降级路径只有这样才测得到）。<strong>超时是两个数</strong>：连接超时卡 TCP/TLS 握手，读取超时卡「发出后多久没收到新字节」；非流式下它必须大于最长的一次生成；⭐ <strong>流式下含义变成「两次字节之间的最大间隔」</strong>，可以比非流式小，但 ⚠️ <strong>不能按普通 API 的直觉设成几秒</strong>——长上下文、工具调用中连接上<strong>几十秒没有字节是正常的</strong>（05 章第四节），设 5 秒砍掉的不是故障、是你自己<strong>最贵最慢的那些正常请求</strong>；判据是「一次合法的静默能有多长」，拿不准往大了设。不设超时的症状是「<strong>跑几天越来越慢，重启就好</strong>」——太温和，所以没人查。<strong>重试用白名单</strong>：429 / 5xx / 网络错误该重试，<strong>400、401、内容策略拒绝绝不重试</strong>；<code>except Exception: retry</code> 会把 0.2 秒的 400 拖成 8 秒，<strong>还伪装成上游在抖</strong>。退避要<strong>指数 + 抖动</strong>：上游抖一下所有客户端同时失败、同时重试，第二波比第一波更集中，把刚缓过来的上游又打回去，<code>rng.uniform(0, 退避上限)</code> 就是解药。另外三条：次数有上限、<strong>重试烧的 token 也是钱</strong>（所以记账表里有 <code>retries</code>）、⭐ <strong>首字发出去之后不能静默重试</strong>。<strong>成本记账必须在这一层</strong>，因为只有它同时知道两边：账单层只有一个总数，业务层不知道 token 数；⭐ <strong>三个归因维度一个都不能少：<code>user_id</code> / <code>feature</code> / <code>model</code></strong>，⚠️ <code>feature</code> 最容易漏（它是唯一「不传也能跑」的），漏了「聊天花的还是摘要花的」就永远答不出来、而且<strong>事后补不回去</strong>；⭐ 不认识的模型返回 <code>None</code> 不是 <code>0</code>，好让「忘了配单价」在报表里显形。<strong>先有记录才谈得上限制</strong>，12 章的配额建在这张表上。<strong>缓存</strong>的判据是「同样输入是不是<strong>应该</strong>得到同样输出」：<code>temperature=0</code>、embedding（性价比最高）、固定提示词的分类能缓存；创作、带工具、流式不能。💀 <strong>key 漏字段是唯一真正危险的错</strong>：只算 prompt 不算文档 id，B 公司会拿到 A 公司的合同摘要，而且<strong>没有任何报错，命中率还很好看</strong>。</p>
+<p>调用层 = <strong>把「调模型」包成你自己的一个函数</strong>。五个理由（换模型 / 加日志 / 算成本 / 做缓存 / 测试替换）共同的形状是「<strong>每次调用都要做、却和业务无关</strong>」。</p>
+<p>地基两样：<strong>自己定的返回结构</strong>（让换 SDK 变成改一个文件，⚠️ 别把 SDK 的响应对象直接往上传）和<strong>假客户端</strong>——⭐ 它唯一不可替代的用途是<strong>故障演练</strong>：故意抛 429、故意超时、故意返回半截 JSON，<strong>重试和降级路径只有这样才测得到</strong>。</p>
+<p><strong>超时是两个数</strong>：连接超时卡握手，读取超时卡「发出后多久没收到新字节」。⭐ <strong>流式下它的含义变成「两次字节之间的最大间隔」</strong>，⚠️ 但<strong>不能按普通 API 的直觉设成几秒</strong>——长上下文和工具调用中几十秒没有字节是正常的，<strong>设太短砍掉的不是故障，是你自己最贵最慢的那些正常请求</strong>。⚠️ 不设超时的症状是「<strong>跑几天越来越慢，重启就好</strong>」——太温和，所以没人查。</p>
+<p><strong>重试用白名单</strong>：429、5xx、网络错误该重试，400、401、内容策略拒绝<strong>绝不重试</strong>——⚠️ <code>except Exception: retry</code> 会把 0.2 秒的错拖成好几秒，<strong>还伪装成上游在抖</strong>。退避要<strong>指数加抖动</strong>：否则上游抖一下，所有客户端同时失败、同时重试，<strong>第二波比第一波更集中</strong>。⭐ 而且<strong>首字发出去之后不能静默重试</strong>。</p>
+<p><strong>成本记账必须在这一层</strong>，因为只有它同时知道两边。⭐ 三个归因维度一个都不能少，⚠️ 其中「功能」最容易漏——<strong>它是唯一「不传也能跑」的，漏了就永远答不出「聊天花的还是摘要花的」，而且事后补不回去</strong>。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="05-流式输出.html">05-流式输出.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
@@ -738,5 +758,5 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><script src="../assets/analytics.js" async></script>
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><script src="../assets/analytics.js" async></script>
 </body></html>

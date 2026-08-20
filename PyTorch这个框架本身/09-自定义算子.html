@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>09 · 自己写一个 autograd 算子 · PyTorch 这个框架本身</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:1.9em;line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:1.42em;margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:1.14em;margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:.88em;background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:.85em}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:.92em}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:.8em;color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:.85em;color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:.92em}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:.78em;
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:.92em;border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:.93em;line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:.9em;line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:.93em;line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:.92em}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:1.15em;opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:.82em;
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
+
+.dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:.95em;margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:.93em;line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.02em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:.93em;break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">09 · 自定义算子</span>
+  <span class="prevnext"><a href="08-DataLoader与多进程.html">←</a>
+  <a href="10-把模型交出去.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#_2">🧩 一、什么时候真的需要它</a></li>
+<li><a href="#_3">🔧 二、合同的四条条款</a></li>
+<li><a href="#ctxsave_for_backwardx-ctxx-x">🧷 三、ctx.save_for_backward(x) 和 ctx.x = x 的差别</a></li>
+<li><a href="#80-mb-10-mb">♻️ 四、把「重算」写进反向：8.0 MB → 1.0 MB</a></li>
+<li><a href="#gradcheck">🧪 五、gradcheck：不要靠眼睛检查导数</a></li>
+<li><a href="#_6">🔁 六、二阶导：默认能，除非你明说不能</a></li>
+<li><a href="#_7">🚦 七、这一章不讲什么</a></li>
+<li><a href="#_8">🔗 这一章连到哪里</a></li>
+<li><a href="#_9">✅ 检查点</a></li>
+<li><a href="#_10">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<h1 id="09-autograd">09 · 自己写一个 autograd 算子</h1>
+<p>⏱ <strong>114 分钟</strong> ｜ ⭐ <strong>实测：把 8 层 <code>tanh</code> 的中间结果一个都不存、反向时重算一遍，图里存下的字节从 8.0 MB 掉到 1.0 MB，梯度一位不差</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong><code>autograd.Function</code> 是你和框架签的一份合同：前向那一格随便你怎么算（可以出去用 numpy、可以完全不建图、可以做一个数学上根本不可导的操作），代价是【反向那一格必须你自己填】。</strong>
+第 02 章讲的是框架<strong>自动</strong>建图；这一章讲的是手动往图里插一个节点 —— 插进去之后，它和内置算子在 autograd 眼里没有任何区别。</p>
+<hr />
+<h2 id="_2">🧩 一、什么时候真的需要它</h2>
+<p>先说清楚<strong>什么时候不需要</strong>，因为这是最常见的误用。</p>
+<p>⚠️ <strong>「我想让它更快」不在清单里。</strong> 如果你的操作只是把已有算子组合起来（<code>x.sigmoid() * w + b</code> 这种），autograd 自己求出来的导数既正确又不慢，手写一个 <code>Function</code> 只会多一层 Python 调用、多一个会写错的地方。</p>
+<p>✅ 真正需要它的是这三种，每一种都是<strong>框架自己算不出来</strong>：</p>
+<h3 id="1-0">① 真实的梯度是 0，或者根本不存在</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">0.2</span><span class="p">,</span> <span class="mf">0.7</span><span class="p">,</span> <span class="mf">1.4</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;torch.round 的梯度:&quot;</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>torch.round 的梯度: [0.0, 0.0, 0.0]</p></div></section>
+<p>⭐ <strong><code>round</code> 是阶梯函数，除了跳变点之外导数处处为 0</strong> —— 框架没算错，它算得完全正确。
+但正确的梯度是 0 意味着：<strong>这一步之前的所有参数都收不到任何信号，整个网络的前半截等于没训。</strong></p>
+<p>于是有了一个业界通用的作弊法，叫<strong>直通估计</strong>（Straight-Through Estimator）：<strong>前向照样取整，反向假装自己是恒等函数</strong>。</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">RoundSTE</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>          <span class="c1"># 前向：真的取整</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">g</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">g</span>                       <span class="c1"># ⭐ 反向：假装自己是恒等函数，梯度原样放过去</span>
+
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">0.2</span><span class="p">,</span> <span class="mf">0.7</span><span class="p">,</span> <span class="mf">1.4</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">y</span> <span class="o">=</span> <span class="n">RoundSTE</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+<span class="n">y</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;STE 的前向:&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span> <span class="s2">&quot; 梯度:&quot;</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>STE 的前向: [0.0, 1.0, 1.0] 梯度: [1.0, 1.0, 1.0]</p></div></section>
+<p>⭐ <strong>前向是取整（0/1/1），梯度是恒等（全 1）—— 前向和反向【故意不匹配】。</strong>
+这在数学上是错的，在工程上是量化感知训练（QAT）、二值网络、离散隐变量的标准做法。你在 <a href="../AI基础设施/18-量化.html">《AI基础设施》18 · 量化</a> 里看到的「QAT 是在训练时插入伪量化节点」，那个节点的反向就是这么写出来的。</p>
+<h3 id="2">② 前向绕出框架去算了</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">y</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()))</span>     <span class="c1"># 中间绕出去用 numpy 算</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;y.requires_grad =&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">,</span> <span class="s2">&quot; y.grad_fn =&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">.</span><span class="n">grad_fn</span><span class="p">)</span>
+<span class="n">y</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<div class="codehilite"><pre><span></span><code>y.requires_grad = False  y.grad_fn = None
+RuntimeError: element 0 of tensors does not require grad and does not have a grad_fn
+</code></pre></div>
+
+<p>⭐ <strong>一旦离开框架，图就断在那里。</strong> numpy 不知道自己在被求导，<code>from_numpy</code> 回来的是一个全新的叶子张量，和 <code>x</code> 之间没有任何关系。
+<code>Function</code> 就是那个把断口重新焊上的东西 —— 第二节的第三个例子会把这一段补完整。</p>
+<p>同样的情形还包括：调一段自己写的 C++ / CUDA 核、调一个只有 Python 接口的第三方库、调一个跑在别的进程里的模拟器。</p>
+<h3 id="3">③ ⭐ 你想拿「反向时重算」去换显存</h3>
+<p>这是第四节的正题，也是本章唯一一个「<strong>优化</strong>」用途 —— 注意它优化的不是速度，是<strong>显存</strong>，而且是用速度去换。</p>
+<hr />
+<h2 id="_3">🔧 二、合同的四条条款</h2>
+<p>最小的一个 <code>Function</code>：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Square</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="n">x</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">grad_out</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">x</span><span class="p">,)</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="k">return</span> <span class="n">grad_out</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">x</span>
+
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">y</span> <span class="o">=</span> <span class="n">Square</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+<span class="n">y</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;自定义:&quot;</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+
+<span class="n">x2</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="p">(</span><span class="n">x2</span> <span class="o">*</span> <span class="n">x2</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;内置  :&quot;</span><span class="p">,</span> <span class="n">x2</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+
+<span class="n">x3</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;grad_fn:&quot;</span><span class="p">,</span> <span class="n">Square</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">x3</span><span class="p">)</span><span class="o">.</span><span class="n">grad_fn</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>自定义: [2.0, 4.0, 6.0]</p><p>内置 : [2.0, 4.0, 6.0]</p><p>grad_fn: &lt;torch.autograd.function.SquareBackward object at 0x000001554BAA0E50&gt;</p></div></section>
+<p>⭐ <strong><code>grad_fn</code> 叫 <code>SquareBackward</code></strong> —— 和第 02 章里见到的 <code>MulBackward0</code>、<code>AddBackward0</code> 是同一类东西。<strong>你的类名 + <code>Backward</code> 就是它在图里的名字</strong>，报错信息里也会出现它，所以类名起得可读一点，将来定位问题会省事。</p>
+<p>四条条款：</p>
+<table>
+<thead>
+<tr>
+<th>条款</th>
+<th>内容</th>
+<th>违反会怎样</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>①</td>
+<td><code>forward</code> / <code>backward</code> 都是 <code>@staticmethod</code>，调用走 <strong><code>.apply()</code></strong></td>
+<td>见下面那条最误导人的报错</td>
+</tr>
+<tr>
+<td>②</td>
+<td><code>forward</code> 的第一个参数是 <code>ctx</code>，它是<strong>这一次调用</strong>的储物柜</td>
+<td>——</td>
+</tr>
+<tr>
+<td>③</td>
+<td><code>backward</code> 收到的梯度，形状 = <code>forward</code> <strong>输出</strong>的形状</td>
+<td>形状对不上会在加梯度那一步炸</td>
+</tr>
+<tr>
+<td>④</td>
+<td><code>backward</code> <strong>返回值的个数 = <code>forward</code> 输入参数的个数</strong>（<code>ctx</code> 不算），且<strong>一一对应</strong></td>
+<td><code>returned an incorrect number of gradients</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="_4">⚠️ 一条会把你带偏的报错</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Square</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="n">x</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">g</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">x</span><span class="p">,)</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="k">return</span> <span class="n">g</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">x</span>
+
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">Square</span><span class="p">()(</span><span class="n">x</span><span class="p">)</span>          <span class="c1"># ⚠️ 写成了「实例化再调用」</span>
+</code></pre></div>
+
+<p>实跑输出（截去了后半段 URL）：</p>
+<div class="codehilite"><pre><span></span><code>DeprecationWarning: &lt;class &#39;__main__.Square&#39;&gt; should not be instantiated. Methods on autograd functions are all static, so you should invoke them on the class itself.
+RuntimeError: Legacy autograd function with non-static forward method is deprecated. Please use new-style autograd function with static forward method.
+</code></pre></div>
+
+<p>💀 <strong>报错说你的 <code>forward</code> 不是 static，而上面这个 <code>forward</code> 明明写了 <code>@staticmethod</code>。</strong>
+真正的原因是那个 <code>Square()</code> —— 你实例化了它。正确写法永远是 <code>Square.apply(x)</code>，一个括号的差别。
+⚠️ 这条报错会让人回去反复检查装饰器，那是白费的；<strong>看到 <code>non-static forward method</code> 先去找有没有 <code>()</code>。</strong></p>
+<h3 id="4">④ 返回几个梯度：数着输入参数来</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ScaleBad</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">k</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">k</span> <span class="o">=</span> <span class="n">k</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="n">k</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">g</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">g</span> <span class="o">*</span> <span class="n">ctx</span><span class="o">.</span><span class="n">k</span>                 <span class="c1"># ⚠️ forward 收了 2 个参数，这里只返回 1 个</span>
+
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">ScaleBad</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<div class="codehilite"><pre><span></span><code>RuntimeError: function ScaleBadBackward returned an incorrect number of gradients (expected 2, got 1)
+</code></pre></div>
+
+<p>✅ 修法是<strong>给非张量参数返回 <code>None</code></strong>：</p>
+<div class="codehilite"><pre><span></span><code>    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">g</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">g</span> <span class="o">*</span> <span class="n">ctx</span><span class="o">.</span><span class="n">k</span><span class="p">,</span> <span class="kc">None</span>           <span class="c1"># ⭐ k 是个 float，它没有梯度，但位置要占住</span>
+</code></pre></div>
+
+<p>⭐ <strong><code>None</code> 的意思是「这个入参我不给梯度」</strong>，不是「我忘了」。超参数、形状、字符串、布尔开关，全都返回 <code>None</code>。</p>
+<h3 id="needs_input_grad">🚦 <code>needs_input_grad</code>：别算没人要的梯度</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Clip</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;把 x 夹到 [lo, hi]，反向只让区间内的梯度过去。&quot;&quot;&quot;</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">lo</span><span class="p">,</span> <span class="n">hi</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">lo</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">hi</span> <span class="o">=</span> <span class="n">lo</span><span class="p">,</span> <span class="n">hi</span>
+        <span class="k">return</span> <span class="n">x</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="n">lo</span><span class="p">,</span> <span class="n">hi</span><span class="p">)</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">g</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">x</span><span class="p">,)</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;   needs_input_grad =&quot;</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">)</span>
+        <span class="n">mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span> <span class="o">&gt;=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">lo</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">x</span> <span class="o">&lt;=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">hi</span><span class="p">)</span>
+        <span class="n">gx</span> <span class="o">=</span> <span class="n">g</span> <span class="o">*</span> <span class="n">mask</span> <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">needs_input_grad</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">else</span> <span class="kc">None</span>     <span class="c1"># ⭐ 没人要就别算</span>
+        <span class="k">return</span> <span class="n">gx</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>                                  <span class="c1"># lo / hi 不是张量</span>
+
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="o">-</span><span class="mf">2.0</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">y</span> <span class="o">=</span> <span class="n">Clip</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;前向:&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+<span class="n">y</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;梯度:&quot;</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>前向: [-1.0, 0.5, 1.0]</p><p>needs_input_grad = (True, False, False)</p><p>梯度: [0.0, 1.0, 0.0]</p></div></section>
+<p>⭐ <strong><code>ctx.needs_input_grad</code> 是一个和输入参数等长的布尔元组</strong>（这里是 <code>(True, False, False)</code>：只有 <code>x</code> 要梯度，两个 float 不要）。
+被夹住的 <code>-2.0</code> 和 <code>2.0</code> 梯度是 <strong>0</strong>，区间内的 <code>0.5</code> 是 1 —— 这就是 <code>clamp</code> 该有的行为，你亲手写了出来。</p>
+<p>💡 <strong>有多个张量输入时这条能省很多</strong>：冻结了 backbone（见 <a href="04-detach与no_grad.html">04 · <code>detach</code> / <code>no_grad</code> / <code>requires_grad</code></a>）之后，<code>needs_input_grad[0]</code> 就是 <code>False</code>，那一大坨矩阵乘法可以直接跳过。</p>
+<h3 id="_5">🧯 把断掉的图焊回去</h3>
+<p>回到第一节那个 numpy 的例子，现在能补完整了：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">NpSqrt</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()))</span>   <span class="c1"># 出去用 numpy 算</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">out</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">g</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">out</span><span class="p">,)</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="k">return</span> <span class="n">g</span> <span class="o">/</span> <span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">out</span><span class="p">)</span>                                  <span class="c1"># d/dx √x = 1/(2√x)</span>
+
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">4.0</span><span class="p">,</span> <span class="mf">9.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">y</span> <span class="o">=</span> <span class="n">NpSqrt</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;前向:&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span> <span class="s2">&quot; grad_fn:&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">y</span><span class="o">.</span><span class="n">grad_fn</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+<span class="n">y</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;自定义梯度:&quot;</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+
+<span class="n">x2</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">4.0</span><span class="p">,</span> <span class="mf">9.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">x2</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;内置梯度  :&quot;</span><span class="p">,</span> <span class="n">x2</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>前向: [1.0, 2.0, 3.0] grad_fn: NpSqrtBackward</p><p>自定义梯度: [0.5, 0.25, 0.1666666716337204]</p><p>内置梯度 : [0.5, 0.25, 0.1666666716337204]</p></div></section>
+<p>⭐ <strong>注意 <code>grad_fn</code> 从 <code>None</code> 变成了 <code>NpSqrtBackward</code></strong> —— 中间那段 numpy 计算对 autograd 来说变成了一个不透明的黑盒，但图是连着的。
+这就是「怎么把一个外部实现接进 PyTorch」的 Python 侧答案。
+⚠️ <strong>C++ / CUDA 侧的答案不在这里</strong> —— 一个真正的算子是怎么用 <code>TORCH_LIBRARY</code> 注册进去、怎么跟 dispatcher 打交道，在 <a href="../框架底下是C++/05-算子怎么注册进PyTorch.html">《框架底下是 C++》05 · 算子怎么注册进 PyTorch</a>。这一章只到 Python 这一层为止。</p>
+<hr />
+<h2 id="ctxsave_for_backwardx-ctxx-x">🧷 三、<code>ctx.save_for_backward(x)</code> 和 <code>ctx.x = x</code> 的差别</h2>
+<p>这两行看起来只是写法不同，实际上差着一整套<strong>版本检查</strong>。</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">SaveViaCtx</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">x</span> <span class="o">=</span> <span class="n">x</span>                 <span class="c1"># ⚠️ 直接挂在 ctx 上</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="n">x</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">g</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">g</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">ctx</span><span class="o">.</span><span class="n">x</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">SaveProper</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>  <span class="c1"># ⭐ 正规写法</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="n">x</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">g</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">x</span><span class="p">,)</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="k">return</span> <span class="n">g</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">x</span>
+
+
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">F</span> <span class="ow">in</span> <span class="p">((</span><span class="s2">&quot;ctx.x            &quot;</span><span class="p">,</span> <span class="n">SaveViaCtx</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;save_for_backward&quot;</span><span class="p">,</span> <span class="n">SaveProper</span><span class="p">)):</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">b</span> <span class="o">=</span> <span class="n">a</span> <span class="o">*</span> <span class="mf">1.0</span>                   <span class="c1"># 造一个非叶子张量，好就地改</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+    <span class="n">b</span><span class="o">.</span><span class="n">mul_</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>                    <span class="c1"># 💀 前向存下来的东西被就地改了</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">y</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">: 没报错，算出的梯度 = </span><span class="si">{</span><span class="n">a</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>ctx.x : 没报错，算出的梯度 = [20.0, 40.0, 60.0]</p><p>save_for_backward: RuntimeError: one of the variables needed for gradient computation has been modified by an inplace operation: [torch.FloatTensor [3]], which is output 0 of Mul, is at version 1; expected version 0 instead. Hint: enable anomaly detection to find the operation that failed to compute its gradient, with torch.autograd.set_detect_anomaly(True, check_nan=False).</p></div></section>
+<p>💀💀 <strong>正确答案是 <code>[2.0, 4.0, 6.0]</code></strong>（去掉 <code>b.mul_(10)</code> 那一行，两种写法都给出这个数，和 <code>(b*b).sum().backward()</code> 一致）。
+<code>ctx.x</code> 那一版<strong>没有报任何错，安安静静地把梯度算大了 10 倍。</strong></p>
+<p>⭐ <strong>为什么会差 10 倍</strong>：<code>ctx.x</code> 存的是一个<strong>引用</strong>。<code>b.mul_(10)</code> 之后 <code>b</code> 的内容变成了 <code>[10, 20, 30]</code>，反向读到的 <code>2 * ctx.x</code> 就成了 <code>2 × 10a</code>，正好 10 倍。而前向输出 <code>y</code> 是在改之前算的 —— 前向用的是旧值，反向用的是新值，一次计算里混了两个版本。</p>
+<p>⭐ <strong><code>save_for_backward</code> 多做的那件事就是给张量记一个版本号</strong>：存的时候记下当前版本，反向取的时候比对，对不上就抛上面那条报错。
+这正是 <a href="03-三种就地操作报错.html">03 · 就地操作：三种报错，三个不同的原因</a> 里第二种报错的机制 —— 现在你看到了<strong>它是从哪一行代码里发出来的</strong>。</p>
+<table>
+<thead>
+<tr>
+<th>存什么</th>
+<th>用哪个</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>张量</strong>（输入、输出、任何要在反向里用的张量）</td>
+<td>⭐ <strong><code>ctx.save_for_backward(...)</code></strong>，反向用 <code>ctx.saved_tensors</code> 取</td>
+</tr>
+<tr>
+<td>非张量（float、int、shape、bool 开关、字符串）</td>
+<td><code>ctx.k = k</code> 直接挂，反向 <code>ctx.k</code> 读</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong>不要为了「省事」把张量挂 <code>ctx</code></strong>。你省掉的是两个下划线，换来的是一类<strong>不报错、只算错</strong>的 bug —— 而这类 bug 在训练里表现为「loss 下降得有点奇怪」，能耗掉你一个星期。</p>
+<p>💡 <strong>只在需要时存</strong>：<code>save_for_backward</code> 会让那个张量在反向跑完之前一直活着，<strong>存进去 = 显存里多留一份</strong>。反向用不到就别存 —— 这一条直接引出下一节。</p>
+<hr />
+<!--MIDSTOP-->
+<blockquote>
+<p>🛑 <strong>读到这里可以停</strong> —— 前半章讲完了（约 44 分钟）。
+<strong>后半章还有</strong>：把「重算」写进反向：8.0 MB → 1.0 MB · <code>gradcheck</code>：不要靠眼睛检查导数 · 二阶导：默认能，除非你明说不能 · 这一章不讲什么
+回来的时候不用重读，直接从下一节接着看就行。</p>
+</blockquote>
+<hr />
+<h2 id="80-mb-10-mb">♻️ 四、把「重算」写进反向：8.0 MB → 1.0 MB</h2>
+<p>这是自定义算子最有工程价值的一个用法。</p>
+<p>先看问题：前向每做一步，autograd 就要为反向留下一份中间结果。做 8 次 <code>tanh</code>，就留 8 份。</p>
+<p>⭐ <strong>可以直接量出来</strong>：<code>torch.autograd.graph.saved_tensors_hooks</code> 会在<strong>每一个张量被存进图的时候</strong>回调一次，把它们的字节数加起来，就是「这次前向为了反向留了多少」。</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">DEPTH</span> <span class="o">=</span> <span class="mi">8</span>
+<span class="n">N</span> <span class="o">=</span> <span class="mi">512</span>
+
+<span class="n">n_fwd</span> <span class="o">=</span> <span class="mi">0</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">block</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;一段没有参数的前向：连着做 DEPTH 次 tanh，每一步都会留下一个中间结果。&quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">n_fwd</span>
+    <span class="n">n_fwd</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">DEPTH</span><span class="p">):</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tanh</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">x</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Recompute</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>              <span class="c1"># ⭐ 只存入口，中间一个都不存</span>
+        <span class="k">return</span> <span class="n">block</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>                       <span class="c1"># forward 里本来就没开 grad，不会建图</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">g</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">x</span><span class="p">,)</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">enable_grad</span><span class="p">():</span>             <span class="c1"># ⭐ 反向里重新建一次图</span>
+            <span class="n">xx</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+            <span class="n">y</span> <span class="o">=</span> <span class="n">block</span><span class="p">(</span><span class="n">xx</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">xx</span><span class="p">,</span> <span class="n">g</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">X0</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">N</span><span class="p">,</span> <span class="n">N</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">measure</span><span class="p">(</span><span class="n">fn</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;量一量：这次前向一共往图里存了多少字节。&quot;&quot;&quot;</span>
+    <span class="n">seen</span><span class="p">,</span> <span class="n">total</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(),</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">pack</span><span class="p">(</span><span class="n">t</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">id</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">seen</span><span class="p">:</span>
+            <span class="n">seen</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="nb">id</span><span class="p">(</span><span class="n">t</span><span class="p">))</span>
+            <span class="n">total</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="n">t</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">*</span> <span class="n">t</span><span class="o">.</span><span class="n">element_size</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">t</span>
+
+    <span class="n">x</span> <span class="o">=</span> <span class="n">X0</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">graph</span><span class="o">.</span><span class="n">saved_tensors_hooks</span><span class="p">(</span><span class="n">pack</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="n">t</span><span class="p">):</span>
+        <span class="n">y</span> <span class="o">=</span> <span class="n">fn</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="n">y</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">total</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">/</span> <span class="mi">1024</span> <span class="o">/</span> <span class="mi">1024</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">grad</span>
+
+
+<span class="n">n_fwd</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">mb1</span><span class="p">,</span> <span class="n">g1</span> <span class="o">=</span> <span class="n">measure</span><span class="p">(</span><span class="n">block</span><span class="p">)</span>
+<span class="n">f1</span> <span class="o">=</span> <span class="n">n_fwd</span>
+
+<span class="n">n_fwd</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">mb2</span><span class="p">,</span> <span class="n">g2</span> <span class="o">=</span> <span class="n">measure</span><span class="p">(</span><span class="n">Recompute</span><span class="o">.</span><span class="n">apply</span><span class="p">)</span>
+<span class="n">f2</span> <span class="o">=</span> <span class="n">n_fwd</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;普通写法  : 存了 </span><span class="si">{</span><span class="n">mb1</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> MB   block() 执行了 </span><span class="si">{</span><span class="n">f1</span><span class="si">}</span><span class="s2"> 次&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;重算写法  : 存了 </span><span class="si">{</span><span class="n">mb2</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> MB   block() 执行了 </span><span class="si">{</span><span class="n">f2</span><span class="si">}</span><span class="s2"> 次&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;梯度是否一致: </span><span class="si">{</span><span class="n">torch</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">g1</span><span class="p">,</span><span class="w"> </span><span class="n">g2</span><span class="p">)</span><span class="si">}</span><span class="s2">   最大差 </span><span class="si">{</span><span class="p">(</span><span class="n">g1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">g2</span><span class="p">)</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.2e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>普通写法 : 存了 8.0 MB block() 执行了 1 次</p><p>重算写法 : 存了 1.0 MB block() 执行了 2 次</p><p>梯度是否一致: True 最大差 0.00e+00</p></div></section>
+<p>⭐ <strong>三个数字，把这笔交易写得清清楚楚</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>数字</th>
+<th>意思</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>8.0 MB → 1.0 MB</strong></td>
+<td>512×512 的 float32 正好是 1 MB。普通写法存了 8 份（<code>DEPTH=8</code>，每步一份），重算写法只存了入口那 1 份</td>
+</tr>
+<tr>
+<td><strong><code>block()</code> 从 1 次变 2 次</strong></td>
+<td>省下来的显存是<strong>用一次额外的前向换的</strong>。这就是「重算换显存」里的「换」</td>
+</tr>
+<tr>
+<td><strong>最大差 <code>0.00e+00</code></strong></td>
+<td>⭐ 梯度<strong>逐位相同</strong>，不是「近似相等」。重算不是近似方法，它算的是同一件事</td>
+</tr>
+</tbody>
+</table>
+<h3 id="grad-mode">🧯 两个 grad mode 的坑</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Probe</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;   forward 里 is_grad_enabled() =&quot;</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">is_grad_enabled</span><span class="p">())</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="n">x</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">g</span><span class="p">):</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;   backward 里 is_grad_enabled() =&quot;</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">is_grad_enabled</span><span class="p">())</span>
+        <span class="p">(</span><span class="n">x</span><span class="p">,)</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="k">return</span> <span class="n">g</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">x</span>
+
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;外面 is_grad_enabled() =&quot;</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">is_grad_enabled</span><span class="p">())</span>
+<span class="n">Probe</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>外面 is_grad_enabled() = True</p><p>forward 里 is_grad_enabled() = False</p><p>backward 里 is_grad_enabled() = False</p></div></section>
+<p>⭐ <strong>两条都反直觉，各解决一个问题</strong>：</p>
+<ol>
+<li><strong><code>forward</code> 里 grad 已经是关的。</strong> 所以你在 <code>forward</code> 里做什么都不会建图 —— <strong>不需要自己加 <code>with torch.no_grad()</code></strong>（加了也无害，只是多余）。这也解释了第二节那个 numpy 例子为什么不用担心图被污染。</li>
+<li>⚠️ <strong><code>backward</code> 里 grad 也是关的。</strong> 所以重算那一段<strong>必须</strong>用 <code>with torch.enable_grad():</code> 把它打开，否则 <code>block(xx)</code> 的结果没有 <code>grad_fn</code>，<code>torch.autograd.grad</code> 直接抛：</li>
+</ol>
+<div class="codehilite"><pre><span></span><code>RuntimeError: element 0 of tensors does not require grad and does not have a grad_fn
+</code></pre></div>
+
+<p>⚠️ <strong>注意这条报错和第一节 numpy 那个例子是同一句话</strong> —— 它的含义永远是「<strong>你要求导的那个东西不在图上</strong>」，但成因至少有三种：忘了 <code>requires_grad=True</code>、中途绕出了框架、或者这里的忘了 <code>enable_grad</code>。附录 A 把这条单列了一行。</p>
+<h3 id="functionpytorch">💡 这个 Function，PyTorch 已经替你写好了</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.utils.checkpoint</span><span class="w"> </span><span class="kn">import</span> <span class="n">checkpoint</span>
+
+<span class="c1"># ... block / measure 同上 ...</span>
+<span class="n">mb</span><span class="p">,</span> <span class="n">g</span> <span class="o">=</span> <span class="n">measure</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">checkpoint</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">use_reentrant</span><span class="o">=</span><span class="kc">False</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;torch.utils.checkpoint: 存了 </span><span class="si">{</span><span class="n">mb</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> MB   block() 执行了 </span><span class="si">{</span><span class="n">n_fwd</span><span class="si">}</span><span class="s2"> 次&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>torch.utils.checkpoint: 存了 1.0 MB block() 执行了 2 次</p></div></section>
+<p>⭐ <strong>和手写的那个一模一样：1.0 MB、2 次。</strong> 实际项目里请直接用 <code>torch.utils.checkpoint</code>（它还处理了 RNG 状态、<code>autocast</code> 状态、多输出等一堆你不想自己写的细节）。
+<strong>手写一遍的价值在于</strong>：你现在知道了 <code>checkpoint</code> 不是什么魔法，它就是一个「前向不存、反向重跑」的 <code>Function</code>，以及它为什么会让你的训练变慢。</p>
+<details>
+<summary>👀 `torch.utils.checkpoint` 那段的完整可跑版（点开复制）</summary>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.utils.checkpoint</span><span class="w"> </span><span class="kn">import</span> <span class="n">checkpoint</span>
+
+<span class="n">DEPTH</span><span class="p">,</span> <span class="n">N</span> <span class="o">=</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">512</span>
+<span class="n">n_fwd</span> <span class="o">=</span> <span class="mi">0</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">block</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+    <span class="k">global</span> <span class="n">n_fwd</span>
+    <span class="n">n_fwd</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">DEPTH</span><span class="p">):</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tanh</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">x</span>
+
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">X0</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">N</span><span class="p">,</span> <span class="n">N</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">measure</span><span class="p">(</span><span class="n">fn</span><span class="p">):</span>
+    <span class="n">seen</span><span class="p">,</span> <span class="n">total</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(),</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">pack</span><span class="p">(</span><span class="n">t</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">id</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">seen</span><span class="p">:</span>
+            <span class="n">seen</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="nb">id</span><span class="p">(</span><span class="n">t</span><span class="p">))</span>
+            <span class="n">total</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="n">t</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">*</span> <span class="n">t</span><span class="o">.</span><span class="n">element_size</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">t</span>
+
+    <span class="n">x</span> <span class="o">=</span> <span class="n">X0</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">graph</span><span class="o">.</span><span class="n">saved_tensors_hooks</span><span class="p">(</span><span class="n">pack</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="n">t</span><span class="p">):</span>
+        <span class="n">y</span> <span class="o">=</span> <span class="n">fn</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="n">y</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">total</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">/</span> <span class="mi">1024</span> <span class="o">/</span> <span class="mi">1024</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">grad</span>
+
+
+<span class="n">n_fwd</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">mb</span><span class="p">,</span> <span class="n">g</span> <span class="o">=</span> <span class="n">measure</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">checkpoint</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">use_reentrant</span><span class="o">=</span><span class="kc">False</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;torch.utils.checkpoint: 存了 </span><span class="si">{</span><span class="n">mb</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> MB   block() 执行了 </span><span class="si">{</span><span class="n">n_fwd</span><span class="si">}</span><span class="s2"> 次&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+</details>
+<p>⚠️ <strong>这一节只讲【怎么把重算写进反向】这个框架接口。</strong>
+「激活到底占了显存的多少、该在哪里切、切多少段最划算、和 ZeRO/FSDP 怎么配」是算法与显存账，在 <a href="../AI基础设施/09-显存优化全家桶.html">《AI基础设施》09 · 显存优化全家桶</a>；
+FlashAttention 那种「连注意力矩阵都不存、反向现算」的极端形态在 <a href="../AI基础设施/08-FlashAttention.html">《AI基础设施》08 · FlashAttention</a>。⭐ <strong>那两章回答「为什么值得」，这一章回答「怎么写」。</strong></p>
+<hr />
+<!--MIDSTOP2-->
+<blockquote>
+<p>🛑 <strong>第二个休息点</strong> —— 中段讲完了（约 22 分钟）。
+<strong>最后一段还有</strong>：<code>gradcheck</code>：不要靠眼睛检查导数 · 二阶导：默认能，除非你明说不能 · 这一章不讲什么
+这一章确实长，分三次读完全没问题 —— 回来直接从下一节接着看。</p>
+</blockquote>
+<hr />
+<!--MIDSTOP-->
+<blockquote>
+<p>🛑 <strong>读到这里可以停</strong> —— 已经读了约 67 分钟。
+<strong>最后一段还有</strong>（约 24 分钟）：<code>gradcheck</code>：不要靠眼睛检查导数 · 二阶导：默认能，除非你明说不能 · 这一章不讲什么
+回来的时候不用重读，直接从下一节接着看就行。</p>
+</blockquote>
+<hr />
+<h2 id="gradcheck">🧪 五、<code>gradcheck</code>：不要靠眼睛检查导数</h2>
+<p>反向写错<strong>不会报错</strong>，只会让模型收敛得差一点 —— 这是本章所有坑里最贵的一个。
+PyTorch 自带一个数值验证工具：<strong>它拿有限差分算一遍数值梯度，和你的 <code>backward</code> 对答案。</strong></p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.autograd</span><span class="w"> </span><span class="kn">import</span> <span class="n">gradcheck</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Square</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="n">x</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">g</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">x</span><span class="p">,)</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="k">return</span> <span class="n">g</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">x</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">SquareWrong</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="n">x</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">g</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">x</span><span class="p">,)</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="k">return</span> <span class="n">g</span> <span class="o">*</span> <span class="n">x</span>                      <span class="c1"># 💀 少乘了一个 2</span>
+
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">double</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>   <span class="c1"># ⭐ 必须 float64</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;正确的实现:&quot;</span><span class="p">,</span> <span class="n">gradcheck</span><span class="p">(</span><span class="n">Square</span><span class="o">.</span><span class="n">apply</span><span class="p">,</span> <span class="p">(</span><span class="n">x</span><span class="p">,)))</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">gradcheck</span><span class="p">(</span><span class="n">SquareWrong</span><span class="o">.</span><span class="n">apply</span><span class="p">,</span> <span class="p">(</span><span class="n">x</span><span class="p">,))</span>
+<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;少乘 2 的:&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)[:</span><span class="mi">400</span><span class="p">])</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>正确的实现: True</p><p>少乘 2 的: GradcheckError</p><p>Jacobian mismatch for output 0 with respect to input 0,</p><p>numerical:tensor([[2.0000, 0.0000],</p><p>[0.0000, 4.0000]], dtype=torch.float64)</p><p>analytical:tensor([[1., 0.],</p><p>[0., 2.]], dtype=torch.float64)</p></div></section>
+<p>⭐ <strong><code>numerical</code> 是差分算的（可信），<code>analytical</code> 是你的 <code>backward</code> 算的。</strong> 这里对角线正好差 2 倍 —— <strong>比值本身就是线索</strong>：差常数倍是系数写错，差符号是正负写反，只有某几个位置不对通常是 mask / 边界条件写错。</p>
+<h3 id="gradcheck-float64">⚠️⚠️ <code>gradcheck</code> 必须用 <code>float64</code></h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.autograd</span><span class="w"> </span><span class="kn">import</span> <span class="n">gradcheck</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Square</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="n">x</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">g</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">x</span><span class="p">,)</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="k">return</span> <span class="n">g</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">x</span>
+
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>     <span class="c1"># ⚠️ 默认 float32</span>
+<span class="n">gradcheck</span><span class="p">(</span><span class="n">Square</span><span class="o">.</span><span class="n">apply</span><span class="p">,</span> <span class="p">(</span><span class="n">x</span><span class="p">,))</span>
+</code></pre></div>
+
+<p>实跑输出（截断）：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>UserWarning: Input #0 requires gradient and is not a double precision floating point or complex. This check will likely fail if all the inputs are not of double precision floating point or complex.</p><p>GradcheckError: Jacobian mismatch for output 0 with respect to input 0,</p><p>numerical:tensor([[-2.9802, 0.0000, 0.0000, 0.0000],</p><p>[ 0.0000, -1.2666, 0.0000, 0.0000],</p></div></section>
+<p>💀 <strong>这个 <code>Square</code> 的实现是【对】的</strong>（上面刚验过 <code>True</code>），只是换成 <code>float32</code> 就挂了。
+原因是有限差分要算 <code>(f(x+h) - f(x-h)) / 2h</code>，<code>h</code> 很小，两个相近的数相减在 float32 下几乎没有有效位剩下。
+⚠️ <strong>所以 <code>gradcheck</code> 失败的第一件事不是改代码，是先确认输入是不是 <code>torch.double</code>。</strong> PyTorch 好心给了那条 warning，但它混在一堆输出里很容易被忽略。</p>
+<hr />
+<h2 id="_6">🔁 六、二阶导：默认能，除非你明说不能</h2>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.autograd.function</span><span class="w"> </span><span class="kn">import</span> <span class="n">once_differentiable</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Square</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="n">x</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">g</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">x</span><span class="p">,)</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="k">return</span> <span class="n">g</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">x</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">SquareOnce</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="n">x</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="nd">@once_differentiable</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">g</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">x</span><span class="p">,)</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span>
+        <span class="k">return</span> <span class="n">g</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">x</span>
+
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">3.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">g1</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">Square</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">x</span><span class="p">,</span> <span class="n">create_graph</span><span class="o">=</span><span class="kc">True</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+<span class="n">g2</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">g1</span><span class="p">,</span> <span class="n">x</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;一阶导 =&quot;</span><span class="p">,</span> <span class="n">g1</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span> <span class="s2">&quot; 二阶导 =&quot;</span><span class="p">,</span> <span class="n">g2</span><span class="o">.</span><span class="n">item</span><span class="p">())</span>
+
+<span class="n">x2</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">3.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">g1b</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">SquareOnce</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">x2</span><span class="p">),</span> <span class="n">x2</span><span class="p">,</span> <span class="n">create_graph</span><span class="o">=</span><span class="kc">True</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">g1b</span><span class="p">,</span> <span class="n">x2</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>一阶导 = 6.0 二阶导 = 2.0</p><p>RuntimeError: element 0 of tensors does not require grad and does not have a grad_fn</p></div></section>
+<p>⭐ <strong><code>x²</code> 在 <code>x=3</code> 处：一阶导 <code>2x = 6</code>，二阶导 <code>2</code>。两个都对。</strong>
+这是因为 <code>backward</code> 里的 <code>g * 2 * x</code> <strong>本身就是普通的可微算子</strong>，配上 <code>create_graph=True</code>（见第 02 章）它自然就能再求一次导。</p>
+<p>⚠️ <strong><code>@once_differentiable</code> 是你主动放弃这个能力</strong>：它在 <code>backward</code> 外面包了一层 <code>no_grad</code>，于是二阶导求不出来，报的还是那句 <code>element 0 of tensors does not require grad</code>。
+✅ <strong>什么时候该用它</strong>：你的 <code>backward</code> 里干了不可微的事（调 numpy、调外部库、写了 <code>.item()</code> 分支）。这时候主动挂上 <code>@once_differentiable</code>，让别人在第二次求导时收到一句明确的报错，好过让 autograd 在半路上给出一个悄悄错掉的结果。</p>
+<p>💡 需要二阶导的场景比你想的多：MAML 这类元学习、WGAN-GP 的梯度惩罚、以及任何要算 Hessian-vector product 的地方。</p>
+<hr />
+<h2 id="_7">🚦 七、这一章不讲什么</h2>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>去哪</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>一个 C++ / CUDA 算子<strong>怎么注册进 PyTorch</strong>（<code>TORCH_LIBRARY</code>、dispatcher、怎么编）</td>
+<td><a href="../框架底下是C++/05-算子怎么注册进PyTorch.html">《框架底下是 C++》05 · 算子怎么注册进 PyTorch</a> ⭐ 本章只到 Python 这一层</td>
+</tr>
+<tr>
+<td>激活占了显存的多少、重算该在哪里切、和 ZeRO/FSDP 怎么配</td>
+<td><a href="../AI基础设施/09-显存优化全家桶.html">《AI基础设施》09 · 显存优化全家桶</a></td>
+</tr>
+<tr>
+<td>注意力矩阵为什么可以不存、重算为什么反而更快</td>
+<td><a href="../AI基础设施/08-FlashAttention.html">《AI基础设施》08 · FlashAttention</a></td>
+</tr>
+<tr>
+<td>反向传播本身的数学（链式法则怎么走）</td>
+<td><a href="../机器学习与深度学习基础/08-反向传播.html">《机器学习与深度学习基础》08 · 反向传播</a></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_8">🔗 这一章连到哪里</h2>
+<table>
+<thead>
+<tr>
+<th>相关的地方</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="02-autograd怎么建图.html">02 · autograd：图是什么时候建的</a></td>
+<td>本章第六节的 <code>create_graph=True</code> 出自那里；<code>grad_fn</code> 是什么、图为什么用完就扔，也都在那一章</td>
+</tr>
+<tr>
+<td><a href="03-三种就地操作报错.html">03 · 就地操作：三种报错，三个不同的原因</a></td>
+<td>⭐ 第三节那条 <code>modified by an inplace operation … is at version 1</code> 就是那一章第二种报错 —— <strong>这里你看到了它是从哪一行代码里发出来的</strong>（<code>save_for_backward</code> 的版本检查）</td>
+</tr>
+<tr>
+<td><a href="04-detach与no_grad.html">04 · <code>detach</code> / <code>no_grad</code> / <code>requires_grad</code></a></td>
+<td><code>needs_input_grad[0] == False</code> 的典型来源就是冻结了 backbone；重算那一节的 <code>x.detach().requires_grad_(True)</code> 也是那三个概念的组合用法</td>
+</tr>
+<tr>
+<td><a href="10-把模型交出去.html">10 · 把模型交出去</a></td>
+<td>⚠️ <strong>自定义 <code>Function</code> 会直接影响下一章</strong>：导出的是<strong>推理图</strong>，你精心写的 <code>backward</code> 会被整个丢掉（对推理无所谓）；但如果 <code>forward</code> 里绕出了框架（像本章的 numpy 例子），下一章实测导出会「成功」而结果是一个常数</td>
+</tr>
+<tr>
+<td><a href="../AI基础设施/08-FlashAttention.html">《AI基础设施》08 · FlashAttention</a></td>
+<td>⭐ <strong>那边讲「为什么重算能省显存」（算法与显存账），这一章讲「怎么把重算写进反向」（框架接口）</strong> —— 读完这里再去那里，<code>recompute</code> 那几段会突然变得具体</td>
+</tr>
+<tr>
+<td><a href="../AI基础设施/09-显存优化全家桶.html">《AI基础设施》09 · 显存优化全家桶</a></td>
+<td>梯度检查点在整套显存手段里排第几、和别的手段怎么叠</td>
+</tr>
+<tr>
+<td><a href="../AI基础设施/18-量化.html">《AI基础设施》18 · 量化</a></td>
+<td>QAT 里那个「伪量化节点」的反向，就是第一节的 STE</td>
+</tr>
+<tr>
+<td><a href="../框架底下是C++/05-算子怎么注册进PyTorch.html">《框架底下是 C++》05 · 算子怎么注册进 PyTorch</a></td>
+<td>⭐ 本章的下一层：Python 侧的 <code>Function</code> 之外，一个真算子在 C++ 侧是怎么被 dispatcher 找到的</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_9">✅ 检查点</h2>
+<ol>
+<li>有人说「我这个 <code>x.sigmoid() * w + b</code> 写成 <code>autograd.Function</code> 会更快」，哪里不对？真正需要自定义算子的是哪三种情况？</li>
+<li><code>torch.round</code> 的梯度实测是多少？为什么这个「正确答案」反而是个问题？STE 怎么解决它？</li>
+<li><code>Square()(x)</code> 报的是什么？为什么这条报错<strong>指错了方向</strong>？</li>
+<li><code>backward</code> 该返回几个值？<code>forward</code> 收了一个张量和两个 float，<code>backward</code> 怎么写？</li>
+<li><code>ctx.needs_input_grad</code> 是什么类型？第二节那个 <code>Clip</code> 例子里它实测是什么？</li>
+<li><code>ctx.save_for_backward(x)</code> 比 <code>ctx.x = x</code> 多做了什么？第三节那个实验里，两种写法分别得到什么结果？</li>
+<li>重算那一节的三个数字分别是多少？最后那个「最大差」为什么重要？</li>
+<li><code>forward</code> 和 <code>backward</code> 里 <code>torch.is_grad_enabled()</code> 各是什么？由此推出哪两条写法上的结论？</li>
+<li><code>RuntimeError: element 0 of tensors does not require grad and does not have a grad_fn</code> 在这一章出现了几次？分别是什么原因？</li>
+<li><code>gradcheck</code> 为什么必须用 <code>float64</code>？它失败时第一件该做的事是什么？</li>
+<li>自定义 <code>Function</code> 默认支不支持二阶导？<code>@once_differentiable</code> 什么时候该主动加？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li>那个表达式<strong>全是已有算子的组合</strong>，autograd 自己求出来的导数又对又不慢，手写 <code>Function</code> 只多一层 Python 调用和一个会写错的地方。真正需要的三种：①真实梯度是 0 或不存在（<code>round</code>、二值化、argmax）②前向绕出了框架（numpy / C++ / 外部库，图会断）③想用反向重算换显存。⚠️ 「我想让它更快」不在清单里。</li>
+<li>实测 <code>[0.0, 0.0, 0.0]</code> —— <code>round</code> 是阶梯函数，除跳变点外导数处处为 0，<strong>框架没算错</strong>。问题是梯度为 0 意味着这一步之前的参数收不到任何信号，网络前半截等于没训。STE（直通估计）的做法是前向照样取整、反向假装是恒等函数：实测前向 <code>[0.0, 1.0, 1.0]</code>、梯度 <code>[1.0, 1.0, 1.0]</code>，前向和反向故意不匹配。</li>
+<li><code>RuntimeError: Legacy autograd function with non-static forward method is deprecated.</code>（前面还有一条 <code>should not be instantiated</code> 的 DeprecationWarning）。⚠️ 它<strong>指错了方向</strong>：报错说 <code>forward</code> 不是 static，而那个 <code>forward</code> 明明写了 <code>@staticmethod</code>；真正的原因是你实例化了（<code>Square()</code> 而不是 <code>Square.apply</code>）。看到 <code>non-static forward method</code> 先去找有没有多出来的括号。</li>
+<li><strong>个数 = <code>forward</code> 输入参数的个数</strong>（<code>ctx</code> 不算），一一对应。少了会报 <code>function ScaleBadBackward returned an incorrect number of gradients (expected 2, got 1)</code>。一个张量 + 两个 float 就写 <code>return gx, None, None</code> —— <code>None</code> 表示「这个入参没有梯度」，位置必须占住。</li>
+<li>一个<strong>和输入参数等长的布尔元组</strong>。<code>Clip</code> 例子里实测是 <code>(True, False, False)</code>：只有 <code>x</code> 要梯度，<code>lo</code> / <code>hi</code> 两个 float 不要。用它可以跳过没人要的那部分计算（比如冻结了 backbone 时）。</li>
+<li>多做了<strong>版本检查</strong>：存的时候记下张量版本号，反向取的时候比对，对不上就报错。实测中前向存下的 <code>b</code> 被 <code>b.mul_(10)</code> 就地改掉之后 —— <code>ctx.x</code> 版没报任何错，算出 <code>[20.0, 40.0, 60.0]</code>（正确答案是 <code>[2.0, 4.0, 6.0]</code>，大了 10 倍，因为前向用旧值、反向读到新值）；<code>save_for_backward</code> 版抛 <code>RuntimeError: one of the variables needed for gradient computation has been modified by an inplace operation … is at version 1; expected version 0 instead.</code></li>
+<li><strong>8.0 MB → 1.0 MB</strong>（512×512 float32 正好 1 MB，普通写法存 8 份中间结果、重算写法只存入口那 1 份）、<code>block()</code> 从 1 次变 2 次（省下的显存是用一次额外前向换的）、最大差 <code>0.00e+00</code>。最后这个重要是因为它说明重算不是近似方法，梯度逐位相同，算的是同一件事。</li>
+<li>实测 <code>forward</code> 里是 <strong>False</strong>、<code>backward</code> 里也是 False（外面是 True）。结论：① <code>forward</code> 里不需要自己写 <code>with torch.no_grad()</code>，它本来就不建图；② 重算那一段必须写 <code>with torch.enable_grad():</code>，否则重跑出来的结果没有 <code>grad_fn</code>。</li>
+<li><strong>三次，三个不同的原因</strong>：① 第一节 numpy 那段 —— 中途绕出框架，<code>grad_fn</code> 是 <code>None</code>，图断了；② 第四节忘了 <code>enable_grad</code> —— <code>backward</code> 里 grad 默认是关的；③ 第六节 <code>@once_differentiable</code> 之后求二阶导 —— 是主动放弃的结果。这句话的含义永远是「你要求导的东西不在图上」，但成因不止一个（还有最常见的「忘了 <code>requires_grad=True</code>」）。</li>
+<li>因为有限差分要算 <code>(f(x+h) - f(x-h)) / 2h</code>，两个相近的数相减在 <code>float32</code> 下几乎没有有效位剩下。实测<strong>一个正确的 <code>Square</code> 实现</strong>在 <code>float64</code> 下返回 <code>True</code>、换成 <code>float32</code> 就抛 <code>GradcheckError</code>，同时给出 <code>UserWarning: Input #0 requires gradient and is not a double precision floating point or complex.</code> ✅ 失败时第一件事是确认输入是不是 <code>torch.double</code>，不是改代码。失败信息里 <code>numerical</code> 可信、<code>analytical</code> 是你写的，两者的比值是线索（实测差 2 倍就是少乘了个 2）。</li>
+<li><strong>默认支持</strong> —— 因为 <code>backward</code> 里的 <code>g * 2 * x</code> 本身就是可微算子，配 <code>create_graph=True</code> 就能再求一次（实测 <code>x=3</code> 时一阶导 6.0、二阶导 2.0）。<code>@once_differentiable</code> 是主动放弃它（内部包了一层 <code>no_grad</code>）。✅ 该加的时候：<code>backward</code> 里干了不可微的事（调 numpy、调外部库、<code>.item()</code> 分支）—— 让别人求二阶导时收到明确报错，好过拿到一个悄悄错掉的结果。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_10">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong></p>
+<blockquote>
+<p>⭐ <strong><code>autograd.Function</code> 是一份合同：前向随便你怎么算，代价是反向那一格必须你自己填。</strong></p>
+<p>真正需要它的只有三种：<strong>真实梯度是 0 或不存在</strong>（取整的梯度确实是 0，⭐ <strong>框架没算错，但这意味着前半个网络收不到任何信号</strong>——于是有了直通估计器：<strong>前向取整、反向假装恒等，故意让两边不匹配</strong>，量化感知训练就靠它）、<strong>前向绕出了框架</strong>（用别的库算完再回来，那条链就断了，⭐ <strong>Function 就是把断口焊回去的东西</strong>）、<strong>拿重算换显存</strong>。⚠️ <strong>「我想让它更快」不在这份清单里。</strong></p>
+<p>⚠️ 最容易踩的一条：必须走 <code>.apply()</code> 调用——<strong>写成普通调用时的报错指错了方向</strong>，真正的原因是你把它实例化了。</p>
+<p>💀 <strong>最贵的一节是「把张量直接挂在 ctx 上」</strong>：它只存引用，前向存下的张量被就地改掉之后，⭐ <strong>它不报错，只是算出一个错得离谱的梯度</strong>（前向用旧值、反向用新值）。而<strong>专用的保存接口多记了一个版本号，同样场景会直接抛出「被就地操作修改过」</strong>。⭐ <strong>规则：张量一律用专用接口保存，非张量才挂 ctx。</strong></p>
+<p>♻️ 重算换显存的实测很干净：只存入口、反向重跑一遍，显存降一个量级，代价是那段算两次，⭐ <strong>而梯度逐位相同、不是近似</strong>。这个 Function 框架已经写好了，实际项目直接用现成的。</p>
+<p>🧪 ⭐ <strong>梯度检查必须用双精度</strong>：<strong>同一个正确的实现换成单精度照样失败</strong>（有限差分在单精度下没有有效位）——⚠️ <strong>失败第一件事是查 dtype，不是改代码</strong>；真错了的时候，两个梯度的<strong>比值</strong>就是线索。</p>
+<p>⚠️ 最后一个坑：<strong>前向里梯度是关着的</strong>（不用自己写），⭐ <strong>而反向里也是关着的</strong>——要二阶导就必须显式打开。</p>
+</blockquote>
+<p><strong>下一节</strong> 👉 <a href="10-把模型交出去.html">10-把模型交出去.md</a></p>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="08-DataLoader与多进程.html"><div class="dir">← 上一节</div>🚚 08 · DataLoader 与多进程</a><a class="next" href="10-把模型交出去.html"><div class="dir">下一节 →</div>📤 10 · 把模型交出去</a></nav>
+</main>
+<script>(function(){
+  var KEY="torch-progress", FILE="09-\u81ea\u5b9a\u4e49\u7b97\u5b50.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><script src="../assets/analytics.js" async></script>
+</body></html>

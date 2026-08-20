@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>05 · 算子怎么注册进 PyTorch · 框架底下是 C++</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:1.9em;line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:1.42em;margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:1.14em;margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:.88em;background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:.85em}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:.92em}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:.8em;color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:.85em;color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:.92em}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:.78em;
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:.92em;border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:.93em;line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:.9em;line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:.93em;line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:.92em}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:1.15em;opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:.82em;
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
+
+.dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:.95em;margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:.93em;line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.02em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:.93em;break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">05 · 算子怎么注册进 PyTorch</span>
+  <span class="prevnext"><a href="04-ABI与二进制兼容.html">←</a>
+  <a href="06-读源码路线图.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#_2">🧩 一、⭐ 先看一条查表失败的报错</a></li>
+<li><a href="#schema">🧩 二、行坐标：算子名和它的 schema</a></li>
+<li><a href="#dispatchkeyset">🧩 三、列坐标：DispatchKeySet</a></li>
+<li><a href="#dump">🧩 四、⭐ 直接把那张表 dump 出来</a></li>
+<li><a href="#c">🧩 五、⭐ C++ 侧：两个宏，各管一件事</a></li>
+<li><a href="#c_1">🧩 六、⭐ 让它可导：C++ 侧的那一半</a></li>
+<li><a href="#cuda">🧩 七、CUDA 那一格，和不想编译的路子</a></li>
+<li><a href="#_6">🔗 这一章连到哪里</a></li>
+<li><a href="#_7">✅ 检查点</a></li>
+<li><a href="#_8">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<h1 id="05-pytorch">05 · 算子怎么注册进 PyTorch</h1>
+<p>⏱ <strong>80 分钟</strong> ｜ ⭐ <strong>一条报错里同时给出了算子名和分派键 —— 那正好是 dispatcher 那张表的两个坐标轴</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong>PyTorch 的算子分派就是一张二维表：行是算子名（<code>aten::gelu</code>），列是分派键（<code>CPU</code> / <code>SparseCPU</code> / <code>Autograd</code>），格子里放一个函数指针。</strong>
+所谓「注册一个算子」就是往表里填格子；<code>TORCH_LIBRARY</code> 和 <code>TORCH_LIBRARY_IMPL</code> 这两个宏，一个负责<strong>新开一行</strong>，一个负责填一个格子。</p>
+<hr />
+<h2 id="_2">🧩 一、⭐ 先看一条查表失败的报错</h2>
+<p>本章 Python 侧的输出全是<strong>实跑的</strong>，环境 <code>torch 2.13.0+cpu</code> + CPython 3.13，<strong>CUDA 不可用</strong>。</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># c05_miss.py</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">to_sparse</span><span class="p">()</span>      <span class="c1"># ⭐ 转成稀疏张量，仅此而已</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">gelu</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑报错（截前两句）：</p>
+<div class="codehilite"><pre><span></span><code>NotImplementedError: Could not run &#39;aten::gelu&#39; with arguments from the &#39;SparseCPU&#39; backend.
+This could be because the operator doesn&#39;t exist for this backend, or was omitted during ...
+&#39;aten::gelu&#39; is only available for these backends: [CPU, CUDA, HIP, MPS, ... ]
+</code></pre></div>
+
+<p>⭐ <strong>这一句里有三样东西，正好是本章的三条主线</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>报错里的片段</th>
+<th>它是什么</th>
+<th>归哪一节</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>aten::gelu</code></td>
+<td><strong>算子名</strong>，表的<strong>行</strong></td>
+<td>第二节</td>
+</tr>
+<tr>
+<td><code>'SparseCPU' backend</code></td>
+<td><strong>分派键</strong>，表的<strong>列</strong></td>
+<td>第三节</td>
+</tr>
+<tr>
+<td><code>is only available for these backends: [...]</code></td>
+<td>⭐ 这一行上<strong>已经填了哪些格子</strong></td>
+<td>第四节</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong>两个容易记错的细节</strong>：</p>
+<ul>
+<li>异常类型是 <strong><code>NotImplementedError</code></strong> 而不是 <code>RuntimeError</code>。⭐ 但 Python 里前者是后者的<strong>子类</strong>（实跑 <code>isinstance(e, RuntimeError)</code> 为 <code>True</code>），所以 <code>except RuntimeError</code> 照样接得住 —— 这也是为什么到处都有人写成 RuntimeError。</li>
+<li>⭐ <strong>不需要 GPU。</strong> 很多人以为要看见 <code>aten::</code> 名字得先把 tensor 扔到 CUDA 上，其实普通 CPU 机器上 <code>to_sparse()</code> 一下就能复现。</li>
+</ul>
+<h3 id="_3">🚦 ⭐ 它不是「稀疏张量不支持激活函数」</h3>
+<p>同一个稀疏张量，换个算子就能跑：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># c05_contrast.py</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">s</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">to_sparse</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">mm</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)))</span>    <span class="c1"># ⭐ 能跑，输出 [[2,2],[2,2]]</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">s</span><span class="o">.</span><span class="n">sigmoid</span><span class="p">()</span>                  <span class="c1"># ⚠️ 不能跑</span>
+<span class="k">except</span> <span class="ne">NotImplementedError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;This could be&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">])</span>
+</code></pre></div>
+
+<p>⭐ <strong>同一列（<code>SparseCPU</code>）上，<code>mm</code> 那格填了，<code>sigmoid</code> 那格是空的。</strong> 这张表是<strong>逐格填的</strong>，不存在「某个后端整体支持 / 不支持」这回事。</p>
+<p>不用猜，直接查格子在不在：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># c05_probe.py</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="k">for</span> <span class="n">op</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;aten::gelu&quot;</span><span class="p">,</span> <span class="s2">&quot;aten::sigmoid&quot;</span><span class="p">,</span> <span class="s2">&quot;aten::mm&quot;</span><span class="p">]:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">op</span><span class="p">,</span> <span class="p">[(</span><span class="n">k</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_dispatch_has_kernel_for_dispatch_key</span><span class="p">(</span><span class="n">op</span><span class="p">,</span> <span class="n">k</span><span class="p">))</span>
+               <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;CPU&quot;</span><span class="p">,</span> <span class="s2">&quot;SparseCPU&quot;</span><span class="p">,</span> <span class="s2">&quot;QuantizedCPU&quot;</span><span class="p">,</span> <span class="s2">&quot;CUDA&quot;</span><span class="p">,</span> <span class="s2">&quot;Meta&quot;</span><span class="p">)])</span>
+</code></pre></div>
+
+<p>实跑结果（✅ = 这一格有 kernel）：</p>
+<table>
+<thead>
+<tr>
+<th>算子</th>
+<th><code>CPU</code></th>
+<th><code>SparseCPU</code></th>
+<th><code>QuantizedCPU</code></th>
+<th><code>CUDA</code></th>
+<th><code>Meta</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>aten::gelu</code></td>
+<td>✅</td>
+<td>❌</td>
+<td>✅</td>
+<td>❌</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>aten::sigmoid</code></td>
+<td>✅</td>
+<td>❌</td>
+<td>✅</td>
+<td>❌</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>aten::mm</code></td>
+<td>✅</td>
+<td>✅</td>
+<td>❌</td>
+<td>❌</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️⚠️ <strong><code>CUDA</code> 那一列的 ❌ 是本机的假象，不是 PyTorch 的事实。</strong> 本机装的是 <strong>CPU 版轮子</strong>，<code>torch_cuda</code> 那批库根本不在包里，那些格子从没被填过。⭐ 这恰好演示了更重要的一件事：这张表不是编译期写死的常量表，是运行时一批一批被「加载进来」的 —— 第五节会看到填格子的动作发生在哪一刻。</p>
+<p>⭐ <strong>顺带记住 <code>Meta</code> 这一列</strong>：「只算形状不算数值」的假后端，形状推导和 <code>torch.compile</code> 都靠它，三个算子全有。</p>
+<hr />
+<h2 id="schema">🧩 二、行坐标：算子名和它的 schema</h2>
+<p><code>aten::gelu</code> 不是随手起的字符串，它背后挂着一条<strong>签名</strong>（schema）。Python 侧直接能问：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># c05_schema.py</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">add</span><span class="o">.</span><span class="n">Tensor</span><span class="o">.</span><span class="n">_schema</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">gelu</span><span class="o">.</span><span class="n">default</span><span class="o">.</span><span class="n">_schema</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">add</span><span class="o">.</span><span class="n">overloads</span><span class="p">()),</span> <span class="s2">&quot;个 add 重载&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_jit_get_all_schemas</span><span class="p">()),</span> <span class="s2">&quot;条 schema&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实跑输出：</p>
+<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">aten::add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -&gt; Tensor</span></div><div class="vb-flow-row"><span class="vb-flow-step">aten::gelu(Tensor self, *, str approximate=&quot;none&quot;) -&gt; Tensor</span></div><div class="vb-flow-row"><span class="vb-flow-step">16 个 add 重载</span></div><div class="vb-flow-row"><span class="vb-flow-step">4362 条 schema</span></div></div></section>
+<p>⚠️ <strong>4362 随版本变</strong>（<code>torch 2.13.0+cpu</code> 上是这个数，你的一定不同），要看的是量级：<strong>四千多条</strong>。</p>
+<p>把第一行拆开：</p>
+<table>
+<thead>
+<tr>
+<th>片段</th>
+<th>叫什么</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>aten</code></td>
+<td><strong>命名空间</strong></td>
+<td>PyTorch 自带算子都在 <code>aten</code> 里，你注册的会在你自己的命名空间</td>
+</tr>
+<tr>
+<td><code>add</code></td>
+<td><strong>算子名</strong></td>
+<td>表的行</td>
+</tr>
+<tr>
+<td><code>.Tensor</code></td>
+<td><strong>重载名</strong></td>
+<td>⭐ 不是 C++ 那种按类型自动选的重载，是<strong>一个显式的字符串标签</strong></td>
+</tr>
+<tr>
+<td><code>*</code> 之后</td>
+<td>只能按关键字传</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>⭐ <strong>重载名是字符串，这点反直觉但重要</strong>：<code>aten::add</code> 实跑有 <strong>16 个重载</strong>（<code>Tensor</code> / <code>Scalar</code> / <code>out</code> / <code>default</code> …），而每个重载在 dispatcher 眼里都是独立的一行、独立的一张表。所以 <code>aten::add</code> 不是一行，是十六行。</p>
+<p>schema 里几个必须认得的记号：</p>
+<table>
+<thead>
+<tr>
+<th>记号</th>
+<th>意思</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Tensor(a!)</code></td>
+<td>⭐ <strong>这个参数会被就地写</strong>（<code>!</code> = 会变），<code>a</code> 是别名标记</td>
+</tr>
+<tr>
+<td><code>Tensor(a)</code></td>
+<td>返回值和它<strong>共享内存</strong>（视图）但不写 —— <code>view</code> / <code>transpose</code> 这类</td>
+</tr>
+<tr>
+<td><code>Tensor?</code> / <code>int[]</code></td>
+<td>可以是 <code>None</code> / 一串整数</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong>别名标记不是文档，是给编译器看的合同。</strong> <code>torch.compile</code>、functionalization、<code>torch.jit</code> 全靠它判断「这个算子会不会偷改我的输入」。⭐ 自己写算子时<strong>填错它的后果是别的通道上出现随机错误</strong>，而不是当场报错。</p>
+<p>⭐ <strong>schema 是唯一的真相源</strong>：C++ 那边的函数签名、Python 这边的 <code>torch.ops.aten.gelu</code>、类型存根 <code>.pyi</code>、还有 <a href="06-读源码路线图.html">06 章</a>会翻的那堆 <code>ATen/ops/*.h</code>，<strong>全是从同一份 schema 生成的</strong>。这就是为什么改一个算子的签名在 PyTorch 里是件大事。</p>
+<hr />
+<h2 id="dispatchkeyset">🧩 三、列坐标：DispatchKeySet</h2>
+<p>一个 tensor 身上带的是<strong>一组</strong>分派键，不是一个：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># c05_keyset.py</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;普通 CPU     :&quot;</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_dispatch_key_set</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;稀疏         :&quot;</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_dispatch_key_set</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">to_sparse</span><span class="p">()))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;requires_grad:&quot;</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_dispatch_key_set</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)))</span>
+</code></pre></div>
+
+<p>实跑：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>普通 CPU : DispatchKeySet(CPU, ADInplaceOrView, AutogradCPU, AutocastCPU)</p><p>稀疏 : DispatchKeySet(SparseCPU, ADInplaceOrView, AutogradCPU, AutocastCPU)</p><p>requires_grad: DispatchKeySet(CPU, ADInplaceOrView, AutogradCPU, AutocastCPU)</p></div></section>
+<p>⭐ <strong>① 稀疏那行只改了第一个键</strong>（<code>CPU</code> → <code>SparseCPU</code>），后面三个一模一样。第一节那条报错的全部病因就是：<strong>换了列，而那一列的格子是空的。</strong></p>
+<p>⚠️⚠️ <strong>② <code>requires_grad=True</code> 和普通 CPU 的 keyset 完全一样。</strong> 很多人以为「要不要求导」是靠分派键区分的 —— <strong>实测不是</strong>。<code>AutogradCPU</code> 一直都在，走不走那条路取决于运行时的 <code>GradMode</code> 和 tensor 自己的 <code>requires_grad</code> 标志。</p>
+<h3 id="dispatcher">🚦 dispatcher 怎么用这一组键</h3>
+<p>⭐ <strong>规则只有一句：所有键有一个全局优先级，从高到低找第一个「这一行填了格子」的键。</strong> 大致层次：</p>
+<table>
+<thead>
+<tr>
+<th>层（从先到后）</th>
+<th>典型键</th>
+<th>拿到控制权时干什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>混合精度</td>
+<td><code>AutocastCPU</code> / <code>AutocastCUDA</code></td>
+<td>把输入转成 bf16/fp16，然后<strong>交给下一层</strong></td>
+</tr>
+<tr>
+<td>求导</td>
+<td><code>AutogradCPU</code> / <code>Autograd[alias]</code></td>
+<td>记一个反向图节点，然后<strong>交给下一层</strong></td>
+</tr>
+<tr>
+<td>视图 / 原地记账</td>
+<td><code>ADInplaceOrView</code></td>
+<td>记版本号和视图关系，然后<strong>交给下一层</strong></td>
+</tr>
+<tr>
+<td>⭐ 真正算数</td>
+<td><code>CPU</code> / <code>CUDA</code> / <code>SparseCPU</code> / <code>QuantizedCPU</code></td>
+<td><strong>不再往下交</strong>，这里出结果</td>
+</tr>
+</tbody>
+</table>
+<p>⭐ <strong>上面几层「干完自己的事再往下发一次」的动作叫 redispatch。</strong> ⚠️ 由此得到一条很实用的推论：<strong>「注册一个 CPU kernel」和「让它可导」是两件独立的事</strong> —— 你填的是 <code>CPU</code> 那格，<code>Autograd</code> 那格还空着（第六节）。</p>
+<hr />
+<h2 id="dump">🧩 四、⭐ 直接把那张表 dump 出来</h2>
+<p>前面都在推理，现在直接看。PyTorch 有个内部接口能打印某一行的全部格子：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1"># c05_dump.py</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_dispatch_dump</span><span class="p">(</span><span class="s2">&quot;aten::gelu&quot;</span><span class="p">))</span>
+</code></pre></div>
+
+<p>实跑输出（⭐ 每一行都在，只把长路径前缀省成 <code>…</code>，本机 site-packages 路径写成 <code>&lt;site-packages&gt;</code>）：</p>
+<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">name: aten::gelu</span></div><div class="vb-flow-row"><span class="vb-flow-step">schema: aten::gelu(Tensor self, *, str approximate=&quot;none&quot;) -&gt; Tensor</span></div><div class="vb-flow-row"><span class="vb-flow-step">debug: registered at …\build\aten\src\ATen\RegisterSchema.cpp:6</span></div><div class="vb-flow-row"><span class="vb-flow-step">alias analysis kind: FROM_SCHEMA</span></div><div class="vb-flow-row"><span class="vb-flow-step">MkldnnCPU: registered at …\build\aten\src\ATen\RegisterMkldnnCPU_0.cpp:704 :: (Tensor _0, str _1) -&gt; Tensor _0 [ boxed unboxed ]</span></div><div class="vb-flow-row"><span class="vb-flow-step">Tracer: registered at …\torch\csrc\autograd\generated\TraceType_1.cpp:7733 :: …</span></div><div class="vb-flow-row"><span class="vb-flow-step">FuncTorchBatched: registered at …\aten\src\ATen\functorch\BatchRulesUnaryOps.cpp:63 :: …</span></div><div class="vb-flow-row"><span class="vb-flow-step">CPU: registered at …\build\aten\src\ATen\RegisterCPU_3.cpp:4482 :: (Tensor _0, str _1) -&gt; Tensor _0 [ boxed unboxed ]</span></div><div class="vb-flow-row"><span class="vb-flow-step">Meta: registered at &lt;site-packages&gt;\torch\_meta_registrations.py:54 :: (none) [ boxed ]</span></div><div class="vb-flow-row"><span class="vb-flow-step">Meta (inactive): registered at …\build\aten\src\ATen\RegisterMeta_0.cpp:9286 :: …</span></div><div class="vb-flow-row"><span class="vb-flow-step">QuantizedCPU: registered at …\build\aten\src\ATen\RegisterQuantizedCPU_0.cpp:891 :: …</span></div><div class="vb-flow-row"><span class="vb-flow-step">NestedTensorCPU: registered at …\build\aten\src\ATen\RegisterNestedTensorCPU_0.cpp:1128 :: …</span></div><div class="vb-flow-row"><span class="vb-flow-step">NestedTensorHPU: registered at …\build\aten\src\ATen\RegisterNestedTensorHPU_0.cpp:1021 :: …</span></div><div class="vb-flow-row"><span class="vb-flow-step">Autograd[alias]: registered at …\torch\csrc\autograd\generated\VariableType_1.cpp:9109 :: …</span></div><div class="vb-flow-row"><span class="vb-flow-step">CompositeExplicitAutogradNonFunctional[alias]: registered at …\RegisterCompositeExplicitAutogradNonFunctional_0.cpp:7967 :: …</span></div></div></section>
+<h3 id="_4">🚦 这段输出的五个读法</h3>
+<p><strong>① ⭐ 从头到尾没有 <code>SparseCPU</code> 那一行。</strong> 第一节的报错到此闭环 —— 不是「不支持稀疏」这种模糊说法，是<strong>表上那个格子确实空着，你亲眼看见了</strong>。</p>
+<p><strong>② 每行都写着「注册在哪个文件的哪一行」。</strong> ⭐ 这是 <a href="06-读源码路线图.html">06 章</a>那条定位路线的起点。⚠️ 原始输出里那些 <code>C:\actions-runner\_work\pytorch\...</code> 是 <strong>PyTorch 官方 CI 构建机上的路径</strong>，你本地绝对找不到这些文件 —— 但文件名和行号是真的，去 GitHub 上对应 tag 里搜就能找到。</p>
+<p><strong>③ 路径里带 <code>build\</code> 的都是【生成】出来的。</strong> <code>RegisterCPU_3.cpp</code>、<code>RegisterQuantizedCPU_0.cpp</code>、<code>VariableType_1.cpp</code> 在 PyTorch 仓库里<strong>根本不存在</strong>，是构建时由代码生成器按 schema 吐出来的。⭐ 这也解释了它们为什么动辄几千行、名字还带编号 —— 那是为了切开编译单元。</p>
+<p><strong>④ <code>[alias]</code> 是别名键，一次填一批格子。</strong> <code>Autograd[alias]</code> 不是某个具体后端的 autograd，而是「所有后端都用这个」。⭐ <strong>PyTorch 靠它避免为 30 多个后端各写一遍同样的代码。</strong></p>
+<p><strong>⑤ ⭐ <code>Meta</code> 那行注册在 <code>_meta_registrations.py</code> —— 一个 Python 文件。</strong> 说明<strong>这张表不是 C++ 独占的，Python 也能填格子</strong>。⚠️ 注意它下面还跟着 <code>Meta (inactive)</code>：C++ 那边本来也注册了一个，被 Python 这个覆盖掉了，dispatcher 老老实实把被盖住的那个标成 inactive 留在原地。</p>
+<hr />
+<!--MIDSTOP-->
+<blockquote>
+<p>🛑 <strong>读到这里可以停</strong> —— 前半章讲完了（约 35 分钟）。
+<strong>后半章还有</strong>：⭐ C++ 侧：两个宏，各管一件事 · ⭐ 让它可导：C++ 侧的那一半 · CUDA 那一格，和不想编译的路子
+回来的时候不用重读，直接从下一节接着看就行。</p>
+</blockquote>
+<hr />
+<h2 id="c">🧩 五、⭐ C++ 侧：两个宏，各管一件事</h2>
+<p>⚠️ <strong>本节及以后的 C++ 代码全部标 <code>🗓️ 未实跑 —— 本机无编译环境</code></strong>（MinGW g++ 配 MSVC 编译的 CPython + CPU 版 torch，编不出能导入的扩展）。写法取自本机 <code>torch/include/torch/library.h</code> 的官方注释和 PyTorch 文档，<strong>作者没有在本机编译运行过</strong>。</p>
+<div class="codehilite"><pre><span></span><code><span class="c1">// myops.cpp   🗓️ 未实跑 —— 本机无编译环境</span>
+<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;torch/library.h&gt;</span>
+<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;ATen/ATen.h&gt;</span>
+
+<span class="n">at</span><span class="o">::</span><span class="n">Tensor</span><span class="w"> </span><span class="nf">scaled_add_cpu</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">at</span><span class="o">::</span><span class="n">Tensor</span><span class="o">&amp;</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">at</span><span class="o">::</span><span class="n">Tensor</span><span class="o">&amp;</span><span class="w"> </span><span class="n">b</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">s</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">b</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">s</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="n">TORCH_LIBRARY</span><span class="p">(</span><span class="n">myops</span><span class="p">,</span><span class="w"> </span><span class="n">m</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">                                   </span><span class="c1">// ⭐ ① 新开一行</span>
+<span class="w">    </span><span class="n">m</span><span class="p">.</span><span class="n">def</span><span class="p">(</span><span class="s">&quot;scaled_add(Tensor a, Tensor b, float s) -&gt; Tensor&quot;</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="n">TORCH_LIBRARY_IMPL</span><span class="p">(</span><span class="n">myops</span><span class="p">,</span><span class="w"> </span><span class="n">CPU</span><span class="p">,</span><span class="w"> </span><span class="n">m</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">                         </span><span class="c1">// ⭐ ② 填 CPU 那一格</span>
+<span class="w">    </span><span class="n">m</span><span class="p">.</span><span class="n">impl</span><span class="p">(</span><span class="s">&quot;scaled_add&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">scaled_add_cpu</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>⭐ <strong>四个入口，对应表上四种动作</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>写法</th>
+<th>对应到那张表</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TORCH_LIBRARY(ns, m)</code> + <code>m.def(schema)</code></td>
+<td><strong>新开一行</strong>（声明算子存在、签名长这样）</td>
+</tr>
+<tr>
+<td><code>TORCH_LIBRARY_IMPL(ns, key, m)</code> + <code>m.impl(name, fn)</code></td>
+<td><strong>填一个格子</strong></td>
+</tr>
+<tr>
+<td><code>TORCH_LIBRARY_IMPL(_, key, m)</code> + <code>m.fallback(fn)</code></td>
+<td>⭐ <strong>填整整一列</strong>（这个键的兜底）</td>
+</tr>
+<tr>
+<td><code>TORCH_LIBRARY_FRAGMENT(ns, m)</code></td>
+<td>同上，但允许同一命名空间出现多次</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong><code>TORCH_LIBRARY</code> 对同一个命名空间只能出现一次</strong> —— <code>library.h</code> 的注释里明写着「There may only be one TORCH_LIBRARY() for any given namespace」。分好几个文件写就用 <code>TORCH_LIBRARY_FRAGMENT</code>。</p>
+<h3 id="_5">🚦 ⭐ 宏展开成什么 —— 一个静态初始化对象</h3>
+<p>这是本章最该记住的机制。下面是 <code>torch/include/torch/library.h</code> 里的<strong>真实源码</strong>（本机头文件第 975 行起）：</p>
+<div class="codehilite"><pre><span></span><code><span class="cp">#define TORCH_LIBRARY(ns, m)                                                   \</span>
+<span class="cp">  static void TORCH_LIBRARY_init_##ns(torch::Library&amp;);                        \</span>
+<span class="cp">  static const torch::detail::TorchLibraryInit TORCH_LIBRARY_static_init_##ns( \</span>
+<span class="cp">      torch::Library::DEF,                                                     \</span>
+<span class="cp">      &amp;TORCH_LIBRARY_init_##ns,                                                \</span>
+<span class="cp">      C10_STRINGIZE(ns),                                                       \</span>
+<span class="cp">      std::nullopt,                                                            \</span>
+<span class="cp">      __FILE__,                                                                \</span>
+<span class="cp">      __LINE__);                                                               \</span>
+<span class="cp">  void TORCH_LIBRARY_init_##ns(torch::Library&amp; m)</span>
+</code></pre></div>
+
+<p>拆开看：</p>
+<table>
+<thead>
+<tr>
+<th>展开出来的</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>static void TORCH_LIBRARY_init_myops(torch::Library&amp;);</code></td>
+<td>声明一个函数 —— 就是你写在大括号里那段</td>
+</tr>
+<tr>
+<td><code>static const TorchLibraryInit ..._static_init_myops(...)</code></td>
+<td>⭐ <strong>一个文件作用域的全局对象</strong></td>
+</tr>
+<tr>
+<td>末行 <code>void TORCH_LIBRARY_init_myops(torch::Library&amp; m)</code></td>
+<td>和你写的 <code>{ … }</code> 接上，变成函数体</td>
+</tr>
+<tr>
+<td><code>__FILE__</code> / <code>__LINE__</code></td>
+<td>⭐ 第四节 dump 里「registered at 文件:行号」的来源</td>
+</tr>
+</tbody>
+</table>
+<p>⭐ <strong>重点是中间那行：全局对象的构造函数会在这个动态库被加载时自动执行。</strong></p>
+<blockquote>
+<p>⭐ <strong>注册不是在你调用算子的时候发生的，是在那个 <code>.so</code> / <code>.dll</code> 被载入进程的那一刻发生的。</strong>
+库没加载 = 表上根本没这一行 = 你得到的是「算子不存在」，而不是「算子出错」。</p>
+</blockquote>
+<p>这一条把好几件事串起来了：</p>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>现在能解释了</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>自定义算子要先 <code>torch.ops.load_library("xxx.so")</code> 或 <code>import</code> 那个扩展</td>
+<td>⭐ <strong>加载动作本身就是注册动作</strong></td>
+</tr>
+<tr>
+<td>第一节 <code>CUDA</code> 那列全空</td>
+<td>CPU 版轮子里没有 <code>torch_cuda</code> 那批库，它们的静态初始化从没执行过</td>
+</tr>
+<tr>
+<td>装了扩展但 <code>torch.ops.myops</code> 报 <code>AttributeError</code></td>
+<td>库没被加载，或者<a href="04-ABI与二进制兼容.html">加载失败了</a> —— ⭐ <strong>04 章那三种报错全发生在这一步之前</strong></td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong>静态初始化的老毛病这里同样有</strong>：多个库注册同一个格子会互相覆盖（第四节那个 <code>Meta (inactive)</code> 就是活例子），而<strong>谁先谁后取决于加载顺序</strong>，不是你能控制的。</p>
+<h3 id="aten">🚦 给已有的 aten 算子换实现</h3>
+<p>同一套机制，命名空间换成 <code>aten</code>：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1">// 🗓️ 未实跑</span>
+<span class="n">TORCH_LIBRARY_IMPL</span><span class="p">(</span><span class="n">aten</span><span class="p">,</span><span class="w"> </span><span class="n">CPU</span><span class="p">,</span><span class="w"> </span><span class="n">m</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">m</span><span class="p">.</span><span class="n">impl</span><span class="p">(</span><span class="s">&quot;gelu&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">my_faster_gelu</span><span class="p">);</span><span class="w">     </span><span class="c1">// ⚠️ 覆盖官方的 CPU gelu</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>⚠️ <strong>能做，但基本不该做。</strong> 它是<strong>进程全局</strong>的：库一被加载，全进程所有 <code>gelu</code> 都换成你的了，包括别的库调的那些。⭐ 想加速某个算子，正路是注册到你自己的命名空间再显式调用，或者走 <a href="../AI基础设施/07-算子融合与编译.html">AI 基础设施 07</a> 讲的编译器路线。</p>
+<hr />
+<h2 id="c_1">🧩 六、⭐ 让它可导：C++ 侧的那一半</h2>
+<p>⚠️ <strong>边界先说清楚</strong>：<code>autograd.Function</code> 怎么写、<code>forward</code> 存什么 <code>backward</code> 还什么 —— <strong>那是框架的 Python 接口，归 <a href="../PyTorch这个框架本身/09-自定义算子.html">《PyTorch 这个框架本身》09</a></strong>。本节只讲在 C++ 这边，反向是怎么被挂进那张表的。</p>
+<p>回到第三节的优先级：<code>Autograd</code> 在 backend 之上。所以「填了 CPU 格、没填 Autograd 格」的算子，dispatcher 会直接掉进 CPU kernel，<strong>没人记录反向图</strong>。三条路：</p>
+<table>
+<thead>
+<tr>
+<th>做法</th>
+<th>怎么写</th>
+<th>什么时候用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>⭐ <strong>不注册 backend，只写组合实现</strong></td>
+<td>注册到 <code>CompositeImplicitAutograd</code> 别名键</td>
+<td>算子<strong>完全由已有可导算子拼成</strong>（比如就是 <code>a + b * s</code>）→ <strong>反向自动就有</strong>，因为拆开每一步各自可导</td>
+</tr>
+<tr>
+<td><strong>显式注册 autograd kernel</strong></td>
+<td>写 <code>torch::autograd::Function</code> 子类，再填进 <code>Autograd</code> 那格</td>
+<td>手写了融合 kernel，反向也得手写</td>
+</tr>
+<tr>
+<td><strong>明确宣告不可导</strong></td>
+<td>注册 <code>torch::autograd::autogradNotImplementedFallback()</code></td>
+<td>⭐ 让它<strong>当场报错</strong>，好过静默丢梯度</td>
+</tr>
+</tbody>
+</table>
+<div class="codehilite"><pre><span></span><code><span class="c1">// 🗓️ 未实跑 —— 本机无编译环境</span>
+<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;torch/library.h&gt;</span>
+<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;torch/autograd.h&gt;</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ScaledAdd</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="n">torch</span><span class="o">::</span><span class="n">autograd</span><span class="o">::</span><span class="n">Function</span><span class="o">&lt;</span><span class="n">ScaledAdd</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w"> </span><span class="k">public</span><span class="o">:</span>
+<span class="w">  </span><span class="k">static</span><span class="w"> </span><span class="n">at</span><span class="o">::</span><span class="n">Tensor</span><span class="w"> </span><span class="n">forward</span><span class="p">(</span><span class="n">torch</span><span class="o">::</span><span class="n">autograd</span><span class="o">::</span><span class="n">AutogradContext</span><span class="o">*</span><span class="w"> </span><span class="n">ctx</span><span class="p">,</span>
+<span class="w">                            </span><span class="k">const</span><span class="w"> </span><span class="n">at</span><span class="o">::</span><span class="n">Tensor</span><span class="o">&amp;</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">at</span><span class="o">::</span><span class="n">Tensor</span><span class="o">&amp;</span><span class="w"> </span><span class="n">b</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">s</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">ctx</span><span class="o">-&gt;</span><span class="n">saved_data</span><span class="p">[</span><span class="s">&quot;s&quot;</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">s</span><span class="p">;</span><span class="w">                    </span><span class="c1">// 反向要用的标量存这里</span>
+<span class="w">    </span><span class="n">at</span><span class="o">::</span><span class="n">AutoDispatchBelowADInplaceOrView</span><span class="w"> </span><span class="n">guard</span><span class="p">;</span><span class="w">  </span><span class="c1">// ⭐ 往下 redispatch，跳过 autograd 层</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">scaled_add_cpu</span><span class="p">(</span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">b</span><span class="p">,</span><span class="w"> </span><span class="n">s</span><span class="p">);</span><span class="w">              </span><span class="c1">//     不写这行就无限递归</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="w">  </span><span class="k">static</span><span class="w"> </span><span class="n">torch</span><span class="o">::</span><span class="n">autograd</span><span class="o">::</span><span class="n">variable_list</span><span class="w"> </span><span class="n">backward</span><span class="p">(</span>
+<span class="w">      </span><span class="n">torch</span><span class="o">::</span><span class="n">autograd</span><span class="o">::</span><span class="n">AutogradContext</span><span class="o">*</span><span class="w"> </span><span class="n">ctx</span><span class="p">,</span><span class="w"> </span><span class="n">torch</span><span class="o">::</span><span class="n">autograd</span><span class="o">::</span><span class="n">variable_list</span><span class="w"> </span><span class="n">grad</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">double</span><span class="w"> </span><span class="n">s</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="o">-&gt;</span><span class="n">saved_data</span><span class="p">[</span><span class="s">&quot;s&quot;</span><span class="p">].</span><span class="n">toDouble</span><span class="p">();</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="p">{</span><span class="n">grad</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="w"> </span><span class="n">grad</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">s</span><span class="p">,</span><span class="w"> </span><span class="n">at</span><span class="o">::</span><span class="n">Tensor</span><span class="p">()};</span><span class="w">  </span><span class="c1">// ⚠️ 对 double 参数返回空 Tensor 占位</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">};</span>
+
+<span class="n">TORCH_LIBRARY_IMPL</span><span class="p">(</span><span class="n">myops</span><span class="p">,</span><span class="w"> </span><span class="n">Autograd</span><span class="p">,</span><span class="w"> </span><span class="n">m</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">          </span><span class="c1">// ⭐ 填 Autograd 那一格</span>
+<span class="w">  </span><span class="n">m</span><span class="p">.</span><span class="n">impl</span><span class="p">(</span><span class="s">&quot;scaled_add&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">[](</span><span class="k">const</span><span class="w"> </span><span class="n">at</span><span class="o">::</span><span class="n">Tensor</span><span class="o">&amp;</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">at</span><span class="o">::</span><span class="n">Tensor</span><span class="o">&amp;</span><span class="w"> </span><span class="n">b</span><span class="p">,</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">s</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">ScaledAdd</span><span class="o">::</span><span class="n">apply</span><span class="p">(</span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">b</span><span class="p">,</span><span class="w"> </span><span class="n">s</span><span class="p">);</span>
+<span class="w">  </span><span class="p">});</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>⭐ <strong><code>AutoDispatchBelowADInplaceOrView guard;</code> 是全段重点</strong>，而且形状你已经见过 —— 它是个 <a href="02-值语义与所有权.html">RAII 对象</a>（和 <a href="01-Python调C++的那条边界.html">01 章</a>的 <code>gil_scoped_release</code> 同一个套路），作用域内把分派起点压到 autograd 之下。<strong>没有它，<code>forward</code> 里再调一次这个算子会又进 autograd kernel。</strong></p>
+<p>⚠️ <strong>只填 CPU 不填 Autograd 的症状</strong>：前向完全正常，反向时要么报 <code>element 0 of tensors does not require grad</code>，要么<strong>梯度悄悄变成 0</strong>。💀 后者不报错，训练看起来在跑、loss 就是不降 —— 它长得不像 bug，所以调试成本极高。</p>
+<hr />
+<h2 id="cuda">🧩 七、CUDA 那一格，和不想编译的路子</h2>
+<p>⭐ <strong>好消息：CUDA 没有新机制</strong>，同一套宏换个键：</p>
+<div class="codehilite"><pre><span></span><code><span class="c1">// 🗓️ 未实跑 —— 本机无 nvcc，torch 也是 CPU 版</span>
+<span class="n">TORCH_LIBRARY_IMPL</span><span class="p">(</span><span class="n">myops</span><span class="p">,</span><span class="w"> </span><span class="n">CUDA</span><span class="p">,</span><span class="w"> </span><span class="n">m</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">m</span><span class="p">.</span><span class="n">impl</span><span class="p">(</span><span class="s">&quot;scaled_add&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">scaled_add_cuda</span><span class="p">);</span><span class="w">   </span><span class="c1">// ⭐ 唯一的区别就是这个键</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><strong>写 CUDA 难在 kernel 本身</strong>（SM、warp、合并访存归 <a href="../AI基础设施/02-GPU到底是什么.html">AI 基础设施 02</a>），<strong>不难在注册</strong> —— 注册就是上面这三行。</p>
+<p>只想先试一下机制的话，有两条不用自己配编译工程的路：</p>
+<table>
+<thead>
+<tr>
+<th>路</th>
+<th>是什么</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>torch.utils.cpp_extension.load_inline(...)</code></td>
+<td>把 C++/CUDA 源码字符串传给它，<strong>运行时编译并加载</strong></td>
+<td>🗓️ 未实跑。⚠️ 机器上仍要有编译器和匹配工具链，<a href="04-ABI与二进制兼容.html">04 章</a>那三种报错一个不少</td>
+</tr>
+<tr>
+<td>⭐ <code>torch.library</code> 的 Python 接口</td>
+<td><strong>完全不写 C++</strong> 也能填格子（第四节 <code>Meta</code> 那行就是这么来的）</td>
+<td>慢，但能立刻验证「机制对不对」</td>
+</tr>
+</tbody>
+</table>
+<p>⭐ <strong>建议顺序：先用 Python 接口把注册跑通、确认分派真的进了你的函数，再决定要不要下到 C++。</strong> 这样出问题时你知道是注册错了还是 kernel 错了。具体写法归 <a href="../PyTorch这个框架本身/09-自定义算子.html">《PyTorch 这个框架本身》09</a>。</p>
+<p>⚠️⚠️ <strong>动手之前先确认你真的需要</strong>：<a href="../AI基础设施/07-算子融合与编译.html">AI 基础设施 07</a> 给了「什么时候值得手写 kernel」的三个条件，<strong>不满足就别写</strong>。这和 <a href="01-Python调C++的那条边界.html">01 章</a>第三节那张反面表是同一件事的两个版本。</p>
+<hr />
+<h2 id="_6">🔗 这一章连到哪里</h2>
+<table>
+<thead>
+<tr>
+<th>相关的地方</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="06-读源码路线图.html">06 章</a></td>
+<td>第四节 dump 出来的 <code>RegisterCPU_3.cpp:4482</code> —— ⭐ <strong>下一章教你从这个文件名一路找到真正算数的那几行</strong></td>
+</tr>
+<tr>
+<td><a href="04-ABI与二进制兼容.html">04 章</a></td>
+<td>第五节说「注册发生在库被加载的那一刻」，⭐ <strong>那三种加载失败全发生在这一步之前</strong>，所以症状是「算子不存在」而不是「算子出错」</td>
+</tr>
+<tr>
+<td><a href="02-值语义与所有权.html">02 章</a></td>
+<td>第六节的 <code>AutoDispatchBelowADInplaceOrView guard;</code> 是个 RAII 对象</td>
+</tr>
+<tr>
+<td><a href="01-Python调C++的那条边界.html">01 章</a></td>
+<td>那一章讲<strong>怎么把一段 C++ 挂到 Python 上</strong>（<code>ctypes</code> / pybind11），这一章讲<strong>怎么把它挂进 PyTorch 的分派系统</strong>（<code>TORCH_LIBRARY</code>）</td>
+</tr>
+<tr>
+<td><a href="../PyTorch这个框架本身/09-自定义算子.html">《PyTorch 这个框架本身》09</a></td>
+<td>⭐ <strong><code>autograd.Function</code> 的 Python 写法、<code>torch.library</code> 的 Python 接口全在那边</strong>，本章只讲 C++ 侧怎么注册进去</td>
+</tr>
+<tr>
+<td><a href="../AI基础设施/07-算子融合与编译.html">AI 基础设施 07</a></td>
+<td>动手写 kernel 前先对那三个条件，<strong>不满足就别写</strong></td>
+</tr>
+<tr>
+<td><a href="../AI基础设施/02-GPU到底是什么.html">AI 基础设施 02</a></td>
+<td>第七节说「难在 kernel 本身不难在注册」—— kernel 那一半归它</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_7">✅ 检查点</h2>
+<ol>
+<li><code>torch.nn.functional.gelu(torch.ones(2,2).to_sparse())</code> 报什么错？这条报错里的两个片段各对应 dispatcher 的哪个坐标轴？异常类型到底是什么？</li>
+<li>为什么「稀疏张量不支持激活函数」这个说法是错的？本章用哪组实跑对照证明了它？</li>
+<li><code>aten::add.Tensor(...)</code> 里 <code>aten</code> / <code>add</code> / <code>.Tensor</code> 各是什么？<code>aten::add</code> 实跑有几个重载，这对「表的行」意味着什么？</li>
+<li>schema 里的 <code>Tensor(a!)</code> 是什么意思？填错它为什么特别难查？</li>
+<li>本章实跑的三个 keyset 里，<code>requires_grad=True</code> 那个和普通 CPU 差在哪？说明了什么？</li>
+<li><code>torch._C._dispatch_dump("aten::gelu")</code> 的输出里哪一行<strong>没有出现</strong>？路径里带 <code>build\</code> 的文件有什么特点？<code>Meta</code> 那行为什么值得注意？</li>
+<li><code>TORCH_LIBRARY</code> / <code>TORCH_LIBRARY_IMPL</code> / <code>m.fallback</code> 各对应表上的什么动作？</li>
+<li><code>TORCH_LIBRARY</code> 宏展开成一个什么东西？由此推出注册发生在哪一刻？这怎么解释「装了扩展但 <code>torch.ops.myops</code> 报 AttributeError」？</li>
+<li>只注册 CPU kernel 不注册 Autograd 的症状是什么？为什么这类 bug 特别贵？<code>AutoDispatchBelowADInplaceOrView guard;</code> 不写会怎样？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li><code>Could not run 'aten::gelu' with arguments from the 'SparseCPU' backend.</code> <strong><code>aten::gelu</code> 是算子名（行）</strong>，<code>SparseCPU</code> 是分派键（列）。异常类型是 <code>NotImplementedError</code>，但它是 <code>RuntimeError</code> 的子类（实跑 <code>isinstance</code> 为 <code>True</code>），所以两种写法都能接住。CPU 机器就能复现，不需要 GPU。</li>
+<li>因为表是<strong>逐格填的</strong>，不存在「某后端整体支持 / 不支持」。实跑对照：同一个 <code>torch.ones(2,2).to_sparse()</code>，<code>.mm(...)</code> 能跑（输出 <code>[[2,2],[2,2]]</code>）而 <code>.sigmoid()</code> 不能。查格子的结果一致：<code>aten::mm</code> 在 <code>SparseCPU</code> 有 kernel，<code>gelu</code> / <code>sigmoid</code> 没有。</li>
+<li><code>aten</code> = <strong>命名空间</strong>，<code>add</code> = 算子名，<code>.Tensor</code> = 重载名 —— 是个显式的字符串标签，不是 C++ 那种按类型自动选的重载。<code>aten::add</code> 实跑有 16 个重载，⚠️ 而每个重载在 dispatcher 眼里是独立的一行、独立的一张表 —— 所以 <code>aten::add</code> 不是一行，是十六行。</li>
+<li><code>!</code> 表示<strong>这个参数会被就地写</strong>，<code>a</code> 是别名标记（<code>Tensor(a)</code> 不带 <code>!</code> 是「共享内存但不写」的视图）。⚠️ 它是给编译器的合同不是文档：<code>torch.compile</code> / functionalization / <code>torch.jit</code> 都读它。填错的后果是在别的通道上出现随机错误，不是当场报错。</li>
+<li><strong>完全没差别</strong>，两者都是 <code>DispatchKeySet(CPU, ADInplaceOrView, AutogradCPU, AutocastCPU)</code>。说明「要不要求导」不是靠分派键区分的：<code>AutogradCPU</code> 一直在 set 里，走不走那条路取决于运行时 <code>GradMode</code> 和 tensor 自己的 <code>requires_grad</code> 标志。</li>
+<li><strong>整个没有 <code>SparseCPU</code> 那一行</strong> —— 第一节的报错到此闭环，不是模糊的「不支持」，是格子确实空着。带 <code>build\</code> 的（<code>RegisterCPU_3.cpp</code>、<code>VariableType_1.cpp</code>）在 PyTorch 仓库里根本不存在，是构建时按 schema 生成的；原始输出里的 <code>C:\actions-runner\...</code> 是官方 CI 机器路径，本地找不到，但文件名行号是真的。<code>Meta</code> 那行注册在 <code>_meta_registrations.py</code>（一个 Python 文件） —— 说明 Python 也能往这张表里填格子，而且它下面的 <code>Meta (inactive)</code> 就是被它覆盖掉的 C++ 注册。</li>
+<li><code>TORCH_LIBRARY(ns,m)</code> + <code>m.def(schema)</code> = <strong>新开一行</strong>；<code>TORCH_LIBRARY_IMPL(ns,key,m)</code> + <code>m.impl(name,fn)</code> = 填一个格子；<code>m.fallback(fn)</code> = 填整整一列（这个键的兜底）。⚠️ <code>TORCH_LIBRARY</code> 对一个命名空间只能出现一次，分文件要用 <code>TORCH_LIBRARY_FRAGMENT</code>。</li>
+<li>展开成一个 <strong><code>static const torch::detail::TorchLibraryInit</code> 文件作用域全局对象</strong>（外加一个函数声明和函数头）。全局对象的构造函数在动态库被加载时自动执行，所以注册发生在 <code>.so</code>/<code>.dll</code> 载入进程的那一刻，不是你调用算子的时候。于是「装了扩展但 <code>torch.ops.myops</code> 报 AttributeError」= 库压根没被加载或加载失败了，表上没有这一行 —— 04 章那三种报错全发生在这一步之前。宏里的 <code>__FILE__</code> / <code>__LINE__</code> 就是 dump 里「registered at 文件:行号」的来源。</li>
+<li>前向完全正常，反向时要么报 <code>element 0 of tensors does not require grad</code>，要么<strong>梯度悄悄变成 0</strong>。💀 后者不报错，训练照跑、loss 就是不降 —— 长得不像 bug，调试成本极高（想避免就注册 <code>autogradNotImplementedFallback()</code> 让它当场报错）。不写那行 guard 会无限递归：<code>forward</code> 里再调这个算子又会进 autograd kernel。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_8">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong></p>
+<blockquote>
+<p>🎯 <strong>dispatcher 是一张二维表：行是算子名、列是分派键、格子里是函数指针，注册就是填格子。</strong></p>
+<p>开场那条报错一次给出两个坐标：「Could not run <code>aten::gelu</code> with arguments from the <code>SparseCPU</code> backend」。⭐ <strong>CPU 机器就能复现，不需要 GPU。</strong> 它不是「稀疏不支持激活函数」——同一个稀疏张量有的算子能跑有的不能，<strong>表是逐格填的</strong>。</p>
+<p>⚠️ 本机 CUDA 那一列全空只是因为装的是 CPU 版轮子——⭐ 这反过来说明<strong>表不是编译期常量，是运行时被一批批加载进来的</strong>。</p>
+<p>📐 <strong>行坐标是 schema</strong>，而且<strong>每个重载都是独立的一行</strong>（<code>aten::add</code> 实测有十几行，不是一行）。⭐ <strong>schema 是唯一真相源</strong>：C++ 签名、<code>torch.ops.*</code>、类型存根、头文件全从它生成。记号里最要命的是 <code>Tensor(a!)</code> 的那个 <code>!</code>（会就地写）——它是<strong>给编译器的合同不是文档</strong>，⭐ <strong>填错的后果是别的通道随机出错，而不是当场报错</strong>。</p>
+<p><strong>列坐标是 DispatchKeySet</strong>。⚠️⚠️ <code>requires_grad=True</code> 的 keyset 和普通 CPU <strong>一模一样</strong>——<strong>求不求导不靠分派键区分</strong>。⭐ 所以「注册 CPU kernel」和「让它可导」是两件独立的事。</p>
+<p>🔍 <code>_dispatch_dump</code> 能把整行 dump 出来，三条读法值得记：<strong>带 <code>build\</code> 的文件在仓库里根本不存在</strong>（按 schema 生成的）；<code>[alias]</code> 是别名键，<strong>一次填一批格子</strong>；而 <code>(inactive)</code> 标记的是被覆盖掉的注册。</p>
+</blockquote>
+<p><strong>下一节</strong> 👉 <a href="06-读源码路线图.html">06-读源码路线图.md</a>
+</content></p>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="04-ABI与二进制兼容.html"><div class="dir">← 上一节</div>🔌 04 · ABI 与二进制兼容</a><a class="next" href="06-读源码路线图.html"><div class="dir">下一节 →</div>🗺️ 06 · 读源码路线图</a></nav>
+</main>
+<script>(function(){
+  var KEY="cpp-progress", FILE="05-\u7b97\u5b50\u600e\u4e48\u6ce8\u518c\u8fdbPyTorch.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><script src="../assets/analytics.js" async></script>
+</body></html>

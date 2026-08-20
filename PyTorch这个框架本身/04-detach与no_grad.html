@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>04 · `detach` / `no_grad` / `requires_grad`：三个都在断，断的不是一个东西 · PyTorch 这个框架本身</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:1.9em;line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:1.42em;margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:1.14em;margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:.88em;background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:.85em}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:.92em}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:.8em;color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:.85em;color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:.92em}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:.78em;
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:.92em;border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:.93em;line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:.9em;line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:.93em;line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:.92em}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:1.15em;opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:.82em;
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
+
+.dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:.95em;margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:.93em;line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.02em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:.93em;break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">04 · detach 与 no_grad</span>
+  <span class="prevnext"><a href="03-三种就地操作报错.html">←</a>
+  <a href="05-nnModule内部.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#_2">🧩 一、先把三个摆在一起看</a></li>
+<li><a href="#requires_grad">🧩 二、requires_grad：一个属性，而且只能设在叶子上</a></li>
+<li><a href="#no_grad">🧩 三、no_grad：它是个开关，不是个标记</a></li>
+<li><a href="#detach">🧩 四、detach：剪的是边，不是内存</a></li>
+<li><a href="#_6">🧩 五、⭐ 想冻住一层，到底该用哪个（最容易写反）</a></li>
+<li><a href="#_9">🧩 六、日常最常撞的两处</a></li>
+<li><a href="#inference_mode-no_grad">🧩 七、inference_mode：比 no_grad 更狠的那个</a></li>
+<li><a href="#_10">🧩 八、⚠️ 这三个都断不了的那件事</a></li>
+<li><a href="#_11">📋 九、反查表</a></li>
+<li><a href="#_12">🔗 这一章连到哪里</a></li>
+<li><a href="#_13">✅ 检查点</a></li>
+<li><a href="#_14">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<h1 id="04-detach-no_grad-requires_grad">04 · <code>detach</code> / <code>no_grad</code> / <code>requires_grad</code>：三个都在断，断的不是一个东西</h1>
+<p>⏱ <strong>94 分钟</strong> ｜ ⭐ <strong>实测：想冻住中间那一层，三种写法后果全不一样 —— 一种把上游一起冻了，一种冻错了对象</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong><code>requires_grad</code> 标记的是「这个叶子要不要梯度」，<code>no_grad</code> 关的是「当前这段代码建不建图」，<code>detach</code> 剪的是「这一个张量往回的那条边」。</strong>
+三件事都被人叫做「断梯度」，但断的对象分别是<strong>一个属性、一段代码、一条边</strong> —— 尺度差了三个量级。</p>
+<p>⭐ <strong>本章存在的理由</strong>：<a href="../机器学习与深度学习基础/附录A-术语速查卡.html">ML 基础 附录A</a> 里这三个词各有一行词条 ——
+「<code>no_grad()</code>：不建计算图，验证时用，省显存」「<code>detach()</code>：切断梯度」「<code>model.eval()</code> vs <code>no_grad()</code>：验证时两个都要」。
+⚠️ <strong>站内有这几行词条，但没有一页说清它们断的不是同一个东西</strong> —— 于是「想冻住主干该用哪个」这种问题只能靠猜，
+而第五节的实测会告诉你：三个写法里有两个会给你一个你不想要的结果，并且都不报错。</p>
+<p>（本章也接着 <a href="03-三种就地操作报错.html">03 章</a>第八节：那里实测过 <code>no_grad</code> 和 <code>detach</code> <strong>都拦不住版本计数器</strong>。
+那是从「它们拦不住什么」的角度说的，本章反过来讲<strong>它们各自拦得住什么</strong>。）</p>
+<hr />
+<h2 id="_2">🧩 一、先把三个摆在一起看</h2>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">show</span><span class="p">(</span><span class="n">tag</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+    <span class="n">fn</span> <span class="o">=</span> <span class="nb">type</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">grad_fn</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span> <span class="k">if</span> <span class="n">t</span><span class="o">.</span><span class="n">grad_fn</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="s2">&quot;None&quot;</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">tag</span><span class="si">:</span><span class="s2">14s</span><span class="si">}</span><span class="s2"> requires_grad=</span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">)</span><span class="si">:</span><span class="s2">6s</span><span class="si">}</span><span class="s2">&quot;</span>
+          <span class="sa">f</span><span class="s2">&quot; grad_fn=</span><span class="si">{</span><span class="n">fn</span><span class="si">:</span><span class="s2">14s</span><span class="si">}</span><span class="s2"> is_leaf=</span><span class="si">{</span><span class="n">t</span><span class="o">.</span><span class="n">is_leaf</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="n">y</span> <span class="o">=</span> <span class="n">x</span> <span class="o">*</span> <span class="mi">3</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;y = x * 3&quot;</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+<span class="n">show</span><span class="p">(</span><span class="s2">&quot;y.detach()&quot;</span><span class="p">,</span> <span class="n">y</span><span class="o">.</span><span class="n">detach</span><span class="p">())</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="n">show</span><span class="p">(</span><span class="s2">&quot;no_grad 里 x*3&quot;</span><span class="p">,</span> <span class="n">x</span> <span class="o">*</span> <span class="mi">3</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>y = x * 3 requires_grad=True grad_fn=MulBackward0 is_leaf=False</p><p>y.detach() requires_grad=False grad_fn=None is_leaf=True</p><p>no_grad 里 x*3 requires_grad=False grad_fn=None is_leaf=True</p></div></section>
+<p>⭐ <strong>后两行的三个字段一模一样 —— 这就是「它们看起来是同一件事」的来源。</strong>
+但它们是<strong>两条完全不同的路走到同一个结果</strong>的：</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>y.detach()</code></th>
+<th><code>no_grad</code> 里的 <code>x * 3</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>那次乘法<strong>发生了吗</strong></td>
+<td>⭐ 发生了，而且<strong>建了图</strong>（<code>y</code> 自己有 <code>grad_fn</code>）</td>
+<td>⭐ 发生了，但<strong>没建图</strong></td>
+</tr>
+<tr>
+<td>它作用在<strong>谁</strong>身上</td>
+<td>⭐ 一个<strong>已经存在的张量</strong></td>
+<td>⭐ 一段<strong>还没执行的代码</strong></td>
+</tr>
+<tr>
+<td>结果张量</td>
+<td>是 <code>y</code> 的一个「不带图的替身」</td>
+<td>是一个凭空生出来的叶子</td>
+</tr>
+<tr>
+<td>什么时候用得上</td>
+<td>你手里已经有个张量，想让它<strong>从这里往回不再回传</strong></td>
+<td>你<strong>接下来这一段</strong>根本不打算求导</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong><code>is_leaf=True</code> 这一列容易误读</strong>：它不代表「这是参数」。
+<a href="02-autograd怎么建图.html">02 章</a>第五节说过，叶子的定义是「<strong>不是由要求导的运算算出来的</strong>」——
+<code>detach</code> 和 <code>no_grad</code> 的产物都符合这个定义，所以它们都是叶子，但它们的 <code>requires_grad</code> 是 <code>False</code>，也就拿不到 <code>.grad</code>。</p>
+<hr />
+<h2 id="requires_grad">🧩 二、<code>requires_grad</code>：一个属性，而且只能设在叶子上</h2>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">y</span> <span class="o">=</span> <span class="n">x</span> <span class="o">*</span> <span class="mi">2</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">y</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+<span class="k">except</span> <span class="ne">RuntimeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;对非叶子设 requires_grad -&gt;&quot;</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+
+<span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">])</span>                          <span class="c1"># 默认 requires_grad=False</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;False op False -&gt;&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">a</span> <span class="o">*</span> <span class="n">a</span><span class="p">)</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;False op True  -&gt;&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">a</span> <span class="o">*</span> <span class="n">b</span><span class="p">)</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">)</span>
+
+<span class="n">d</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span> <span class="o">*</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span>
+<span class="n">d</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>                           <span class="c1"># ⭐ detach 出来的是叶子，能重新打开</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;detach 出来的  : is_leaf =&quot;</span><span class="p">,</span> <span class="n">d</span><span class="o">.</span><span class="n">is_leaf</span><span class="p">,</span> <span class="s2">&quot; 重新打开后 requires_grad =&quot;</span><span class="p">,</span> <span class="n">d</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">对非叶子设 requires_grad -&gt; you can only change requires_grad flags of leaf variables. If you want to use a computed variable in a subgraph that doesn&#x27;t require differentiation use var_no_grad = var.detach().</span></div><div class="vb-flow-row"><span class="vb-flow-step">False op False -&gt; False</span></div><div class="vb-flow-row"><span class="vb-flow-step">False op True -&gt; True</span></div><div class="vb-flow-row"><span class="vb-flow-step">detach 出来的 : is_leaf = True 重新打开后 requires_grad = True</span></div></div></section>
+<p>⭐ <strong>这条报错原文自己把答案写出来了</strong>（这正是 <a href="00-怎么用这份教程.html">00 章</a>立的主题 ④）：
+「想让一个算出来的变量进入一张不求导的子图，就用 <code>var.detach()</code>」——
+<strong>PyTorch 官方在这里明确告诉你：<code>requires_grad</code> 是给叶子用的，中间结果请用 <code>detach</code>。</strong></p>
+<p>⭐ <strong>三条规则</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>规则</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>只能设在叶子上</strong></td>
+<td>参数、你自己 <code>torch.tensor(..., requires_grad=True)</code> 造的那些。中间结果一律拒绝</td>
+</tr>
+<tr>
+<td>⭐ <strong>中间结果的它是【算出来的】</strong></td>
+<td>判据是 <strong>OR</strong>：只要<strong>任何一个输入</strong>要梯度，输出就要（实测 <code>False op True -&gt; True</code>）</td>
+</tr>
+<tr>
+<td><strong>它是个持久属性</strong></td>
+<td>设一次就一直是那样，⚠️ <strong>不像 <code>no_grad</code> 出了块就恢复</strong>（第三节实测）</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong><code>requires_grad=False</code> 的叶子会怎样</strong>：它照样参与前向计算、照样出现在表达式里，
+只是<strong>图里不给它挂 <code>AccumulateGrad</code> 节点</strong>（<a href="02-autograd怎么建图.html">02 章</a>第一节），
+反向走到它就停 —— 所以它的 <code>.grad</code> 永远是 <code>None</code>。</p>
+<hr />
+<h2 id="no_grad">🧩 三、<code>no_grad</code>：它是个开关，不是个标记</h2>
+<p>⭐ <strong>最常见的误解：以为 <code>with torch.no_grad():</code> 会把块里碰到的张量「设成不要梯度」。它不会。</strong></p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">w</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;块内 w.requires_grad =&quot;</span><span class="p">,</span> <span class="n">w</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">)</span>
+    <span class="n">t1</span> <span class="o">=</span> <span class="n">w</span> <span class="o">*</span> <span class="mi">2</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;块内算的 t1.requires_grad =&quot;</span><span class="p">,</span> <span class="n">t1</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">)</span>
+
+<span class="n">t2</span> <span class="o">=</span> <span class="n">w</span> <span class="o">*</span> <span class="mi">2</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;块外算的 t2.requires_grad =&quot;</span><span class="p">,</span> <span class="n">t2</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>块内 w.requires_grad = True</p><p>块内算的 t1.requires_grad = False</p><p>块外算的 t2.requires_grad = True</p></div></section>
+<p>⭐ <strong>三行分别在说三件事</strong>：</p>
+<ol>
+<li><strong><code>w</code> 自己一点没变</strong> —— 进了块它还是 <code>requires_grad=True</code>。<code>no_grad</code> <strong>从来不改张量的属性</strong>。</li>
+<li><strong>变的是「新算出来的东西」</strong> —— 块内的乘法<strong>不建图</strong>，所以 <code>t1</code> 身上没有回去的路。</li>
+<li>⭐ <strong>出了块立刻恢复</strong> —— 同一行代码 <code>w * 2</code> 写在块外就正常建图。<strong>它是个作用域开关，不是标记。</strong></li>
+</ol>
+<h3 id="_3">它到底省了什么</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="n">v</span> <span class="o">=</span> <span class="n">x</span>
+<span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">5</span><span class="p">):</span>
+    <span class="n">v</span> <span class="o">=</span> <span class="n">v</span> <span class="o">*</span> <span class="mi">2</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;建图 5 层后 v.grad_fn -&gt;&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">grad_fn</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="n">u</span> <span class="o">=</span> <span class="n">x</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">5</span><span class="p">):</span>
+        <span class="n">u</span> <span class="o">=</span> <span class="n">u</span> <span class="o">*</span> <span class="mi">2</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;no_grad 里 5 层后    -&gt;&quot;</span><span class="p">,</span> <span class="n">u</span><span class="o">.</span><span class="n">grad_fn</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">建图 5 层后 v.grad_fn -&gt; MulBackward0</span></div><div class="vb-flow-row"><span class="vb-flow-step">no_grad 里 5 层后 -&gt; None</span></div></div></section>
+<p>⭐ <strong><code>None</code> 的意思是「根本没建」，不是「建了但断开了」。</strong>
+<a href="02-autograd怎么建图.html">02 章</a>第七节量过：一次前向为反向存下来的东西是 44.0 MB 量级。
+<code>no_grad</code> 省的就是这一份 —— <strong>这才是「验证时用 <code>no_grad</code> 省显存」的真正含义</strong>，
+它省的不是激活值本身，是为了反向而额外留下的那一份引用。</p>
+<h3 id="_4">⚠️ 一个容易踩空的地方：从块里带出来的张量</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">w</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">2.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">w</span> <span class="o">*</span> <span class="mi">3</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;no_grad 出来的 a: requires_grad =&quot;</span><span class="p">,</span> <span class="n">a</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">)</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">a</span> <span class="o">*</span> <span class="mi">2</span>                       <span class="c1"># ⚠️ 出了块，但 a 身上没有图</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;a * 2 呢       : requires_grad =&quot;</span><span class="p">,</span> <span class="n">b</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">,</span> <span class="s2">&quot; grad_fn =&quot;</span><span class="p">,</span> <span class="n">b</span><span class="o">.</span><span class="n">grad_fn</span><span class="p">)</span>
+<span class="p">(</span><span class="n">a</span> <span class="o">*</span> <span class="n">w</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>        <span class="c1"># ⭐ a 当常数用，w 那条路照样能回传</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;a * w 回传后   : w.grad =&quot;</span><span class="p">,</span> <span class="n">w</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>no_grad 出来的 a: requires_grad = False</p><p>a * 2 呢 : requires_grad = False grad_fn = None</p><p>a * w 回传后 : w.grad = [6.0]</p></div></section>
+<p>⚠️ <strong>「出了块就恢复」说的是【代码】，不是【数据】。</strong> <code>a</code> 是在块里生出来的，它身上<strong>永远</strong>没有回去的路 ——
+拿它出来再算 <code>a * 2</code>，结果照样 <code>requires_grad=False</code>。
+⭐ 但这不影响别的路径：<code>a * w</code> 里 <code>w</code> 还是要梯度的，实测 <code>w.grad = [6.0]</code>（<code>a</code> 的值是 6，被当成常数）。
+💀 典型事故：在 <code>no_grad</code> 里算了个 embedding 或者一段特征，出来接着拿它算 loss，
+loss 能算出来、<code>backward()</code> 也不报错，但那一段的参数一步都不会动。</p>
+<hr />
+<h2 id="detach">🧩 四、<code>detach</code>：剪的是边，不是内存</h2>
+<p>⭐ <strong><code>detach()</code> 不拷贝数据。它返回的是同一块内存的另一个「说明书」</strong> ——
+这是 <a href="01-张量到底是什么.html">01 章</a>那条「一块 storage + 一份说明书」的直接后果。</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">a</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span>
+<span class="n">b</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mf">99.0</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;改了 b 之后 a =&quot;</span><span class="p">,</span> <span class="n">a</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;a.data_ptr() == b.data_ptr() -&gt;&quot;</span><span class="p">,</span> <span class="n">a</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span> <span class="o">==</span> <span class="n">b</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">())</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">改了 b 之后 a = [99.0, 2.0]</span></div><div class="vb-flow-row"><span class="vb-flow-step">a.data_ptr() == b.data_ptr() -&gt; True</span></div></div></section>
+<p>⚠️⚠️ <strong>改 <code>b</code> 把 <code>a</code> 改掉了，而 <code>a</code> 是个要梯度的参数。</strong>
+💀 这是「我 <code>detach</code> 出来一份自己改改，应该不影响原件吧」的头号翻车现场 ——
+<strong>它影响，而且是完全影响。</strong></p>
+<p>⭐ <strong>要一份能随便改的副本，必须 <code>.detach().clone()</code>。</strong>（两个都要：<code>detach</code> 断图，<code>clone</code> 断内存。）
+⚠️ 顺序上 <code>detach().clone()</code> 比 <code>clone().detach()</code> 略省一点（前者的 <code>clone</code> 不进图），实践中差别很小，但习惯写前者。</p>
+<h3 id="_5">断掉之后就回不去了</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">2.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">y</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span> <span class="o">*</span> <span class="mi">3</span><span class="p">)</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">y</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="k">except</span> <span class="ne">RuntimeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;detach 之后 backward -&gt;&quot;</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">detach 之后 backward -&gt; element 0 of tensors does not require grad and does not have a grad_fn</span></div></div></section>
+<p>⭐ <strong>这条报错要认得</strong> —— 它的意思是「你让我从一个没有图的东西开始反向」。
+它有两个常见来源，⚠️ <strong>报错原文完全一样，但病因不同</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>来源</th>
+<th>现场</th>
+<th>修法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>⭐ <strong>loss 上有 <code>detach()</code> / <code>.item()</code></strong></td>
+<td>中间某一步为了「省显存」把图断了</td>
+<td>去掉那个 <code>detach</code></td>
+</tr>
+<tr>
+<td>⭐ <strong>整个前向在 <code>no_grad</code> 里</strong></td>
+<td>💀 <strong>最常见</strong>：验证循环的 <code>no_grad</code> 块写得太大，把训练那几行也包进去了</td>
+<td>把 <code>backward()</code> 挪出块外，或缩小块的范围</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ 还有第三种更隐蔽的：<strong>输入和参数全都 <code>requires_grad=False</code></strong> —— 比如你把整个模型都冻住了，那 loss 本来就没有图。</p>
+<hr />
+<h2 id="_6">🧩 五、⭐ 想冻住一层，到底该用哪个（最容易写反）</h2>
+<p>先看<strong>单独一层</strong>的情况：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">inp</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+
+<span class="n">lin1</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<span class="n">lin1</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>                 <span class="c1"># 写法 A：把这一层的参数标成不要梯度</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;A  lin.requires_grad_(False)     out.requires_grad =&quot;</span><span class="p">,</span> <span class="n">lin1</span><span class="p">(</span><span class="n">inp</span><span class="p">)</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">)</span>
+
+<span class="n">lin2</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<span class="n">out2</span> <span class="o">=</span> <span class="n">lin2</span><span class="p">(</span><span class="n">inp</span><span class="o">.</span><span class="n">detach</span><span class="p">())</span>                  <span class="c1"># 写法 B：把【输入】断掉</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;B  lin(inp.detach())             out.requires_grad =&quot;</span><span class="p">,</span> <span class="n">out2</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">)</span>
+
+<span class="n">lin3</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>                      <span class="c1"># 写法 C：整段不建图</span>
+    <span class="n">out3</span> <span class="o">=</span> <span class="n">lin3</span><span class="p">(</span><span class="n">inp</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;C  with no_grad(): lin(inp)      out.requires_grad =&quot;</span><span class="p">,</span> <span class="n">out3</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>A lin.requires_grad_(False) out.requires_grad = False</p><p>B lin(inp.detach()) out.requires_grad = True</p><p>C with no_grad(): lin(inp) out.requires_grad = False</p></div></section>
+<p>⭐ <strong>B 是那个「看起来最像断梯度、其实什么都没冻住」的写法</strong>：
+<code>inp.detach()</code> 断的是输入那条路，⚠️ <strong>这一层自己的 <code>weight</code> 和 <code>bias</code> 照样要梯度</strong>，
+所以输出 <code>requires_grad=True</code>，反向一走照样更新它。你以为冻了主干，其实只是不让梯度往输入方向流。</p>
+<h3 id="_7">放进一个三层网络里，差别才完全显出来</h3>
+<p>单层看不出 A 和 C 的区别（都是 <code>False</code>）。⭐ <strong>把「想冻的那层」夹在中间，三者立刻分道扬镳</strong>：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="n">tag</span><span class="p">,</span> <span class="n">how</span><span class="p">):</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">up</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>         <span class="c1"># 上游：要训</span>
+    <span class="n">mid</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>        <span class="c1"># 中间：想冻住的那一层</span>
+    <span class="n">head</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>       <span class="c1"># 下游：要训</span>
+    <span class="n">h</span> <span class="o">=</span> <span class="n">up</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">))</span>
+
+    <span class="k">if</span> <span class="n">how</span> <span class="o">==</span> <span class="s2">&quot;A&quot;</span><span class="p">:</span>
+        <span class="n">mid</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="n">mid</span><span class="p">(</span><span class="n">h</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">how</span> <span class="o">==</span> <span class="s2">&quot;B&quot;</span><span class="p">:</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="n">mid</span><span class="p">(</span><span class="n">h</span><span class="o">.</span><span class="n">detach</span><span class="p">())</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+            <span class="n">m</span> <span class="o">=</span> <span class="n">mid</span><span class="p">(</span><span class="n">h</span><span class="p">)</span>
+
+    <span class="n">head</span><span class="p">(</span><span class="n">m</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="n">mark</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">layer</span><span class="p">:</span> <span class="s2">&quot;有梯度&quot;</span> <span class="k">if</span> <span class="n">layer</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">grad</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="s2">&quot;None &quot;</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">tag</span><span class="si">:</span><span class="s2">32s</span><span class="si">}</span><span class="s2"> 上游=</span><span class="si">{</span><span class="n">mark</span><span class="p">(</span><span class="n">up</span><span class="p">)</span><span class="si">}</span><span class="s2">  中间=</span><span class="si">{</span><span class="n">mark</span><span class="p">(</span><span class="n">mid</span><span class="p">)</span><span class="si">}</span><span class="s2">  下游=</span><span class="si">{</span><span class="n">mark</span><span class="p">(</span><span class="n">head</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+
+<span class="n">run</span><span class="p">(</span><span class="s2">&quot;A  mid.requires_grad_(False)&quot;</span><span class="p">,</span> <span class="s2">&quot;A&quot;</span><span class="p">)</span>
+<span class="n">run</span><span class="p">(</span><span class="s2">&quot;B  mid(h.detach())&quot;</span><span class="p">,</span> <span class="s2">&quot;B&quot;</span><span class="p">)</span>
+<span class="n">run</span><span class="p">(</span><span class="s2">&quot;C  with no_grad(): mid(h)&quot;</span><span class="p">,</span> <span class="s2">&quot;C&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>A mid.requires_grad_(False) 上游=有梯度 中间=None 下游=有梯度</p><p>B mid(h.detach()) 上游=None 中间=有梯度 下游=有梯度</p><p>C with no_grad(): mid(h) 上游=None 中间=None 下游=有梯度</p></div></section>
+<p>⭐ <strong>一张表读完这三行</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>写法</th>
+<th>上游（要训）</th>
+<th>中间（想冻）</th>
+<th>下游（要训）</th>
+<th>判定</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>A</strong> <code>mid.requires_grad_(False)</code></td>
+<td>⭐ 有梯度</td>
+<td><strong>None</strong></td>
+<td>有梯度</td>
+<td>⭐ <strong>只有它做对了「冻住中间」这件事</strong></td>
+</tr>
+<tr>
+<td><strong>B</strong> <code>mid(h.detach())</code></td>
+<td>💀 <strong>None</strong></td>
+<td>⚠️ <strong>有梯度</strong></td>
+<td>有梯度</td>
+<td>💀 <strong>完全反了</strong> —— 该冻的没冻，不该冻的冻了</td>
+</tr>
+<tr>
+<td><strong>C</strong> <code>with no_grad(): mid(h)</code></td>
+<td>💀 <strong>None</strong></td>
+<td>None</td>
+<td>有梯度</td>
+<td>⚠️ <strong>连坐</strong>：它把整条回上游的路一起掐了</td>
+</tr>
+</tbody>
+</table>
+<p>⭐ <strong>原因一句话</strong>：</p>
+<ul>
+<li><strong>A 只关掉「在这一层的参数上累积梯度」这一件事</strong>，梯度<strong>照样穿过这一层</strong>流回上游 —— 这正是你要的。</li>
+<li><strong>B 断的是输入那条边</strong>，所以梯度回不到上游；而 <code>mid</code> 自己的参数是<strong>另一条边</strong>上的叶子，没被碰到。</li>
+<li><strong>C 那一段代码根本没建图</strong>，反向走到 <code>m</code> 就没路了 —— ⚠️ 上游的参数<strong>一起变成 <code>None</code></strong>。</li>
+</ul>
+<h3 id="_8">📋 那么实践里该怎么写</h3>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>用哪个</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>⭐ <strong>冻主干、只训新头</strong>（主干在最前面）</td>
+<td><strong>A 或 C 都对</strong></td>
+<td>⭐ 主干前面没有要训的东西，C 的「连坐」无害；⭐ <strong>C 还额外省了那份反向存量</strong>（第三节的 44.0 MB 那一份）</td>
+</tr>
+<tr>
+<td>⭐ <strong>冻网络【中间】的一段</strong>（前后都要训）</td>
+<td>⭐ <strong>只能用 A</strong></td>
+<td>C 会把上游一起掐掉，B 冻错对象</td>
+</tr>
+<tr>
+<td><strong>只想让梯度不往某个输入回传</strong>（不是冻参数）</td>
+<td><strong>B</strong>（<code>detach</code> 输入）</td>
+<td>⭐ 这才是 <code>detach</code> 的正确用途 —— 第六节的目标网络和累加 loss 都是这一类</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong>A 还有一件必须配套做的事</strong>：把参数交给优化器时别把冻住的那些也交进去。
+<a href="../机器学习与深度学习基础/17-实战项目.html">ML 基础 17 章</a>「方案 B：冻结主干」用的正是写法 A，
+它的优化器只收了 <code>m.fc.parameters()</code> —— <strong>这不是随手写的，是配套的一半。</strong></p>
+<p>⚠️⚠️ <strong>写法 A 冻的只是「参数的梯度」，不是「这一层的全部行为」</strong> —— 第八节讲它漏了什么。</p>
+<hr />
+<!--MIDSTOP-->
+<blockquote>
+<p>🛑 <strong>读到这里可以停</strong> —— 前半章讲完了（约 42 分钟）。
+<strong>后半章还有</strong>：日常最常撞的两处 · <code>inference_mode</code>：比 <code>no_grad</code> 更狠的那个 · ⚠️ 这三个都断不了的那件事 · 反查表
+回来的时候不用重读，直接从下一节接着看就行。</p>
+</blockquote>
+<hr />
+<h2 id="_9">🧩 六、日常最常撞的两处</h2>
+<h3 id="1-loss-detach-epoch">① 累加 loss 做统计：不 detach 就是把整个 epoch 的图挂在一根线上</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">count_nodes</span><span class="p">(</span><span class="n">t</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;数一数从 t 往回能走到多少个反向节点。&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">is_tensor</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="ow">or</span> <span class="n">t</span><span class="o">.</span><span class="n">grad_fn</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mi">0</span>
+    <span class="n">seen</span><span class="p">,</span> <span class="n">stack</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(),</span> <span class="p">[</span><span class="n">t</span><span class="o">.</span><span class="n">grad_fn</span><span class="p">]</span>
+    <span class="k">while</span> <span class="n">stack</span><span class="p">:</span>
+        <span class="n">fn</span> <span class="o">=</span> <span class="n">stack</span><span class="o">.</span><span class="n">pop</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">fn</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">fn</span> <span class="ow">in</span> <span class="n">seen</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="n">seen</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">fn</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">nxt</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">fn</span><span class="o">.</span><span class="n">next_functions</span><span class="p">:</span>
+            <span class="n">stack</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">nxt</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="n">seen</span><span class="p">)</span>
+
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="n">total</span> <span class="o">=</span> <span class="mf">0.0</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">):</span>
+    <span class="n">total</span> <span class="o">=</span> <span class="n">total</span> <span class="o">+</span> <span class="p">(</span><span class="n">x</span> <span class="o">*</span> <span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>          <span class="c1"># 💀 图一直挂着</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;直接累加     :&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">total</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span> <span class="s2">&quot; requires_grad =&quot;</span><span class="p">,</span> <span class="n">total</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">,</span>
+      <span class="s2">&quot; 图里节点数 =&quot;</span><span class="p">,</span> <span class="n">count_nodes</span><span class="p">(</span><span class="n">total</span><span class="p">))</span>
+
+<span class="n">total2</span> <span class="o">=</span> <span class="mf">0.0</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">):</span>
+    <span class="n">total2</span> <span class="o">=</span> <span class="n">total2</span> <span class="o">+</span> <span class="p">(</span><span class="n">x</span> <span class="o">*</span> <span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span>   <span class="c1"># ⭐ 剪掉那条边</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;累加 detach  :&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">total2</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span> <span class="s2">&quot; requires_grad =&quot;</span><span class="p">,</span> <span class="n">total2</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">,</span>
+      <span class="s2">&quot; 图里节点数 =&quot;</span><span class="p">,</span> <span class="n">count_nodes</span><span class="p">(</span><span class="n">total2</span><span class="p">))</span>
+
+<span class="n">total3</span> <span class="o">=</span> <span class="mf">0.0</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">):</span>
+    <span class="n">total3</span> <span class="o">=</span> <span class="n">total3</span> <span class="o">+</span> <span class="p">(</span><span class="n">x</span> <span class="o">*</span> <span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>     <span class="c1"># ⭐ 直接变成 Python float</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;累加 .item() :&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">total3</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span> <span class="s2">&quot;  值 =&quot;</span><span class="p">,</span> <span class="n">total3</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>直接累加 : Tensor requires_grad = True 图里节点数 = 31</p><p>累加 detach : Tensor requires_grad = False 图里节点数 = 0</p><p>累加 .item() : float 值 = 55.0</p></div></section>
+<p>💀💀 <strong>10 次循环，图里挂了 31 个节点，而且一个都放不掉。</strong>
+每一轮 3 个（乘、求和、相加）×10 再加一个 <code>AccumulateGrad</code>。
+⭐ <strong>换成真实训练</strong>：这里的每一轮是一个 batch，那 31 就变成「每个 batch 的整张图 × 一个 epoch 的 batch 数」，
+每一张都拖着 <a href="02-autograd怎么建图.html">02 章</a>量的那 44.0 MB 量级的存量。</p>
+<p>⭐ <strong>这就是 <code>running_loss += loss.item()</code> 里那个 <code>.item()</code> 的全部意义</strong> ——
+它不是「为了打印好看」，是<strong>唯一切断这条链的地方</strong>。</p>
+<table>
+<thead>
+<tr>
+<th>写法</th>
+<th>结果类型</th>
+<th>图里节点</th>
+<th>判定</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>total += loss</code></td>
+<td>Tensor</td>
+<td>💀 <strong>31</strong>（越跑越多）</td>
+<td>❌ 显存持续涨，典型表现是「跑到第几百个 batch 才 OOM」</td>
+</tr>
+<tr>
+<td><code>total += loss.detach()</code></td>
+<td>Tensor</td>
+<td>⭐ <strong>0</strong></td>
+<td>✅ 可以，还留在 GPU 上不用同步</td>
+</tr>
+<tr>
+<td>⭐ <code>total += loss.item()</code></td>
+<td>⭐ <strong>float</strong></td>
+<td>—</td>
+<td>✅ <strong>最常见的写法</strong>。⚠️ 它会强制一次 GPU→CPU 同步，循环里频繁调有开销</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong><code>.item()</code> 只能用在标量上</strong>（一个元素）。要留整个张量做统计用 <code>.detach()</code>。</p>
+<h3 id="2-no_grad">② 目标不该被训：<code>no_grad</code> 包住目标那一段</h3>
+<p><a href="../强化学习基础/08-DQN.html">强化学习基础 08 章</a>的 DQN 里，TD 目标是这么算的：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">q_pred</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>      <span class="c1"># 当前网络的输出（要训）</span>
+<span class="n">r</span><span class="p">,</span> <span class="n">gamma</span><span class="p">,</span> <span class="n">q_next</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.99</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">2.0</span><span class="p">])</span>     <span class="c1"># 目标网络的输出</span>
+
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>                                  <span class="c1"># ⭐ 目标那一段不建图</span>
+    <span class="n">tgt</span> <span class="o">=</span> <span class="n">r</span> <span class="o">+</span> <span class="n">gamma</span> <span class="o">*</span> <span class="n">q_next</span>
+<span class="n">loss</span> <span class="o">=</span> <span class="p">((</span><span class="n">q_pred</span> <span class="o">-</span> <span class="n">tgt</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
+<span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;目标是常数时 q_pred.grad =&quot;</span><span class="p">,</span> <span class="n">q_pred</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span> <span class="s2">&quot; tgt.requires_grad =&quot;</span><span class="p">,</span> <span class="n">tgt</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>目标是常数时 q_pred.grad = [-2.9600000381469727] tgt.requires_grad = False</p></div></section>
+<p>⭐ <strong>这里 <code>no_grad</code> 和 <code>detach</code> 是等价的</strong>（写 <code>tgt = (r + gamma * q_next).detach()</code> 效果一样），
+挑哪个看你顺手 —— ⭐ <strong>一段用 <code>no_grad</code>，一个张量用 <code>detach</code>。</strong>
+⚠️ 那一章的坑表里第一条就是「目标里忘了 <code>torch.no_grad()</code> → 梯度回传到目标网络，训练直接乱掉」。</p>
+<p>⭐ <strong>同一个模式在别处还有两个化身</strong>：GAN 训判别器时对生成器的输出 <code>detach()</code>；
+知识蒸馏时教师模型的 logits <code>detach()</code>。<strong>判据都是一句话：这个东西是【标签】，不是【预测】。</strong></p>
+<hr />
+<h2 id="inference_mode-no_grad">🧩 七、<code>inference_mode</code>：比 <code>no_grad</code> 更狠的那个</h2>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">w</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">2.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">inference_mode</span><span class="p">():</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">w</span> <span class="o">*</span> <span class="mi">3</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;inference_mode 里算的: requires_grad =&quot;</span><span class="p">,</span> <span class="n">a</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">,</span>
+      <span class="s2">&quot; is_inference =&quot;</span><span class="p">,</span> <span class="n">a</span><span class="o">.</span><span class="n">is_inference</span><span class="p">())</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="p">(</span><span class="n">a</span> <span class="o">*</span> <span class="n">w</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>          <span class="c1"># 💀 拿它去参与一张要求导的图</span>
+<span class="k">except</span> <span class="ne">RuntimeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;拿去建图 -&gt;&quot;</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+
+<span class="n">w2</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">2.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="n">a2</span> <span class="o">=</span> <span class="n">w2</span> <span class="o">*</span> <span class="mi">3</span>
+<span class="p">(</span><span class="n">a2</span> <span class="o">*</span> <span class="n">w2</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>            <span class="c1"># ⭐ 换成 no_grad 就没这个限制</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;换成 no_grad -&gt; 正常跑通, w2.grad =&quot;</span><span class="p">,</span> <span class="n">w2</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">inference_mode 里算的: requires_grad = False is_inference = True</span></div><div class="vb-flow-row"><span class="vb-flow-step">拿去建图 -&gt; Inference tensors cannot be saved for backward. Please do not use Tensors created in inference mode in computation tracked by autograd. To work around this, you can make a clone to get a normal tensor and use it in autograd, or use `torch.no_grad()` instead of `torch.inference_mode()`.</span></div><div class="vb-flow-row"><span class="vb-flow-step">换成 no_grad -&gt; 正常跑通, w2.grad = [6.0]</span></div></div></section>
+<p>⭐ <strong>区别就在这条报错里</strong>：<code>no_grad</code> 出来的张量还能被后面的图当常数用（实测 <code>w2.grad = [6.0]</code>），
+<code>inference_mode</code> 出来的张量<strong>带一个 <code>is_inference</code> 标记，一旦进入要求导的计算就直接拒绝</strong>。
+它换来的是连版本计数器都不维护（<a href="03-三种就地操作报错.html">03 章</a>第二节那个计数器），所以更快一点。</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>torch.no_grad()</code></th>
+<th><code>torch.inference_mode()</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>建图</td>
+<td>不建</td>
+<td>不建</td>
+</tr>
+<tr>
+<td>版本计数器</td>
+<td>⭐ 照常维护</td>
+<td>⭐ <strong>不维护</strong>（所以更快）</td>
+</tr>
+<tr>
+<td>产物能不能进后面的图</td>
+<td>⭐ <strong>能</strong>（当常数）</td>
+<td>💀 <strong>不能，直接报错</strong></td>
+</tr>
+<tr>
+<td>什么时候用</td>
+<td>⭐ <strong>默认选它</strong>，尤其训练脚本里的验证循环</td>
+<td>纯推理服务：进来一个请求、出去一个结果，产物不会再回到训练里</td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong>别为了那点速度在训练脚本里用 <code>inference_mode</code></strong> —— 一旦你后来想拿验证时算的某个东西参与训练
+（比如做个自蒸馏、算个正则项），就会撞上这条报错，而且它离现场很远。
+⭐ <strong>报错原文自己给了两条修法</strong>：<code>clone()</code> 一份，或者换回 <code>no_grad()</code>。</p>
+<hr />
+<h2 id="_10">🧩 八、⚠️ 这三个都断不了的那件事</h2>
+<p>⭐ <strong>它们全都只管 autograd。凡是不走 autograd 的状态更新，一个都拦不住。</strong></p>
+<p>最典型的就是 <strong>BatchNorm 的 <code>running_mean</code> / <code>running_var</code></strong>：它们是在<strong>前向</strong>里用滑动平均直接改写的，
+既不是梯度、也不经过反向 —— 所以：</p>
+<table>
+<thead>
+<tr>
+<th>你以为能拦住的</th>
+<th>实际</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>with torch.no_grad():</code></td>
+<td>❌ 拦不住 —— 它只管建不建图，前向照跑</td>
+</tr>
+<tr>
+<td><code>bn.requires_grad_(False)</code></td>
+<td>❌ 拦不住 —— 它只管参数要不要梯度，<code>running_*</code> <strong>根本不是参数</strong>（是 buffer）</td>
+</tr>
+<tr>
+<td><code>x.detach()</code> 喂进去</td>
+<td>❌ 拦不住 —— 输入断没断图，跟统计量更新无关</td>
+</tr>
+<tr>
+<td>⭐ <strong><code>bn.eval()</code></strong></td>
+<td>✅ <strong>只有它能</strong> —— 它切的是那个 <code>training</code> 布尔</td>
+</tr>
+</tbody>
+</table>
+<p>💀 <strong>这就是 <a href="../机器学习与深度学习基础/17-实战项目.html">ML 基础 17 章</a>那条坑「冻结主干时忘了 <code>bn.eval()</code> → BN 的 running stats 被新数据带跑」的完整机制</strong>：
+你按第五节写法 A 把主干 <code>requires_grad_(False)</code> 了，参数确实一个都没动，但 BN 的统计量在每次前向里被悄悄改掉了，
+⚠️ <strong>零报错、零梯度，模型的行为却在漂。</strong></p>
+<p>⭐ <strong><a href="07-train和eval改了什么.html">07 章</a>整章讲这件事</strong>，它的判据是：
+<strong><code>eval()</code> 管「层的行为」，这三个管「梯度」，两套开关正交，验证时两套都要开。</strong></p>
+<hr />
+<!--MIDSTOP-->
+<blockquote>
+<p>🛑 <strong>读到这里可以停</strong> —— 已经读了约 64 分钟。
+<strong>最后一段还有</strong>（约 26 分钟）：反查表 · 检查点与走神救援
+回来的时候不用重读，直接从下一节接着看就行。</p>
+</blockquote>
+<hr />
+<h2 id="_11">📋 九、反查表</h2>
+<table>
+<thead>
+<tr>
+<th>你想干的事</th>
+<th>用哪个</th>
+<th>⚠️ 别用哪个</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>验证 / 推理循环</td>
+<td>⭐ <code>with torch.no_grad():</code> + <code>model.eval()</code>（<strong>两个都要</strong>）</td>
+<td>只写一个</td>
+</tr>
+<tr>
+<td>把一个张量当成「标签 / 常数」</td>
+<td>⭐ <code>t.detach()</code></td>
+<td><code>t.data</code>（<a href="03-三种就地操作报错.html">03 章</a>第七节：<strong>静默算错</strong>）</td>
+</tr>
+<tr>
+<td>累加 loss 做统计</td>
+<td>⭐ <code>.item()</code>（标量）/ <code>.detach()</code>（张量）</td>
+<td>直接 <code>+= loss</code>（实测图涨到 31 个节点）</td>
+</tr>
+<tr>
+<td>冻住主干、只训新头</td>
+<td>⭐ <code>requires_grad_(False)</code> + 优化器只收要训的参数</td>
+<td><code>detach</code> 输入（<strong>冻错对象</strong>）</td>
+</tr>
+<tr>
+<td>冻住网络<strong>中间</strong>一段</td>
+<td>⭐ <strong>只能</strong> <code>requires_grad_(False)</code></td>
+<td><code>no_grad</code>（<strong>上游一起被掐</strong>）</td>
+</tr>
+<tr>
+<td>要一份能随便改的副本</td>
+<td>⭐ <code>.detach().clone()</code></td>
+<td>只写 <code>.detach()</code>（实测<strong>改副本会改原件</strong>）</td>
+</tr>
+<tr>
+<td>冻主干时连 BN 一起冻住</td>
+<td>⭐ <code>bn.eval()</code></td>
+<td>以为 <code>requires_grad_(False)</code> 够了</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>报错原文</th>
+<th>病因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>element 0 of tensors does not require grad and does not have a grad_fn</code></td>
+<td>从一个没有图的张量上 <code>backward()</code>：loss 上有 <code>detach</code>，或 <code>no_grad</code> 块包大了</td>
+</tr>
+<tr>
+<td><code>you can only change requires_grad flags of leaf variables</code></td>
+<td>对中间结果设 <code>requires_grad</code> —— ⭐ 报错原文自己说了：改用 <code>detach()</code></td>
+</tr>
+<tr>
+<td><code>Inference tensors cannot be saved for backward</code></td>
+<td><code>inference_mode</code> 的产物被拿去参与求导 —— ⭐ <code>clone()</code> 一份，或换回 <code>no_grad()</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_12">🔗 这一章连到哪里</h2>
+<table>
+<thead>
+<tr>
+<th>相关的地方</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="01-张量到底是什么.html">01 · 张量到底是什么</a></td>
+<td>⭐ 第四节「<code>detach</code> 改副本会改原件」的根源在那一章：一块 storage + 一份说明书，<code>detach</code> 换的只是说明书</td>
+</tr>
+<tr>
+<td><a href="02-autograd怎么建图.html">02 · autograd 怎么建图</a></td>
+<td>⭐ 本章第一节说的「叶子的定义」和第二节说的 <code>AccumulateGrad</code>，分别在它的第五节和第一节；第三、六节两次引的 <strong>44.0 MB</strong> 是它第七节量出来的</td>
+</tr>
+<tr>
+<td><a href="03-三种就地操作报错.html">03 · 就地操作：三种报错</a></td>
+<td>⭐ 它第八节实测 <code>no_grad</code> 和 <code>detach</code> <strong>都拦不住版本计数器</strong>，本章讲它们各自拦得住什么；<code>.data</code> 为什么不能用也在它第七节</td>
+</tr>
+<tr>
+<td><a href="05-nnModule内部.html">05 · nn.Module 内部</a></td>
+<td>第五节写法 A 靠 <code>requires_grad_(False)</code> 一次走遍所有参数 —— <code>parameters()</code> 到底是怎么把它们找齐的，在那一章</td>
+</tr>
+<tr>
+<td><a href="07-train和eval改了什么.html">07 · train / eval 改了什么</a></td>
+<td>⭐ 第八节那件「三个都断不了的事」是它的正题：<code>eval()</code> 管层的行为，本章这三个管梯度，<strong>两套开关正交</strong></td>
+</tr>
+<tr>
+<td><a href="09-自定义算子.html">09 · 自定义算子</a></td>
+<td>第七节那条报错说的「不能被 saved for backward」—— 「什么叫 saved for backward、前向到底存了什么」在那一章</td>
+</tr>
+<tr>
+<td><a href="../机器学习与深度学习基础/附录A-术语速查卡.html">ML 基础 附录A · 术语速查卡</a></td>
+<td>⭐ 那里 <code>no_grad()</code> / <code>detach()</code> / <code>eval() vs no_grad()</code> 各一行词条，<strong>本章就是那三行的展开</strong></td>
+</tr>
+<tr>
+<td><a href="../机器学习与深度学习基础/17-实战项目.html">ML 基础 17 · 实战项目</a></td>
+<td>⭐ 它「方案 B：冻结主干」用的正是本章第五节写法 A，优化器只收 <code>fc</code> 的参数；它那条「冻结时忘了 <code>bn.eval()</code>」的机制在本章第八节</td>
+</tr>
+<tr>
+<td><a href="../机器学习与深度学习基础/11-训练调试手册.html">ML 基础 11 · 训练调试手册</a></td>
+<td>「梯度断流四来源」第一条就是 <code>.detach()</code> / <code>.data</code> —— 本章第四节第二段那条报错就是它在现场的样子</td>
+</tr>
+<tr>
+<td><a href="../强化学习基础/08-DQN.html">强化学习基础 08 · DQN</a></td>
+<td>⭐ 第六节那个目标网络的实例出自那里；它的坑表第一条「目标里忘了 <code>no_grad</code>」是本章第六节的反面教材</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_13">✅ 检查点</h2>
+<ol>
+<li>用一句话分别说清 <code>requires_grad</code> / <code>no_grad</code> / <code>detach</code> 各自「断」的是什么？三者作用的对象分别是什么？</li>
+<li>实测里 <code>y.detach()</code> 和 <code>no_grad</code> 里算的 <code>x*3</code>，三个字段完全一样。那它们的区别在哪？</li>
+<li>为什么不能对一个中间结果设 <code>requires_grad</code>？那条报错原文自己给了什么建议？</li>
+<li><code>with torch.no_grad():</code> 块里，<code>w.requires_grad</code> 变了吗？块内算的和块外算的分别是什么？</li>
+<li>⚠️ 在 <code>no_grad</code> 块里算出来的张量，拿到块外继续算，还能建图吗？为什么说「出了块就恢复」说的是代码不是数据？</li>
+<li>💀 <code>b = a.detach(); b[0] = 99</code> 之后 <code>a</code> 是什么？要一份能随便改的副本该怎么写？</li>
+<li>⭐ 想冻住网络<strong>中间</strong>的一层，A（<code>requires_grad_(False)</code>）/ B（<code>detach</code> 输入）/ C（<code>no_grad</code>）三种写法，上游、中间、下游的梯度分别是什么？为什么只有一种是对的？</li>
+<li>为什么 <code>running_loss += loss.item()</code> 里那个 <code>.item()</code> 不能省？实测 10 次循环不 detach 会挂多少个节点？</li>
+<li><code>inference_mode</code> 和 <code>no_grad</code> 差在哪两点？为什么不建议在训练脚本里用前者？</li>
+<li>⚠️ 冻主干时，<code>requires_grad_(False)</code> 漏掉了什么？只有哪个开关能管住它？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li><strong><code>requires_grad</code></strong> 标记的是这个叶子要不要梯度（对象是一个属性）；<code>no_grad</code> 关的是当前这段代码建不建图（对象是一段代码）；<code>detach</code> 剪的是这一个张量往回的那条边（对象是一个已经存在的张量）。三件事都被叫「断梯度」，尺度差了三个量级。</li>
+<li>实测两行都是 <code>requires_grad=False  grad_fn=None  is_leaf=True</code>。区别在<strong>那次乘法建没建图</strong>：<code>y = x * 3</code> 建了（<code>y</code> 自己有 <code>MulBackward0</code>），<code>detach</code> 只是给它做了个不带图的替身；而 <code>no_grad</code> 里那次乘法根本没建图。一个作用在已经存在的张量上，一个作用在还没执行的代码上。</li>
+<li>因为 <code>requires_grad</code> 是给<strong>叶子</strong>用的 —— 中间结果的这个标志是算出来的（判据是 OR：任一输入要梯度，输出就要，实测 <code>False op True -&gt; True</code>）。报错原文自己写了修法：<code>If you want to use a computed variable in a subgraph that doesn't require differentiation use var_no_grad = var.detach().</code></li>
+<li><strong><code>w</code> 一点没变</strong>，块内它仍然 <code>requires_grad = True</code>。变的是新算出来的东西：块内的 <code>t1.requires_grad = False</code>，块外的 <code>t2.requires_grad = True</code> —— 它是个作用域开关，不是标记。</li>
+<li>❌ 不能。实测 <code>a = w * 3</code>（块内）出来后 <code>a.requires_grad = False</code>，块外再算 <code>a * 2</code> 仍然是 <code>False</code>、<code>grad_fn = None</code> —— <strong><code>a</code> 身上永远没有回去的路</strong>。但别的路径不受影响：<code>(a * w).backward()</code> 照样给出 <code>w.grad = [6.0]</code>（<code>a</code> 当常数）。💀 典型事故：在 <code>no_grad</code> 里算了一段特征再拿去算 loss，不报错，但那段的参数一步都不动。</li>
+<li>💀 <strong><code>a</code> 变成 <code>[99.0, 2.0]</code></strong> —— 实测 <code>a.data_ptr() == b.data_ptr()</code> 是 <code>True</code>，<code>detach</code> 不拷贝数据，只换说明书。要能随便改的副本必须写 <code>.detach().clone()</code>（<code>detach</code> 断图、<code>clone</code> 断内存，两个都要）。</li>
+<li>实测：<strong>A</strong> 上游=有梯度、中间=None、下游=有梯度 只有它对；B 上游=None、中间=有梯度、下游=有梯度 💀 完全反了（<code>detach</code> 断的是输入那条边，层自己的参数是另一条边上的叶子）；C 上游=None、中间=None、下游=有梯度 ⚠️ 连坐（那段没建图，反向走到就断，上游一起没了）。A 对的原因：它只关掉「在这层参数上累积梯度」，梯度照样穿过这一层流回上游。（若主干就在最前面、前面没有要训的东西，C 也对，而且额外省下那份反向存量。）</li>
+<li>因为<strong>那是唯一切断这条链的地方</strong>。实测 10 次循环直接 <code>total = total + loss</code>：结果仍是 <code>Tensor</code>、<code>requires_grad = True</code>、图里 31 个节点（每轮 3 个 × 10 + 一个 <code>AccumulateGrad</code>），一个都放不掉；换成 <code>.detach()</code> 是 0 个节点，<code>.item()</code> 直接变成 Python <code>float</code>（值 55.0）。💀 真实训练里这表现为「跑到第几百个 batch 才 OOM」。⚠️ <code>.item()</code> 只能用在标量上，且会强制一次 GPU→CPU 同步。</li>
+<li>两点：① <strong>版本计数器</strong> —— <code>no_grad</code> 照常维护，<code>inference_mode</code> 不维护（所以更快）；② 产物能不能进后面的图 —— <code>no_grad</code> 的能（当常数，实测 <code>w2.grad = [6.0]</code>），<code>inference_mode</code> 的直接报 <code>Inference tensors cannot be saved for backward</code>。⚠️ 训练脚本里别用前者：一旦后来想拿验证时算的东西参与训练（自蒸馏、正则项）就会撞上，而且离现场很远。报错自己给了修法：<code>clone()</code> 或换回 <code>no_grad()</code>。</li>
+<li>⚠️ 漏掉了 <strong>BatchNorm 的 <code>running_mean</code> / <code>running_var</code></strong> —— 它们在前向里用滑动平均直接改写，不是梯度也不经反向，所以 <code>no_grad</code>、<code>requires_grad_(False)</code>、<code>detach</code> 输入三个全都拦不住（<code>running_*</code> 根本不是参数，是 buffer）。只有 <code>bn.eval()</code> 能，它切的是那个 <code>training</code> 布尔。💀 这就是 ML 基础 17 章那条坑「冻结主干时忘了 <code>bn.eval()</code> → running stats 被新数据带跑」的机制：参数一个没动，模型行为却在漂，零报错。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_14">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong></p>
+<blockquote>
+<p>⭐ <strong>三个词都叫「断梯度」，断的分别是一个属性、一段代码、一条边。</strong></p>
+<p><code>requires_grad</code> 标记「<strong>这个叶子要不要梯度</strong>」，⚠️ 只能设在叶子上——⭐ 而它的报错原文自己会让你改用 <code>detach()</code>。</p>
+<p><code>no_grad</code> 关的是「<strong>当前这段代码建不建图</strong>」，⭐ 它是<strong>作用域开关不是标记</strong>：块内参数的标志没变，变的是块内新算出来的东西。⚠️ 但「出了块恢复」说的是<strong>代码不是数据</strong>——💀 <strong>在 <code>no_grad</code> 里算特征再拿去算 loss，不报错，那段参数一步不动。</strong></p>
+<p><code>detach</code> 剪的是「这一个张量往回的那条边」。⚠️⚠️ <strong>它不拷贝数据</strong>——改 detach 出来的张量会直接改到原张量，要能改的副本必须写 <code>.detach().clone()</code>。</p>
+<p>⭐ <strong>本章最容易写反的一节：冻住网络【中间】那一层。</strong> 只有 <code>requires_grad_(False)</code> 是对的——它只关掉「在这层参数上累积梯度」，<strong>梯度照样穿过这一层</strong>；用 <code>detach</code> 会<strong>完全反过来</strong>（断的是输入那条边，层自己的参数在另一条边上）；用 <code>no_grad</code> 会<strong>连坐</strong>，整条回上游的路一起掐掉。主干在最前面时 <code>no_grad</code> 也对且更省显存，<strong>冻中间只能用第一种</strong>。</p>
+<p>日常两处：<strong>累加 loss 不断图</strong>，💀 真实表现是「跑到几百个 batch 才 OOM」；<strong>目标网络/教师模型</strong>用 <code>no_grad</code> 包住，⭐ 判据是「<strong>这个东西是标签不是预测</strong>」。</p>
+<p><code>inference_mode</code> 比 <code>no_grad</code> 更狠也更快，但它的产物不能再进要求导的图。</p>
+</blockquote>
+<p><strong>下一节</strong> 👉 <a href="05-nnModule内部.html">05-nnModule内部.md</a></p>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="03-三种就地操作报错.html"><div class="dir">← 上一节</div>💥 03 · 三种就地操作报错</a><a class="next" href="05-nnModule内部.html"><div class="dir">下一节 →</div>🧩 05 · nn.Module 内部</a></nav>
+</main>
+<script>(function(){
+  var KEY="torch-progress", FILE="04-detach\u4e0eno_grad.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><script src="../assets/analytics.js" async></script>
+</body></html>

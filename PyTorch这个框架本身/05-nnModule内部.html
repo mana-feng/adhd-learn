@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>05 · `nn.Module` 内部：它是怎么找到你的参数的 · PyTorch 这个框架本身</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:1.9em;line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:1.42em;margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:1.14em;margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:.88em;background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:.85em}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:.92em}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:.8em;color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:.85em;color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:.92em}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:.78em;
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:.92em;border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:.93em;line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:.95em}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:.9em;line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:.93em;line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:.92em}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:1.15em;opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:.82em;
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
+
+.dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:.95em;margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:.93em;line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.02em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:.93em;break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">05 · nn.Module 内部</span>
+  <span class="prevnext"><a href="04-detach与no_grad.html">←</a>
+  <a href="06-state_dict与存取.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#selfx">🚪 一、self.x = ... 的那一刻，海关做了一次类型检查</a></li>
+<li><a href="#python-list">💀 二、装在 Python list 里的子模块，一个都不算数</a></li>
+<li><a href="#_6">🏷️ 三、名字是从根往下递归拼出来的</a></li>
+<li><a href="#to-float">🚚 四、.to() / .float() 为什么能一次改掉全部</a></li>
+<li><a href="#forward-__call__">📞 五、forward 和 __call__ 不是一回事</a></li>
+<li><a href="#20">🔍 六、一个 20 行的自检器</a></li>
+<li><a href="#_9">🔗 这一章连到哪里</a></li>
+<li><a href="#_10">✅ 检查点</a></li>
+<li><a href="#_11">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<h1 id="05-nnmodule">05 · <code>nn.Module</code> 内部：它是怎么找到你的参数的</h1>
+<p>⏱ <strong>120 分钟</strong> ｜ ⭐ <strong>实测：装在 Python list 里的三个 <code>nn.Linear</code>，梯度照算、权重永远不动、<code>state_dict</code> 里也没有 —— 全程不报一个错</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong><code>nn.Module</code> 认参数只靠一件事：你写 <code>self.x = ...</code> 的那一刻，<code>__setattr__</code> 做了一次类型检查，把东西分进三个字典（<code>_parameters</code> / <code>_buffers</code> / <code>_modules</code>）。</strong>
+没进这三个字典的，<code>parameters()</code> 找不到（<strong>优化器看不见</strong>）、<code>state_dict()</code> 存不了（存盘丢失）、<code>.to()</code> 也搬不动（设备/精度不跟着变）。</p>
+<p>⭐ 「为什么我的参数没被优化器更新」，答案几乎全在这一句里。</p>
+<hr />
+<h2 id="selfx">🚪 一、<code>self.x = ...</code> 的那一刻，海关做了一次类型检查</h2>
+<p>先看三种写法各去了哪：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">M</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">w</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span><span class="s2">&quot;running&quot;</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">plain</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>          <span class="c1"># ⚠️ 普通属性</span>
+
+
+<span class="n">m</span> <span class="o">=</span> <span class="n">M</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;m._parameters :&quot;</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">_parameters</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;m._buffers    :&quot;</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">_buffers</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;m.__dict__ 里的:&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">k</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">m</span><span class="o">.</span><span class="vm">__dict__</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">k</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;_&quot;</span><span class="p">)])</span>
+<span class="nb">print</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;m.named_parameters() → &quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">n</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">m</span><span class="o">.</span><span class="n">named_parameters</span><span class="p">()])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;m.state_dict()       → &quot;</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">state_dict</span><span class="p">()</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;⚠️ &#39;plain&#39; 在 state_dict 里吗 →&quot;</span><span class="p">,</span> <span class="s2">&quot;plain&quot;</span> <span class="ow">in</span> <span class="n">m</span><span class="o">.</span><span class="n">state_dict</span><span class="p">())</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">m._parameters : [&#x27;w&#x27;]</span></div><div class="vb-flow-row"><span class="vb-flow-step">m._buffers : [&#x27;running&#x27;]</span></div><div class="vb-flow-row"><span class="vb-flow-step">m.__dict__ 里的: [&#x27;training&#x27;, &#x27;plain&#x27;]</span></div><div class="vb-flow-row"><span class="vb-flow-step">m.named_parameters()</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">[&#x27;w&#x27;]</span></div><div class="vb-flow-row"><span class="vb-flow-step">m.state_dict()</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">[&#x27;w&#x27;, &#x27;running&#x27;]</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ &#x27;plain&#x27; 在 state_dict 里吗</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">False</span></div></div></section>
+<p>⭐ <strong><code>plain</code> 没有消失，它好好地待在 <code>m.__dict__</code> 里</strong> —— 它只是没进任何一个注册表。
+<code>m.plain</code> 照样读得到、照样能参与 <code>forward</code> 的计算，<strong>所以你不会有任何异样感</strong>。</p>
+<p>（顺带记住 <code>__dict__</code> 里那个 <code>training</code> —— 它就是 <code>train()</code> / <code>eval()</code> 唯一改的那个布尔，是第 07 章的主角。）</p>
+<h3 id="_2">分拣规则只有两行</h3>
+<p><code>__setattr__</code> 认的是<strong>类型</strong>，不是名字：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+<span class="n">m</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">()</span>
+
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="p">[(</span><span class="s2">&quot;t&quot;</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">2</span><span class="p">)),</span>
+                  <span class="p">(</span><span class="s2">&quot;p&quot;</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">2</span><span class="p">))),</span>
+                  <span class="p">(</span><span class="s2">&quot;sub&quot;</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">))]:</span>
+    <span class="nb">setattr</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">val</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;_parameters:&quot;</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">_parameters</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;_buffers   :&quot;</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">_buffers</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;_modules   :&quot;</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">_modules</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;__dict__   :&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">k</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">m</span><span class="o">.</span><span class="vm">__dict__</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">k</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;_&quot;</span><span class="p">)])</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">m</span><span class="o">.</span><span class="n">p</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>                 <span class="c1"># ⚠️ 往参数槽里塞普通张量</span>
+<span class="k">except</span> <span class="ne">TypeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;往参数槽塞普通张量 -&gt;&quot;</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">_parameters: [&#x27;p&#x27;]</span></div><div class="vb-flow-row"><span class="vb-flow-step">_buffers : []</span></div><div class="vb-flow-row"><span class="vb-flow-step">_modules : [&#x27;sub&#x27;]</span></div><div class="vb-flow-row"><span class="vb-flow-step">__dict__ : [&#x27;training&#x27;, &#x27;t&#x27;]</span></div><div class="vb-flow-row"><span class="vb-flow-step">往参数槽塞普通张量 -&gt; cannot assign &#x27;torch.FloatTensor&#x27; as parameter &#x27;p&#x27; (torch.nn.Parameter or None expected)</span></div></div></section>
+<p>⭐ <strong>注意 <code>_buffers</code> 是空的</strong>：普通张量 <code>t</code> 掉进了 <code>__dict__</code>。
+buffer 没有专属类型 —— <code>nn.Parameter</code> 是个类，「buffer」不是，所以它<strong>只能靠 <code>register_buffer</code> 显式登记</strong>，没有第二条路。这是三个表里唯一一个「你不主动说就不会有」的。</p>
+<p>⚠️ <strong>槽位一旦定了就换不掉</strong>：<code>w</code> 已经在 <code>_parameters</code> 里，再往它上面赋一个普通张量会直接 <code>TypeError</code>。
+（想换成别的值，写 <code>m.w.data.copy_(新值)</code>，或者 <code>m.w = nn.Parameter(新值)</code>。）</p>
+<h3 id="super__init__">💀 忘了 <code>super().__init__()</code></h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Forgot</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fc</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>      <span class="c1"># ⚠️ 上面没写 super().__init__()</span>
+
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">Forgot</span><span class="p">()</span>
+<span class="k">except</span> <span class="ne">AttributeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;AttributeError:&quot;</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<div class="codehilite"><pre><span></span><code>AttributeError: cannot assign module before Module.__init__() call
+</code></pre></div>
+
+<p>⭐ <strong>这条报错是这一章最好的证据</strong>：三个注册表就是 <code>Module.__init__()</code> 建出来的空字典。
+没建表，海关无处安放东西，所以它当场报错 —— <strong>这是本章唯一一个「一定会报错」的坑，其余全是静默的。</strong></p>
+<h3 id="_3">一张表记住谁进哪</h3>
+<table>
+<thead>
+<tr>
+<th>你写的</th>
+<th>进哪</th>
+<th><code>parameters()</code></th>
+<th><code>state_dict()</code></th>
+<th><code>.to()</code> 跟着搬</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>self.w = nn.Parameter(t)</code></td>
+<td><code>_parameters</code></td>
+<td>✅</td>
+<td>✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>self.register_buffer("r", t)</code></td>
+<td><code>_buffers</code></td>
+<td>❌</td>
+<td>✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>register_buffer("r", t, persistent=False)</code></td>
+<td><code>_buffers</code></td>
+<td>❌</td>
+<td>⚠️ <strong>不进</strong></td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>self.fc = nn.Linear(...)</code></td>
+<td><code>_modules</code></td>
+<td>✅（递归进去找）</td>
+<td>✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>self.plain = torch.zeros(2)</code></td>
+<td><code>__dict__</code></td>
+<td>❌</td>
+<td>❌</td>
+<td>❌</td>
+</tr>
+</tbody>
+</table>
+<p>最后那个 <code>persistent=False</code> 实测确认过：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">M</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span><span class="s2">&quot;keep&quot;</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span><span class="s2">&quot;tmp&quot;</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span> <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>   <span class="c1"># ⭐</span>
+
+
+<span class="n">m</span> <span class="o">=</span> <span class="n">M</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;named_buffers:&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">n</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">m</span><span class="o">.</span><span class="n">named_buffers</span><span class="p">()])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;state_dict   :&quot;</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">state_dict</span><span class="p">()</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
+<span class="n">m</span><span class="o">.</span><span class="n">double</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;tmp 跟着 .double() 了吗:&quot;</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">tmp</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>named_buffers: [&#x27;keep&#x27;, &#x27;tmp&#x27;]</p><p>state_dict : [&#x27;keep&#x27;]</p><p>tmp 跟着 .double() 了吗: torch.float64</p></div></section>
+<p>⭐ <code>persistent=False</code> 是「<strong>跟着模型搬设备，但不占 checkpoint 体积</strong>」，
+适合位置编码表、因果掩码这类<strong>能从超参重新算出来</strong>的常量。</p>
+<hr />
+<!--MIDSTOP-->
+<blockquote>
+<p>🛑 <strong>读到这里可以停</strong> —— 已经读了约 19 分钟。
+<strong>后面还有</strong>（约 35 分钟）：装在 Python list 里的子模块，一个都不算数 · 名字是从根往下递归拼出来的
+回来的时候不用重读，直接从下一节接着看就行。</p>
+</blockquote>
+<hr />
+<h2 id="python-list">💀 二、装在 Python list 里的子模块，一个都不算数</h2>
+<p>⚠️ <strong>这是本章最贵的一条，也是「参数不更新」最常见的成因。</strong></p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">BadNet</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">layers</span> <span class="o">=</span> <span class="p">[</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">)]</span>    <span class="c1"># 💀 Python list</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">lay</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">layers</span><span class="p">:</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">lay</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">x</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">GoodNet</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">layers</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">ModuleList</span><span class="p">([</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">)])</span>   <span class="c1"># ⭐</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">lay</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">layers</span><span class="p">:</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">lay</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">x</span>
+
+
+<span class="k">for</span> <span class="bp">cls</span> <span class="ow">in</span> <span class="p">(</span><span class="n">BadNet</span><span class="p">,</span> <span class="n">GoodNet</span><span class="p">):</span>
+    <span class="n">m</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">()</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--- </span><span class="si">{</span><span class="bp">cls</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> ---&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  _modules       :&quot;</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">_modules</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  参数个数       :&quot;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">parameters</span><span class="p">())))</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  state_dict key :&quot;</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">state_dict</span><span class="p">()</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  forward 能跑吗 :&quot;</span><span class="p">,</span> <span class="n">m</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">))</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>--- BadNet ---</p><p>_modules : []</p><p>参数个数 : 0</p><p>state_dict key : []</p><p>forward 能跑吗 : torch.Size([1, 2])</p><p>--- GoodNet ---</p><p>_modules : [&#x27;layers&#x27;]</p><p>参数个数 : 6</p><p>state_dict key : [&#x27;layers.0.weight&#x27;, &#x27;layers.0.bias&#x27;, &#x27;layers.1.weight&#x27;, &#x27;layers.1.bias&#x27;, &#x27;layers.2.weight&#x27;, &#x27;layers.2.bias&#x27;]</p><p>forward 能跑吗 : torch.Size([1, 2])</p></div></section>
+<p>⭐ <strong>最要命的是最后一行：<code>forward</code> 照跑，形状一模一样。</strong>
+一个 <code>list</code> 不是 <code>nn.Module</code> 也不是 <code>nn.Parameter</code>，海关把它整个丢进 <code>__dict__</code>，
+于是 <code>_modules</code> 是空的、参数 0 个、<code>state_dict</code> 是空字典 —— 而 Python 的 for 循环当然还是能遍历它。</p>
+<h3 id="_4">⚠️ 全错反而是好事，半错才致命</h3>
+<p>如果<strong>整个模型</strong>都在 list 里，你会撞上唯一一条报错：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">AllBad</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">layers</span> <span class="o">=</span> <span class="p">[</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">)]</span>      <span class="c1"># 💀 全在 list 里</span>
+
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">SGD</span><span class="p">(</span><span class="n">AllBad</span><span class="p">()</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>
+<span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;ValueError:&quot;</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<div class="codehilite"><pre><span></span><code>ValueError: optimizer got an empty parameter list
+</code></pre></div>
+
+<p>💀 <strong>但真实的模型几乎不会全错。</strong> 典型形态是：stem 和 head 好好写着，中间那一堆重复的 block 顺手用了 list：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">HalfBad</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stem</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>                            <span class="c1"># ⭐ 注册了</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">blocks</span> <span class="o">=</span> <span class="p">[</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">)]</span>      <span class="c1"># 💀 没注册</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">head</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>                            <span class="c1"># ⭐ 注册了</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stem</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">blocks</span><span class="p">:</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">relu</span><span class="p">(</span><span class="n">b</span><span class="p">(</span><span class="n">x</span><span class="p">))</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">head</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">HalfBad</span><span class="p">()</span>
+<span class="n">snap</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;stem&quot;</span><span class="p">:</span> <span class="n">m</span><span class="o">.</span><span class="n">stem</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">clone</span><span class="p">(),</span> <span class="s2">&quot;block0&quot;</span><span class="p">:</span> <span class="n">m</span><span class="o">.</span><span class="n">blocks</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">clone</span><span class="p">()}</span>
+
+<span class="n">opt</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">SGD</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>      <span class="c1"># ⚠️ 不报错，因为不是空的</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;优化器管着几个张量:&quot;</span><span class="p">,</span> <span class="nb">sum</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">g</span><span class="p">[</span><span class="s2">&quot;params&quot;</span><span class="p">])</span> <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">opt</span><span class="o">.</span><span class="n">param_groups</span><span class="p">),</span> <span class="s2">&quot;个&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;模型里其实有几个   :&quot;</span><span class="p">,</span> <span class="mi">2</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="mi">3</span> <span class="o">+</span> <span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;个&quot;</span><span class="p">)</span>
+
+<span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">20</span><span class="p">):</span>
+    <span class="n">opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+    <span class="n">m</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">4</span><span class="p">))</span><span class="o">.</span><span class="n">pow</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="n">opt</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;stem   变了吗:&quot;</span><span class="p">,</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">snap</span><span class="p">[</span><span class="s2">&quot;stem&quot;</span><span class="p">],</span> <span class="n">m</span><span class="o">.</span><span class="n">stem</span><span class="o">.</span><span class="n">weight</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;blocks 变了吗:&quot;</span><span class="p">,</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">snap</span><span class="p">[</span><span class="s2">&quot;block0&quot;</span><span class="p">],</span> <span class="n">m</span><span class="o">.</span><span class="n">blocks</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">weight</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;blocks[0] 有梯度吗:&quot;</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">blocks</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">grad</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;state_dict:&quot;</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">state_dict</span><span class="p">()</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>优化器管着几个张量: 4 个</p><p>模型里其实有几个 : 10 个</p><p>stem 变了吗: True</p><p>blocks 变了吗: False</p><p>blocks[0] 有梯度吗: True</p><p>state_dict: [&#x27;stem.weight&#x27;, &#x27;stem.bias&#x27;, &#x27;head.weight&#x27;, &#x27;head.bias&#x27;]</p></div></section>
+<p>⭐⭐ <strong>把这四行连起来读，就是这个 bug 的完整画像</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>为什么不会引起怀疑</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>优化器建得起来（4 个，不是 0 个）</td>
+<td>⚠️ <strong><code>ValueError</code> 不会出现</strong></td>
+</tr>
+<tr>
+<td><code>blocks[0].weight.grad is not None</code></td>
+<td>⭐ <strong>梯度是真的算出来了</strong> —— autograd 只看图，不看注册表</td>
+</tr>
+<tr>
+<td>训练照跑，loss 也在降</td>
+<td>因为 stem 和 head 确实在学</td>
+</tr>
+<tr>
+<td><code>blocks</code> 的权重 20 步后一位没动</td>
+<td>优化器手里根本没有它们，<code>step()</code> 无从下手</td>
+</tr>
+<tr>
+<td>checkpoint 少 6 个张量</td>
+<td><code>state_dict</code> 里只有 4 个 key —— <strong>模型的一多半从来没被存过</strong></td>
+</tr>
+</tbody>
+</table>
+<p>💀 <strong>代价</strong>：模型容量凭空少了一大截（这里 10 个张量只有 4 个在学），指标就是「差一点」；
+你会去调学习率、加正则、换优化器 —— <strong>而没有任何一条日志、报错或警告指向真正的原因</strong>。</p>
+<h3 id="_5">修法：五个容器，各修各的</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Mixed</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">a</span> <span class="o">=</span> <span class="p">[</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">2</span><span class="p">))]</span>                       <span class="c1"># 💀 list of Parameter</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">b</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">ParameterList</span><span class="p">([</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">2</span><span class="p">))])</span>     <span class="c1"># ⭐</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">c</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;head&quot;</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)}</span>                           <span class="c1"># 💀 dict of Module</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">d</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">ModuleDict</span><span class="p">({</span><span class="s2">&quot;head&quot;</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)})</span>            <span class="c1"># ⭐</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">e</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">))</span>                      <span class="c1"># ⭐ 也是注册的</span>
+
+
+<span class="n">m</span> <span class="o">=</span> <span class="n">Mixed</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;参数名:&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">n</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">m</span><span class="o">.</span><span class="n">named_parameters</span><span class="p">()])</span>
+<span class="nb">print</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;子模块（named_modules）:&quot;</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">mod</span> <span class="ow">in</span> <span class="n">m</span><span class="o">.</span><span class="n">named_modules</span><span class="p">():</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;   &quot;</span><span class="p">,</span> <span class="nb">repr</span><span class="p">(</span><span class="n">n</span><span class="p">),</span> <span class="s2">&quot;-&gt;&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">mod</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">参数名: [&#x27;b.0&#x27;, &#x27;d.head.weight&#x27;, &#x27;d.head.bias&#x27;, &#x27;e.0.weight&#x27;, &#x27;e.0.bias&#x27;]</span></div><div class="vb-flow-row"><span class="vb-flow-step">子模块（named_modules）:</span></div><div class="vb-flow-row"><span class="vb-flow-step">&#x27;&#x27; -&gt; Mixed</span></div><div class="vb-flow-row"><span class="vb-flow-step">&#x27;b&#x27; -&gt; ParameterList</span></div><div class="vb-flow-row"><span class="vb-flow-step">&#x27;d&#x27; -&gt; ModuleDict</span></div><div class="vb-flow-row"><span class="vb-flow-step">&#x27;d.head&#x27; -&gt; Linear</span></div><div class="vb-flow-row"><span class="vb-flow-step">&#x27;e&#x27; -&gt; Sequential</span></div><div class="vb-flow-row"><span class="vb-flow-step">&#x27;e.0&#x27; -&gt; Linear</span></div></div></section>
+<p>⚠️ <strong><code>a</code> 和 <code>c</code> 连名字都没出现</strong> —— 它们不在任何遍历结果里。</p>
+<table>
+<thead>
+<tr>
+<th>你想装的东西</th>
+<th>用这个</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>一串子模块</td>
+<td><code>nn.ModuleList</code>（纯容器）或 <code>nn.Sequential</code>（还负责依次调用）</td>
+</tr>
+<tr>
+<td>名字 → 子模块</td>
+<td><code>nn.ModuleDict</code></td>
+</tr>
+<tr>
+<td>一串 <code>Parameter</code></td>
+<td><code>nn.ParameterList</code></td>
+</tr>
+<tr>
+<td>名字 → <code>Parameter</code></td>
+<td><code>nn.ParameterDict</code></td>
+</tr>
+<tr>
+<td>一个不参与梯度的张量</td>
+<td>⭐ <code>register_buffer</code></td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong><code>nn.ModuleList</code> 不是 <code>nn.Sequential</code></strong>：前者<strong>没有 <code>forward</code></strong>，直接 <code>m.layers(x)</code> 会报错，你必须自己写 for 循环；后者会按顺序调用。想要 for 循环里做点别的（残差、条件分支）就用 <code>ModuleList</code>。</p>
+<hr />
+<h2 id="_6">🏷️ 三、名字是从根往下递归拼出来的</h2>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Block</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fc</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span><span class="s2">&quot;cnt&quot;</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Net</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">enc</span> <span class="o">=</span> <span class="n">Block</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dec</span> <span class="o">=</span> <span class="n">Block</span><span class="p">()</span>
+
+
+<span class="n">m</span> <span class="o">=</span> <span class="n">Net</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;named_parameters:&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">n</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">m</span><span class="o">.</span><span class="n">named_parameters</span><span class="p">()])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;named_buffers   :&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">n</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">m</span><span class="o">.</span><span class="n">named_buffers</span><span class="p">()])</span>
+<span class="nb">print</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;children  (只往下一层):&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">n</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">m</span><span class="o">.</span><span class="n">named_children</span><span class="p">()])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;modules   (全展开)   :&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">n</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">m</span><span class="o">.</span><span class="n">named_modules</span><span class="p">()])</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>named_parameters: [&#x27;enc.fc.weight&#x27;, &#x27;enc.fc.bias&#x27;, &#x27;dec.fc.weight&#x27;, &#x27;dec.fc.bias&#x27;]</p><p>named_buffers : [&#x27;enc.cnt&#x27;, &#x27;dec.cnt&#x27;]</p><p>children (只往下一层): [&#x27;enc&#x27;, &#x27;dec&#x27;]</p><p>modules (全展开) : [&#x27;&#x27;, &#x27;enc&#x27;, &#x27;enc.fc&#x27;, &#x27;dec&#x27;, &#x27;dec.fc&#x27;]</p></div></section>
+<p>⭐ <strong>遍历 API 就四对，区别只有两条轴</strong>：</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>只往下一层</th>
+<th>全展开（递归）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>子模块</strong></td>
+<td><code>children()</code> / <code>named_children()</code></td>
+<td><code>modules()</code> / <code>named_modules()</code></td>
+</tr>
+<tr>
+<td><strong>参数</strong></td>
+<td><code>_parameters</code> 直接读</td>
+<td>⭐ <code>parameters()</code> / <code>named_parameters()</code></td>
+</tr>
+<tr>
+<td><strong>buffer</strong></td>
+<td><code>_buffers</code> 直接读</td>
+<td><code>buffers()</code> / <code>named_buffers()</code></td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong><code>named_modules()</code> 的第一条是模型自己</strong>，名字是空字符串 <code>''</code>。
+写「给每个子模块挂 hook」之类的循环时，<strong>别忘了这一条也在里面</strong>（否则你会给根模块也挂一份）。</p>
+<p>⭐ <strong><code>apply(fn)</code> 是同一套递归</strong>，最常见的用法是自定义初始化：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+<span class="n">net</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">nn</span><span class="o">.</span><span class="n">ReLU</span><span class="p">(),</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">2</span><span class="p">))</span>
+<span class="n">hit</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="n">net</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="k">lambda</span> <span class="n">mod</span><span class="p">:</span> <span class="n">hit</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">mod</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;apply 走过:&quot;</span><span class="p">,</span> <span class="n">hit</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>apply 走过: [&#x27;Linear&#x27;, &#x27;ReLU&#x27;, &#x27;Linear&#x27;, &#x27;Sequential&#x27;]</p></div></section>
+<p>⚠️ 注意顺序是<strong>从叶子往上</strong>，根模块 <code>Sequential</code> 排在最后。</p>
+<h3 id="_7">⭐ 权重共享：两个遍历给的答案不一样</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Tied</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="n">shared</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">a</span> <span class="o">=</span> <span class="n">shared</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">b</span> <span class="o">=</span> <span class="n">shared</span>          <span class="c1"># ⭐ 同一个对象挂在两个属性上（权重共享）</span>
+
+
+<span class="n">m</span> <span class="o">=</span> <span class="n">Tied</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;named_parameters:&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">n</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">m</span><span class="o">.</span><span class="n">named_parameters</span><span class="p">()])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;参数张量个数     :&quot;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">parameters</span><span class="p">())))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;state_dict keys :&quot;</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">state_dict</span><span class="p">()</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;a.weight is b.weight:&quot;</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">a</span><span class="o">.</span><span class="n">weight</span> <span class="ow">is</span> <span class="n">m</span><span class="o">.</span><span class="n">b</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;关掉去重后:&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">n</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">m</span><span class="o">.</span><span class="n">named_parameters</span><span class="p">(</span><span class="n">remove_duplicate</span><span class="o">=</span><span class="kc">False</span><span class="p">)])</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>named_parameters: [&#x27;a.weight&#x27;, &#x27;a.bias&#x27;]</p><p>参数张量个数 : 2</p><p>state_dict keys : [&#x27;a.weight&#x27;, &#x27;a.bias&#x27;, &#x27;b.weight&#x27;, &#x27;b.bias&#x27;]</p><p>a.weight is b.weight: True</p><p>关掉去重后: [&#x27;a.weight&#x27;, &#x27;a.bias&#x27;, &#x27;b.weight&#x27;, &#x27;b.bias&#x27;]</p></div></section>
+<p>⭐ <strong><code>parameters()</code> 去重（2 个），<code>state_dict()</code> 不去重（4 个 key）。</strong> 两个后果：</p>
+<ul>
+<li>✅ <strong>优化器不会把共享权重更新两次</strong> —— 这正是你要的（梯度已经在反向里加过一遍了，见第 02 章「一个参数被多条路径用到」）。</li>
+<li>⚠️ <strong>checkpoint 里同一块张量存了两份</strong>：key 是双份、体积也是双份。加载回去结果仍然正确（两次 <code>copy_</code> 写的是同一块存储），只是白占地方；⭐ 但如果你<strong>手工改 key</strong>、只改了 <code>a.*</code> 忘了 <code>b.*</code>，加载完两边就不再是同一块内存，权重共享当场断掉而不报错。</li>
+</ul>
+<hr />
+<!--MIDSTOP-->
+<blockquote>
+<p>🛑 <strong>读到这里可以停</strong> —— 前半章讲完了（约 30 分钟）：参数是<strong>怎么被找到</strong>的（<code>__setattr__</code> 的类型检查 + 三个注册表）、装进 Python list 会<strong>静默丢掉一多半模型</strong>、以及名字是怎么递归拼出来的。
+<strong>后半章还有</strong>：<code>.to()</code> / <code>.float()</code> 为什么能一次改掉全部（以及谁不会跟着搬） · <code>forward</code> 和 <code>__call__</code> 的区别（hook 会被跳过） · 一个 20 行的自检器
+回来的时候不用重读，直接从下一节接着看就行。</p>
+</blockquote>
+<hr />
+<h2 id="to-float">🚚 四、<code>.to()</code> / <code>.float()</code> 为什么能一次改掉全部</h2>
+<p>答案就是第一节那三个表 —— <strong>因为有表可遍历</strong>。
+<code>nn.Module._apply(fn)</code> 做三件事：递归所有子模块 → 对 <code>_parameters</code> 里每一个套 <code>fn</code> → 对 <code>_buffers</code> 里每一个套 <code>fn</code>。
+⚠️ <strong><code>__dict__</code> 它根本不看。</strong></p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">M</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">w</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span><span class="s2">&quot;running&quot;</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">plain</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>          <span class="c1"># ⚠️ 普通属性</span>
+
+
+<span class="n">m</span> <span class="o">=</span> <span class="n">M</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;改之前:&quot;</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">w</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">running</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">plain</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+<span class="n">m</span><span class="o">.</span><span class="n">double</span><span class="p">()</span>                                   <span class="c1"># 等价于 m.to(torch.float64)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;double() 之后:&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  w       (Parameter):&quot;</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">w</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  running (buffer)   :&quot;</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">running</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  plain   (普通属性) :&quot;</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">plain</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="s2">&quot;  ⚠️ 没跟着变&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>改之前: torch.float32 torch.float32 torch.float32</p><p>double() 之后:</p><p>w (Parameter): torch.float64</p><p>running (buffer) : torch.float64</p><p>plain (普通属性) : torch.float32 ⚠️ 没跟着变</p></div></section>
+<p>⭐ <strong>同一个机制，换成 <code>device</code> 就是那条最著名的报错。</strong>
+<code>.to("cuda")</code> 只搬 <code>_parameters</code> 和 <code>_buffers</code>；<code>self.plain</code> 留在 CPU 上，前向撞上 <code>Expected all tensors to be on the same device</code> —— <strong>而模型本身明明已经 <code>.to("cuda")</code> 过了</strong>，所以你会先怀疑数据、怀疑 DataLoader，很难想到怀疑一个属性。
+（🗓️ 未实跑 —— 需要 GPU。本机 CUDA 不可用，无法给出这条报错的原文。下面用 <code>dtype</code> 复现同一个机制。）</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">M</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fc</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">proj</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>             <span class="c1"># 💀 普通属性，参与了计算</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">fc</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">@</span> <span class="bp">self</span><span class="o">.</span><span class="n">proj</span>
+
+
+<span class="n">m</span> <span class="o">=</span> <span class="n">M</span><span class="p">()</span><span class="o">.</span><span class="n">double</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;fc.weight:&quot;</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">fc</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="s2">&quot; proj:&quot;</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">proj</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">m</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float64</span><span class="p">))</span>
+<span class="k">except</span> <span class="ne">RuntimeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;RuntimeError:&quot;</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<div class="codehilite"><pre><span></span><code>fc.weight: torch.float64  proj: torch.float32
+RuntimeError: expected m1 and m2 to have the same dtype, but got: double != float
+</code></pre></div>
+
+<p>💀 <strong>这还算走运的 —— 它报错了。</strong> 我在实测里顺手试过把 <code>@ self.proj</code> 换成 <code>+ self.bias2</code>（一个普通属性张量），
+同一段代码一声不吭地跑完 —— 因为加法有类型提升，float32 会被自动提上 float64。
+⭐ <strong>判据：矩阵乘法卡 dtype，逐元素运算不卡。</strong> 所以「没报错」完全不能证明属性搬对了。</p>
+<h3 id="moduleto-tensorto"><code>Module.to</code> 是原地的，<code>Tensor.to</code> 不是</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+<span class="n">m</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Module.to 返回的是自己吗:&quot;</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span> <span class="ow">is</span> <span class="n">m</span><span class="p">)</span>
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Tensor.to 返回的是自己吗:&quot;</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span> <span class="ow">is</span> <span class="n">x</span><span class="p">)</span>
+<span class="n">x</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>                       <span class="c1"># 💀 没接返回值</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;忘了接返回值，x 还是:&quot;</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>Module.to 返回的是自己吗: True</p><p>Tensor.to 返回的是自己吗: False</p><p>忘了接返回值，x 还是: torch.float32</p></div></section>
+<p>⭐ 这解释了 <a href="../机器学习与深度学习基础/15-PyTorch实战手册.html">ML 基础 15 章</a> 那份模板里两种写法为什么不一样：
+<code>model = make_model().to(device)</code> 接不接返回值都行（<code>Module.to</code> 改的是注册表里的东西，返回 <code>self</code> 只是为了链式书写），
+而 <code>xb, yb = xb.to(device), yb.to(device)</code> <strong>必须接</strong> —— 张量是不可变对象，<code>.to()</code> 给你一个新的。</p>
+<h3 id="parameter">⭐ 转换之后，<code>Parameter</code> 对象没换</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+<span class="n">m</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+<span class="n">before</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">weight</span>
+<span class="n">m</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>                                    <span class="c1"># 已经是 float32，什么都不用做</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;dtype 没变时是同一个对象吗:&quot;</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">weight</span> <span class="ow">is</span> <span class="n">before</span><span class="p">)</span>
+
+<span class="n">before_ptr</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span>
+<span class="n">m</span><span class="o">.</span><span class="n">double</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;dtype 变了之后还是同一块存储吗:&quot;</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span> <span class="o">==</span> <span class="n">before_ptr</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;变完还是 Parameter 吗:&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
+      <span class="s2">&quot; requires_grad =&quot;</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">)</span>
+
+<span class="n">opt</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">SGD</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;⭐ 优化器拿到的是变换【之后】的对象吗:&quot;</span><span class="p">,</span>
+      <span class="n">opt</span><span class="o">.</span><span class="n">param_groups</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="ow">is</span> <span class="n">m</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>dtype 没变时是同一个对象吗: True</p><p>dtype 变了之后还是同一块存储吗: False</p><p>变完还是 Parameter 吗: Parameter requires_grad = True</p><p>⭐ 优化器拿到的是变换【之后】的对象吗: True</p></div></section>
+<p>⭐ <strong>换了存储，没换对象。</strong> 这一条决定了「先建优化器还是先 <code>.to()</code>」有没有关系 —— 实测：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">m</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+<span class="n">opt</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">SGD</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>     <span class="c1"># ⭐ 先建优化器</span>
+<span class="n">held</span> <span class="o">=</span> <span class="n">opt</span><span class="o">.</span><span class="n">param_groups</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">&quot;params&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+
+<span class="n">m</span><span class="o">.</span><span class="n">double</span><span class="p">()</span>                                        <span class="c1"># 再转换</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;优化器手里的还是同一个对象吗:&quot;</span><span class="p">,</span> <span class="n">held</span> <span class="ow">is</span> <span class="n">m</span><span class="o">.</span><span class="n">weight</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;dtype:&quot;</span><span class="p">,</span> <span class="n">held</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+
+<span class="n">before</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span>
+<span class="n">m</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float64</span><span class="p">))</span><span class="o">.</span><span class="n">pow</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="n">opt</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;step() 之后权重变了吗:&quot;</span><span class="p">,</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">before</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">weight</span><span class="p">))</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>优化器手里的还是同一个对象吗: True</p><p>dtype: torch.float64</p><p>step() 之后权重变了吗: True</p></div></section>
+<p>⭐ <strong>顺序不影响正确性</strong> —— 优化器持有的是 <code>Parameter</code> 对象的引用，<code>.to()</code> 只换它内部的存储。
+⚠️ <strong>但仍然建议先 <code>.to(device)</code> 再建优化器</strong>：优化器状态（Adam 的 <code>exp_avg</code> 等）是在第一次 <code>step()</code> 时照着参数当时的设备创建的，先搬完再建，能避免状态和参数分处两地这类边角问题。</p>
+<hr />
+<!--MIDSTOP2-->
+<blockquote>
+<p>🛑 <strong>第二个休息点</strong> —— 中段讲完了（约 20 分钟）。
+<strong>最后一段还有</strong>：<code>forward</code> 和 <code>__call__</code> 不是一回事 · 一个 20 行的自检器
+这一章确实长，分三次读完全没问题 —— 回来直接从下一节接着看。</p>
+</blockquote>
+<hr />
+<h2 id="forward-__call__">📞 五、<code>forward</code> 和 <code>__call__</code> 不是一回事</h2>
+<p><code>m(x)</code> 走的是 <code>nn.Module.__call__</code>，它按顺序做四件事：
+<strong>跑 forward pre-hook → 跑 <code>forward</code> → 跑 forward hook → 给输出挂上 backward hook</strong>。
+<code>m.forward(x)</code> 只做中间那一件。</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+<span class="n">fired</span> <span class="o">=</span> <span class="p">[]</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Net</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fc</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">fc</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+
+
+<span class="n">m</span> <span class="o">=</span> <span class="n">Net</span><span class="p">()</span>
+<span class="n">m</span><span class="o">.</span><span class="n">register_forward_pre_hook</span><span class="p">(</span><span class="k">lambda</span> <span class="n">mod</span><span class="p">,</span> <span class="n">inp</span><span class="p">:</span> <span class="n">fired</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;pre(Net)&quot;</span><span class="p">))</span>
+<span class="n">m</span><span class="o">.</span><span class="n">register_forward_hook</span><span class="p">(</span><span class="k">lambda</span> <span class="n">mod</span><span class="p">,</span> <span class="n">inp</span><span class="p">,</span> <span class="n">out</span><span class="p">:</span> <span class="n">fired</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;post(Net)&quot;</span><span class="p">))</span>
+<span class="n">m</span><span class="o">.</span><span class="n">fc</span><span class="o">.</span><span class="n">register_forward_hook</span><span class="p">(</span><span class="k">lambda</span> <span class="n">mod</span><span class="p">,</span> <span class="n">inp</span><span class="p">,</span> <span class="n">out</span><span class="p">:</span> <span class="n">fired</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;post(fc)&quot;</span><span class="p">))</span>
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+
+<span class="n">fired</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+<span class="n">m</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;m(x)         触发了:&quot;</span><span class="p">,</span> <span class="n">fired</span><span class="p">)</span>
+
+<span class="n">fired</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+<span class="n">m</span><span class="o">.</span><span class="n">forward</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;m.forward(x) 触发了:&quot;</span><span class="p">,</span> <span class="n">fired</span><span class="p">,</span> <span class="s2">&quot; ⚠️ 少了两条&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>m(x) 触发了: [&#x27;pre(Net)&#x27;, &#x27;post(fc)&#x27;, &#x27;post(Net)&#x27;]</p><p>m.forward(x) 触发了: [&#x27;post(fc)&#x27;] ⚠️ 少了两条</p></div></section>
+<p>⭐ <strong>注意 <code>post(fc)</code> 还在。</strong> 被跳过的只有你直接点名的那一层的 hook —— 它内部的子模块照常走各自的 <code>__call__</code>。
+⚠️ 这让 bug 更难发现：hook <strong>不是全没了，是少了一部分</strong>，日志里还有东西在打。</p>
+<h3 id="_8">后果不止是「少打了日志」</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Net</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fc</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fc</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">fill_</span><span class="p">(</span><span class="mf">1.0</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">fc</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+
+
+<span class="n">m</span> <span class="o">=</span> <span class="n">Net</span><span class="p">()</span>
+<span class="c1"># ⭐ 一个真会改数的 pre-hook：把输入减掉均值（很多归一化/量化封装就是这么挂上去的）</span>
+<span class="n">m</span><span class="o">.</span><span class="n">register_forward_pre_hook</span><span class="p">(</span><span class="k">lambda</span> <span class="n">mod</span><span class="p">,</span> <span class="n">inp</span><span class="p">:</span> <span class="p">(</span><span class="n">inp</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="n">inp</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">(),))</span>
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">]])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;m(x)          =&quot;</span><span class="p">,</span> <span class="n">m</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span> <span class="s2">&quot;  ← hook 生效&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;m.forward(x)  =&quot;</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">forward</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span> <span class="s2">&quot;  ⚠️ 数值不同，而且不报错&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>m(x) = 0.0 ← hook 生效</p><p>m.forward(x) = 4.0 ⚠️ 数值不同，而且不报错</p></div></section>
+<p>💀 <strong>0.0 和 4.0。</strong> 同一个模型、同一个输入，两种调用方式给出两个答案，<strong>没有任何警告</strong>。</p>
+<p>谁在偷偷用 hook（也就是「你会跳过谁」）：</p>
+<table>
+<thead>
+<tr>
+<th>谁</th>
+<th>挂的是哪种</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>特征提取、中间层可视化、激活值统计</td>
+<td>forward hook</td>
+</tr>
+<tr>
+<td>梯度监控、梯度裁剪的诊断</td>
+<td><code>register_full_backward_hook</code></td>
+</tr>
+<tr>
+<td>量化、剪枝、<code>nn.utils.parametrize</code> 这类「改写权重再用」的封装</td>
+<td>⭐ forward <strong>pre</strong>-hook</td>
+</tr>
+<tr>
+<td>凡是「在模型外面包一层」的工具（编译、图捕获、分布式包装）</td>
+<td>入口都是 <code>__call__</code></td>
+</tr>
+</tbody>
+</table>
+<p>⚠️ <strong>规则一句话：永远写 <code>model(x)</code>，不要写 <code>model.forward(x)</code>。</strong>
+唯一合理的例外，是你在自己的 <code>forward</code> 里显式调用父类实现（<code>super().forward(x)</code>）。</p>
+<hr />
+<!--MIDSTOP-->
+<blockquote>
+<p>🛑 <strong>读到这里可以停</strong> —— 已经读了约 83 分钟。
+<strong>最后一段还有</strong>（约 34 分钟）：一个 20 行的自检器 · 检查点与走神救援
+回来的时候不用重读，直接从下一节接着看就行。</p>
+</blockquote>
+<hr />
+<h2 id="20">🔍 六、一个 20 行的自检器</h2>
+<p>前面五节的坑全是静默的，所以值得在模型构造完之后加一道体检。
+⭐ <strong>判据要认结构</strong>：不看你给属性起的名字，只看 <code>__dict__</code> 里躺着的东西<strong>是不是</strong>张量或模块。</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">find_unregistered</span><span class="p">(</span><span class="n">model</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;扫出所有【躺在 __dict__ 里】的张量和子模块 —— 它们不在任何注册表里。&quot;&quot;&quot;</span>
+    <span class="n">bad</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">mod</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_modules</span><span class="p">():</span>
+        <span class="n">prefix</span> <span class="o">=</span> <span class="n">name</span> <span class="o">+</span> <span class="s2">&quot;.&quot;</span> <span class="k">if</span> <span class="n">name</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="nb">vars</span><span class="p">(</span><span class="n">mod</span><span class="p">)</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>          <span class="c1"># ⭐ vars() 就是 __dict__</span>
+            <span class="k">if</span> <span class="n">k</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;_&quot;</span><span class="p">):</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">)):</span>
+                <span class="n">bad</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">prefix</span> <span class="o">+</span> <span class="n">k</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">))</span>
+            <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">))</span> <span class="ow">and</span> <span class="nb">any</span><span class="p">(</span>
+                    <span class="nb">isinstance</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">))</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">v</span><span class="p">):</span>
+                <span class="n">bad</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">prefix</span> <span class="o">+</span> <span class="n">k</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">[</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="si">}</span><span class="s2">]&quot;</span><span class="p">))</span>
+            <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">any</span><span class="p">(</span>
+                    <span class="nb">isinstance</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">))</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">v</span><span class="o">.</span><span class="n">values</span><span class="p">()):</span>
+                <span class="n">bad</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">prefix</span> <span class="o">+</span> <span class="n">k</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;dict[</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="si">}</span><span class="s2">]&quot;</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">bad</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">HalfBad</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stem</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">blocks</span> <span class="o">=</span> <span class="p">[</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">)]</span>      <span class="c1"># 💀</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">mask</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span>                              <span class="c1"># 💀</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">head</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+
+
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">ty</span> <span class="ow">in</span> <span class="n">find_unregistered</span><span class="p">(</span><span class="n">HalfBad</span><span class="p">()):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;⚠️ 没注册: </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">  (</span><span class="si">{</span><span class="n">ty</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;对照：干净的模型扫出&quot;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">find_unregistered</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)))),</span> <span class="s2">&quot;条&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>⚠️ 没注册: blocks (list[3])</p><p>⚠️ 没注册: mask (Tensor)</p><p>对照：干净的模型扫出 0 条</p></div></section>
+<p>⭐ 注意它<strong>跳过了 <code>_</code> 开头的键</strong>（三个注册表自己就叫 <code>_parameters</code> / <code>_buffers</code> / <code>_modules</code>），
+也<strong>跳过了 <code>training</code></strong>（那是个 bool 不是张量）—— 干净模型上的误报是 0 条。</p>
+<p>还有两个更粗、但一秒钟就能做的自检：</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+<span class="n">model</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">nn</span><span class="o">.</span><span class="n">ReLU</span><span class="p">(),</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;参数量:&quot;</span><span class="p">,</span> <span class="nb">sum</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">()))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;state_dict 条数:&quot;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">state_dict</span><span class="p">()))</span>
+</code></pre></div>
+
+<p>实测输出：</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>参数量: 25</p><p>state_dict 条数: 4</p></div></section>
+<p>⭐ <strong>和你心算的对不上，就去查注册表。</strong> 参数量少一大截、<code>state_dict</code> 条数少一半，这两个数字比 loss 曲线诚实得多。</p>
+<hr />
+<h2 id="_9">🔗 这一章连到哪里</h2>
+<table>
+<thead>
+<tr>
+<th>相关的地方</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="06-state_dict与存取.html">06 · <code>state_dict</code> 到底装了什么</a></td>
+<td>⭐ 下一章。本章讲<strong>谁会被找到</strong>（进不进那三个表），那一章讲<strong>找到之后长什么样、怎么存怎么取</strong>，以及加载报错怎么读</td>
+</tr>
+<tr>
+<td><a href="02-autograd怎么建图.html">02 · autograd 怎么建图</a></td>
+<td>⭐ 第二节那三个没注册的层<strong>梯度是真的算出来了的</strong> —— 因为 autograd 只看图不看注册表。⚠️ 另外 02 章说过 <code>optimizer.zero_grad()</code> 只清「这个优化器管着的」参数，管着谁正是本章决定的</td>
+</tr>
+<tr>
+<td><a href="04-detach与no_grad.html">04 · detach 与 no_grad</a></td>
+<td>冻结 backbone 的写法是遍历 <code>parameters()</code> 把 <code>requires_grad_</code> 关掉 —— ⭐ 能这么遍历，靠的就是本章的注册表；反过来，<strong>没注册的层你连冻都冻不了</strong></td>
+</tr>
+<tr>
+<td><a href="07-train和eval改了什么.html">07 · <code>train()</code> / <code>eval()</code> 改了什么</a></td>
+<td>第一节 <code>m.__dict__</code> 里那个 <code>training</code> 就是下下章的全部主角；⭐ 而 BN 的 <code>running_mean</code> 是 buffer，正落在本章那张表「进 <code>_buffers</code>、不进 <code>_parameters</code>」那一格</td>
+</tr>
+<tr>
+<td><a href="09-自定义算子.html">09 · 自己写一个 autograd 算子</a></td>
+<td>⚠️ <strong>两个 <code>forward</code> 不是一回事</strong>：那一章写的是 <code>autograd.Function</code> 的 <code>forward</code>，要配一个 <code>backward</code>；本章说的是 <code>nn.Module</code> 的 <code>forward</code>，反向由 autograd 自动来</td>
+</tr>
+<tr>
+<td><a href="01-张量到底是什么.html">01 · 张量到底是什么</a></td>
+<td><code>.to()</code> 改的 <code>dtype</code> / <code>device</code> 就是说明书上那两个字段；⭐ 本章讲的是「怎么一次改掉几百个张量的这两个字段，以及谁会被漏下」</td>
+</tr>
+<tr>
+<td><a href="../机器学习与深度学习基础/15-PyTorch实战手册.html">《机器学习与深度学习基础》15 · PyTorch 实战手册</a></td>
+<td>那份模板里 <code>model = make_model().to(device)</code> 和 <code>xb, yb = xb.to(device), yb.to(device)</code> 是两种写法 —— ⭐ 第四节实测了为什么模型那行可以不接返回值、数据那行必须接</td>
+</tr>
+<tr>
+<td><a href="../机器学习与深度学习基础/附录C-手撕代码速查.html">《机器学习与深度学习基础》附录C 第 5 题</a></td>
+<td>手写 BatchNorm 时 <code>running_mean</code> 用 <code>register_buffer</code> 而不是 <code>Parameter</code>（那里的理由是「不参与梯度更新，但必须跟着 <code>state_dict</code> 存盘」）—— ⭐ 本章第一节那张表就是这句话的完整版，还多出一格 <code>persistent=False</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_10">✅ 检查点</h2>
+<ol>
+<li><code>self.w = nn.Parameter(...)</code>、<code>self.register_buffer("r", ...)</code>、<code>self.plain = torch.zeros(2)</code> 三者分别进哪里？哪些进 <code>parameters()</code>、哪些进 <code>state_dict()</code>？</li>
+<li>为什么普通张量赋值不会被自动认成 buffer？三个注册表里哪一个「你不主动说就不会有」？</li>
+<li>忘写 <code>super().__init__()</code> 的报错原文是什么？为什么它是本章唯一一个一定会报错的坑？</li>
+<li>把三个 <code>nn.Linear</code> 装进 Python list，实测 <code>_modules</code>、参数个数、<code>state_dict</code> 各是什么？<code>forward</code> 还跑得动吗？</li>
+<li>「半对半错」（stem/head 注册了、中间 blocks 在 list 里）为什么比全错更危险？实测优化器管了几个张量、模型里其实有几个？那些没注册的层<strong>有没有</strong>梯度？</li>
+<li><code>children()</code> 和 <code>modules()</code> 的区别？<code>named_modules()</code> 的第一条是什么？</li>
+<li>同一个 <code>nn.Linear</code> 挂在两个属性上（权重共享），<code>named_parameters()</code> 和 <code>state_dict()</code> 的条数一样吗？分别是几条？</li>
+<li><code>.double()</code> 为什么能一次改掉所有参数和 buffer，却改不掉普通属性张量？底层遍历的是什么？</li>
+<li><code>Module.to()</code> 和 <code>Tensor.to()</code> 的返回值差在哪？<code>.to()</code> 之后 <code>Parameter</code> 还是同一个对象吗？</li>
+<li><code>m(x)</code> 和 <code>m.forward(x)</code> 差在哪？实测 hook 触发条数和输出数值分别是多少？为什么 <code>post(fc)</code> 那条还在？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li>分别进 <code>_parameters</code>、<code>_buffers</code>、<code>__dict__</code>。<code>parameters()</code> 只看 <code>_parameters</code>（加上递归进子模块）；<code>state_dict()</code> 看 <code>_parameters</code> + <code>_buffers</code>。实测：<code>named_parameters()</code> 是 <code>['w']</code>，<code>state_dict()</code> 是 <code>['w', 'running']</code>，⚠️ <code>'plain' in m.state_dict()</code> 是 <strong><code>False</code></strong>。</li>
+<li>因为 <code>__setattr__</code> 认的是<strong>类型</strong>：<code>nn.Parameter</code> 是一个类、<code>nn.Module</code> 是一个类，而「buffer」不是任何类型，普通张量和普通张量长得一模一样。所以 <code>_buffers</code> 是唯一一个只能靠 <code>register_buffer</code> 显式登记的表（实测直接 <code>setattr</code> 一个张量，<code>_buffers</code> 是空的 <code>[]</code>，东西掉进了 <code>__dict__</code>）。</li>
+<li><code>AttributeError: cannot assign module before Module.__init__() call</code>。因为<strong>那三个注册表就是 <code>Module.__init__()</code> 建出来的空字典</strong> —— 没建表，海关无处安放，只能当场报错。其余的坑（list 装子模块、普通属性不搬设备、<code>.forward</code> 跳 hook）全是静默的。</li>
+<li><code>_modules</code> 是 <strong><code>[]</code></strong>、参数个数 0、<code>state_dict</code> 是 空 list；而 <code>forward</code> 照跑，输出形状 <code>torch.Size([1, 2])</code> 和正确版本完全一样。对照 <code>nn.ModuleList</code> 版本：<code>_modules</code> 是 <code>['layers']</code>、6 个参数、6 个 key。</li>
+<li>因为全错会撞上 <code>ValueError: optimizer got an empty parameter list</code>（报错反而是好事）；半错则<strong>一条错都不报</strong>。实测 <code>HalfBad</code>：优化器管着 4 个张量、模型里其实有 10 个；20 步之后 <code>stem</code> 变了、<code>blocks</code> 一位没动；⚠️ 但 <code>blocks[0].weight.grad is not None</code> 是 <code>True</code> —— 梯度是真的算出来了的，autograd 只看图不看注册表，只是优化器手里没有这些张量。<code>state_dict</code> 也只有 4 个 key，模型的一多半从来没被存过。</li>
+<li><code>children()</code> 只往下<strong>一层</strong>，<code>modules()</code> 递归全展开。实测 <code>Net(enc=Block, dec=Block)</code>：children 是 <code>['enc', 'dec']</code>，modules 是 <code>['', 'enc', 'enc.fc', 'dec', 'dec.fc']</code>。⚠️ 第一条 <code>''</code> 是模型自己，写「给每个子模块挂 hook」时别忘了它也在里面。</li>
+<li><strong>不一样</strong>。实测：<code>named_parameters()</code> 是 2 条（<code>['a.weight', 'a.bias']</code>，默认 <code>remove_duplicate=True</code> 去重了），<code>state_dict()</code> 是 4 个 key（<code>a.*</code> 和 <code>b.*</code> 都有，不去重）。去重让优化器不会把共享权重更新两次；⚠️ 不去重让 checkpoint 把同一块张量存两份，而且手工改 key 时只改一半会让权重共享静默断掉。</li>
+<li>因为 <code>_apply(fn)</code> 递归子模块之后，只遍历 <code>_parameters</code> 和 <code>_buffers</code> 两个字典，<strong><code>__dict__</code> 它根本不看</strong>。实测 <code>m.double()</code> 之后 <code>w</code> 和 <code>running</code> 都是 <code>torch.float64</code>，而 <code>plain</code> 还是 <code>torch.float32</code>。换成 <code>device</code> 就是那条「Expected all tensors to be on the same device」。⚠️ 而且不一定会报错：矩阵乘法卡 dtype（实测 <code>expected m1 and m2 to have the same dtype, but got: double != float</code>），而加法有类型提升，一声不吭地跑完。</li>
+<li><code>Module.to()</code> 是<strong>原地</strong>改注册表里的东西、返回 <code>self</code>（实测 <code>m.to(torch.float64) is m</code> 为 <code>True</code>）；<code>Tensor.to()</code> 返回一个新张量（<code>x.to(...) is x</code> 为 <code>False</code>，不接返回值 <code>x</code> 还是 <code>float32</code>）。<code>.to()</code> 之后 <code>Parameter</code> 对象没换（<code>data_ptr</code> 变了，但 <code>opt.param_groups[0]["params"][0] is m.weight</code> 仍是 <code>True</code>），所以先建优化器再 <code>.to()</code> 也不会坏；不过仍建议先搬设备再建优化器，因为优化器状态是照参数当时的设备创建的。</li>
+<li><code>m(x)</code> 走 <code>__call__</code>：pre-hook → <code>forward</code> → forward hook → 给输出挂 backward hook；<code>m.forward(x)</code> 只做中间一件。实测触发条数 <strong>3 条 vs 1 条</strong>（<code>['pre(Net)', 'post(fc)', 'post(Net)']</code> vs <code>['post(fc)']</code>）。<code>post(fc)</code> 还在，是因为只有你直接点名的那一层被跳过，它内部的子模块照常走自己的 <code>__call__</code> —— ⚠️ 所以 hook 不是全没了、是少了一部分，更难发现。后果不止少日志：挂一个会改数的 pre-hook 之后，实测 <code>m(x)</code> 是 0.0、<code>m.forward(x)</code> 是 4.0，没有任何警告。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_11">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong></p>
+<blockquote>
+<p>⭐ <strong><code>nn.Module</code> 认参数只靠 <code>__setattr__</code> 的一次类型检查</strong>：<code>nn.Parameter</code> 进 <code>_parameters</code>、<code>nn.Module</code> 进 <code>_modules</code>、<strong>其余一律掉进普通的 <code>__dict__</code></strong>。⭐ <strong>buffer 是唯一没有专属类型的</strong>，所以只能靠 <code>register_buffer</code> 显式登记。</p>
+<p>这三个表决定了三件事：优化器<strong>看不看得见</strong>、<code>state_dict()</code> <strong>存不存</strong>、<code>.to()</code> <strong>搬不搬得动</strong>。这就是「为什么我的参数没被优化器更新」的全部答案。</p>
+<p>💀 <strong>最贵的形态是把子模块装进 Python list</strong>：参数 0 个、<code>state_dict</code> 是空的，⭐ <strong>而 <code>forward</code> 照跑、输出形状和正确版本一模一样</strong>。全错会报「optimizer got an empty parameter list」——⭐ <strong>报错反而是好事</strong>；<strong>半错才致命</strong>：优化器只管住一部分，训练几十步后一部分变了另一部分一位没动，⚠️ 而且那些没被注册的参数<strong>梯度并不是 <code>None</code></strong>（autograd 只看图不看注册表）——<strong>模型的一多半既没在学也没被存过，没有一条日志会告诉你。</strong></p>
+<p>修法是 <code>nn.ModuleList</code> / <code>ModuleDict</code> / <code>ParameterList</code> / <code>register_buffer</code>。⚠️ <code>ModuleList</code> 没有 <code>forward</code>，要自己写循环。</p>
+<p>⭐ <strong>权重共享时两个遍历给的答案不同</strong>：<code>named_parameters()</code> 去重（让优化器不重复更新），<code>state_dict()</code> 不去重（于是 checkpoint 存了两份，而手工改 key 只改一半会<strong>静默断掉共享</strong>）。</p>
+<p>⚠️ <code>.to()</code> 只搬那两个表里的东西，普通属性它根本不看——换 dtype 时矩阵乘法会报错，但<strong>加法有类型提升，会一声不吭跑完</strong>。</p>
+</blockquote>
+<p><strong>下一节</strong> 👉 <a href="06-state_dict与存取.html">06-state_dict与存取.md</a></p>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="04-detach与no_grad.html"><div class="dir">← 上一节</div>✂️ 04 · detach 与 no_grad</a><a class="next" href="06-state_dict与存取.html"><div class="dir">下一节 →</div>💾 06 · state_dict 与存取</a></nav>
+</main>
+<script>(function(){
+  var KEY="torch-progress", FILE="05-nnModule\u5185\u90e8.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><script src="../assets/analytics.js" async></script>
+</body></html>

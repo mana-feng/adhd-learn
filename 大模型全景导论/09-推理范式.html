@@ -19,7 +19,7 @@ if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
  --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
  --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
 *{box-sizing:border-box}html{scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--fg);font-size:17px;line-height:1.85;
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
  font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
  -webkit-font-smoothing:antialiased}
 #scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
@@ -45,8 +45,7 @@ blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
  border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
 blockquote p{margin:.4em 0}
 ul,ol{padding-left:1.5em}li{margin:.35em 0}
-table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em;display:block;
- overflow-x:auto}
+table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:.93em}
 th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
 th{background:var(--quote-bg)}
 tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
@@ -138,6 +137,16 @@ figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 aut
 figure.dia figcaption{text-align:center;color:var(--muted);font-size:.88em;
  margin-top:8px;line-height:1.6}
 figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:.82em;
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
 
 .dia-lead{color:var(--muted);font-size:.94em;margin:14px 0 -6px;line-height:1.65}
 .dia-note{color:var(--muted);font-size:.9em;margin:-8px 0 16px;line-height:1.65}
@@ -285,103 +294,38 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>模型是「一个字一个字往外蹦」的（第 2 章），所以<strong>不给它思考的空间，它就只能凭直觉答</strong>。推理范式做的事就是：<strong>用生成的 token 换取思考的深度</strong>。</p>
 <hr />
 <h2 id="_2">🧠 底层原理：为什么「让它先想」有效</h2>
-<div class="codehilite"><pre><span></span><code>   模型每生成一个 token，只做固定量的计算。
-   直接要答案 → 所有推理必须压缩在最后那几个 token 里 → 做不到
-
-   让它先写思考过程 → 每一步推理都有 token 承载
-                    → 中间结果被写进上下文，后续步骤可以引用
-                    → 相当于给了它一块&quot;草稿纸&quot;
-</code></pre></div>
-
-<p>💡 <strong>一句话</strong>：<strong>思考 = 计算，而 token 是计算的载体。</strong>
+<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">模型每生成一个 token，只做固定量的计算。</span></div><div class="vb-flow-row"><span class="vb-flow-step">直接要答案</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">所有推理必须压缩在最后那几个 token 里</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">做不到</span></div><div class="vb-flow-row"><span class="vb-flow-step">让它先写思考过程</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">每一步推理都有 token 承载</span></div><div class="vb-flow-row"><span class="vb-flow-step">中间结果被写进上下文，后续步骤可以引用</span></div><div class="vb-flow-row"><span class="vb-flow-step">相当于给了它一块&quot;草稿纸&quot;</span></div></div></section>
+<p>💡 一句话：<strong>思考 = 计算，而 token 是计算的载体。</strong>
 这也是「测试时扩展（Test-time Scaling）」的理论基础——<strong>推理时多花算力，能换到更好的结果</strong>。</p>
 <h3 id="_3">🧮 一个能算出来的直觉</h3>
-<div class="codehilite"><pre><span></span><code>   一个模型有 L 层。生成一个 token = 走完 L 层 = 固定的计算量。
-
-   问题：&quot;37 × 48 = ?&quot;
-
-   直接答：      1 个 token 的计算量  → 必须&quot;一眼看出&quot;答案 ❌
-   写推理过程：  37×40=1480, 37×8=296, 1480+296=1776
-                约 40 个 token → 【40 倍的计算量】✅
-                而且中间结果 1480、296 被【写进了上下文】，
-                后面的步骤可以直接读，不用重新推
-
-   ⭐ 两个收益：更多计算 + 中间结果可复用（相当于外部记忆）
-</code></pre></div>
-
+<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>一个模型有 L 层。生成一个 token = 走完 L 层 = 固定的计算量。</p><p>问题：&quot;37 × 48 = ?&quot;</p><p>直接答： 1 个 token 的计算量 → 必须&quot;一眼看出&quot;答案 ❌</p><p>写推理过程： 37×40=1480, 37×8=296, 1480+296=1776</p><p>约 40 个 token → 【40 倍的计算量】✅</p><p>而且中间结果 1480、296 被【写进了上下文】，</p><p>后面的步骤可以直接读，不用重新推</p><p>⭐ 两个收益：更多计算 + 中间结果可复用（相当于外部记忆）</p></div></section>
 <blockquote>
 <p>🔑 <strong>这解释了一个反直觉的现象</strong>：
 <strong>让模型"把过程写出来"，即使那段过程你根本不看，答案也会变准。</strong>
 因为过程本身就是计算，不是给你看的。</p>
 </blockquote>
 <h3 id="_4">⚠️ 一个重要的边界：推理链不等于真实推理过程</h3>
-<div class="codehilite"><pre><span></span><code>   模型写出来的&quot;思考过程&quot;，不一定是它【真正】得出答案的路径
-
-   → 有研究显示：改变提示里的暗示，模型会给出不同答案，
-     但它写的推理过程【不会提到那个暗示】，而是编一套自洽的理由
-
-   ⚠️ 所以：
-   · 推理链能【提升准确率】 ✅（因为它确实提供了计算）
-   · 但不能当作【可信的解释】 ❌
-</code></pre></div>
-
-<p>💡 <strong>实践含义</strong>：<strong>别把模型的推理链当作审计证据。</strong>
+<section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">模型写出来的&quot;思考过程&quot;，不一定是它【真正】得出答案的路径</span></div><div class="vb-flow-row"><span class="vb-flow-step">有研究显示：改变提示里的暗示，模型会给出不同答案，</span></div><div class="vb-flow-row"><span class="vb-flow-step">但它写的推理过程【不会提到那个暗示】，而是编一套自洽的理由</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 所以：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 推理链能【提升准确率】 ✅（因为它确实提供了计算）</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 但不能当作【可信的解释】 ❌</span></div></div></section>
+<p>💡 实践含义：<strong>别把模型的推理链当作审计证据。</strong>
 它在高风险场景（医疗、金融、法务）里是<strong>说服力很强但不可靠</strong>的东西——
 这恰恰是最危险的组合。</p>
 <hr />
 <h2 id="_5">🪜 六种范式（从简单到复杂）</h2>
 <h3 id="1-cot-chain-of-thought">① CoT 思维链（Chain-of-Thought）</h3>
-<div class="codehilite"><pre><span></span><code>   「请一步一步思考」/ 「Let&#39;s think step by step」
-   → 模型写出推理过程再给答案
-   ✅ 最简单，数学/逻辑题提升明显
-   ⚠️ 现代模型很多已内建，不必总是手动加
-</code></pre></div>
-
+<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">「请一步一步思考」/ 「Let&#x27;s think step by step」</span></div><div class="vb-flow-row"><span class="vb-flow-step">模型写出推理过程再给答案</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 最简单，数学/逻辑题提升明显</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 现代模型很多已内建，不必总是手动加</span></div></div></section>
 <h3 id="2-self-consistency">② Self-Consistency 自洽性</h3>
-<div class="codehilite"><pre><span></span><code>   同一问题跑 5 次（温度调高）→ 取多数答案
-   ✅ 显著提升准确率
-   ❌ 成本 ×5
-   👉 适合高价值、有唯一正确答案的任务
-</code></pre></div>
-
-<h3 id="3-react">③ ReAct（推理 + 行动）⭐</h3>
-<div class="codehilite"><pre><span></span><code>   Thought:  我需要查一下今年的销售数据
-   Action:   search_db(&quot;2026 sales&quot;)
-   Observation: [返回结果]
-   Thought:  数据显示 Q2 下滑，我需要看原因
-   Action:   ...
-   → 循环直到得出答案
-</code></pre></div>
-
+<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">同一问题跑 5 次（温度调高）</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">取多数答案</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 显著提升准确率</span></div><div class="vb-flow-row"><span class="vb-flow-step">❌ 成本 ×5</span></div><div class="vb-flow-row"><span class="vb-flow-step">👉 适合高价值、有唯一正确答案的任务</span></div></div></section>
+<h3 id="3-react">③ ReAct（推理 + 行动）</h3>
+<section class="visual-block visual-block-flow" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">Thought: 我需要查一下今年的销售数据</span></div><div class="vb-flow-row"><span class="vb-flow-step">Action: search_db(&quot;2026 sales&quot;)</span></div><div class="vb-flow-row"><span class="vb-flow-step">Observation: [返回结果]</span></div><div class="vb-flow-row"><span class="vb-flow-step">Thought: 数据显示 Q2 下滑，我需要看原因</span></div><div class="vb-flow-row"><span class="vb-flow-step">Action: ·</span></div><div class="vb-flow-row"><span class="vb-flow-step">循环直到得出答案</span></div></div></section>
 <blockquote>
 <p>🔗 <strong>这就是 Agent 的主循环</strong>——本站《智能体工程教程》第 1 章从零写的就是它。ReAct 是它的理论原型。</p>
 </blockquote>
 <h3 id="4-reflexion">④ Reflexion 自我反思</h3>
-<div class="codehilite"><pre><span></span><code>   做一遍 → 自己批判 → 根据批判重做
-   ✅ 有客观反馈（测试、编译器）时效果好
-   ⚠️ 没有外部反馈时，自我批判容易流于形式
-      —— 智能体教程第 12 章：**自评有系统性正面偏差**
-      → 所以生产上更常用「独立的评估者」而非自我反思
-</code></pre></div>
-
+<section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">做一遍</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">自己批判</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">根据批判重做</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 有客观反馈（测试、编译器）时效果好</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 没有外部反馈时，自我批判容易流于形式</span></div><div class="vb-flow-row"><span class="vb-flow-step">—— 智能体教程第 12 章：**自评有系统性正面偏差**</span></div><div class="vb-flow-row"><span class="vb-flow-step">所以生产上更常用「独立的评估者」而非自我反思</span></div></div></section>
 <h3 id="5-tot-tree-of-thought">⑤ ToT 思维树（Tree-of-Thought）</h3>
-<div class="codehilite"><pre><span></span><code>   不是一条链，而是探索多个分支 + 剪枝
-   ✅ 适合有搜索空间的问题（规划、谜题）
-   ❌ 成本高、实现复杂，实际用得少
-</code></pre></div>
-
-<h3 id="6-2024">⑥ 长思考 / 推理模型（2024+）⭐</h3>
-<div class="codehilite"><pre><span></span><code>   不是提示技巧，而是**训练出来的能力**：
-   模型在给答案前先生成一长段内部推理（可能几千 token）
-
-   训练方式：用可验证的奖励（数学答案对错、代码能否通过测试）
-             做强化学习 → 模型自己学会&quot;慢慢想&quot;
-             （第 4 章的 GRPO 等）
-
-   ✅ 数学、代码、复杂推理大幅提升
-   ❌ 慢、贵；简单任务上是浪费
-</code></pre></div>
-
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>不是一条链，而是探索多个分支 + 剪枝</p><p>✅ 适合有搜索空间的问题（规划、谜题）</p><p>❌ 成本高、实现复杂，实际用得少</p></div></section>
+<h3 id="6-2024">⑥ 长思考 / 推理模型（2024+）</h3>
+<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">不是提示技巧，而是**训练出来的能力**：</span></div><div class="vb-flow-row"><span class="vb-flow-step">模型在给答案前先生成一长段内部推理（可能几千 token）</span></div><div class="vb-flow-row"><span class="vb-flow-step">训练方式：用可验证的奖励（数学答案对错、代码能否通过测试）</span></div><div class="vb-flow-row"><span class="vb-flow-step">做强化学习</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">模型自己学会&quot;慢慢想&quot;</span></div><div class="vb-flow-row"><span class="vb-flow-step">（第 4 章的 GRPO 等）</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 数学、代码、复杂推理大幅提升</span></div><div class="vb-flow-row"><span class="vb-flow-step">❌ 慢、贵；简单任务上是浪费</span></div></div></section>
 <hr />
 <h2 id="_6">⚖️ 关键权衡：什么时候值得让它「多想」</h2>
 <table>
@@ -509,17 +453,17 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <ul>
 <li><strong>提示层</strong>：CoT 变体、Self-Consistency 采样策略、ToT/GoT、Least-to-Most、Plan-and-Solve
-  → 📙 <strong>半有</strong>：CoT、Self-Consistency、ToT 本章的「六种范式」已经讲了（含成本-收益速查表）；采样策略这一侧另有 <a href="06b-解码策略.html">06b · 解码策略</a>——<strong>Self-Consistency 要多样的采样才有意义，而 temperature / top-p 到底在动什么、"复读机"是怎么来的，那一章讲的就是这个</strong>。<strong>GoT / Least-to-Most / Plan-and-Solve 站内没有，要外找</strong>（不过本章下面也说了：提示层的技巧变化快、很多已被模型内建，这三个的性价比本来就不高）</li>
+  → 📙 <strong>半有</strong>：CoT、Self-Consistency、ToT 本章的「六种范式」已经讲了（含成本-收益速查表）；采样策略这一侧另有 <a href="06b-解码策略.html">06b · 解码策略</a>——<strong>Self-Consistency 要多样的采样才有意义，而 temperature / top-p 到底在动什么、"复读机"是怎么来的，那一章讲的就是这个</strong>。GoT / Least-to-Most / Plan-and-Solve 站内没有，要外找（不过本章下面也说了：提示层的技巧变化快、很多已被模型内建，这三个的性价比本来就不高）</li>
 <li><strong>训练层</strong>：推理模型怎么训（可验证奖励、GRPO、过程奖励模型 PRM vs 结果奖励）
-  → 📗 <strong>本库有，而且这是本章最值得点开的一条</strong>：<a href="../强化学习基础/12-RLHF全流程.html">强化学习基础 12 · RLHF全流程</a> 把 <strong>GRPO 展开成了一整节</strong>（把 Critic 换成"同组同学的平均分"、KL 为什么改放在损失上、⚠️ <strong>组内标准化让 GRPO 对题目难度分布极敏感——题太简单或太难会出现大量"零梯度组"，采样算力全打水漂</strong>）；PRM vs 结果奖励在 <a href="../强化学习基础/14-RL在推荐与智能体里.html">14 · RL在推荐与智能体里</a>（RLVR、过程监督 PRM、拒绝采样/专家迭代，<strong>共同点是都在绕开"奖励模型不可靠"和"在线探索太贵"这两个问题</strong>）。<strong>本章说「长思考是训出来的能力，提示词改不了」，这两章就是"怎么训出来的"</strong></li>
+  → 📗 <strong>本库有，而且这是本章最值得点开的一条</strong>：<a href="../强化学习基础/12-RLHF全流程.html">强化学习基础 12 · RLHF全流程</a> 把 <strong>GRPO 展开成了一整节</strong>（把 Critic 换成"同组同学的平均分"、KL 为什么改放在损失上、⚠️ 组内标准化让 GRPO 对题目难度分布极敏感——题太简单或太难会出现大量"零梯度组"，采样算力全打水漂）；PRM vs 结果奖励在 <a href="../强化学习基础/14-RL在推荐与智能体里.html">14 · RL在推荐与智能体里</a>（RLVR、过程监督 PRM、拒绝采样/专家迭代，共同点是都在绕开"奖励模型不可靠"和"在线探索太贵"这两个问题）。本章说「长思考是训出来的能力，提示词改不了」，这两章就是"怎么训出来的"</li>
 <li><strong>测试时扩展</strong>：Best-of-N、蒙特卡洛树搜索、验证器引导的搜索、算力-效果曲线
-  → 📙 <strong>半有</strong>：Best-of-N 在 <a href="../强化学习基础/13-DPO与免RL对齐.html">强化学习基础 13 · DPO与免RL对齐</a>（作为「拒绝采样 / Best-of-N 蒸馏」讲的——⭐ <strong>简单到几乎不需要新知识，却经常能拿到 RLHF 大部分收益</strong>，实践顺序是拒绝采样 → DPO → 最后才 PPO）。<strong>MCTS、验证器引导搜索、算力-效果曲线站内没有，要外找</strong></li>
+  → 📙 <strong>半有</strong>：Best-of-N 在 <a href="../强化学习基础/13-DPO与免RL对齐.html">强化学习基础 13 · DPO与免RL对齐</a>（作为「拒绝采样 / Best-of-N 蒸馏」讲的——⭐ <strong>简单到几乎不需要新知识，却经常能拿到 RLHF 大部分收益</strong>，实践顺序是拒绝采样 → DPO → 最后才 PPO）。MCTS、验证器引导搜索、算力-效果曲线站内没有，要外找</li>
 <li><strong>评估</strong>：推理能力基准（数学/代码/科学）、过程正确性 vs 结果正确性
-  → 📙 <strong>半有</strong>：基准怎么读、盲区在哪，<a href="../智能体工程教程/14-评测Evals.html">智能体工程 14 · 评测Evals</a> 的「公开基准都在测什么（以及测不到什么）」讲了（⭐ <strong>看到「SWE-bench」先问是哪一版——不同版本分数不可直接比</strong>）；<a href="11-评测体系.html">11 · 评测体系</a> 讲四个陷阱。<strong>但数学/科学推理基准（AIME、GPQA 一类）具体怎么造题、过程正确性怎么量，站内没有，要外找</strong></li>
+  → 📙 <strong>半有</strong>：基准怎么读、盲区在哪，<a href="../智能体工程教程/14-评测Evals.html">智能体工程 14 · 评测Evals</a> 的「公开基准都在测什么（以及测不到什么）」讲了（⭐ <strong>看到「SWE-bench」先问是哪一版——不同版本分数不可直接比</strong>）；<a href="11-评测体系.html">11 · 评测体系</a> 讲四个陷阱。但数学/科学推理基准（AIME、GPQA 一类）具体怎么造题、过程正确性怎么量，站内没有，要外找</li>
 <li><strong>成本工程</strong>：什么时候开推理、推理长度控制、路由策略
-  → 📗 <strong>本库有</strong>：<a href="../智能体工程教程/02-模型与effort-选对大脑.html">智能体工程 02 · 模型与 effort 选对大脑</a>——<strong>「模型大小」和「effort 高低」是两个旋钮，别拧混</strong>，外加三个反直觉的成本事实（大模型可能反而更便宜；小模型干活+大模型把关的顾问策略；长上下文比你以为的贵）。<strong>本章的「什么时候值得让它多想」是判断题，那一章是可以每天照着用的诊断口诀</strong></li>
+  → 📗 <strong>本库有</strong>：<a href="../智能体工程教程/02-模型与effort-选对大脑.html">智能体工程 02 · 模型与 effort 选对大脑</a>——<strong>「模型大小」和「effort 高低」是两个旋钮，别拧混</strong>，外加三个反直觉的成本事实（大模型可能反而更便宜；小模型干活+大模型把关的顾问策略；长上下文比你以为的贵）。本章的「什么时候值得让它多想」是判断题，那一章是可以每天照着用的诊断口诀</li>
 </ul>
-<p><strong>需要的前置</strong>：第 4 章（训练/对齐）会让你理解「长思考是怎么训出来的」。</p>
+<p>需要的前置：第 4 章（训练/对齐）会让你理解「长思考是怎么训出来的」。</p>
 <hr />
 <h2 id="_9">⚖️ 要不要深挖</h2>
 <table>
@@ -553,7 +497,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>✅ <strong>现状更新</strong>：提示层的实战部分已经在
 <a href="../智能体工程教程/index.html">《智能体工程教程》第 3 章提示词工程</a>里了；
 ReAct 循环在第 1 章；生成-评估分离在第 12 章。
-<strong>训练层（长思考怎么训出来）看本导论<a href="04-训练三阶段.html">第 4 章</a>即可。</strong></p>
+<strong>训练层（长思考怎么训出来）看本导论<a href="04-训练三阶段.html">主线 4 · 它怎样从续写机变助手</a>即可。</strong></p>
 </blockquote>
 <hr />
 <h2 id="_10">✅ 检查点</h2>
@@ -570,13 +514,13 @@ ReAct 循环在第 1 章；生成-评估分离在第 12 章。
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>模型每生成一个 token 只做固定量计算，直接要答案等于把所有推理压缩在最后几个 token 里。<strong>两个收益</strong>：①<strong>更多计算</strong>（40 个 token 就是 40 倍计算量）②<strong>中间结果被写进上下文可复用</strong>（相当于外部记忆）。</li>
+<li>模型每生成一个 token 只做固定量计算，直接要答案等于把所有推理压缩在最后几个 token 里。<strong>两个收益</strong>：①更多计算（40 个 token 就是 40 倍计算量）②中间结果被写进上下文可复用（相当于外部记忆）。</li>
 <li>因为<strong>过程本身就是计算，不是给你看的</strong>。token 是计算的载体，写出来就等于分配了更多算力。</li>
-<li><strong>不能</strong>。研究显示改变提示里的暗示会改变模型答案，但它写的推理过程不会提到那个暗示，而是编一套自洽的理由。<strong>在医疗/金融/法务等高风险场景特别危险</strong>——因为它"说服力很强但不可靠"，这是最糟的组合。</li>
+<li><strong>不能</strong>。研究显示改变提示里的暗示会改变模型答案，但它写的推理过程不会提到那个暗示，而是编一套自洽的理由。在医疗/金融/法务等高风险场景特别危险——因为它"说服力很强但不可靠"，这是最糟的组合。</li>
 <li>ReAct（Thought→Action→Observation 循环）就是 Agent 循环的<strong>理论原型</strong>，你写的那 60 行就是它的实现。</li>
-<li>没有外部客观反馈时，自我批判容易流于形式——<strong>自评有系统性正面偏差</strong>。生产上用<strong>独立上下文的评估者</strong>替代。</li>
+<li>没有外部客观反馈时，自我批判容易流于形式——<strong>自评有系统性正面偏差</strong>。生产上用独立上下文的评估者替代。</li>
 <li><strong>训练出来的能力</strong>。用可验证奖励（数学对错、代码能否通过测试）做强化学习训出来的。</li>
-<li><strong>决定选哪种范式</strong>。缺信息 → <strong>ReAct</strong>（去查），加再多思考也没用；缺计算 → <strong>CoT/长思考</strong>，给工具也没用。这是最容易选错的一组。</li>
+<li><strong>决定选哪种范式</strong>。缺信息 → ReAct（去查），加再多思考也没用；缺计算 → CoT/长思考，给工具也没用。这是最容易选错的一组。</li>
 <li>事实查询、格式转换、分类等简单任务——浪费 token 和时间。<strong>创意写作有时也有害</strong>（过度分析伤害自然感）。</li>
 </ol>
 </details>
@@ -613,5 +557,5 @@ ReAct 循环在第 1 章；生成-评估分离在第 12 章。
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><script src="../assets/analytics.js" async></script>
+})();</script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><script src="../assets/analytics.js" async></script>
 </body></html>
