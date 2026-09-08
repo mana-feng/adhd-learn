@@ -124,7 +124,7 @@
     { id: "d-cross-entropy", names: ["交叉熵"], group: "训练", meaning: "衡量模型给出的概率分布和真实答案差多远：正确类别的概率越低，损失越大。", role: "分类任务的默认损失；它和 softmax 合起来算，梯度形式极其简洁也更稳定。", code: "loss = F.cross_entropy(logits, labels)" },
     { id: "d-vanishing-gradient", names: ["梯度消失"], group: "训练", meaning: "反向传播要连乘很多层的导数，每层都小于 1 的话，传到前面几层就几乎变成 0。", role: "前面的层学不动，网络白深；残差连接、ReLU、归一化这一整套都是在治它。", code: "# 连乘 0.5 走 20 层：0.5**20 ≈ 1e-6" },
     { id: "d-gradient-explosion", names: ["梯度爆炸"], group: "训练", meaning: "和梯度消失相反：连乘的因子大于 1，梯度指数级放大，一步就把权重冲飞。", role: "表现是 loss 突然变成 NaN；标准解法是梯度裁剪。", code: "torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)" },
-    { id: "d-decision-tree", names: ["决策树"], group: "模型", meaning: "一层层问「这个特征大于某个值吗」，顺着答案往下走，最后落到一个叶子给出预测。", role: "天然能处理类别特征和缺失，不用做归一化，而且能画出来给人看。", code: "clf = DecisionTreeClassifier(max_depth=4).fit(X, y)" },
+    { id: "d-decision-tree", names: ["决策树"], group: "模型", meaning: "一层层问「这个特征大于某个值吗」，顺着答案往下走，最后落到一个叶子给出预测。", role: "适合用分层条件描述表格数据。能力取决于具体实现：sklearn 1.7 的决策树不能直接输入字符串类别，需先编码；数值 NaN 是否可用还要看 splitter、criterion 等设置。通常不依赖特征标准化。", code: "from sklearn.tree import DecisionTreeClassifier\n\nX = [[0.2], [0.4], [1.5], [1.8]]\ny = [0, 0, 1, 1]\nclf = DecisionTreeClassifier(max_depth=4, random_state=0).fit(X, y)\nprint(clf.predict([[0.3], [1.6]]))" },
     { id: "d-random-forest", names: ["随机森林"], group: "模型", meaning: "训很多棵互相不太一样的树（各看一部分样本和一部分特征），最后投票。", role: "单棵树方差大，多棵一平均就稳了；它是表格数据上最省心的基线。", code: "clf = RandomForestClassifier(n_estimators=300).fit(X, y)" },
     { id: "d-xgboost", names: ["XGBoost"], group: "模型", meaning: "一棵接一棵地训树，每棵都专门去补前面所有树加起来还差的那部分。", role: "表格数据上长期的冠军方案；和随机森林的区别是它串行纠错，不是并行投票。", code: "model = xgboost.XGBClassifier(n_estimators=500).fit(X, y)" },
     { id: "d-ensemble", names: ["集成学习"], group: "模型", meaning: "把多个模型的结果合起来用，靠的是它们犯的错不一样，平均之后互相抵消。", role: "提升效果最稳的一招；前提是成员之间要足够不同，全一样的模型融了也白融。", code: "pred = (m1.predict(X) + m2.predict(X)) / 2" },
@@ -193,6 +193,22 @@
   var byId = Object.create(null);
   TERMS.forEach(function (term) { byId[term.id] = term; });
 
+  // An opted-in lesson can explain existing terms using its own worked example.
+  // Keep names/IDs stable; other pages retain the existing dictionary unchanged.
+  function readLessonTerms() {
+    var source = document.querySelector('main script.lesson-glossary[type="application/json"]');
+    if (!source) return;
+    try {
+      var local = JSON.parse(source.textContent);
+      Object.keys(local).forEach(function (id) {
+        if (!byId[id] || !local[id] || typeof local[id] !== "object") return;
+        ["meaning", "role", "example"].forEach(function (key) {
+          if (typeof local[id][key] === "string") byId[id][key] = local[id][key];
+        });
+      });
+    } catch (_) { /* Invalid lesson data must not break the shared glossary. */ }
+  }
+
   function insertStyles() {
     var style = document.createElement("style");
     style.textContent = ".glossary-term{appearance:none;border:0;border-bottom:2px dotted var(--accent,#b65310);background:transparent;color:inherit;font:inherit;line-height:inherit;padding:0;cursor:pointer;text-decoration:none}.glossary-term:hover{color:var(--accent,#b65310);border-bottom-style:solid}.glossary-term:focus-visible{outline:3px solid #ffb000;outline-offset:3px;border-radius:2px}#site-glossary{width:min(560px,calc(100% - 26px));max-height:min(720px,calc(100% - 26px));border:1px solid var(--border,#d8dce4);border-radius:16px;padding:0;color:var(--fg,#172033);background:var(--card,#fff);box-shadow:0 20px 65px rgba(0,0,0,.28)}#site-glossary::backdrop{background:rgba(20,28,42,.48)}.glossary-sheet{padding:22px}.glossary-top{display:flex;gap:14px;align-items:flex-start;justify-content:space-between}.glossary-group{margin:0 0 3px;color:var(--accent,#b65310);font-size:.85em;font-weight:700}.glossary-title{margin:0;font-size:1.45em;line-height:1.3}.glossary-close{width:44px;height:44px;flex:0 0 44px;border:1px solid var(--border,#d8dce4);border-radius:10px;background:transparent;color:inherit;font:inherit;font-size:1.4em;cursor:pointer}.glossary-close:hover{background:var(--quote-bg,#f2f5f8)}.glossary-close:focus-visible{outline:3px solid #ffb000;outline-offset:2px}.glossary-section{margin:19px 0 0}.glossary-label{margin:0 0 5px;font-weight:750}.glossary-copy{margin:0;line-height:1.75}.glossary-code{margin:8px 0 0;padding:12px;border-radius:9px;overflow:auto;background:#202b3b;color:#f8fafc;font:13px/1.6 \"CodeCJK\",Consolas,monospace;white-space:pre-wrap}.glossary-hint{margin:18px 0 0;padding-top:12px;border-top:1px dashed var(--border,#d8dce4);color:var(--muted,#596579);font-size:.88em}@media(max-width:640px){.glossary-sheet{padding:18px}.glossary-code{font-size:12px}}";
@@ -207,6 +223,11 @@
     dialog.querySelector(".glossary-close").addEventListener("click", function () { dialog.close(); });
     dialog.addEventListener("click", function (event) { if (event.target === dialog) dialog.close(); });
     document.body.appendChild(dialog);
+    var example = document.createElement("p");
+    example.id = "glossary-example";
+    example.className = "glossary-copy";
+    example.hidden = true;
+    dialog.querySelector("#glossary-code").after(example);
     return dialog;
   }
 
@@ -215,7 +236,14 @@
     dialog.querySelector("#glossary-title").textContent = term.names[0];
     dialog.querySelector("#glossary-meaning").textContent = term.meaning;
     dialog.querySelector("#glossary-role").textContent = term.role;
-    dialog.querySelector("#glossary-code").textContent = term.code;
+    var code = dialog.querySelector("#glossary-code");
+    var example = dialog.querySelector("#glossary-example");
+    var localExample = typeof term.example === "string";
+    code.textContent = localExample ? "" : term.code;
+    code.hidden = localExample;
+    example.hidden = !localExample;
+    example.textContent = localExample ? term.example : "";
+    code.parentElement.querySelector(".glossary-label").textContent = localExample ? "放回本页看" : "最小示例";
     if (typeof dialog.showModal === "function") dialog.showModal();
     else dialog.setAttribute("open", "");
   }
@@ -284,6 +312,7 @@
   }
 
   function run() {
+    readLessonTerms();
     insertStyles();
     var dialog = createDialog();
     annotate(document.querySelector("main") || document.body);

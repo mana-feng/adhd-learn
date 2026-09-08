@@ -496,8 +496,65 @@ SQLite 报 <code>misuse of aggregate: SUM()</code>，Postgres 报 <code>aggregat
 <p>⭐ <strong>要按聚合结果过滤，那是 <code>HAVING</code>（④）的活。</strong></p>
 <h3 id="3-having-sqlite-mysql-postgres">③ <code>HAVING</code> 能用别名（SQLite / MySQL 可以，⚠️ Postgres 不行）</h3>
 <p>看起来和上面矛盾 —— <code>HAVING</code>（④）也在 <code>SELECT</code>（⑤）前面啊？
-<strong>是的，标准 SQL 里 <code>HAVING</code> 用别名也是不合法的</strong>，但三个主流库都特意放宽了这一条，因为 <code>HAVING SUM(cents) &gt; 1</code> 写两遍太蠢。
-⚠️ <strong>别把「三个库都放宽了」当成「顺序表错了」</strong> —— 顺序表描述的是语义，各库在不改变语义的前提下加了糖。</p>
+<strong>这里有方言差异。</strong> 同层 <code>SELECT</code> 里的别名能否用于 <code>HAVING</code>，不能只靠顺序表判断。</p>
+<p><span id="audit-sql-alias"></span></p>
+<p>下面用同一张临时表比较。请在一个新的练习连接中执行；它只创建本次连接使用的小表，不涉及业务表。</p>
+<div class="codehilite" data-code-language="sql"><pre><span></span><code><span class="k">CREATE</span><span class="w"> </span><span class="k">TEMPORARY</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">audit_sales</span><span class="w"> </span><span class="p">(</span><span class="n">shop</span><span class="w"> </span><span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">10</span><span class="p">),</span><span class="w"> </span><span class="n">cents</span><span class="w"> </span><span class="nb">INTEGER</span><span class="p">);</span>
+<span class="k">INSERT</span><span class="w"> </span><span class="k">INTO</span><span class="w"> </span><span class="n">audit_sales</span><span class="w"> </span><span class="k">VALUES</span><span class="w"> </span><span class="p">(</span><span class="s1">&#39;A&#39;</span><span class="p">,</span><span class="w"> </span><span class="mi">120</span><span class="p">),</span><span class="w"> </span><span class="p">(</span><span class="s1">&#39;A&#39;</span><span class="p">,</span><span class="w"> </span><span class="mi">80</span><span class="p">),</span><span class="w"> </span><span class="p">(</span><span class="s1">&#39;B&#39;</span><span class="p">,</span><span class="w"> </span><span class="mi">50</span><span class="p">);</span>
+
+<span class="k">SELECT</span><span class="w"> </span><span class="n">shop</span><span class="p">,</span><span class="w"> </span><span class="k">SUM</span><span class="p">(</span><span class="n">cents</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">total_cents</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">audit_sales</span>
+<span class="k">GROUP</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">shop</span>
+<span class="k">HAVING</span><span class="w"> </span><span class="n">total_cents</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">100</span><span class="p">;</span>
+</code></pre></div>
+
+<div class="tw"><table>
+<thead>
+<tr>
+<th>引擎</th>
+<th>上面这条查询</th>
+<th>验证依据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SQLite</td>
+<td>返回 A，合计 200</td>
+<td>本地 Python 自带 SQLite 实跑；版本随下面的 Python 验证输出</td>
+</tr>
+<tr>
+<td>MySQL 8.4</td>
+<td>允许这个 HAVING 别名写法</td>
+<td>官方文档核对，本轮未启动 MySQL 实跑</td>
+</tr>
+<tr>
+<td>PostgreSQL 17</td>
+<td>不允许同层输出别名；本表没有名为 total_cents 的输入列</td>
+<td>官方文档核对，本轮未启动 PostgreSQL 实跑</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>跨这三个引擎使用时，可以把最后一行写成 <code>HAVING SUM(cents) &gt; 100</code>。</strong> 另一种办法是先在子查询里得到 <code>total_cents</code>，再由外层 <code>WHERE</code> 过滤它（05、06 章）。不要把别名取成已有输入列的名字，否则还会遇到名称解析歧义。</p>
+<details>
+<summary>在 Python 中独立复现 SQLite 结果</summary>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
+
+<span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">executescript</span><span class="p">(</span><span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">CREATE TABLE audit_sales (shop TEXT, cents INTEGER);</span>
+<span class="s2">INSERT INTO audit_sales VALUES (&#39;A&#39;, 120), (&#39;A&#39;, 80), (&#39;B&#39;, 50);</span>
+<span class="s2">&quot;&quot;&quot;</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">expression</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;total_cents&quot;</span><span class="p">,</span> <span class="s2">&quot;SUM(cents)&quot;</span><span class="p">):</span>
+    <span class="n">query</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;&quot;&quot;SELECT shop, SUM(cents) AS total_cents</span>
+<span class="s2">                FROM audit_sales GROUP BY shop HAVING </span><span class="si">{</span><span class="n">expression</span><span class="si">}</span><span class="s2"> &gt; 100&quot;&quot;&quot;</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">expression</span><span class="p">,</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">query</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;SQLite&quot;</span><span class="p">,</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">sqlite_version</span><span class="p">)</span>
+<span class="n">db</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</code></pre></div>
+
+<p>两种写法都应得到 <code>[('A', 200)]</code>。这里只验证 SQLite，不把一次本地成功当成三个引擎都已执行。</p>
+</details>
+<p>顺序表描述的是语义阶段；别名解析仍须查当前引擎的规则。<a href="https://www.postgresql.org/docs/17/sql-select.html">PostgreSQL 17 SELECT</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/problems-with-alias.html">MySQL 8.4 别名规则</a>。</p>
 <h3 id="4-order-by-select">④ <code>ORDER BY</code> 能用别名，而且能用<strong>没出现在 <code>SELECT</code> 里的列</strong></h3>
 <p><code>ORDER BY</code>（⑦）在 <code>SELECT</code>（⑤）之后，所以别名一定可见。
 ⚠️ 但<strong>加了 <code>DISTINCT</code>（⑥）之后就不行了</strong> —— 去重之后那些没被选出来的列已经不存在了，没法拿来排序。</p>

@@ -451,21 +451,22 @@ SVM 的解法是<strong>允许违规，但要罚</strong>：</p>
 <tbody>
 <tr>
 <td><strong>C 大</strong></td>
-<td>罚款贵，几乎不许犯错</td>
-<td>间隔窄、边界扭曲、<strong>过拟合</strong></td>
+<td>相对更重视减小训练集的间隔违规</td>
+<td>在其他条件固定时，正则化相对较弱；可能更贴合训练数据，但不保证过拟合</td>
 </tr>
 <tr>
 <td><strong>C 小</strong></td>
-<td>罚款便宜，容忍犯错</td>
-<td>间隔宽、边界平滑、<strong>欠拟合</strong></td>
+<td>相对更重视控制权重范数</td>
+<td>可能容忍更多训练违规，但不保证欠拟合</td>
 </tr>
 </tbody>
 </table></div>
+<p>判断过拟合要比较训练与验证表现，不能只看 C 的数值。C 还受特征尺度、核函数和损失的求和/平均约定影响。</p>
 <blockquote>
 <p>🔗 <strong>C 其实就是正则化强度的倒数</strong>：</p>
 <p><code>min ½‖w‖² + C·误差</code> ⟺ <code>min 误差 + (1/C)·½‖w‖²</code></p>
 <p><strong>对照<a href="02-MAP%E4%B8%8E%E6%AD%A3%E5%88%99%E5%8C%96%E7%9A%84%E7%9C%9F%E8%BA%AB.html">第 2 章</a>：这就是 λ = 1/C。
-SVM 的 C 和岭回归的 λ 是同一个旋钮的两种写法。</strong></p>
+在这里的损失求和约定下，二者都控制拟合与正则化的权衡；不代表不同库、不同损失下可以直接复用同一个数值。</strong></p>
 </blockquote>
 <h4 id="_8">💡 软间隔还有一个损失函数视角</h4>
 <p>原问题可以改写成<strong>无约束</strong>形式：</p>
@@ -502,11 +503,89 @@ SVM 的 C 和岭回归的 λ 是同一个旋钮的两种写法。</strong></p>
 </aside>
 <p class="cr-context">使用边界：这段代码只配置流程与参数搜索，尚未提供数据，也没有调用 <code>fit</code> 开始训练。</p>
 </div>
-<p><strong>C 和 γ 的交互（经典的对角线现象）</strong>：</p>
-<figure class="dia reading-diagram repair-diagram" id="relationship-theorymd-07-2" style="--diagram-width:720px"><svg viewBox="0 0 720 490" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="横轴 C，纵轴 γ。两者共同影响拟合；斜带只表示需要联合搜索的区域，不是固定的最佳参数规律。实际应看交叉验证热图。"><title>横轴 C，纵轴 γ。两者共同影响拟合；斜带只表示需要联合搜索的区域，不是固定的最佳参数规律。实际应看交叉验证热图。</title><line x1="100" y1="425" x2="650" y2="425" stroke="var(--muted)" stroke-width="2"/><polygon fill="var(--muted)" points="650.0,425.0 641.0,430.0 641.0,420.0"/><line x1="100" y1="425" x2="100" y2="60" stroke="var(--muted)" stroke-width="2"/><polygon fill="var(--muted)" points="100.0,60.0 105.0,69.0 95.0,69.0"/><text x="650" y="455" font-size="18" text-anchor="start" fill="var(--fg)">C</text><text x="65" y="60" font-size="18" text-anchor="start" fill="var(--fg)">γ</text><rect x="102" y="62" width="545" height="360" fill="var(--quote-bg)" stroke="var(--border)"/><path d="M110 85 L170 65 L640 385 L580 422 Z" fill="var(--accent-soft)" stroke="var(--accent)" stroke-dasharray="5 5"/><text x="380" y="105" font-size="20" text-anchor="start" fill="var(--fg)">过局部 / 约束过严</text><text x="150" y="365" font-size="20" text-anchor="start" fill="var(--fg)">欠拟合风险</text><text x="245" y="244" font-size="20" text-anchor="start" fill="var(--fg)">候选区域需实测</text></svg><figcaption>横轴 C，纵轴 γ。两者共同影响拟合；斜带只表示需要联合搜索的区域，不是固定的最佳参数规律。实际应看交叉验证热图。</figcaption></figure>
-<section class="reading-information"><p class="reading-information-title">图下说明</p><ul><li><span>过拟合 过拟合</span> <span>(太局部) (太局部+太严)</span></li><li><span>⭐ 好的区域在对角线附近</span></li><li><span>欠拟合</span></li></ul></section>
-<p>💡 <strong>为什么是对角线</strong>：C 和 γ 都在增加模型复杂度。
-一个大另一个就该小，<strong>总复杂度保持在合适水平</strong>。</p>
+<p><span id="audit-svm-grid"></span></p>
+<h4 id="svm-parameter-interaction">C 与 γ 要一起验证，不必一大一小</h4>
+<p>C 控制训练违规的惩罚；RBF 核的 γ 控制相似度随距离衰减得有多快。γ 越大，单个样本的影响通常越局部。</p>
+<p>它们不是可以相加的同一种“复杂度”。某些数据的验证热图会出现高分斜带，但不是普遍规律。可对照 <a href="https://scikit-learn.org/1.7/auto_examples/svm/plot_rbf_parameters.html">scikit-learn 的 RBF 参数实验</a>。</p>
+<h4 id="svm-grid-results">用一组真实搜索结果看差别</h4>
+<p><strong>实验条件：</strong> 鸢尾花数据共 150 条，分层留出 30 条作最终测试；以下只使用其余 120 条做 5 折分层交叉验证。每个训练折内部拟合标准化，固定划分种子为 0。</p>
+<figure class="dia reading-diagram repair-diagram" id="relationship-theorymd-07-2" style="--diagram-width:720px"><svg viewBox="0 0 720 430" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="鸢尾花数据的 C 与 gamma 交叉验证热图。每格为平均准确率，最高的三格位于 gamma 等于 0.1、C 等于 1、10 或 100；不是反向配对的对角线。"><title>实际运行的 16 组参数：5 折平均准确率</title><text x="24" y="36" font-size="21" fill="var(--fg)">看数值选候选，不预设对角线</text><text x="24" y="76" font-size="18" fill="var(--muted)">行：γ　列：C　　边框加粗标出本次最高分</text><text x="239" y="119" font-size="19" text-anchor="middle" fill="var(--fg)">C = 0.1</text><text x="362" y="119" font-size="19" text-anchor="middle" fill="var(--fg)">C = 1</text><text x="485" y="119" font-size="19" text-anchor="middle" fill="var(--fg)">C = 10</text><text x="608" y="119" font-size="19" text-anchor="middle" fill="var(--fg)">C = 100</text><text x="155" y="167" font-size="19" text-anchor="end" fill="var(--fg)">γ = 0.001</text><rect x="180" y="135" width="118" height="54" rx="9" fill="var(--quote-bg)" stroke="var(--border)" stroke-width="1"/><text x="239" y="169" font-size="21" font-weight="400" text-anchor="middle" fill="var(--fg)">87.50%</text><rect x="303" y="135" width="118" height="54" rx="9" fill="var(--quote-bg)" stroke="var(--border)" stroke-width="1"/><text x="362" y="169" font-size="21" font-weight="400" text-anchor="middle" fill="var(--fg)">87.50%</text><rect x="426" y="135" width="118" height="54" rx="9" fill="var(--quote-bg)" stroke="var(--border)" stroke-width="1"/><text x="485" y="169" font-size="21" font-weight="400" text-anchor="middle" fill="var(--fg)">89.17%</text><rect x="549" y="135" width="118" height="54" rx="9" fill="var(--quote-bg)" stroke="var(--border)" stroke-width="1"/><text x="608" y="169" font-size="21" font-weight="400" text-anchor="middle" fill="var(--fg)">93.33%</text><text x="155" y="230" font-size="19" text-anchor="end" fill="var(--fg)">γ = 0.01</text><rect x="180" y="198" width="118" height="54" rx="9" fill="var(--quote-bg)" stroke="var(--border)" stroke-width="1"/><text x="239" y="232" font-size="21" font-weight="400" text-anchor="middle" fill="var(--fg)">87.50%</text><rect x="303" y="198" width="118" height="54" rx="9" fill="var(--quote-bg)" stroke="var(--border)" stroke-width="1"/><text x="362" y="232" font-size="21" font-weight="400" text-anchor="middle" fill="var(--fg)">89.17%</text><rect x="426" y="198" width="118" height="54" rx="9" fill="var(--quote-bg)" stroke="var(--border)" stroke-width="1"/><text x="485" y="232" font-size="21" font-weight="400" text-anchor="middle" fill="var(--fg)">93.33%</text><rect x="549" y="198" width="118" height="54" rx="9" fill="var(--quote-bg)" stroke="var(--border)" stroke-width="1"/><text x="608" y="232" font-size="21" font-weight="400" text-anchor="middle" fill="var(--fg)">94.17%</text><text x="155" y="293" font-size="19" text-anchor="end" fill="var(--fg)">γ = 0.1</text><rect x="180" y="261" width="118" height="54" rx="9" fill="var(--quote-bg)" stroke="var(--border)" stroke-width="1"/><text x="239" y="295" font-size="21" font-weight="400" text-anchor="middle" fill="var(--fg)">88.33%</text><rect x="303" y="261" width="118" height="54" rx="9" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="3"/><text x="362" y="295" font-size="21" font-weight="700" text-anchor="middle" fill="var(--fg)">95.00%</text><rect x="426" y="261" width="118" height="54" rx="9" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="3"/><text x="485" y="295" font-size="21" font-weight="700" text-anchor="middle" fill="var(--fg)">95.00%</text><rect x="549" y="261" width="118" height="54" rx="9" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="3"/><text x="608" y="295" font-size="21" font-weight="700" text-anchor="middle" fill="var(--fg)">95.00%</text><text x="155" y="356" font-size="19" text-anchor="end" fill="var(--fg)">γ = 1</text><rect x="180" y="324" width="118" height="54" rx="9" fill="var(--quote-bg)" stroke="var(--border)" stroke-width="1"/><text x="239" y="358" font-size="21" font-weight="400" text-anchor="middle" fill="var(--fg)">91.67%</text><rect x="303" y="324" width="118" height="54" rx="9" fill="var(--quote-bg)" stroke="var(--border)" stroke-width="1"/><text x="362" y="358" font-size="21" font-weight="400" text-anchor="middle" fill="var(--fg)">93.33%</text><rect x="426" y="324" width="118" height="54" rx="9" fill="var(--quote-bg)" stroke="var(--border)" stroke-width="1"/><text x="485" y="358" font-size="21" font-weight="400" text-anchor="middle" fill="var(--fg)">91.67%</text><rect x="549" y="324" width="118" height="54" rx="9" fill="var(--quote-bg)" stroke="var(--border)" stroke-width="1"/><text x="608" y="358" font-size="21" font-weight="400" text-anchor="middle" fill="var(--fg)">91.67%</text><text x="24" y="414" font-size="18" fill="var(--muted)">这是训练数据内部的验证分数；最终测试集未参与搜索。</text></svg><figcaption>在本次划分与四舍五入精度下，γ = 0.1 时 C = 1、10、100 都得到 95% 平均准确率。它们不是“一大一小”的固定配对，细小分差也应结合折间波动判断。</figcaption></figure>
+
+<p><strong>图用于看高分区域的位置；需要逐格比较时，看这张可横向滚动的数值表：</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>γ / C</th>
+<th style="text-align: right;">0.1</th>
+<th style="text-align: right;">1</th>
+<th style="text-align: right;">10</th>
+<th style="text-align: right;">100</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0.001</td>
+<td style="text-align: right;">87.50%</td>
+<td style="text-align: right;">87.50%</td>
+<td style="text-align: right;">89.17%</td>
+<td style="text-align: right;">93.33%</td>
+</tr>
+<tr>
+<td>0.01</td>
+<td style="text-align: right;">87.50%</td>
+<td style="text-align: right;">89.17%</td>
+<td style="text-align: right;">93.33%</td>
+<td style="text-align: right;">94.17%</td>
+</tr>
+<tr>
+<td>0.1</td>
+<td style="text-align: right;">88.33%</td>
+<td style="text-align: right;"><strong>95.00%</strong></td>
+<td style="text-align: right;"><strong>95.00%</strong></td>
+<td style="text-align: right;"><strong>95.00%</strong></td>
+</tr>
+<tr>
+<td>1</td>
+<td style="text-align: right;">91.67%</td>
+<td style="text-align: right;">93.33%</td>
+<td style="text-align: right;">91.67%</td>
+<td style="text-align: right;">91.67%</td>
+</tr>
+</tbody>
+</table></div>
+<details>
+<summary>复现这张图：完整程序与折间波动</summary>
+<p>环境：Python 3.12.14、scikit-learn 1.7.2。每行打印 C、γ、5 折平均准确率及折间标准差；标准差不是均值的置信区间。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_iris</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.model_selection</span><span class="w"> </span><span class="kn">import</span> <span class="n">train_test_split</span><span class="p">,</span> <span class="n">StratifiedKFold</span><span class="p">,</span> <span class="n">GridSearchCV</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">make_pipeline</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.preprocessing</span><span class="w"> </span><span class="kn">import</span> <span class="n">StandardScaler</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.svm</span><span class="w"> </span><span class="kn">import</span> <span class="n">SVC</span>
+
+<span class="n">X</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">load_iris</span><span class="p">(</span><span class="n">return_X_y</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">X_train</span><span class="p">,</span> <span class="n">X_test</span><span class="p">,</span> <span class="n">y_train</span><span class="p">,</span> <span class="n">y_test</span> <span class="o">=</span> <span class="n">train_test_split</span><span class="p">(</span>
+    <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">test_size</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">stratify</span><span class="o">=</span><span class="n">y</span>
+<span class="p">)</span>
+<span class="n">cv</span> <span class="o">=</span> <span class="n">StratifiedKFold</span><span class="p">(</span><span class="n">n_splits</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">shuffle</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">search</span> <span class="o">=</span> <span class="n">GridSearchCV</span><span class="p">(</span>
+    <span class="n">make_pipeline</span><span class="p">(</span><span class="n">StandardScaler</span><span class="p">(),</span> <span class="n">SVC</span><span class="p">(</span><span class="n">kernel</span><span class="o">=</span><span class="s2">"rbf"</span><span class="p">)),</span>
+    <span class="p">{</span><span class="s2">"svc__C"</span><span class="p">:</span> <span class="p">[</span><span class="mf">0.1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">100</span><span class="p">],</span> <span class="s2">"svc__gamma"</span><span class="p">:</span> <span class="p">[</span><span class="mf">0.001</span><span class="p">,</span> <span class="mf">0.01</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">,</span> <span class="mi">1</span><span class="p">]},</span>
+    <span class="n">cv</span><span class="o">=</span><span class="n">cv</span><span class="p">,</span> <span class="n">scoring</span><span class="o">=</span><span class="s2">"accuracy"</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">1</span>
+<span class="p">)</span>
+<span class="n">search</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">params</span><span class="p">,</span> <span class="n">mean</span><span class="p">,</span> <span class="n">std</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span>
+    <span class="n">search</span><span class="o">.</span><span class="n">cv_results_</span><span class="p">[</span><span class="s2">"params"</span><span class="p">],</span>
+    <span class="n">search</span><span class="o">.</span><span class="n">cv_results_</span><span class="p">[</span><span class="s2">"mean_test_score"</span><span class="p">],</span>
+    <span class="n">search</span><span class="o">.</span><span class="n">cv_results_</span><span class="p">[</span><span class="s2">"std_test_score"</span><span class="p">]</span>
+<span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="s2">"svc__C"</span><span class="p">],</span> <span class="n">params</span><span class="p">[</span><span class="s2">"svc__gamma"</span><span class="p">],</span> <span class="nb">round</span><span class="p">(</span><span class="n">mean</span><span class="p">,</span> <span class="mi">6</span><span class="p">),</span> <span class="nb">round</span><span class="p">(</span><span class="n">std</span><span class="p">,</span> <span class="mi">6</span><span class="p">))</span>
+<span class="c1"># 上面打印的是训练数据内部的交叉验证结果。</span>
+<span class="c1"># X_test / y_test 未参与搜索，这里不查看它们的分数。</span>
+</code></pre></div>
+
+<p><strong>观察：</strong> 高分三组的均值都是 0.950000；C = 1 的折间标准差约 0.031180，C = 10、100 的约为 0.048591。相同均值不代表每折预测都一样。</p>
+<p>没有查看最终测试分数，不能把图中的 95% 当作最终泛化表现。</p>
+</details>
 <p><strong>四个必须知道的实践点</strong>：</p>
 <div class="tw"><table>
 <thead>
@@ -592,7 +671,7 @@ SVM 的 C 和岭回归的 λ 是同一个旋钮的两种写法。</strong></p>
 </tr>
 <tr>
 <td><a href="02-MAP%E4%B8%8E%E6%AD%A3%E5%88%99%E5%8C%96%E7%9A%84%E7%9C%9F%E8%BA%AB.html">第 2 章</a> λ 正则强度</td>
-<td>SVM 的 C = 1/λ</td>
+<td>本文损失求和约定下，λ = 1/C</td>
 </tr>
 <tr>
 <td>逻辑回归的交叉熵</td>
@@ -635,9 +714,9 @@ SVM 的 C 和岭回归的 λ 是同一个旋钮的两种写法。</strong></p>
 <li>SVM 和感知机的目标有什么不同？最大间隔好在哪（三个角度）？</li>
 <li>什么是支持向量？删掉非支持向量会怎样？这带来什么优缺点？</li>
 <li>为什么要转成对偶形式？关键红利是什么？</li>
-<li>C 大和 C 小分别导致什么？C 和 λ 是什么关系？</li>
+<li>C 调节什么权衡？为什么不能由 C 的大小直接判定过拟合？C 与 λ 的关系用了什么约定？</li>
 <li>Hinge 损失和交叉熵最大的区别是什么？这解释了什么？</li>
-<li>C 和 γ 的最优区域为什么呈对角线？</li>
+<li>C 和 γ 必须反向配对吗？本页真实热图支持什么结论？</li>
 <li>SVM 为什么在大数据时代退场了？哪个场景它还活着？</li>
 </ol>
 <details>
@@ -646,9 +725,9 @@ SVM 的 C 和岭回归的 λ 是同一个旋钮的两种写法。</strong></p>
 <li>感知机只要分对就停；SVM 要找<strong>间隔最大</strong>的那条。三个角度：鲁棒性（留余量抗抖动）、唯一性（感知机的解取决于初始化，最大间隔解唯一）、理论保证（泛化界可用间隔表述）。</li>
 <li>恰好落在间隔边界上的点。删掉所有非支持向量重训，分界线完全不变。优点：对远处离群点鲁棒、模型稀疏；缺点：<strong>对边界附近的噪声敏感</strong>。</li>
 <li>因为对偶形式里<strong>只剩样本间的内积</strong> xᵢ·xⱼ，可以直接替换成核函数。原问题里 w 和 x 直接相乘，需要显式高维向量。</li>
-<li>C 大=罚款贵、几乎不许犯错→间隔窄、过拟合；C 小=容忍犯错→间隔宽、欠拟合。<strong>C = 1/λ</strong>，和岭回归的正则强度是同一旋钮。</li>
+<li>C 调节间隔违规损失与权重范数的权衡；过拟合仍需比较训练与验证表现。本文把损失求和时，λ = 1/C；采用平均损失或其他缩放时，应重新核对系数。</li>
 <li>Hinge 在「分对且间隔≥1」时<strong>恰好等于 0</strong>（梯度也为 0），交叉熵永远大于 0。这解释了为什么 SVM 稀疏（只有支持向量起作用）而逻辑回归所有点都参与。</li>
-<li>C 和 γ 都在增加模型复杂度，一个大另一个就该小，才能让总复杂度保持在合适水平。</li>
+<li>不必。它们控制不同机制，要联合验证。本页 γ = 0.1、C = 1 / 10 / 100 的均值都为 95%；这只是当前划分与候选网格的结果。某些任务可能出现高分斜带，不能预设所有任务如此。</li>
 <li>核矩阵 n×n，复杂度 O(n²)~O(n³)，n 超十万就存不下也算不动。<strong>线性 SVM 在高维稀疏数据（如文本 TF-IDF）上至今是强基线</strong>。</li>
 </ol>
 </details>

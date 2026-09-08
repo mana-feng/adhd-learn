@@ -297,11 +297,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#_4">📐 二、数学形式</a></li>
 <li><a href="#mle">⭐ 三、高光时刻：最小二乘 = 高斯噪声下的 MLE</a></li>
 <li><a href="#mle_1">🎲 四、第二个例子：交叉熵 = 伯努利分布下的 MLE</a></li>
-<li><a href="#_8">📋 五、损失函数速查：每一个背后的分布假设</a></li>
+<li><a href="#_9">📋 五、损失函数速查：每一个背后的分布假设</a></li>
 <li><a href="#mle_2">⚠️ 六、MLE 的三个毛病</a></li>
-<li><a href="#_9">🔗 七、和站内其他章的关系</a></li>
-<li><a href="#_10">✅ 检查点</a></li>
-<li><a href="#_11">🛑 可以停在这里</a></li>
+<li><a href="#_11">🔗 七、和站内其他章的关系</a></li>
+<li><a href="#_12">✅ 检查点</a></li>
+<li><a href="#_13">🛑 可以停在这里</a></li>
 </ul>
 </div>
 </details>
@@ -367,8 +367,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </thead>
 <tbody>
 <tr>
-<td><strong>防数值下溢</strong> ⭐</td>
-<td>1000 个 0.5 相乘 = 10⁻³⁰¹，浮点数直接变 0</td>
+<td><strong>降低连乘下溢风险</strong></td>
+<td>乘积可能小到当前浮点类型表示不了；什么时候变成 0，要看类型和因子个数</td>
 </tr>
 <tr>
 <td>连乘变连加</td>
@@ -380,6 +380,42 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
+<h3 id="_5">先看一个能复现的数值例子</h3>
+<p><span id="audit-mle-underflow"></span></p>
+<p><strong>1000 个 0.5 相乘，在本机 Python 的双精度 float 中还不是 0；1100 个才在这个例子中下溢为 0。</strong> 不是所有浮点类型都能表示同样小的数。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;float 有效二进制位数:&quot;</span><span class="p">,</span> <span class="n">sys</span><span class="o">.</span><span class="n">float_info</span><span class="o">.</span><span class="n">mant_dig</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">1000</span><span class="p">,</span> <span class="mi">1100</span><span class="p">):</span>
+    <span class="n">product</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">prod</span><span class="p">([</span><span class="mf">0.5</span><span class="p">]</span> <span class="o">*</span> <span class="n">n</span><span class="p">)</span>
+    <span class="n">log_sum</span> <span class="o">=</span> <span class="n">n</span> <span class="o">*</span> <span class="n">math</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="mf">0.5</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">product</span><span class="p">,</span> <span class="nb">round</span><span class="p">(</span><span class="n">log_sum</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+</code></pre></div>
+
+<p>本机 Python 3.12、有效二进制位数为 53 时，结果是：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>因子个数</th>
+<th style="text-align: right;">直接连乘</th>
+<th style="text-align: right;">先取对数再求和</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1000</td>
+<td style="text-align: right;">9.332636185032189e−302</td>
+<td style="text-align: right;">−693.147</td>
+</tr>
+<tr>
+<td>1100</td>
+<td style="text-align: right;">0.0</td>
+<td style="text-align: right;">−762.462</td>
+</tr>
+</tbody>
+</table></div>
+<p>看第二行：乘积已经丢掉了大小信息，对数之和仍能比较。<strong>要先对每个概率取对数再相加；先乘到 0 再取 log，救不回来。</strong> 若概率本身已被算成 0，还需要直接计算稳定的对数概率。<a href="https://docs.python.org/3.13/tutorial/floatingpoint.html">Python 浮点说明</a></p>
 <blockquote>
 <p>🔑 <strong>注意这个转换</strong>：<code>最大化对数似然</code> = <code>最小化负对数似然</code>。
 <strong>而「负对数似然」就是你天天在用的损失函数。</strong> 下面是证据。</p>
@@ -387,7 +423,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="mle">⭐ 三、高光时刻：最小二乘 = 高斯噪声下的 MLE</h2>
 <p><strong>这是本章最重要的推导。</strong> 你一直在用平方误差，但为什么是平方？</p>
-<h3 id="_5">建模假设</h3>
+<h3 id="_6">建模假设</h3>
 <figure class="dia reading-diagram repair-diagram" id="relationship-theorymd-01-1" style="--diagram-width:720px"><svg viewBox="0 0 720 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="横轴是输入 x，纵轴是输出 y。每个固定 x 上，噪声让 y 围绕 w·x 呈钟形分布；小曲线向右鼓出的宽度表示密度，不是另一条回归线。"><title>横轴是输入 x，纵轴是输出 y。每个固定 x 上，噪声让 y 围绕 w·x 呈钟形分布；小曲线向右鼓出的宽度表示密度，不是另一条回归线。</title><text x="20" y="30" font-size="20" text-anchor="start" fill="var(--fg)">固定 x，观察 y 在预测值两侧的波动</text><line x1="70" y1="300" x2="660" y2="300" stroke="var(--muted)" stroke-width="2"/><polygon fill="var(--muted)" points="660.0,300.0 651.0,305.0 651.0,295.0"/><line x1="70" y1="300" x2="70" y2="60" stroke="var(--muted)" stroke-width="2"/><polygon fill="var(--muted)" points="70.0,60.0 75.0,69.0 65.0,69.0"/><line x1="95" y1="270" x2="590" y2="85" stroke="var(--muted)" stroke-width="2"/><text x="455" y="45" font-size="18" text-anchor="start" fill="var(--fg)">中心 y = w·x</text><polyline points="212.64,167.02 213.37,169.42 214.26,171.82 215.34,174.22 216.62,176.62 218.12,179.02 219.87,181.42 221.87,183.82 224.14,186.22 226.68,188.62 229.48,191.02 232.52,193.42 235.77,195.82 239.21,198.22 242.76,200.62 246.39,203.02 250.02,205.42 253.57,207.82 256.96,210.22 260.12,212.62 262.95,215.02 265.39,217.42 267.36,219.82 268.81,222.22 269.70,224.62 270.00,227.02 269.70,229.42 268.81,231.82 267.36,234.22 265.39,236.62 262.95,239.02 260.12,241.42 256.96,243.82 253.57,246.22 250.02,248.62 246.39,251.02 242.76,253.42 239.21,255.82 235.77,258.22 232.52,260.62 229.48,263.02 226.68,265.42 224.14,267.82 221.87,270.22 219.87,272.62 218.12,275.02 216.62,277.42 215.34,279.82 214.26,282.22 213.37,284.62 212.64,287.02" fill="none" stroke="var(--accent)" stroke-width="3"/><line x1="210" y1="162.02020202020202" x2="210" y2="292.020202020202" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 5"/><polyline points="362.64,110.96 363.37,113.36 364.26,115.76 365.34,118.16 366.62,120.56 368.12,122.96 369.87,125.36 371.87,127.76 374.14,130.16 376.68,132.56 379.48,134.96 382.52,137.36 385.77,139.76 389.21,142.16 392.76,144.56 396.39,146.96 400.02,149.36 403.57,151.76 406.96,154.16 410.12,156.56 412.95,158.96 415.39,161.36 417.36,163.76 418.81,166.16 419.70,168.56 420.00,170.96 419.70,173.36 418.81,175.76 417.36,178.16 415.39,180.56 412.95,182.96 410.12,185.36 406.96,187.76 403.57,190.16 400.02,192.56 396.39,194.96 392.76,197.36 389.21,199.76 385.77,202.16 382.52,204.56 379.48,206.96 376.68,209.36 374.14,211.76 371.87,214.16 369.87,216.56 368.12,218.96 366.62,221.36 365.34,223.76 364.26,226.16 363.37,228.56 362.64,230.96" fill="none" stroke="var(--accent)" stroke-width="3"/><line x1="360" y1="105.95959595959596" x2="360" y2="235.95959595959596" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 5"/><polyline points="512.64,54.90 513.37,57.30 514.26,59.70 515.34,62.10 516.62,64.50 518.12,66.90 519.87,69.30 521.87,71.70 524.14,74.10 526.68,76.50 529.48,78.90 532.52,81.30 535.77,83.70 539.21,86.10 542.76,88.50 546.39,90.90 550.02,93.30 553.57,95.70 556.96,98.10 560.12,100.50 562.95,102.90 565.39,105.30 567.36,107.70 568.81,110.10 569.70,112.50 570.00,114.90 569.70,117.30 568.81,119.70 567.36,122.10 565.39,124.50 562.95,126.90 560.12,129.30 556.96,131.70 553.57,134.10 550.02,136.50 546.39,138.90 542.76,141.30 539.21,143.70 535.77,146.10 532.52,148.50 529.48,150.90 526.68,153.30 524.14,155.70 521.87,158.10 519.87,160.50 518.12,162.90 516.62,165.30 515.34,167.70 514.26,170.10 513.37,172.50 512.64,174.90" fill="none" stroke="var(--accent)" stroke-width="3"/><line x1="510" y1="49.898989898989896" x2="510" y2="179.8989898989899" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 5"/><text x="633" y="330" font-size="18" text-anchor="start" fill="var(--fg)">x</text><text x="40" y="64" font-size="18" text-anchor="start" fill="var(--fg)">y</text></svg><figcaption>横轴是输入 x，纵轴是输出 y。每个固定 x 上，噪声让 y 围绕 w·x 呈钟形分布；小曲线向右鼓出的宽度表示密度，不是另一条回归线。</figcaption></figure>
 <section class="reading-information"><p class="reading-information-title">图下说明</p><ul><li><span>真实世界：y = w·x + ε</span></li><li><span>↑ 噪声，假设 ε ~ N(0, σ²)</span></li><li><span>换句话说：给定 x，y 的分布是以 w·x 为中心的钟形曲线</span></li><li><span>y | x ~ N(w·x, σ²)</span></li><li><span>y 真实直线 w·x</span></li><li><span>每个 x 处，y 在这条线上下呈钟形分布</span></li></ul></section>
 <details>
@@ -401,7 +437,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>$$\boxed{\hat w = \arg\min_w \sum_i (y_i - w^\top x_i)^2}$$</p>
 <p><strong>这正是最小二乘。</strong></p>
 </details>
-<h3 id="_6">💡 结论（不看推导也要记住这句）</h3>
+<h3 id="_7">💡 结论（不看推导也要记住这句）</h3>
 <blockquote>
 <p><strong>你用平方误差，等价于你假设了「噪声服从正态分布」。</strong>
 不是因为平方"好算"，而是因为<strong>高斯密度函数的指数上就是平方项</strong>。</p>
@@ -429,7 +465,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<h3 id="_7">🔬 一个能亲眼看到的实验</h3>
+<h3 id="_8">🔬 一个能亲眼看到的实验</h3>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.linear_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">LinearRegression</span><span class="p">,</span> <span class="n">HuberRegressor</span>
 
@@ -459,7 +495,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 （<strong>这套教程从 PPO 到 RLHF 到蒸馏一共用了它六次，却从没定义过</strong>）。</p>
 </blockquote>
 <hr />
-<h2 id="_8">📋 五、损失函数速查：每一个背后的分布假设</h2>
+<h2 id="_9">📋 五、损失函数速查：每一个背后的分布假设</h2>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -521,12 +557,37 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 抛 10 次得 0.8 和抛 10000 次得 0.8，<strong>MLE 的输出一模一样</strong>。</p>
 <h3 id="3">毛病 3：对模型设定错误很敏感</h3>
 <section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">MLE 只保证「在你假设的分布族里，这是最好的参数」</span></div><div class="vb-flow-row"><span class="vb-flow-step">它【不检查】你的分布假设本身对不对</span></div><div class="vb-flow-row"><span class="vb-flow-step">假设错了（比如数据其实是重尾的却假设高斯）</span></div><div class="vb-flow-row"><span class="vb-flow-step">MLE 会自信地给出一个错误答案</span></div></div></section>
-<blockquote>
-<p>🔑 <strong>前两个毛病的解药是同一个：加入先验。</strong> 这就是下一章的 MAP。
-第三个毛病的解药是<strong>模型检验</strong>（看残差分布、做敏感性分析）。</p>
-</blockquote>
+<h3 id="_10">下一章能解决什么，不能自动解决什么</h3>
+<p><span id="audit-mle-map"></span></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>当前问题</th>
+<th>接下来做什么</th>
+<th>不能误会成什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>3 次全正面，让点估计落在 p = 1</td>
+<td>下一章用合适的先验演示 MAP，让估计不只由这 3 次观察决定</td>
+<td>任何先验都一定更好</td>
+</tr>
+<tr>
+<td>10 次与 10000 次的估计都为 0.8，可靠程度却可能不同</td>
+<td>查看后验分布如何分散；也可以另用置信区间等方法</td>
+<td>求出 MAP 的一个点，就自动获得了不确定性范围</td>
+</tr>
+<tr>
+<td>假定的分布族不合适</td>
+<td>检查残差、模型假设与敏感性</td>
+<td>加了先验就不必检查模型</td>
+</tr>
+</tbody>
+</table></div>
+<p>同一个硬币例子可以问两个问题：<strong>“先验怎样改变估计值？”</strong> 连接 MAP；<strong>“哪些参数值更受数据支持、分布有多集中？”</strong> 连接后验分布。下一章会把这两件事分开讲。</p>
 <hr />
-<h2 id="_9">🔗 七、和站内其他章的关系</h2>
+<h2 id="_11">🔗 七、和站内其他章的关系</h2>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -562,7 +623,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <hr />
-<h2 id="_10">✅ 检查点</h2>
+<h2 id="_12">✅ 检查点</h2>
 <ol>
 <li>最大似然在问什么问题？它和「求真相」有什么区别？</li>
 <li>似然和后验的区别是什么？为什么不能说「p=0.8 的概率是 30.2%」？</li>
@@ -585,7 +646,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ol>
 </details>
 <hr />
-<h2 id="_11">🛑 可以停在这里</h2>
+<h2 id="_13">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>似然比较哪些参数更能解释已观测的数据，不是参数自身的后验概率。</li><li>取对数把乘积变成求和；负对数似然把概率模型连接到损失函数。</li><li>损失对应分布假设，先检查输出类型、噪声和离群点，再解释拟合结果。</li></ul></section>
 
