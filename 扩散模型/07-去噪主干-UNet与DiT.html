@@ -295,13 +295,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">🧱 一、先把接口钉死：三进一出</a></li>
 <li><a href="#u-net">🪜 二、U-Net：先压下去，再抬回来</a></li>
-<li><a href="#_3">✂️ 三、跳跃连接到底救了什么</a></li>
+<li><a href="#_4">✂️ 三、跳跃连接到底救了什么</a></li>
 <li><a href="#dit-token">🧩 四、DiT：把潜空间切成 token</a></li>
-<li><a href="#dit">🏁 五、为什么后来是 DiT 赢了</a></li>
-<li><a href="#_4">🚧 六、一个特别容易搞混的点</a></li>
-<li><a href="#_5">🔗 这一章连到哪里</a></li>
-<li><a href="#_6">✅ 检查点</a></li>
-<li><a href="#_7">🛑 可以停在这里</a></li>
+<li><a href="#dit">🏁 五、为什么考虑 DiT，以及它的代价</a></li>
+<li><a href="#_6">🚧 六、一个特别容易搞混的点</a></li>
+<li><a href="#_7">🔗 这一章连到哪里</a></li>
+<li><a href="#_8">✅ 检查点</a></li>
+<li><a href="#_9">🛑 可以停在这里</a></li>
 </ul>
 </div>
 </details>
@@ -310,7 +310,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>去噪网络只是一个接口固定的函数：进 <code>(带噪的图, 第几步, 条件)</code>，出「这里面加了什么噪声」—— 里面用什么结构实现，扩散本身完全不关心。</strong>
-所以主干从 U-Net 换成 Transformer（DiT），上一章的 CFG、之前的加噪公式和 DDIM 跳步，一行都不用改。</p>
+所以主干从 U-Net 换成 Transformer（DiT），当预测目标、时间编码、条件接口和方差约定都保持一致时，CFG 与 DDIM 的数学形式可以复用。</p>
 <hr />
 <h2 id="_2">🧱 一、先把接口钉死：三进一出</h2>
 <p>上一章的 CFG 要跑两次去噪网络，一次带条件一次不带。那两次调用长这样：</p>
@@ -345,16 +345,15 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>输出<strong>只有一个</strong>：一张和 <code>x_t</code> 同形状的预测噪声。</p>
 <blockquote>
 <p>⭐ <strong>这个接口就是「扩散」和「网络」之间的那道缝。</strong>
-加噪是固定公式、采样是固定循环，只有这个函数是学出来的 —— 换主干时<strong>调用方一个字都不用动</strong>。</p>
+加噪是固定公式、采样是固定循环，只有这个函数是学出来的 —— 换主干时先保持这些约定，再检查调用与采样代码。</p>
 </blockquote>
-<p>⚠️ 有件事接口里没写出来：<strong><code>t</code> 不能只在输入端塞一次</strong>。
-它要影响的是<strong>每一层</strong>的行为（<code>t</code> 大时该输出接近纯噪声，<code>t</code> 小时只该修细节）。
-所以标准做法是把 <code>t</code> 变成向量，在每个块<strong>内部</strong>注入。下面两种主干注入方式不同，目的一样。</p>
+<p><strong>时间条件怎样传入要看具体结构。</strong> 常见做法是在多个残差块内部注入时间向量，使各层能适应不同噪声水平；这不是“任何网络都必须逐层注入”的定理。</p>
 <hr />
 <h2 id="u-net">🪜 二、U-Net：先压下去，再抬回来</h2>
 <figure class="dia"><svg viewBox="0 0 760 322" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="左臂三级下采样、底部瓶颈、右臂三级上采样，三条绿色虚线把同级左右臂直接连起来"><text class="dia-t" x="380" y="24" font-size="14" text-anchor="middle" fill="var(--fg)" font-weight="700">U-Net：压下去再抬回来，跳跃连接把细节直接送过去</text><rect x="60" y="56" width="96" height="42" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="108" y="77" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">64×64</text><text class="dia-t" x="108" y="94" font-size="11.5" text-anchor="middle" fill="var(--muted)">128 通道</text><rect x="150" y="106" width="96" height="42" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="198" y="127" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">32×32</text><text class="dia-t" x="198" y="144" font-size="11.5" text-anchor="middle" fill="var(--muted)">256</text><rect x="240" y="156" width="96" height="42" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="288" y="177" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">16×16</text><text class="dia-t" x="288" y="194" font-size="11.5" text-anchor="middle" fill="var(--muted)">512</text><line x1="108" y1="98" x2="198" y2="97" stroke="var(--accent)" stroke-width="2"/><polygon points="108,106 103,97 113,97" fill="var(--accent)"/><line x1="198" y1="148" x2="288" y2="147" stroke="var(--accent)" stroke-width="2"/><polygon points="198,156 193,147 203,147" fill="var(--accent)"/><rect x="330" y="206" width="100" height="42" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"/><text class="dia-t" x="380" y="227" font-size="13" text-anchor="middle" fill="var(--accent)" font-weight="700">瓶颈</text><text class="dia-t" x="380" y="244" font-size="11.5" text-anchor="middle" fill="var(--muted)">自注意力</text><line x1="288" y1="198" x2="380" y2="197" stroke="var(--accent)" stroke-width="2"/><polygon points="288,206 283,197 293,197" fill="var(--accent)"/><rect x="464" y="156" width="96" height="42" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="512" y="177" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">16×16</text><text class="dia-t" x="512" y="194" font-size="11.5" text-anchor="middle" fill="var(--muted)">512</text><rect x="554" y="106" width="96" height="42" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="602" y="127" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">32×32</text><text class="dia-t" x="602" y="144" font-size="11.5" text-anchor="middle" fill="var(--muted)">256</text><rect x="644" y="56" width="96" height="42" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="692" y="77" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">64×64</text><text class="dia-t" x="692" y="94" font-size="11.5" text-anchor="middle" fill="var(--muted)">128+64</text><line x1="430" y1="227" x2="464" y2="199" stroke="var(--accent)" stroke-width="2"/><polygon points="430,190 425,199 435,199" fill="var(--accent)"/><line x1="512" y1="156" x2="602" y2="157" stroke="var(--accent)" stroke-width="2"/><polygon points="512,148 507,157 517,157" fill="var(--accent)"/><line x1="602" y1="106" x2="692" y2="107" stroke="var(--accent)" stroke-width="2"/><polygon points="602,98 597,107 607,107" fill="var(--accent)"/><path d="M156 77 L 644 77" fill="none" stroke="var(--done)" stroke-width="2" stroke-dasharray="6 4"/><path d="M246 127 L 554 127" fill="none" stroke="var(--done)" stroke-width="2" stroke-dasharray="6 4"/><path d="M336 177 L 464 177" fill="none" stroke="var(--done)" stroke-width="2" stroke-dasharray="6 4"/><text class="dia-t" x="380" y="288" font-size="12" text-anchor="middle" fill="var(--muted)">绿色虚线就是跳跃连接 —— 它是拼接不是相加，所以右臂入口通道是 128+64=192</text><text class="dia-t" x="380" y="310" font-size="12.5" text-anchor="middle" fill="var(--done)" font-weight="700">实测 8 倍下采样后高频保留 0.0000，一点不剩 —— 跳跃连接救的正是这个</text></svg><figcaption>看那三条绿色虚线：它们<b>绕过了瓶颈</b>。⭐ 下采样会把高频细节压没（实测保留 0.0000），而扩散在 t 小的那几步干的正好是补细节 —— 没有跳跃连接，那些细节根本没有来源。</figcaption></figure>
 
-<p><strong>左臂（编码器）</strong>几轮「卷积块 → 下采样」，分辨率一路减半、通道一路翻倍；<strong>底部（瓶颈）</strong>分辨率最低，⭐ 自注意力通常只插在这附近 —— 注意力的代价是 token 数的平方，压小之后才付得起；<strong>右臂（解码器）</strong>几轮「上采样 → 卷积块」抬回原分辨率。条件走交叉注意力进来：Query 来自图像特征，Key/Value 来自文本嵌入。</p>
+<p><strong>编码器</strong>通过卷积和下采样减小分辨率、增加通道；<strong>瓶颈</strong>分辨率最低；<strong>解码器</strong>再逐级上采样。</p>
+<p>注意力可放在若干分辨率层，并非只能放在瓶颈。文本条件常通过交叉注意力进入：Query 来自图像特征，Key/Value 来自文本嵌入；具体配置随模型变化。</p>
 <p>跳跃连接把左臂每一级送到右臂同分辨率那一级。⭐ <strong>它用的是拼接，不是残差那种相加</strong>：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 跳跃连接把通道数变成了多少</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -369,14 +368,48 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
       <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">拼接后   &quot;</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">cat</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span> <span class="s2">&quot;← 128 + 64 = 192&quot;</span><span class="p">)</span>
 </code></pre></div>
 
-<div class="codehilite"><pre><span></span><code>编码器 h1 (1, 64, 32, 32)
-瓶颈   h2 (1, 128, 16, 16)
-拼接后    (1, 192, 32, 32) ← 128 + 64 = 192
-</code></pre></div>
-
+<section aria-label="拼接时，先对齐分辨率" class="experiment-result" id="experiment-result-10">
+<h3 id="_3">拼接时，先对齐分辨率</h3>
+<p>这里的形状顺序是（批大小 B，通道 C，高 H，宽 W）。h₂ 先上采样到 32×32，再与 h₁ 沿通道拼接。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>位置</th>
+<th style="text-align: right;">B</th>
+<th style="text-align: right;">C</th>
+<th style="text-align: right;">H</th>
+<th style="text-align: right;">W</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>编码器 h₁</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">64</td>
+<td style="text-align: right;">32</td>
+<td style="text-align: right;">32</td>
+</tr>
+<tr>
+<td>瓶颈 h₂</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">128</td>
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">16</td>
+</tr>
+<tr>
+<td>拼接结果</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">192</td>
+<td style="text-align: right;">32</td>
+<td style="text-align: right;">32</td>
+</tr>
+</tbody>
+</table></div>
+<p>通道相加：<strong>128 + 64 = 192</strong>。这不是把两个张量逐元素相加。</p>
+</section>
 <p>所以解码器每一级的输入通道是「上采样上来的 + 编码器同级存下的」。写代码时最容易在这里对不上。</p>
 <hr />
-<h2 id="_3">✂️ 三、跳跃连接到底救了什么</h2>
+<h2 id="_4">✂️ 三、跳跃连接到底救了什么</h2>
 <p>标准答案是「保留细节」。这句话可以量出来 —— 下面这段几秒钟跑完：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 下采样到底压掉了什么：把细纹和粗块一起送进 8 倍下采样再还原</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -392,24 +425,38 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="n">small</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">avg_pool2d</span><span class="p">(</span><span class="n">img</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span>                                   <span class="c1"># ⭐ 8 倍下采样</span>
 <span class="n">back</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">interpolate</span><span class="p">(</span><span class="n">small</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="n">H</span><span class="p">,</span> <span class="n">H</span><span class="p">),</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;bilinear&quot;</span><span class="p">,</span> <span class="n">align_corners</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 
-<span class="k">def</span><span class="w"> </span><span class="nf">keep</span><span class="p">(</span><span class="n">sig</span><span class="p">):</span>        <span class="c1"># 还原后这部分信号还剩多少（1.0 = 完好，0 = 全没了）</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">keep</span><span class="p">(</span><span class="n">sig</span><span class="p">):</span>        <span class="c1"># 输出沿 sig 方向的投影系数；1.0 不保证逐像素完全还原</span>
     <span class="k">return</span> <span class="nb">float</span><span class="p">((</span><span class="n">back</span> <span class="o">*</span> <span class="n">sig</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">/</span> <span class="p">(</span><span class="n">sig</span> <span class="o">*</span> <span class="n">sig</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span>
 
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;低频（大圆）保留   </span><span class="si">{</span><span class="n">keep</span><span class="p">(</span><span class="n">coarse</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span><span class="n">H</span><span class="p">,</span><span class="n">H</span><span class="p">))</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;高频（细条纹）保留 </span><span class="si">{</span><span class="n">keep</span><span class="p">(</span><span class="n">fine</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span><span class="n">H</span><span class="p">,</span><span class="n">H</span><span class="p">))</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </code></pre></div>
 
-<div class="codehilite"><pre><span></span><code>低频（大圆）保留   0.830
-高频（细条纹）保留 0.0000
-</code></pre></div>
-
-<blockquote>
-<p>⭐ <strong>高频那一行是 <code>0.0000</code>，不是「变小了」，是【一点不剩】。</strong>
-走瓶颈那条路只带得回「这是一只猫、它在画面中间」这类低频信息；
-「猫毛往哪个方向长」在下采样那一步就没了，<strong>再精巧的解码器也变不回来</strong>。</p>
-</blockquote>
-<p>⚠️ 而扩散模型在 <code>t</code> 很小的那几步，干的<strong>正好就是补高频</strong>（轮廓早在大 <code>t</code> 时就定了）。
-所以跳跃连接不是锦上添花，是<strong>去噪这个任务本身要求的</strong>。</p>
+<section aria-label="这次下采样留下了什么" class="experiment-result" id="experiment-result-11">
+<h3 id="_5">这次下采样留下了什么</h3>
+<p>代码的 keep 计算输出在原信号方向上的投影系数，不是通用的信息保留率，也不是能量百分比。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>输入分量</th>
+<th style="text-align: right;">投影系数 keep</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>低频示例：大圆</td>
+<td style="text-align: right;">0.830</td>
+</tr>
+<tr>
+<td>高频示例：细条纹</td>
+<td style="text-align: right;">0.0000</td>
+</tr>
+</tbody>
+</table></div>
+<p>这组交替条纹在 8×8 平均池化时被抵消。结论限定于这里的输入和池化操作。</p>
+</section>
+<p><strong>这组条纹恰好被平均池化抵消了。</strong> 仅凭池化结果，不能唯一恢复原来的细条纹；解码器可以依据学到的规律生成细节，但不等于找回已丢失的原始值。</p>
+<p>U-Net 的跳跃连接提供了绕过低分辨率瓶颈的路径，有助于保留细节。小噪声阶段常需要细致修正，但<strong>不是所有去噪网络都必须有 U-Net 式跳跃连接</strong>；下面的 DiT 就采用不同结构。</p>
 <hr />
 <h2 id="dit-token">🧩 四、DiT：把潜空间切成 token</h2>
 <p>DiT 把整个 U 形扔掉，换成一摞完全一样的 Transformer 块。关键是开头和结尾那两步转换：</p>
@@ -433,17 +480,47 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;拼回去  &quot;</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span> <span class="s2">&quot; 和输入同形 =&quot;</span><span class="p">,</span> <span class="n">out</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
 </code></pre></div>
 
-<div class="codehilite"><pre><span></span><code>潜空间 (1, 4, 32, 32) → token (1, 256, 384)   N = (32//2)×(32//2) = 256
-过完一层 (1, 256, 384)  形状不变，所以能一直堆下去
-拼回去   (1, 4, 32, 32)  和输入同形 = True
-</code></pre></div>
-
-<p>⭐ <strong>patch 边长是这里最贵的旋钮</strong>：边长从 2 减到 1，token 数 256 → 1024（×4），
-而注意力是 token 数的平方 —— 代价 <strong>×16</strong>。<code>DiT-XL/2</code> 那个 <code>/2</code> 说的就是这个数。</p>
-<p><strong><code>t</code> 和 <code>c</code> 怎么进</strong>：不用交叉注意力，而是把两者合成一个向量，去生成每一层 LayerNorm 的缩放平移、以及每个残差分支上的门控系数（adaLN-Zero）。
+<section aria-label="从图像张量到 token，再拼回" class="experiment-result" id="experiment-result-12">
+<h3 id="token">从图像张量到 token，再拼回</h3>
+<p>先看中间两行：Transformer 保持 token 数与每个 token 的维数。输出同形不代表数值还原了输入。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>位置</th>
+<th>形状</th>
+<th>每个维度的含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>潜空间输入</td>
+<td>(1, 4, 32, 32)</td>
+<td>B、C、H、W</td>
+</tr>
+<tr>
+<td>切块并投影</td>
+<td>(1, 256, 384)</td>
+<td>B、token 数、嵌入维数</td>
+</tr>
+<tr>
+<td>过一层 Transformer</td>
+<td>(1, 256, 384)</td>
+<td>B、token 数、嵌入维数</td>
+</tr>
+<tr>
+<td>拼回图像</td>
+<td>(1, 4, 32, 32)</td>
+<td>B、C、H、W</td>
+</tr>
+</tbody>
+</table></div>
+<p>token 数：<strong>N = (32//2) × (32//2) = 256</strong>。形状检查 <strong>True</strong> 只说明维度一致。</p>
+</section>
+<p>保持输入分辨率不变，patch 边长从 2 减到 1，token 数从 <strong>256 变成 1024（×4）</strong>。标准稠密注意力的 N×N 关系规模变为 <strong>×16</strong>；这不等于整个网络的耗时或显存一定 ×16。<code>DiT-XL/2</code> 的 <code>/2</code> 指 patch 边长。</p>
+<p><strong>原始 DiT 的 adaLN-Zero 方案里，<code>t</code> 和 <code>c</code> 怎么进</strong>：不是通过交叉注意力，而是把两者合成一个向量，去生成每一层 LayerNorm 的缩放平移、以及每个残差分支上的门控系数（adaLN-Zero）。
 ⭐ 那个门控是<strong>零初始化</strong>的，训练刚开始时每个块都是恒等映射 —— <strong>下一章 ControlNet 的零初始化卷积是同一个想法</strong>。</p>
 <hr />
-<h2 id="dit">🏁 五、为什么后来是 DiT 赢了</h2>
+<h2 id="dit">🏁 五、为什么考虑 DiT，以及它的代价</h2>
 <p>不是因为「Transformer 比卷积聪明」。三条都很具体：</p>
 <div class="tw"><table>
 <thead>
@@ -455,23 +532,23 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td><strong>scaling 更可预测</strong> ⭐</td>
-<td>加宽、加深、加数据能换回多少收益，Transformer 这条线上有大量现成曲线；U-Net「通道加到多少算够」从来没有类似共识</td>
+<td>加宽、加深、加数据能换回多少收益，Transformer 这条线上有大量现成曲线；是否优于 U-Net 仍要在相近训练预算下比较</td>
 </tr>
 <tr>
 <td><strong>工程栈白捡</strong> ⭐</td>
-<td>FlashAttention、序列并行、混合精度配方、各种融合 kernel —— 都是为语言模型造的，DiT 拿来即用</td>
+<td>FlashAttention、序列并行、混合精度配方、各种融合 kernel —— 可以复用部分 Transformer 工程优化，但并非无需适配</td>
 </tr>
 <tr>
 <td><strong>归纳偏置更少</strong></td>
-<td>数据足够多时「少假设 + 更多数据」通常赢；换分辨率对 DiT 也只是 token 数变了</td>
+<td>局部卷积先验较少，适合探索规模化训练；变分辨率还需核对位置编码、patch 与训练分布</td>
 </tr>
 </tbody>
 </table></div>
-<p>⚠️ <strong>代价很实在</strong>：注意力是平方复杂度，token 一多就付不起。所以 DiT 几乎总是长在<strong>潜空间</strong>里（第 5 章那一套）—— 直接在 512×512 像素上切 patch，token 数是六位数，没人跑得起。<strong>是 Latent Diffusion 先把图压小了，DiT 才成立。</strong>
-💡 所以也不是「U-Net 过时了」：数据少算力少时卷积那两条先验是白送的，老一代开源模型周边的控制生态（下一章的主题）也大多是给 U-Net 写的。<strong>想往大了堆才是 DiT 的主场。</strong></p>
+<p><strong>先算 token 数，再判断是否负担得起。</strong> 512×512 像素按 2×2 patch 切分是 <strong>65536 个 token</strong>，按 16×16 切分则是 <strong>1024 个</strong>，不能笼统说都是六位数。</p>
+<p>原始 DiT 采用潜空间以降低计算量；这是设计选择，不是“没有潜空间就不能做扩散 Transformer”。依据：<a href="https://arxiv.org/abs/2212.09748">DiT 原论文</a>。</p>
 <hr />
-<h2 id="_4">🚧 六、一个特别容易搞混的点</h2>
-<p><strong>DiT 不是「用 Transformer 生成图像」。</strong> 自回归图像生成也用 Transformer —— 把图切成 token 一个接一个地吐 —— 但那是<strong>另一种范式</strong>：</p>
+<h2 id="_6">🚧 六、一个特别容易搞混的点</h2>
+<p><strong>DiT 确实用 Transformer 生成图像，但它不是自回归生成。</strong> 自回归图像生成也用 Transformer —— 把图切成 token 一个接一个地吐 —— 但那是<strong>另一种范式</strong>：</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -489,16 +566,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td>怎么出图</td>
 <td>逐 token 解码</td>
-<td><strong>DDPM / DDIM 那个去噪循环，一行不改</strong></td>
+<td><strong>扩散去噪循环；参数化与采样器必须匹配</strong></td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>⭐ <strong>换主干就像把一段程序里的排序从快排换成归并</strong>：复杂度和常数变了，调用方一个字不用动。
-<strong>DiT 换掉的只是那个预测噪声的函数的实现，扩散那套数学一条都没动。</strong></p>
-</blockquote>
+<p><strong>区分两个问题：网络用什么结构，生成时走什么过程。</strong> DiT 替换的是去噪网络的实现；若训练目标、方差预测或条件接口也改变，调用方与采样端仍需同步适配。</p>
 <hr />
-<h2 id="_5">🔗 这一章连到哪里</h2>
+<h2 id="_7">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -522,30 +596,30 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <hr />
-<h2 id="_6">✅ 检查点</h2>
+<h2 id="_8">✅ 检查点</h2>
 <ol>
 <li>去噪网络的输入有哪三样？输出的形状和谁一样？</li>
-<li>为什么时间步 <code>t</code> 不能只在输入端塞进去一次？</li>
+<li>为什么常在多个网络块中注入时间条件？</li>
 <li>U-Net 的跳跃连接用的是拼接还是相加？这对解码器的通道数有什么影响？</li>
 <li>第三节那段代码里，8 倍下采样之后高频信号保留了多少？这个数说明跳跃连接在防什么？</li>
 <li>DiT 里 patch 边长从 2 减到 1，token 数和注意力代价各变成几倍？</li>
-<li>为什么说「DiT 不是用 Transformer 生成图像」？它又为什么几乎总要配合潜空间？</li>
+<li>DiT 与自回归图像生成有什么不同？潜空间能降低什么开销？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
 <li><code>x_t</code>（带噪图）、<code>t</code>（第几步）、<code>c</code>（条件）。输出和 <code>x_t</code> <strong>同形</strong>，比如 4×64×64 进、4×64×64 出。</li>
-<li>因为 <code>t</code> 要影响<strong>每一层</strong>的行为 —— <code>t</code> 大时该输出接近纯噪声、<code>t</code> 小时只修细节。所以它变成向量后在每个块内部注入（U-Net 加进残差块，DiT 用 adaLN 生成每层的缩放平移）。</li>
+<li>不同噪声水平要求不同的去噪行为。在多个块中注入时间向量是方便各层使用条件的常见设计，但不是所有架构必须遵守的唯一方式。</li>
 <li><strong>拼接</strong>（<code>torch.cat</code>，通道维）。所以解码器每一级的输入通道 = 上采样上来的 + 编码器同级存下的；代码里是 <code>128 + 64 = 192</code>。</li>
-<li><strong><code>0.0000</code>，一点不剩</strong>（同一次实验里低频保留 0.830）。说明瓶颈那条路只带得动低频，高频细节必须绕过瓶颈直接送到解码器 —— 而扩散在 <code>t</code> 小的那几步干的正好是补高频。</li>
-<li>token 数 256 → 1024（<strong>×4</strong>），注意力是 token 数的平方，所以代价 <strong>×16</strong>。<code>DiT-XL/2</code> 的 <code>/2</code> 说的就是 patch 边长。</li>
-<li>因为它<strong>仍然是扩散</strong>：训练目标是预测噪声，出图还是 DDPM/DDIM 那个去噪循环；自回归图像生成的目标是预测下一个 token。至于潜空间：注意力是 token 数的平方复杂度，直接在 512×512 像素上切 patch，token 数是六位数，跑不起 —— <strong>先由 Latent Diffusion 把图压小，DiT 才成立。</strong></li>
+<li>条纹的投影系数为 <strong>0.0000</strong>，大圆为 <strong>0.830</strong>。这组条纹被平均池化抵消，说明下采样可能损失细节；不能推广成所有高频都消失，也不能说所有扩散网络必须有 U-Net 式跳连。</li>
+<li>token 数 <strong>256→1024（×4）</strong>；标准稠密注意力的 N×N 部分为 <strong>×16</strong>，不等于整网成本必定 ×16。<code>/2</code> 是 patch 边长。</li>
+<li>DiT 用 Transformer 实现扩散去噪，自回归模型则逐 token 生成。潜空间减少 token 数和注意力开销；像素空间是否可行还取决于 patch 大小、结构和预算。</li>
 </ol>
 </details>
 <hr />
-<h2 id="_7">🛑 可以停在这里</h2>
+<h2 id="_9">🛑 可以停在这里</h2>
 <p>读到这里，你已经能看懂一份扩散模型配置在说什么：<code>unet</code> 那串通道数是左臂的每一级，<code>attention_resolutions</code> 是注意力插在哪几级，DiT 那边的 <code>patch_size</code> 和 <code>hidden_size</code> 各自在换什么代价。</p>
-<p><strong>什么时候回来</strong>：生成图<strong>大结构对、细节糊</strong>时回看第三节（那通常是跳跃连接这条路上的问题）；要<strong>换分辨率</strong>或<strong>估显存</strong>时回看第四节的 token 数和第五节那条平方复杂度。</p>
+<p><strong>什么时候回来</strong>：生成图<strong>大结构对、细节糊</strong>时回看第三节（跳跃连接是可检查的因素之一，还要排查数据、训练和采样设置）；要<strong>换分辨率</strong>或<strong>估显存</strong>时回看第四节的 token 数和第五节那条平方复杂度。</p>
 <p>⚡ <strong>走神救援</strong></p>
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>U-Net 和 DiT 都实现去噪网络；改变主干不等于改变整个扩散训练目标。</li><li>U-Net 用多尺度与跳跃连接保留信息，DiT 把空间块作为 token 处理。</li><li>核对时间和条件怎样进入各层，再比较形状、计算量与细节保留。</li></ul></section>
 
