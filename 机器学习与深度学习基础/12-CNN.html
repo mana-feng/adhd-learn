@@ -357,7 +357,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>💡 <strong>人话</strong>：一个卷积核就是一个「特征探测器」（比如"检测竖直边缘"），
-<strong>它滑遍整张图，在哪都用同一套标准。</strong> 这就是「平移不变」。</p>
+<strong>它滑遍整张图，在哪都用同一套标准。</strong>这是权重共享。在适当的步幅与边界条件下，输入平移会使特征图相应平移，叫“平移等变”，不等于输出完全不变。</p>
 <h3 id="_3">🧮 算一次参数量，感受一下差距</h3>
 <section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">任务：224×224×3 的图</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">64 个特征图</span></div><div class="vb-flow-row"><span class="vb-flow-step">MLP 做法：150,528 × 64 = 9,633,792 个参数</span></div><div class="vb-flow-row"><span class="vb-flow-step">卷积做法：3×3 × 3(输入通道) × 64 = 1,728 个参数 ⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">少了【5575 倍】</span></div><div class="vb-flow-row"><span class="vb-flow-step">而且卷积的每个参数被复用了 224×224 = 5 万次</span></div></div></section>
 <blockquote>
@@ -368,14 +368,13 @@ CNN 不是"更聪明的 MLP"，而是<strong>一个被"图像的结构"约束过
 </blockquote>
 <h3 id="_4">🎨 多通道是怎么回事（最容易卡住的一点）</h3>
 <section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">输入：H × W × C_in （比如 224×224×3，RGB 三通道）</span></div><div class="vb-flow-row"><span class="vb-flow-step">卷积核：k × k × C_in ← ⭐ 卷积核【也是三维的】，深度必须等于输入通道数</span></div><div class="vb-flow-row"><span class="vb-flow-step">一个核</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">一张 H&#x27;×W&#x27;×1 的特征图</span></div><div class="vb-flow-row"><span class="vb-flow-step">要 C_out 个特征图？</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">用 C_out 个这样的核</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 所以参数量 = k × k × C_in × C_out （+ C_out 个 bias）</span></div></div></section>
-<p>💡 <strong>一句话记住</strong>：<strong>卷积核在空间上滑动，但在通道上是"一次吃掉全部"的。</strong></p>
-<blockquote>
-<p>⭐ <strong>这句话能不能落到代码里，是「懂了」和「以为懂了」的分界</strong>：
-🔗 <a href="附录C-手撕代码速查.html">附录 C 第 7 题</a>用 15 行 numpy 把 <code>conv2d</code> 写出来了（和 <code>F.conv2d</code> 误差 0.0）。
-那一行 <code>np.tensordot(patch, w, axes=([1,2,3],[1,2,3]))</code> 就是「通道一次吃掉全部」的字面翻译。
-顺便还有两个这一节没说的：<strong>输出尺寸公式 $\lfloor(H+2p-k)/s\rfloor+1$</strong>（记不住就用 <code>padding = k//2</code> 配 <code>stride=1</code>，尺寸不变），
-以及<strong>深度学习里的「卷积」严格说是互相关</strong>——数学上的卷积要先把核翻转 180°，框架都没翻。<strong>主动说出这条是加分项。</strong></p>
-</blockquote>
+<p>💡 <strong>普通卷积（groups=1）</strong>在空间上滑动，一个输出通道会对全部输入通道加权求和。分组卷积的连接范围不同。</p>
+<p>想对应到代码，可以看<a href="附录C-手撕代码速查.html">附录 C 第 7 题</a>。其中 <code>np.tensordot(patch, w, axes=([1,2,3],[1,2,3]))</code> 把普通卷积窗口中的空间和输入通道一起求和；该示例与 <code>F.conv2d</code> 的历史对拍误差为 0.0，不是所有环境的逐位保证。</p>
+<ul>
+<li><strong>分组边界：</strong>这里描述的是 <code>groups=1</code> 的普通卷积。分组或深度卷积并非每个核都连接所有输入通道。</li>
+<li><strong>尺寸边界：</strong>$\lfloor(H+2p-k)/s\rfloor+1$ 假设 dilation=1、两侧填充相同；奇数核再配 stride=1、padding=k//2，才可用这里的尺寸不变结论。</li>
+<li><strong>运算约定：</strong><a href="https://docs.pytorch.org/docs/stable/generated/torch.nn.Conv2d.html">PyTorch Conv2d</a>计算的是互相关，不会先把核翻转；数学卷积的定义不同。</li>
+</ul>
 <hr />
 <h2 id="_5">🎛️ 三、四个必须懂的超参</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>

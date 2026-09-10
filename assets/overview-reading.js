@@ -15,7 +15,12 @@
   const key='overview-reading:v1:'+decodeURI(location.pathname),status=route.querySelector('.ov-save-status');
   function resume(id){const target=targets.find(t=>t?.id===id);if(!target)return;const a=document.createElement('a');a.href='#'+id;a.textContent='回到上次记下的位置';status.append(' ',a);}
   try{resume(localStorage.getItem(key));}catch(_){status.textContent='无法读取保存位置；可用章节链接作书签。';}
-  root.querySelector('.ov-save').addEventListener('click',()=>{update();if(!targets[current])return;try{localStorage.setItem(key,targets[current].id);status.textContent='已记住：'+links[current].textContent;resume(targets[current].id);}catch(_){status.textContent='未保存：浏览器存储不可用。请复制本节链接。';}});
+  // On narrow screens the rail is above the article. Saving from there would
+  // otherwise capture the page top after the reader scrolls back to the control.
+  const floating=document.createElement('button');floating.type='button';floating.className='ov-save-floating';floating.textContent='记住当前小节';document.body.append(floating);
+  const feedback=document.createElement('p');feedback.className='ov-save-feedback';feedback.setAttribute('role','status');document.body.append(feedback);let feedbackTimer;
+  function savePosition(){update();if(!targets[current])return;let message;try{localStorage.setItem(key,targets[current].id);message='已记住：'+links[current].textContent;status.textContent=message;resume(targets[current].id);}catch(_){message='未保存：浏览器存储不可用。请复制本节链接。';status.textContent=message;}feedback.textContent=message;feedback.classList.add('is-visible');clearTimeout(feedbackTimer);feedbackTimer=setTimeout(()=>feedback.classList.remove('is-visible'),3500);}
+  root.querySelector('.ov-save').addEventListener('click',savePosition);floating.addEventListener('click',savePosition);
   root.querySelectorAll('.ov-choice,.ov-score').forEach(choice=>{
     const fields=[...choice.querySelectorAll('input,textarea,select')],s=choice.querySelector('.ov-choice-status');
     const stateKey=key+(choice.classList.contains('ov-score')?':scores':':choice');
@@ -26,6 +31,8 @@
   });
   const R=s=>s.replaceAll('@','\\');
   const definitions={
+    kl:[['P(x)','加权概率','结果 x 在 P 中出现的概率。','本式按 P 加权；不是把每个结果的对数比等权相加。概率总和必须为 1，一个零项不表示总 KL 不受其他项影响。','P=(0.5,0.5) 时，两项权重各为一半。'],['@log_2@frac{P(x)}{Q(x)}','当前结果的对数概率比','比较两种分布对同一个结果给出的概率，并取以 2 为底的对数。','它与前面的 P(x) 相乘后参与求和；单项可以为负，非负的是总 KL，单位为比特。','P(x)=0.5、Q(x)=0.25 时，对数比是 1；再乘权重 0.5，这一项贡献 0.5 比特。']],
+    lora:[['Wx','基础层的输出','原权重矩阵 W 与输入向量 x 相乘。','它给出原层的输出；本式再加上右边的低秩旁路。','W 为 2×2 单位矩阵，x=(2,3)，则 Wx=(2,3)。'],['B(Ax)','低秩旁路的输出','先用 A 将输入映射到 r 维，再用 B 映射回输出维度。','B(Ax) 与 Wx 都是输出向量；能与 W 相加的是权重改变量 BA，不是 B(Ax)。本页缩放取 1。','A=(1,0)、B=(0,1) 的转置，x=(2,3)，则 Ax=2、B(Ax)=(0,2)，合计 y=(2,5)。']],
     dot:[['a_i b_i','同一位置的两个数相乘','把两个向量第 i 个位置配成一对。','本式先逐位置相乘，再把所有乘积相加；长度不同不能这样配对。','(1,2) 与 (3,4) 的两项是 1×3 和 2×4，合计 11。'],['@sum_{i=1}^{d}','逐项求和','从第 1 个位置一直加到第 d 个位置。','它把 d 个乘积压成一个匹配分，不直接输出概率。','d=2 时只加两项；它不是将两个向量拼接。']],
     cosine:[['a@cdot b','点积：分子','逐位置相乘后求和。','提供方向与长度共同影响的匹配分；还需除以下面的长度乘积。','(1,0) 与 (-1,1) 的点积是 -1。'],['@lVert a@rVert@lVert b@rVert','两个向量长度的乘积','分别算长度，再相乘。','对非零向量消除整体尺度，得到只与夹角有关的余弦；任一向量为零时这个式子未定义。','(100,0) 与 (0,1) 的长度乘积是 100，但点积为 0，余弦仍为 0。']],
     softmax:[['e^{x_i}','当前候选的正数权重','把候选 i 的分数取指数。','分数差被变成权重比；还不是最终概率，必须除以总和。','分数相差 1 时，未归一化权重之比是 e，约 2.718。'],['@sum_j e^{x_j}','所有候选的权重总和','每个候选都取指数，再相加。','本式用同一个分母归一化，使各概率之和为 1。实际计算通常先减去最大分数，避免溢出。','两个相同分数得到相同权重，各占总和的一半。']],

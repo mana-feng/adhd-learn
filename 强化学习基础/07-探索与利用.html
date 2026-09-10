@@ -489,33 +489,51 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <hr />
 <h2 id="rlhf">🤖 六、这一章在 RLHF 里的样子</h2>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>语言模型生成时的 temperature / top-p，就是探索利用！</p><p>temperature = 0 → 纯利用（每次都选概率最高的 token）</p><p>temperature 高 → 更多探索</p><p>⭐ RLHF 训练时必须保持一定随机性，否则：</p><p>· 采不到多样的回答 → 奖励模型只能看到一种风格</p><p>· 策略迅速塌缩到单一模式（mode collapse）</p></div></section>
-<blockquote>
-<p>⚠️ <strong>上面这句「top-p 就是探索利用」是个结论，但这一章从头到尾没说 top-p 到底是什么。</strong>
-🔗 补上那一半：<a href="../大模型全景导论/06b-解码策略.html">全景导论 06b · 解码策略</a>。
-</p>
-</blockquote>
-<p>那一章讲的正是这里的对偶面——<strong>top-k 是「候选池固定大小」，top-p 是「候选池按累积概率动态伸缩」</strong>，</p>
-<blockquote>
-<p>所以模型很确定时 top-p 自动收成近乎 greedy（利用），模型犹豫时自动放宽（探索）：
-⭐ <strong>它比 temperature 更像一个「自适应的 ε」</strong>，这是把这一章的老虎机直觉搬到 LLM 上时最该知道的一件事。
-</p>
-</blockquote>
-<p>那边还写了 temperature / top-k / top-p 三个旋钮<strong>同时开</strong>时的作用顺序，以及复读机该用 repetition penalty 还是调 top-p。</p>
-<blockquote>
-<p>🔗 <strong>这解释了<a href="../大模型全景导论/04-训练三阶段.html">全景导论主线 4 · 它怎样从续写机变助手</a>里那个现象</strong>：
-<strong>RLHF 训久了模型会变得"无聊"、回答趋同</strong> ——
-那正是探索不足导致的策略塌缩。<strong>KL 惩罚（第 11、12 章）是用来把模型拴在 SFT 附近的。</strong></p>
-<p>⚠️ <strong>但别指望那个 KL 惩罚能拦住 mode collapse ——这是最容易搞反的一处。</strong>
-RLHF 罚的是<strong>反向 KL</strong>：$\text{KL}(\pi_\theta\,\|\,\pi_{SFT})$，$\pi_\theta$ 在<strong>分子</strong>。
-展开看就明白它在罚什么：$\pi_{SFT}$ 概率接近 0 而 $\pi_\theta$ 还给了概率的地方，$\log$ 里的比值爆炸 → <strong>罚得极重</strong>；
-反过来，$\pi_{SFT}$ 概率很高而 $\pi_\theta$ 已经塌到 0 的地方，整项被前面的 $\pi_\theta$ 乘成 0 → <strong>一分钱不罚</strong>。
-而 mode collapse 恰恰是后一种：<strong>模型没有跑出去，它是缩回来了</strong>——把 SFT 的其他峰全丢掉，只钻进一个。
-⭐ <strong>所以「反向 KL 是 mode-seeking 的」不是学术八股，它就是「RLHF 训久了变无聊」的数学解释</strong>：
-你用来防塌缩的那一项，本身就偏爱塌缩。真要对抗它得靠别的（保温度、熵正则、限制训练轮数）。
-🔗 <a href="../机器学习的数学原理/01b-KL散度.html">数学原理 01b · KL 散度</a> 是这个「前向铺开 / 反向找峰」的正式出处——
-<strong>KL 在这套教程里被引用了六次（这里、第 11、12、13 章，蒸馏，变分推断），那一章是它唯一被定义的地方。</strong></p>
-</blockquote>
+<p><strong>生成的随机性可以增加候选覆盖，但不等于已经完成了强化学习中的探索。</strong>还需要反馈、目标与更新机制。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>生成设置</th>
+<th>它改变什么</th>
+<th>不能直接等同什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>temperature</td>
+<td>调整 logits 的相对尺度，影响采样分布</td>
+<td>温度越高，学习就一定越有效</td>
+</tr>
+<tr>
+<td>top-k</td>
+<td>保留概率最高的固定数量候选</td>
+<td>固定比例的随机探索</td>
+</tr>
+<tr>
+<td>top-p</td>
+<td>按累积概率保留候选集合</td>
+<td>ε-贪心或“自适应的 ε”</td>
+</tr>
+<tr>
+<td>greedy</td>
+<td>每步取最高分候选</td>
+<td>找到整段回答的全局最优，或最高真实奖励</td>
+</tr>
+</tbody>
+</table></div>
+<p>有些接口把 temperature=0 作为贪心模式的约定；它不是直接把温度公式的分母设为 0。参数具体语义及组合顺序需核对实现，见<a href="../大模型全景导论/06b-解码策略.html">解码策略</a>。</p>
+<h3 id="rlhf-diversity">回答变雷同，先检查发生了什么</h3>
+<p>在一些 RLHF 设置中，策略向高奖励回答集中，可能降低多样性；也可能受到数据、解码与训练实现影响。不能只凭“训得久”就定因。</p>
+<ol>
+<li>固定评估提示与解码设置，比较训练前后的任务质量和多样性。</li>
+<li>同时看奖励、参考策略 KL、熵或覆盖指标。</li>
+<li>再分别检查奖励设计、KL 强度、采样与训练长度；保留对照，不直接认定某个调参方案一定有效。</li>
+</ol>
+<h3 id="rlhf-kl-cost">KL 不是“遗漏一个模式免费”</h3>
+<p>一些目标使用 $D_{KL}(\pi_\theta\|\pi_{SFT})$，按当前策略加权。某个位置的当前概率为 0 时，该求和项为 0；但概率归一化会影响其他位置。</p>
+<p>例如参考策略为 (0.5,0.5)，当前策略为 (1,0)，以 2 为底计算的 KL 是 <strong>1 比特，不是 0</strong>。</p>
+<p>奖励项可能推动集中，KL 项对偏离收取代价；最终取决于它们的权衡。不能断言 KL 完全阻止塌缩，也不能说它对塌缩没有惩罚。</p>
+<p>数值推导见<a href="../机器学习的数学原理/01b-KL散度.html">数学原理 01b</a>。参考策略的概率很低，也不严格等于“奖励模型从没见过这种输出”。</p>
 <hr />
 <h2 id="_4">🔗 七、和站内其他章的关系</h2>
 <div class="tw"><table>
@@ -540,11 +558,11 @@ RLHF 罚的是<strong>反向 KL</strong>：$\text{KL}(\pi_\theta\,\|\,\pi_{SFT})
 </tr>
 <tr>
 <td><a href="../大模型全景导论/06b-解码策略.html">全景导论 06b · 解码策略</a></td>
-<td>LLM 的 temperature / top-k / top-p 是<strong>探索利用的生成版</strong> ⭐。这一章讲「为什么要探索」，那一章讲<strong>这三个旋钮各自怎么调、同时开时谁先生效</strong></td>
+<td>生成参数影响候选覆盖，但不等同完整探索算法；去那里核对三个旋钮的作用与实现顺序</td>
 </tr>
 <tr>
 <td><a href="../机器学习的数学原理/01b-KL散度.html">数学原理 01b · KL 散度</a></td>
-<td>第六节那个「反向 KL 罚不到 mode collapse」的正式解释。<strong>前向 KL 铺开、反向 KL 找峰</strong></td>
+<td>核对方向、归一化与正则代价；择峰是受限近似中的倾向，不是零惩罚定律</td>
 </tr>
 <tr>
 <td>A/B 测试</td>
@@ -552,7 +570,7 @@ RLHF 罚的是<strong>反向 KL</strong>：$\text{KL}(\pi_\theta\,\|\,\pi_{SFT})
 </tr>
 <tr>
 <td><a href="../科学问题怎么变成模型/08-数据实验模型飞轮.html">科学问题怎么变成模型 08 · 飞轮</a></td>
-<td>⭐ <strong>探索与利用在真实实验室里的样子</strong>：一次「试探」是一次几千块的湿实验。那一章把 <code>预测值 + κ × 不确定性</code> 直接跑了出来 —— 贪心 2/8，UCB 8/8</td>
+<td>用合成函数比较采样策略：8 个种子、每次 25 轮，贪心 2/8、UCB 8/8 进入目标邻域；不是实际湿实验成功率</td>
 </tr>
 </tbody>
 </table></div>
@@ -566,7 +584,7 @@ RLHF 罚的是<strong>反向 KL</strong>：$\text{KL}(\pi_\theta\,\|\,\pi_{SFT})
 <li>工业界为什么常选 Thompson Sampling 而不是 UCB？</li>
 <li>为什么有状态的 MDP 里探索难得多？</li>
 <li>参数空间噪声比动作噪声好在哪？</li>
-<li>LLM 的 temperature 和这一章什么关系？RLHF 训久了变无聊是为什么？</li>
+<li>生成参数与探索有什么联系和区别？为什么不能说反向 KL 对模式集中完全不罚？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
@@ -578,7 +596,7 @@ RLHF 罚的是<strong>反向 KL</strong>：$\text{KL}(\pi_\theta\,\|\,\pi_{SFT})
 <li><strong>并行/延迟反馈友好</strong>。推荐里同时给一万人发推荐、反馈几分钟后才回来，UCB 是确定性的会给所有人推同一个，Thompson 天然给每人抽不同的样，探索自动分散。</li>
 <li>因为有些状态要走 20 步才到，<strong>随机探索几乎不可能走到</strong>。如 Montezuma's Revenge 需要"拿钥匙→开门→下楼梯"一长串正确动作才有奖励，纯 ε-贪心训几亿帧得分 0。</li>
 <li>动作噪声 = "每步都可能手抖"；<strong>权重噪声 = "这一整局我是个略微不同的智能体"</strong>，产生的探索行为是连贯的，能走出很长的新路径。</li>
-<li><strong>temperature 就是探索利用</strong>：temperature=0 是纯利用。RLHF 训久了变无聊是探索不足导致的策略塌缩（mode collapse）。⚠️ KL 惩罚拦不住它——KL 惩罚管的是「别跑出 SFT 的范围」，而 mode collapse 是缩回来不是跑出去。RLHF 用的是反向 KL（$\pi_\theta$ 在分子），$\pi_\theta$ 已经塌到 0 的地方整项被乘成 0，一分钱不罚。你用来防塌缩的那一项，本身就偏爱塌缩。真要对抗得靠保温度、熵正则、限制训练轮数。</li>
+<li>temperature、top-k、top-p 影响候选覆盖，但没有单独给出反馈与学习机制。若多样性下降，应联合核对奖励、KL、熵、解码与训练变化。一个零项不等于总 KL 为零；参考 (0.5,0.5) 与当前 (1,0) 的反向 KL 是 1 比特。</li>
 </ol>
 </details>
 <hr />

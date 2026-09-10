@@ -309,34 +309,23 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⏱ <strong>26 分钟</strong> ｜ ⭐ <strong>"能不能不用 RL"</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p>RLHF 又贵又难调（四个模型、超参敏感、奖励攻击）。
-<strong>DPO 证明了一件让人意外的事：那个"训奖励模型 + 跑 PPO"的两步流程，
-在数学上等价于一个可以直接做的监督学习损失。</strong></p>
+<p><strong>DPO 用已有的偏好对直接训练策略，不必单独拟合奖励模型再运行 PPO。</strong>它利用带 KL 正则目标与偏好模型之间的关系构造损失；不表示任意数据与训练设置下，DPO 和 PPO 的结果都相同。</p>
 <hr />
 <h2 id="_2">💡 一、核心洞察</h2>
 <section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>RLHF 的目标（第 11、12 章）：</p><p>max E[r(x,y)] − β·KL(π ‖ π_ref)</p><p>↑ 奖励高 ↑ 别离参考模型太远</p></div></section>
-<p><strong>这个带 KL 约束的优化问题，有一个闭式最优解</strong>：</p>
+<p>对固定提示 x、给定奖励 r、β&gt;0，并且归一化常数有限时，在参考策略允许的支持范围内自由选择策略，可得到以下闭式最优解。参数化神经网络未必能精确达到它。</p>
 <p>$$\pi^*(y|x) = \frac{1}{Z(x)}\,\pi_{ref}(y|x)\,\exp\Big(\frac{1}{\beta}r(x,y)\Big)$$</p>
-<blockquote>
-<p>🔗 <strong>这个闭式解不是变出来的，它是 KL 的定义直接推出来的</strong>：
-<a href="../机器学习的数学原理/01b-KL散度.html">数学原理 01b · KL 散度</a>。
-⭐ 值得专门去一趟，因为<strong>整章 DPO 的推导都站在「$\text{KL}$ 里那个 $\log\frac{\pi}{\pi_{ref}}$」上</strong>——
-你看到的 $\beta\log\frac{\pi^*}{\pi_{ref}}$ 就是 KL 被积分号里那一项原样搬出来的，
-知道这一点之后「奖励 = 对数比」就从「一个巧合」变成「本来就该这样」。
-那一章还会告诉你这里的 $\text{KL}(\pi\|\pi_{ref})$ 是<strong>反向</strong> KL（$\pi$ 在分子，罚的是「跑出 $\pi_{ref}$ 的支撑集」），
-所以它约束的是「别乱说」，<strong>不约束「别变单调」</strong>——这是 DPO 和 RLHF 共享的一个盲区。</p>
-</blockquote>
+<p>先看两个部分：参考策略给出原来的概率；指数项按奖励重新加权；Z(x) 再把总和归一化为 1。</p>
+<p>KL 的定义与归一化条件共同参与这个推导，不是只把对数比从式子里搬出来。原始推导见 <a href="https://arxiv.org/abs/2305.18290">DPO 论文</a>，基础概念见<a href="../机器学习的数学原理/01b-KL散度.html">数学原理 01b</a>。</p>
+<p>反向 KL 对偏离参考策略收取代价，<strong>不等于对模式集中零惩罚</strong>。最终多样性还取决于奖励、正则强度、数据与训练过程，不能单由方向下结论。</p>
 <p>把它反过来解出 r：</p>
 <p>$$r(x,y) = \beta\log\frac{\pi^*(y|x)}{\pi_{ref}(y|x)} + \beta\log Z(x)$$</p>
 <section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⭐ 这一步是全部的关键：</span></div><div class="vb-flow-row"><span class="vb-flow-step">「奖励函数」可以用「最优策略和参考策略的对数比」表示出来</span></div><div class="vb-flow-row"><span class="vb-flow-step">也就是说，【策略本身就隐含了一个奖励模型】</span></div><div class="vb-flow-row"><span class="vb-flow-step">那还训练什么奖励模型？直接优化策略就行了 ⭐</span></div></div></section>
 <p><strong>代入 Bradley–Terry 损失</strong>（<a href="12-RLHF全流程.html">第 12 章</a>），那个讨厌的 $Z(x)$ <strong>正好抵消</strong>：</p>
 <p>$$L_{DPO} = -\log\sigma\Big(\beta\log\frac{\pi_\theta(y_w|x)}{\pi_{ref}(y_w|x)} - \beta\log\frac{\pi_\theta(y_l|x)}{\pi_{ref}(y_l|x)}\Big)$$</p>
 <p>💡 <strong>人话翻译</strong>：</p>
-<blockquote>
-<p><strong>提高"好回答相对参考模型的概率"，
-同时压低"差回答相对参考模型的概率"。</strong>
-就这一个损失，不需要奖励模型，不需要采样，不需要 PPO。</p>
-</blockquote>
+<p>这条损失推动“偏好回答相对非偏好回答的对数概率差”，相对于参考策略变大；不保证两个回答的绝对概率一定一升一降。</p>
+<p>标准离线 DPO 在这一步使用已有偏好对，不需在线生成回答来计算该损失，也不需要单独的奖励模型或 PPO。偏好数据的收集仍可能包含生成与人工判断。</p>
 <hr />
 <h2 id="_3">🔨 二、实现有多简单</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># DPO 的全部核心</span>
