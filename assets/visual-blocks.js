@@ -333,10 +333,43 @@
     });
   }
 
+  // Legacy rows are not always a three/five-cell relation. Keep every authored
+  // node in order; never let a text node occupy a 22px arrow column.
+  function normalizeFlowRows(root) {
+    var style = document.createElement("style");
+    style.textContent = '.visual-block-flow .vb-flow-row.vb-flow-wide{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}.vb-flow-wide>.vb-flow-unit{display:flex;align-items:flex-start;gap:10px;flex:1 1 200px;min-width:0}.vb-flow-wide .vb-flow-unit>.vb-flow-step{flex:1;min-width:0;overflow-wrap:anywhere}.vb-flow-wide .vb-flow-unit>.vb-flow-arrow{flex:0 0 22px}.visual-block-flow .vb-flow-row.vb-flow-empty{display:none}@media(max-width:640px){.visual-block-flow .vb-flow-row.vb-flow-wide{flex-direction:column;align-items:stretch;gap:12px}.vb-flow-wide>.vb-flow-unit{flex:0 0 auto;flex-direction:column}.vb-flow-wide .vb-flow-unit>.vb-flow-arrow{flex:0 0 auto;transform:rotate(90deg)}}';
+    document.head.appendChild(style);
+    root.querySelectorAll('.visual-block-flow .vb-flow-row').forEach(function(row) {
+      if (!row.textContent.trim()) { row.classList.add('vb-flow-empty'); return; }
+      var label = row.closest('.visual-block-flow').getAttribute('aria-label');
+      if (label !== '信息关系' && label !== '因果链') return;
+      var children = Array.from(row.children), limit = label === '信息关系' ? 3 : 5;
+      var fits = children.length <= limit && children.every(function(child, i) {
+        return child.classList.contains(i % 2 ? 'vb-flow-arrow' : 'vb-flow-step');
+      });
+      if (fits || row.classList.contains('vb-flow-wide')) return;
+      row.classList.add('vb-flow-wide');
+      var pending = [];
+      children.forEach(function(child) {
+        pending.push(child);
+        if (child.classList.contains('vb-flow-step')) {
+          var unit = document.createElement('span'); unit.className = 'vb-flow-unit';
+          pending.forEach(function(node) { unit.appendChild(node); });
+          row.appendChild(unit); pending = [];
+        }
+      });
+      if (pending.length) {
+        var unit = document.createElement('span'); unit.className = 'vb-flow-unit';
+        pending.forEach(function(node) { unit.appendChild(node); }); row.appendChild(unit);
+      }
+    });
+  }
+
   function run() {
     addStyles();
     var root = document.querySelector("main") || document.body;
     Array.prototype.forEach.call(root.querySelectorAll("pre > code"), transform);
+    normalizeFlowRows(root);
     wrapTables(root);
     splitLongBlogProse(root);
   }
