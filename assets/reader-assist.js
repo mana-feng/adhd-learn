@@ -6,6 +6,8 @@
   function addStyles() {
     var style = document.createElement("style");
     style.textContent = [
+      // Zero specificity lets chapter-specific offsets keep precedence.
+      ":where(main h2[id],main h3[id],main h4[id],main span[id]){scroll-margin-top:90px;}",
       ".reader-rescue{margin:1em 0 1.45em;padding:1em 1.15em 1.1em;border:1px solid var(--border);border-left:5px solid var(--accent);border-radius:0 12px 12px 0;background:var(--card);box-shadow:var(--shadow);}",
       ".reader-rescue-intro{margin:0 0 .45em;font-weight:700;color:var(--accent);}",
       ".reader-rescue ol{margin:.2em 0 0;padding-left:1.55em;}",
