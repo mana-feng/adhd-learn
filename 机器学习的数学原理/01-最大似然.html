@@ -296,9 +296,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#_2">🧠 一、先建立直觉</a></li>
 <li><a href="#_4">📐 二、数学形式</a></li>
 <li><a href="#mle">⭐ 三、高光时刻：最小二乘 = 高斯噪声下的 MLE</a></li>
-<li><a href="#mle_1">🎲 四、第二个例子：交叉熵 = 伯努利分布下的 MLE</a></li>
+<li><a href="#mle_1">🎲 四、二分类交叉熵：来自伯努利似然</a></li>
 <li><a href="#_9">📋 五、损失函数速查：每一个背后的分布假设</a></li>
-<li><a href="#mle_2">⚠️ 六、MLE 的三个毛病</a></li>
+<li><a href="#mle_2">⚠️ 六、MLE 之后还要做的三个检查</a></li>
 <li><a href="#_11">🔗 七、和站内其他章的关系</a></li>
 <li><a href="#_12">✅ 检查点</a></li>
 <li><a href="#_13">🛑 可以停在这里</a></li>
@@ -306,83 +306,89 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="01">01 · 最大似然：最小二乘的真身</h1>
-<p>⏱ <strong>28 分钟</strong> ｜ ⭐ <strong>一把钥匙开一堆锁</strong></p>
+<p>⏱ <strong>28 分钟</strong> ｜ 时间仅供参考，可以分几次读完。</p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>最大似然（MLE）= 挑一组参数，让「你实际看到的这批数据」发生的概率最大。</strong>
-它是一个原则，不是一个算法——<strong>而机器学习里几乎所有损失函数，都是它推出来的。</strong></p>
+<p><strong>最大似然（MLE）是在选参数：固定已经观察到的数据，比较哪些参数让这份观测的似然更大。</strong></p>
+<p>硬币结果是离散的，可以直接比较概率；身高、温度等连续量，要比较<strong>概率密度</strong>。它是选参数的原则，不是具体求解算法。</p>
+<p>本章用一枚硬币、一次回归和一个分类例子，解释平方误差、交叉熵怎样从概率模型中得到。<strong>不是所有训练目标都必须来自 MLE。</strong></p>
+<p>先按需要选入口：</p>
+<ul>
+<li>第一次见这个词：从下面的硬币开始。</li>
+<li>只想知道平方从哪里来：看<a href="#_6">建模假设与结论</a>。</li>
+<li>已会训练、想知道哪里会误判：看<a href="#mle_2">三个需要补做的检查</a>。</li>
+</ul>
 <hr />
 <h2 id="_2">🧠 一、先建立直觉</h2>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>你捡到一枚硬币，抛 10 次，8 次正面。</p><p>问：这枚硬币正面朝上的概率 p 是多少？</p><p>你脱口而出：0.8</p><p>⭐ 但你有没有想过，你凭什么这么答？</p></div></section>
-<p>你其实做了这样一件事：</p>
+<p>你捡到一枚硬币，抛 10 次，8 次正面。我们假设各次投掷独立，且每次正面概率都是同一个 $p$。</p>
+<p><strong>先比较候选值，不急着求导。</strong>表里问的是：如果某个 $p$ 是真的，出现“10 次里恰好 8 次正面”的概率有多大？</p>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>假设 p 是</th>
-<th>出现「10次里8次正面」的概率</th>
+<th style="text-align: right;">恰好 8 次正面的概率</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>0.5</td>
-<td>4.4%</td>
+<td style="text-align: right;">约 4.4%</td>
 </tr>
 <tr>
 <td>0.7</td>
-<td>23.4%</td>
+<td style="text-align: right;">约 23.3%</td>
 </tr>
 <tr>
 <td><strong>0.8</strong></td>
-<td><strong>30.2%</strong> ⭐ 最大</td>
+<td style="text-align: right;"><strong>约 30.2%</strong></td>
 </tr>
 <tr>
 <td>0.9</td>
-<td>19.4%</td>
+<td style="text-align: right;">约 19.4%</td>
 </tr>
 </tbody>
 </table></div>
-<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">挑那个让&quot;我看到的数据&quot;最可能发生的 p</span></div></div></section>
-<p>💡 <strong>这就是最大似然的全部思想</strong>：</p>
-<blockquote>
-<p><strong>不问「真相是什么」，只问「哪个假设最能解释我看到的东西」。</strong></p>
-</blockquote>
+<p>0.8 在这些候选里最好。下面的公式还能确认：它也是整个 $[0,1]$ 范围的最优点，而不只是表里四选一。</p>
+<details>
+<summary>想复算：45 从哪里来，为什么最大值在 0.8？</summary>
+<p>这里记录的是<strong>正面总次数</strong>。8 个正面可出现在 10 个位置中的任意 8 个，共 $\binom{10}{8}=45$ 种顺序。</p>
+<p>$$L(p)=45p^8(1-p)^2$$</p>
+<p>若记录的是某一条确定的正反面顺序，似然没有前面的 45。这个因子不随 $p$ 变化，所以两种记录得到同一个 MLE。</p>
+<p>对 $0&lt;p&lt;1$ 求对数再求导：</p>
+<p>$$\ell'(p)=\frac8p-\frac2{1-p}$$</p>
+<p>令它为 0，得到 $8(1-p)=2p$，所以 $\hat p=0.8$。导数在 0.8 左侧为正、右侧为负；两个端点的似然都是 0，因此这是全局最大值。</p>
+</details>
+<p><strong>这个结果是估计，不是“真相已经确定”。</strong>10 次观察仍可能来自正面概率为 0.7 的硬币；MLE 只是按当前模型与数据选择最优参数。</p>
 <h3 id="_3">⚠️ 一个必须分清的概念</h3>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>似然 L(θ) = p(数据 | 参数) ← 参数已知，问数据出现的概率</p><p>后验 p(参数 | 数据) ← 数据已知，问参数的概率</p><p>⭐ 它们【不是】一回事，方向是反的</p><p>MLE 最大化的是【似然】；下一章的 MAP 才涉及后验</p></div></section>
-<p>为什么这个区分重要：似然<strong>不是概率分布</strong>（对 θ 积分不等于 1），
-所以「p=0.8 的似然是 30.2%」<strong>不能</strong>读成「p 是 0.8 的概率有 30.2%」。</p>
+<p><strong>似然：数据固定，参数在变。</strong>记作 $L(\theta)=p(D\mid\theta)$；这里的 $\theta$ 是待比较的参数，例如硬币的 $p$。</p>
+<p><strong>后验：给定数据后，参数的概率分布。</strong>记作 $p(\theta\mid D)$；它还要结合先验，下一章再讲。</p>
+<p>同一个 $p(D\mid\theta)$，固定参数、让数据变化时是数据的概率模型；<strong>称它为似然时，我们恰好反过来固定数据、比较参数。</strong></p>
+<p>似然通常没有按参数归一化，因此不能直接当成参数的概率分布。说“$p=0.8$ 时，这次计数的似然约为 30.2%”，不等于说“硬币参数为 0.8 的概率是 30.2%”。</p>
+<h3 id="mle-density">连续数据：密度不是某个精确值的概率</h3>
+<p>在连续模型里，恰好取某一个精确数值的概率通常为 0；区间内的概率才由密度积分得到。</p>
+<p>例如标准正态在 0 处的密度约为 0.399。<strong>它不是“取到 0 的概率为 39.9%”。</strong>密度甚至可以大于 1：均匀分布在 $[0,0.1]$ 上时，密度是 10，但整个区间的概率仍是 1。</p>
+<p>连续量的 MLE 比较的是观测点处的联合密度，而不是把每个精确值的概率 0 乘起来。</p>
 <hr />
 <h2 id="_4">📐 二、数学形式</h2>
-<p>给定数据 $D = \{x_1,...,x_n\}$ 和参数 $\theta$：</p>
-<p>$$\hat\theta_{MLE} = \arg\max_\theta \; \underbrace{p(D \mid \theta)}_{\text{似然}} = \arg\max_\theta \prod_{i=1}^n p(x_i\mid\theta)$$</p>
-<p>💡 <strong>人话</strong>：<em>把每个样本出现的概率乘起来（假设样本独立），挑让这个乘积最大的 θ。</em></p>
-<p>实践中都取对数：</p>
-<p>$$\hat\theta = \arg\max_\theta \sum_{i=1}^n \log p(x_i\mid\theta)$$</p>
-<p>取对数的三个理由：</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>理由</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>降低连乘下溢风险</strong></td>
-<td>乘积可能小到当前浮点类型表示不了；什么时候变成 0，要看类型和因子个数</td>
-</tr>
-<tr>
-<td>连乘变连加</td>
-<td>求导容易得多</td>
-</tr>
-<tr>
-<td>不改变最优解</td>
-<td>log 是单调递增的</td>
-</tr>
-</tbody>
-</table></div>
+<p>给定数据 $D=(x_1,\ldots,x_n)$ 和参数 $\theta$，先写出似然，再寻找它的最大点：</p>
+<p>$$L(\theta)=p(D\mid\theta)$$</p>
+<p>$$\hat\theta_{\mathrm{MLE}}=\arg\max_\theta L(\theta)$$</p>
+<p><strong>$\arg\max$ 返回使目标最大的参数，不是最大似然值本身。</strong>在这里，$p$ 统一表示离散概率或连续密度。</p>
+<p>当样本在给定参数后独立时，联合似然可分解为：</p>
+<p>$$L(\theta)=\prod_{i=1}^n p(x_i\mid\theta)$$</p>
+<p>如果数据有依赖，不能直接使用这个独立连乘式；应写对应的联合模型，或按条件概率链式分解。</p>
+<p>实践中通常最大化对数似然：</p>
+<p>$$\ell(\theta)=\sum_{i=1}^n\log p(x_i\mid\theta)$$</p>
+<p>$$\hat\theta=\arg\max_\theta\ell(\theta)$$</p>
+<p>取对数有三个好处：</p>
+<ol>
+<li><strong>降低连乘下溢风险。</strong>很多小数相乘可能超出浮点数能表示的范围。</li>
+<li><strong>乘法变加法。</strong>求导和实现常常更方便。</li>
+<li><strong>保持最优参数。</strong>对数严格单调递增；似然为 0 时可把对数记作 $-\infty$。</li>
+</ol>
 <h3 id="_5">先看一个能复现的数值例子</h3>
 <p><span id="audit-mle-underflow"></span></p>
-<p><strong>1000 个 0.5 相乘，在本机 Python 的双精度 float 中还不是 0；1100 个才在这个例子中下溢为 0。</strong> 不是所有浮点类型都能表示同样小的数。</p>
+<p><strong>1000 个 0.5 相乘，在本机 Python 的双精度 float 中还不是 0；1100 个在这个例子中下溢为 0。</strong>不同浮点类型的范围不同。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
 
@@ -393,13 +399,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     <span class="nb">print</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">product</span><span class="p">,</span> <span class="nb">round</span><span class="p">(</span><span class="n">log_sum</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
 </code></pre></div>
 
-<p>本机 Python 3.12、有效二进制位数为 53 时，结果是：</p>
+<p>本机有效二进制位数为 53 时：</p>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>因子个数</th>
 <th style="text-align: right;">直接连乘</th>
-<th style="text-align: right;">先取对数再求和</th>
+<th style="text-align: right;">对数之和</th>
 </tr>
 </thead>
 <tbody>
@@ -415,57 +421,49 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>看第二行：乘积已经丢掉了大小信息，对数之和仍能比较。<strong>要先对每个概率取对数再相加；先乘到 0 再取 log，救不回来。</strong> 若概率本身已被算成 0，还需要直接计算稳定的对数概率。<a href="https://docs.python.org/3.13/tutorial/floatingpoint.html">Python 浮点说明</a></p>
+<p><strong>看第二行：</strong>乘积已丢掉大小信息，对数之和仍能比较。要先对每项取对数再相加；先乘到 0 再取 log，救不回来。</p>
+<p>若单项概率本身已经被算成 0，还需要直接计算稳定的对数概率或对数密度。<a href="https://docs.python.org/3.13/tutorial/floatingpoint.html">Python 浮点说明</a></p>
 <blockquote>
-<p>🔑 <strong>注意这个转换</strong>：<code>最大化对数似然</code> = <code>最小化负对数似然</code>。
-<strong>而「负对数似然」就是你天天在用的损失函数。</strong> 下面是证据。</p>
+<p>最大化对数似然，等价于最小化<strong>负对数似然</strong>。这给出了一类重要的损失函数；下面看两个具体模型。</p>
 </blockquote>
 <hr />
 <h2 id="mle">⭐ 三、高光时刻：最小二乘 = 高斯噪声下的 MLE</h2>
-<p><strong>这是本章最重要的推导。</strong> 你一直在用平方误差，但为什么是平方？</p>
+<p>先看结论：<strong>在独立、零均值、同方差的高斯噪声模型下，对回归参数做 MLE，得到最小二乘。</strong></p>
 <h3 id="_6">建模假设</h3>
+<p>把输入 $x_i$ 当作已知。模型预测为 $w^\top x_i$，实际输出与预测之间有噪声：</p>
+<p>$$y_i=w^\top x_i+\varepsilon_i$$</p>
+<ul>
+<li>$y_i$：第 $i$ 个样本的真实输出。</li>
+<li>$w^\top x_i$：特征加权求和后的预测；需要截距时，可在特征中加入常数 1。</li>
+<li>$\varepsilon_i$：模型没解释掉的误差。假设它们独立，均服从 $\mathcal N(0,\sigma^2)$。</li>
+<li>$\sigma^2&gt;0$：所有样本共用的噪声方差；下面先把它固定。</li>
+</ul>
 <figure class="dia reading-diagram repair-diagram" id="relationship-theorymd-01-1" style="--diagram-width:720px"><svg viewBox="0 0 720 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="横轴是输入 x，纵轴是输出 y。每个固定 x 上，噪声让 y 围绕 w·x 呈钟形分布；小曲线向右鼓出的宽度表示密度，不是另一条回归线。"><title>横轴是输入 x，纵轴是输出 y。每个固定 x 上，噪声让 y 围绕 w·x 呈钟形分布；小曲线向右鼓出的宽度表示密度，不是另一条回归线。</title><text x="20" y="30" font-size="20" text-anchor="start" fill="var(--fg)">固定 x，观察 y 在预测值两侧的波动</text><line x1="70" y1="300" x2="660" y2="300" stroke="var(--muted)" stroke-width="2"/><polygon fill="var(--muted)" points="660.0,300.0 651.0,305.0 651.0,295.0"/><line x1="70" y1="300" x2="70" y2="60" stroke="var(--muted)" stroke-width="2"/><polygon fill="var(--muted)" points="70.0,60.0 75.0,69.0 65.0,69.0"/><line x1="95" y1="270" x2="590" y2="85" stroke="var(--muted)" stroke-width="2"/><text x="455" y="45" font-size="18" text-anchor="start" fill="var(--fg)">中心 y = w·x</text><polyline points="212.64,167.02 213.37,169.42 214.26,171.82 215.34,174.22 216.62,176.62 218.12,179.02 219.87,181.42 221.87,183.82 224.14,186.22 226.68,188.62 229.48,191.02 232.52,193.42 235.77,195.82 239.21,198.22 242.76,200.62 246.39,203.02 250.02,205.42 253.57,207.82 256.96,210.22 260.12,212.62 262.95,215.02 265.39,217.42 267.36,219.82 268.81,222.22 269.70,224.62 270.00,227.02 269.70,229.42 268.81,231.82 267.36,234.22 265.39,236.62 262.95,239.02 260.12,241.42 256.96,243.82 253.57,246.22 250.02,248.62 246.39,251.02 242.76,253.42 239.21,255.82 235.77,258.22 232.52,260.62 229.48,263.02 226.68,265.42 224.14,267.82 221.87,270.22 219.87,272.62 218.12,275.02 216.62,277.42 215.34,279.82 214.26,282.22 213.37,284.62 212.64,287.02" fill="none" stroke="var(--accent)" stroke-width="3"/><line x1="210" y1="162.02020202020202" x2="210" y2="292.020202020202" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 5"/><polyline points="362.64,110.96 363.37,113.36 364.26,115.76 365.34,118.16 366.62,120.56 368.12,122.96 369.87,125.36 371.87,127.76 374.14,130.16 376.68,132.56 379.48,134.96 382.52,137.36 385.77,139.76 389.21,142.16 392.76,144.56 396.39,146.96 400.02,149.36 403.57,151.76 406.96,154.16 410.12,156.56 412.95,158.96 415.39,161.36 417.36,163.76 418.81,166.16 419.70,168.56 420.00,170.96 419.70,173.36 418.81,175.76 417.36,178.16 415.39,180.56 412.95,182.96 410.12,185.36 406.96,187.76 403.57,190.16 400.02,192.56 396.39,194.96 392.76,197.36 389.21,199.76 385.77,202.16 382.52,204.56 379.48,206.96 376.68,209.36 374.14,211.76 371.87,214.16 369.87,216.56 368.12,218.96 366.62,221.36 365.34,223.76 364.26,226.16 363.37,228.56 362.64,230.96" fill="none" stroke="var(--accent)" stroke-width="3"/><line x1="360" y1="105.95959595959596" x2="360" y2="235.95959595959596" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 5"/><polyline points="512.64,54.90 513.37,57.30 514.26,59.70 515.34,62.10 516.62,64.50 518.12,66.90 519.87,69.30 521.87,71.70 524.14,74.10 526.68,76.50 529.48,78.90 532.52,81.30 535.77,83.70 539.21,86.10 542.76,88.50 546.39,90.90 550.02,93.30 553.57,95.70 556.96,98.10 560.12,100.50 562.95,102.90 565.39,105.30 567.36,107.70 568.81,110.10 569.70,112.50 570.00,114.90 569.70,117.30 568.81,119.70 567.36,122.10 565.39,124.50 562.95,126.90 560.12,129.30 556.96,131.70 553.57,134.10 550.02,136.50 546.39,138.90 542.76,141.30 539.21,143.70 535.77,146.10 532.52,148.50 529.48,150.90 526.68,153.30 524.14,155.70 521.87,158.10 519.87,160.50 518.12,162.90 516.62,165.30 515.34,167.70 514.26,170.10 513.37,172.50 512.64,174.90" fill="none" stroke="var(--accent)" stroke-width="3"/><line x1="510" y1="49.898989898989896" x2="510" y2="179.8989898989899" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 5"/><text x="633" y="330" font-size="18" text-anchor="start" fill="var(--fg)">x</text><text x="40" y="64" font-size="18" text-anchor="start" fill="var(--fg)">y</text></svg><figcaption>横轴是输入 x，纵轴是输出 y。每个固定 x 上，噪声让 y 围绕 w·x 呈钟形分布；小曲线向右鼓出的宽度表示密度，不是另一条回归线。</figcaption></figure>
-<section class="reading-information"><p class="reading-information-title">图下说明</p><ul><li><span>真实世界：y = w·x + ε</span></li><li><span>↑ 噪声，假设 ε ~ N(0, σ²)</span></li><li><span>换句话说：给定 x，y 的分布是以 w·x 为中心的钟形曲线</span></li><li><span>y | x ~ N(w·x, σ²)</span></li><li><span>y 真实直线 w·x</span></li><li><span>每个 x 处，y 在这条线上下呈钟形分布</span></li></ul></section>
+
+<p>给定一个 $x$，$y$ 围绕预测值波动，即 $y\mid x,w\sim\mathcal N(w^\top x,\sigma^2)$。图中的钟形是这个<strong>条件密度</strong>，不是又拟合出几条回归线。</p>
 <details>
-<summary>📐 <b>推导（想看再点，不看不影响）</b></summary>
-<p>单个样本的概率密度：</p>
-<p>$$p(y_i\mid x_i,w) = \frac{1}{\sqrt{2\pi\sigma^2}}\exp\left(-\frac{(y_i - w^\top x_i)^2}{2\sigma^2}\right)$$</p>
-<p>对数似然：</p>
-<p>$$\log L(w) = \sum_i \log p(y_i\mid x_i,w)
-= \underbrace{-\frac{n}{2}\log(2\pi\sigma^2)}_{\text{和 } w \text{ 无关，是常数}} - \frac{1}{2\sigma^2}\sum_i (y_i - w^\top x_i)^2$$</p>
-<p>最大化它 ⟺ 最小化后面那一项 ⟺</p>
-<p>$$\boxed{\hat w = \arg\min_w \sum_i (y_i - w^\top x_i)^2}$$</p>
-<p><strong>这正是最小二乘。</strong></p>
+<summary>📐 推导：把高斯密度拆成“常数 + 平方误差”</summary>
+<p>先缩写残差 $r_i=y_i-w^\top x_i$。用 $f_i$ 表示当前样本的条件密度 $p(y_i\mid x_i,w)$：</p>
+<p>$$f_i=\frac1{\sqrt{2\pi\sigma^2}}
+\exp\left(-\frac{r_i^2}{2\sigma^2}\right)$$</p>
+<p>独立样本的对数似然为 $\log L(w)=\sum_i\log f_i$。展开后：</p>
+<p>$$\log L(w)=C-\frac1{2\sigma^2}\sum_i r_i^2$$</p>
+<p>其中 $C=-\frac n2\log(2\pi\sigma^2)$。固定 $\sigma$ 时，$C$ 和正系数 $1/(2\sigma^2)$ 都不随 $w$ 改变。</p>
+<p>所以只需让残差平方和最小：</p>
+<p>$$\hat w=\arg\min_w\sum_i(y_i-w^\top x_i)^2$$</p>
+<p>这就是最小二乘。除以固定的样本数 $n$ 得到 MSE，也不改变最优参数。</p>
+<p>若同时估计共同方差，在最小残差平方和为正时，联合 MLE 的 $w$ 仍是最小二乘解；若能完全拟合且允许方差趋于 0，似然可无界增大，不能直接声称存在一个有限的联合最大值。</p>
 </details>
 <h3 id="_7">💡 结论（不看推导也要记住这句）</h3>
 <blockquote>
-<p><strong>你用平方误差，等价于你假设了「噪声服从正态分布」。</strong>
-不是因为平方"好算"，而是因为<strong>高斯密度函数的指数上就是平方项</strong>。</p>
+<p><strong>高斯噪声假设可以推出平方误差，但用了平方误差，不能反过来证明真实噪声是高斯。</strong></p>
 </blockquote>
-<p>这个认知的三个实践含义：</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>含义</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>有离群值时平方误差会崩</strong> ⭐</td>
-<td>高斯分布尾巴薄，认为极端值"几乎不可能出现"，于是模型被迫为了迁就一个离群点而扭曲整条线</td>
-</tr>
-<tr>
-<td><strong>改用 L1 损失 = 改变噪声假设</strong></td>
-<td>L1（绝对值误差）对应<strong>拉普拉斯分布</strong>——尾巴更厚，天然抗离群值</td>
-</tr>
-<tr>
-<td><strong>选损失函数 = 选你对噪声的信念</strong></td>
-<td>这不是玄学，是可以推导的</td>
-</tr>
-</tbody>
-</table></div>
+<p>平方误差还可用于预测条件均值，只要相应二阶矩存在，不必先相信整个噪声分布是正态。<a href="https://cs229.stanford.edu/notes_archive/cs229-notes-all/cs229-notes1.pdf">Stanford CS229：最小二乘的概率解释</a></p>
+<p><strong>离群点为什么可能影响很大？</strong>残差从 2 增加到 20，平方损失从 4 增加到 400。它对总损失的贡献增长了 100 倍，优化时可能强烈影响拟合结果；不是“见到任何离群点都会崩”。</p>
+<p><strong>换成 L1 会怎样？</strong>同样两项残差的绝对值损失是 2 和 20，只增长 10 倍。固定尺度的拉普拉斯噪声可推出绝对值误差，但不能据此保证抵抗所有类型的离群点。</p>
+<p><strong>为什么还要检查模型？</strong>已知各样本高斯噪声方差不同时，似然对应的是按方差倒数加权的平方误差；误差相关时还需考虑协方差，不能照搬普通最小二乘的推导条件。</p>
 <h3 id="_8">🔬 一个能亲眼看到的实验</h3>
+<p>下面制造斜率为 2 的数据，再把第 46 个点的输出改成 100。比较两种回归器估出的斜率；需要 NumPy 和 scikit-learn。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.linear_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">LinearRegression</span><span class="p">,</span> <span class="n">HuberRegressor</span>
 
@@ -478,181 +476,169 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Huber 斜率:  &quot;</span><span class="p">,</span> <span class="n">HuberRegressor</span><span class="p">()</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span><span class="o">.</span><span class="n">coef_</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>     <span class="c1"># 基本不动</span>
 </code></pre></div>
 
-<p><strong>一个点就能把最小二乘拽歪</strong>——因为高斯假设认为"这不可能发生"，
-模型只好大幅调整参数来"解释"它。</p>
+<p>用这份固定随机种子的代码，本机 scikit-learn 1.7.2 得到：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th style="text-align: right;">加离群点后斜率</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>最小二乘</td>
+<td style="text-align: right;">约 2.7094</td>
+</tr>
+<tr>
+<td>Huber</td>
+<td style="text-align: right;">约 1.9232</td>
+</tr>
+<tr>
+<td>造数据时的斜率</td>
+<td style="text-align: right;">2</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>这次实验里，Huber 的估计更接近 2。</strong>它没有完全忽略离群点，也不能从这一个实验推出“Huber 总更好”。</p>
+<p>本例默认 HuberRegressor 还会估计尺度，并带很小的 L2 正则项；这是两个估计器的演示，不是严格只改变一个损失项的对照实验。<a href="https://scikit-learn.org/1.7/modules/generated/sklearn.linear_model.HuberRegressor.html">HuberRegressor 官方说明</a></p>
+<p>若要比较改点前后，可把同一脚本中的赋值行 <code>y[45] = 100</code> 暂时注释，再运行一次。</p>
+<p><strong>到这里可以停：</strong>已经知道平方从哪里来，以及这个解释不能保证什么。想知道分类中的对数从哪里来，再看下一节。</p>
 <hr />
-<h2 id="mle_1">🎲 四、第二个例子：交叉熵 = 伯努利分布下的 MLE</h2>
-<p>分类任务里你用交叉熵。它也是 MLE 推出来的：</p>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">建模：y | x ~ Bernoulli(p)，其中 p = σ(w·x)</span></div><div class="vb-flow-row"><span class="vb-flow-step">（给定 x，y 是 0 或 1，正类概率是 p）</span></div><div class="vb-flow-row"><span class="vb-flow-step">单样本似然：p(y|x) = p^y · (1−p)^(1−y)</span></div><div class="vb-flow-row"><span class="vb-flow-step">↑ y=1 时取 p，y=0 时取 1−p，一个式子搞定</span></div><div class="vb-flow-row"><span class="vb-flow-step">取对数：log p(y|x) = y·log p + (1−y)·log(1−p)</span></div><div class="vb-flow-row"><span class="vb-flow-step">取负、求和</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">交叉熵损失 ✅</span></div></div></section>
-<blockquote>
-<p>在伯努利概率模型下，负对数似然就是二分类交叉熵。<strong>这不表示分类永远不能用平方损失</strong>：对预测概率使用平方误差也可以形成 Brier 分数，只是它不是同一个似然目标。<a href="https://scikit-learn.org/1.7/modules/model_evaluation.html#brier-score-loss">scikit-learn 的概率评分说明</a></p>
-<p>⭐ <strong>这里还藏着一件更大的事，本章先不展开</strong>：
-"交叉熵"这个名字里的<strong>熵</strong>是信息论的词。它不是随手挑的一个"衡量两个分布差多远"的量 ——
-<strong>最大化似然、最小化交叉熵、最小化 KL 散度，其实是同一件事的三种说法。</strong>
-下一节 <a href="01b-KL散度.html">01b · KL 散度</a> 把这三者接起来，顺便给 KL 一个正式定义
-（<strong>这套教程从 PPO 到 RLHF 到蒸馏一共用了它六次，却从没定义过</strong>）。</p>
-</blockquote>
+<h2 id="mle_1">🎲 四、二分类交叉熵：来自伯努利似然</h2>
+<p>这里先讲<strong>二分类</strong>：标签 $y_i$ 只能是 0 或 1，模型给出的正类概率记为 $p_i$。</p>
+<h3 id="mle-bernoulli">第一步：模型输出一个概率</h3>
+<p>在逻辑回归中，先计算分数 $z_i=w^\top x_i$，再用 sigmoid 把它映射到 0 与 1 之间：</p>
+<p>$$p_i=\sigma(z_i)=\frac1{1+e^{-z_i}}$$</p>
+<p>这里的 $\sigma(\cdot)$ 是函数名，<strong>不是上一节表示噪声大小的 $\sigma$</strong>。</p>
+<h3 id="mle-label">第二步：取出实际标签对应的概率</h3>
+<p>假设 $y_i\mid x_i$ 服从参数为 $p_i$ 的伯努利分布：</p>
+<p>$$p(y_i\mid x_i,w)=p_i^{y_i}(1-p_i)^{1-y_i}$$</p>
+<ul>
+<li>实际是 1：这项变成 $p_i$。</li>
+<li>实际是 0：这项变成 $1-p_i$。</li>
+</ul>
+<p>例如模型预测正类概率为 0.8：正标签得到概率 0.8，负标签只能得到 0.2。<strong>同一个预测，遇到不同真实标签，评价会不同。</strong></p>
+<h3 id="mle-bce">第三步：取负对数，再汇总</h3>
+<p>单样本二分类交叉熵为：</p>
+<p>$$\ell_i=-y_i\log p_i-(1-y_i)\log(1-p_i)$$</p>
+<p>独立样本的负对数似然就是 $\sum_i\ell_i$。单独优化这一项时，改成平均值也有同一个最优解；若另加正则项，求和改平均时要同步考虑两者的相对权重。</p>
+<p>当 $p_i=0.8$ 时，正标签的损失约为 0.223，负标签约为 1.609。看第二个数：模型对错误标签越自信，负对数损失越大。</p>
+<p><strong>二分类交叉熵是伯努利负对数似然，不是 MLE 这个估计过程本身。</strong>多分类的对应模型是类别分布。</p>
+<p>对预测概率用平方误差也可以得到 Brier 分数，只是那不是同一个似然目标。<a href="https://scikit-learn.org/1.7/modules/model_evaluation.html#brier-score-loss">scikit-learn 的概率评分说明</a></p>
+<p>“交叉熵”还与信息论有关。<a href="01b-KL散度.html">01b · KL 散度</a> 会说明：固定目标分布时，交叉熵与 KL 相差一个不随模型改变的熵项。</p>
+<p><strong>经验分布的拟合目标，不等于已经知道真实分布。</strong>连续数据也不能把有限样本的点质量，直接代入“经验分布对连续密度的有限 KL”公式；下一节会区分离散恒等式与总体期望的解释。</p>
 <hr />
 <h2 id="_9">📋 五、损失函数速查：每一个背后的分布假设</h2>
+<p>这张表列的是<strong>可采用的概率解释</strong>，不是“使用这个损失就证明了分布”。固定尺度等条件不可省略。</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>损失函数</th>
-<th>隐含的分布</th>
-<th>什么时候用</th>
+<th>损失</th>
+<th>对应模型</th>
+<th>主要目标</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>平方误差 MSE</strong></td>
-<td>高斯</td>
-<td>回归，噪声对称且无重离群值</td>
+<td>平方误差 MSE</td>
+<td>同方差高斯</td>
+<td>回归均值</td>
 </tr>
 <tr>
-<td><strong>绝对值误差 L1 / MAE</strong></td>
-<td>拉普拉斯</td>
-<td>回归，<strong>有离群值</strong></td>
+<td>绝对值误差 L1 / MAE</td>
+<td>固定尺度拉普拉斯</td>
+<td>回归中位数</td>
 </tr>
 <tr>
-<td><strong>Huber</strong></td>
-<td>与 exp(−Huber 损失) 成比例的密度</td>
-<td>小误差用平方，大误差用线性</td>
+<td>Huber</td>
+<td>密度正比于 exp(−Huber)</td>
+<td>减弱大残差影响</td>
 </tr>
 <tr>
-<td><strong>交叉熵</strong></td>
+<td>交叉熵</td>
 <td>伯努利 / 类别分布</td>
-<td>分类</td>
+<td>分类概率</td>
 </tr>
 <tr>
-<td><strong>泊松损失</strong></td>
+<td>泊松负对数似然</td>
 <td>泊松</td>
-<td><strong>计数数据</strong>（点击数、访问量、事故数）</td>
+<td>非负整数计数</td>
 </tr>
 <tr>
-<td><strong>负二项损失</strong></td>
+<td>负二项负对数似然</td>
 <td>负二项</td>
-<td>计数数据但方差 &gt; 均值（过离散）</td>
+<td>过离散计数</td>
 </tr>
 <tr>
-<td><strong>分位数损失</strong></td>
-<td>非对称拉普拉斯</td>
-<td>只关心某个分位数（如预测 90 分位）</td>
+<td>分位数损失</td>
+<td>固定尺度非对称拉普拉斯</td>
+<td>指定条件分位数</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p><strong>选损失时，先看输出类型，再核对模型假设与评估目标。</strong> 计数数据可考虑泊松模型，但并非所有计数都满足泊松条件；过离散、额外零值或业务损失需要另作处理。MSE 也可以作为预测均值的目标，不能只因输出是计数就一律判错。</p>
-<p><strong>Huber 不是高斯与拉普拉斯分布的加权混合。</strong> 它的损失在中心附近是二次的，尾部是线性的；把损失取负再取指数，得到与密度成比例的量。</p>
-<p>线性尾部减弱了极端残差的影响，但不保证对任意离群点都稳健。<a href="https://scikit-learn.org/1.7/modules/generated/sklearn.linear_model.HuberRegressor.html">Huber 官方说明</a></p>
-</blockquote>
+<p><strong>从损失构造密度还差一步：归一化。</strong>如果归一化常数随待估参数变化，就必须放回似然；不能只保留 $\exp(-\text{损失})$ 的形状。</p>
+<p><strong>先看输出，再看评估目标。</strong>计数可考虑泊松，但需核对给定输入后的均值、方差及额外零值。负二项常用于条件方差大于条件均值的情形；仅凭原始数据的总体方差较大，还不能完成这项诊断。</p>
+<p><strong>Huber 不是高斯与拉普拉斯的加权混合。</strong>它在中心附近为二次损失，尾部为线性损失；高杠杆点等情况仍可能影响回归。L1 和 Huber 都不是通用的异常数据修复器。</p>
+<p><strong>目标也可能决定选择。</strong>想预测均值可考虑 MSE，想预测 90 分位可考虑分位数损失；不必先把数据宣布成某一种分布。</p>
 <hr />
-<h2 id="mle_2">⚠️ 六、MLE 的三个毛病</h2>
-<h3 id="1">毛病 1：数据少时会过拟合</h3>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">抛硬币 3 次，全是正面</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">MLE 说 p = 1.0</span></div><div class="vb-flow-row"><span class="vb-flow-step">↑ 「这枚硬币永远不会出反面」</span></div><div class="vb-flow-row"><span class="vb-flow-step">显然荒谬。但 MLE 没办法——它只看数据，不带任何先验常识。</span></div></div></section>
-<h3 id="2">毛病 2：没有不确定性</h3>
-<p>MLE 给你一个点估计，但不告诉你<strong>这个估计有多可靠</strong>。
-抛 10 次得 0.8 和抛 10000 次得 0.8，<strong>MLE 的输出一模一样</strong>。</p>
-<h3 id="3">毛病 3：对模型设定错误很敏感</h3>
-<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">MLE 只保证「在你假设的分布族里，这是最好的参数」</span></div><div class="vb-flow-row"><span class="vb-flow-step">它【不检查】你的分布假设本身对不对</span></div><div class="vb-flow-row"><span class="vb-flow-step">假设错了（比如数据其实是重尾的却假设高斯）</span></div><div class="vb-flow-row"><span class="vb-flow-step">MLE 会自信地给出一个错误答案</span></div></div></section>
+<h2 id="mle_2">⚠️ 六、MLE 之后还要做的三个检查</h2>
+<p>把下面三点理解为<strong>需要补做的检查</strong>，不是“三个问题一出现，MLE 就不可用”。</p>
+<h3 id="1">检查 1：少量观察是否支持这个结论？</h3>
+<p>抛 3 次全是正面，伯努利似然为 $p^3$。若允许 $0\le p\le1$，最大值在 $\hat p=1$。</p>
+<p><strong>边界估计不是“证明这枚硬币永远没有反面”。</strong>它只说明：这 3 次观察没有提供反例，当前估计准则又没有额外约束。</p>
+<p>数据少、模型又灵活时尤其要检查过拟合。正则化、合适先验或更多数据可能有帮助，但不是自动保证。若参数空间只允许 $0&lt;p&lt;1$，这个例子甚至只有趋近边界的上确界，没有实际取到的最大值。</p>
+<h3 id="2">检查 2：点估计有多可靠？</h3>
+<p><strong>单独一个 MLE 点估计不附带可靠程度，但最大似然方法并不排斥不确定性分析。</strong></p>
+<p>抛 10 次得 8 次正面，与抛 10000 次得 8000 次正面，点估计都是 0.8；它们的似然函数集中程度不同。</p>
+<p>可另外计算置信区间，或在适用条件下使用似然比、渐近近似、bootstrap 等方法。样本很少或参数在边界时，要特别检查近似是否适用，不能只报一个漂亮的区间。</p>
+<h3 id="3">检查 3：模型假设与数据是否合适？</h3>
+<p>MLE 是在<strong>指定模型族</strong>中比较参数。如果求到了全局最大值，它也只保证当前似然最优，不保证模型族正确、泛化最好或参数就是真实机制。</p>
+<p>例如重尾误差下使用高斯似然，仍可能得到有用的均值估计；但效率、稳健性或不确定性解释可能不合适。应看残差、留出数据和敏感性分析，不能简单说“假设错一点，答案必错”。</p>
 <h3 id="_10">下一章能解决什么，不能自动解决什么</h3>
 <p><span id="audit-mle-map"></span></p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>当前问题</th>
-<th>接下来做什么</th>
-<th>不能误会成什么</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>3 次全正面，让点估计落在 p = 1</td>
-<td>下一章用合适的先验演示 MAP，让估计不只由这 3 次观察决定</td>
-<td>任何先验都一定更好</td>
-</tr>
-<tr>
-<td>10 次与 10000 次的估计都为 0.8，可靠程度却可能不同</td>
-<td>查看后验分布如何分散；也可以另用置信区间等方法</td>
-<td>求出 MAP 的一个点，就自动获得了不确定性范围</td>
-</tr>
-<tr>
-<td>假定的分布族不合适</td>
-<td>检查残差、模型假设与敏感性</td>
-<td>加了先验就不必检查模型</td>
-</tr>
-</tbody>
-</table></div>
-<p>同一个硬币例子可以问两个问题：<strong>“先验怎样改变估计值？”</strong> 连接 MAP；<strong>“哪些参数值更受数据支持、分布有多集中？”</strong> 连接后验分布。下一章会把这两件事分开讲。</p>
+<p><strong>想改变小样本点估计？</strong>下一章用合适的先验演示 MAP。先验会改变估计，但不保证任何先验都更好。</p>
+<p><strong>想表达不确定性？</strong>查看后验分布的分散程度，或另外做频率学派的区间估计。MAP 自己仍然是一个点，不是后验分布的全部。</p>
+<p><strong>怀疑模型不合适？</strong>检查残差、假设和敏感性。加了先验，不会自动修好错误的似然模型。</p>
 <hr />
 <h2 id="_11">🔗 七、和站内其他章的关系</h2>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>相关的地方</th>
-<th>根因在这</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>回归用 MSE、分类用交叉熵</td>
-<td>对应高斯 / 伯努利分布假设</td>
-</tr>
-<tr>
-<td>有离群值改用 L1 或 Huber</td>
-<td>换一个尾巴更厚的分布假设</td>
-</tr>
-<tr>
-<td>基础教程第 3 章的分类损失</td>
-<td>伯努利负对数似然给出交叉熵；平方概率损失是另一个目标</td>
-</tr>
-<tr>
-<td>基础教程第 15 章的 <code>BCEWithLogitsLoss</code></td>
-<td>伯努利 MLE 的数值稳定实现</td>
-</tr>
-<tr>
-<td>推荐算法第 5 章 MF 的目标函数</td>
-<td>平方误差 = 高斯噪声假设</td>
-</tr>
-<tr>
-<td>推荐算法的 BPR 损失</td>
-<td>另一种概率建模（对"排序对"建模）</td>
-</tr>
-</tbody>
-</table></div>
+<ul>
+<li><strong>回归用 MSE、分类用交叉熵：</strong>这一章提供高斯、伯努利等概率解释；不是损失选择的唯一理由。</li>
+<li><strong>有离群值时考虑 L1 / Huber：</strong>大残差的惩罚方式改变了，还需验证实际效果。</li>
+<li><strong>基础教程第 3 章：</strong>伯努利负对数似然给出交叉熵；平方概率损失对应另一个目标。</li>
+<li><strong>基础教程第 15 章的 BCEWithLogitsLoss：</strong>从未过 sigmoid 的分数稳定计算伯努利负对数似然；调用损失函数本身还不等于完成 MLE 拟合。</li>
+<li><strong>推荐算法第 5 章 MF：</strong>平方误差项可作高斯噪声解释；完整目标若带正则，不能忽略正则项。</li>
+<li><strong>推荐算法 BPR：</strong>对物品的成对顺序建模，而不是直接拟合每个评分值。</li>
+</ul>
 <hr />
 <h2 id="_12">✅ 检查点</h2>
 <ol>
-<li>最大似然在问什么问题？它和「求真相」有什么区别？</li>
-<li>似然和后验的区别是什么？为什么不能说「p=0.8 的概率是 30.2%」？</li>
-<li>取对数的三个理由？</li>
-<li>为什么最小二乘用平方而不是别的？</li>
-<li>有离群值时平方误差为什么会崩？该换成什么？</li>
-<li>预测每天点击数时，为什么可以考虑泊松损失，又为什么不能只看数据类型就定下来？</li>
-<li>MLE 的三个毛病是什么？</li>
+<li>MLE 固定什么、比较什么？它能确定“真相”吗？</li>
+<li>似然与后验有什么区别？连续数据中的密度又为何不是精确值的概率？</li>
+<li>取对数有哪些好处？什么情况下能把联合似然写成独立乘积？</li>
+<li>最小二乘的高斯 MLE 解释需要哪些条件？反过来能证明噪声正态吗？</li>
+<li>大残差为什么可能强烈影响平方误差？L1 / Huber 能保证解决所有离群点吗？</li>
+<li>为什么计数数据可考虑泊松模型，却不能仅看类型就决定损失？</li>
+<li>三次全正面、只有一个估计值、模型设定不合适，分别还需要检查什么？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>问「哪组参数让我实际看到的这批数据最可能发生」。它不问真相是什么，只挑最能解释观测的假设。</li>
-<li>似然 = p(数据|参数)，后验 = p(参数|数据)，方向相反。似然不是关于 θ 的概率分布（积分不等于 1），所以不能读成"θ 是某值的概率"。</li>
-<li>防数值下溢（连乘会变 0）、连乘变连加便于求导、log 单调不改变最优解。</li>
-<li>因为假设了噪声服从正态分布，而高斯密度的指数上正好是平方项。最大化对数似然 ⟺ 最小化平方和。</li>
-<li>高斯分布尾巴薄，认为极端值几乎不可能出现，所以模型会大幅扭曲参数去"解释"那个离群点。换 L1（拉普拉斯，尾巴厚）或 Huber。</li>
-<li>泊松模型适用于某些计数过程，但需核对条件方差与均值、过离散和零值等情况。平方损失也能用于预测均值；应结合假设与验证表现选择。</li>
-<li>①数据少时过拟合（3次全正说 p=1）②只给点估计无不确定性 ③对分布假设错误敏感，且不会自我检查。</li>
+<li>固定已观察数据，在指定模型族中比较参数的似然。它是在估计，不是给真实参数盖章。</li>
+<li>似然随参数变化，通常不是归一化的参数分布；后验结合了先验。连续密度要在区间上积分才是概率，不能读成精确点的概率。</li>
+<li>降低连乘下溢风险、把乘法变加法、保持最大点。独立乘积要求给定参数后的样本独立；数值上还应避免单项先下溢再取 log。</li>
+<li>输入给定，噪声独立、零均值、共同正方差；固定方差时对回归参数优化得到最小二乘。使用平方误差不能反证真实噪声为正态。</li>
+<li>残差扩大 10 倍，平方惩罚扩大 100 倍；L1 只扩大 10 倍。它们改变了影响方式，但没有保证抵抗一切离群点。</li>
+<li>还需检查条件均值与方差、额外零值、业务目标和验证表现；MSE 也可以用于预测计数的条件均值。</li>
+<li>边界估计不是确定性结论；点估计之外可另做不确定性分析；模型假设需要残差、留出数据与敏感性检查。MAP 或先验不能自动完成这些检查。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_13">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
-<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>似然比较哪些参数更能解释已观测的数据，不是参数自身的后验概率。</li><li>取对数把乘积变成求和；负对数似然把概率模型连接到损失函数。</li><li>损失对应分布假设，先检查输出类型、噪声和离群点，再解释拟合结果。</li></ul></section>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>似然固定数据、比较参数；连续量比较密度，不是精确点的概率。</li><li>负对数似然给出一类损失，但不是所有目标都必须来自 MLE。</li><li>高斯假设可推出平方误差；平方误差不能证明噪声高斯。</li><li>点估计之外，还要检查不确定性、模型假设与泛化表现。</li></ul></section>
 
-<p><strong>下一节</strong> 👉 <a href="01b-KL散度.html">01b-KL散度.md</a></p>
-<blockquote>
-<p>去那里的理由：本章说"交叉熵是伯努利分布下的 MLE"，但没说<strong>为什么"交叉熵"这个信息论的量会出现在统计问题里</strong>。
-01b 证明 <strong>最大似然一直在最小化 KL 散度，只是这一章没点破</strong> —— 并且把 KL 这个后面四个板块都在用、却从没定义过的东西，正式定义下来。
-⚠️ <strong>只想尽快拿到「正则化 = 先验」那个结论的话，也可以先跳到</strong> <a href="02-MAP与正则化的真身.html">02-MAP与正则化的真身.md</a> ⭐⭐<strong>，回头再补 01b</strong> —— 02 不依赖 KL。</p>
-</blockquote>
+<p><strong>下一节</strong> 👉 <a href="01b-KL散度.html">01b · KL 散度</a>：区分固定分布、经验平均与真实分布，理解交叉熵和 KL 的联系。</p>
+<p>若只想先理解“正则化怎样对应先验”，可跳到 <a href="02-MAP与正则化的真身.html">02 · MAP 与正则化</a>，再回来补 KL。</p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="00-怎么用这份教程.html"><div class="dir">← 上一节</div>🧭 00 · 怎么用这份教程</a><a class="next" href="01b-KL散度.html"><div class="dir">下一节 →</div>🌡️ 01b · KL 散度</a></nav>
