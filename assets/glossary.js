@@ -121,7 +121,7 @@
     { id: "d-bias-variance", names: ["偏差方差分解"], group: "数学原理", meaning: "把预测误差拆成三块：偏差（模型太简单系统性地偏）、方差（换批数据结果就抖）、噪声（谁也消不掉）。", role: "它解释了为什么复杂度和误差是 U 形关系，也说明该往哪个方向救：偏差高就加复杂度，方差高就加数据或正则。", code: "误差 = 偏差² + 方差 + 噪声" },
     { id: "d-cv", names: ["交叉验证"], group: "评估", meaning: "把数据切成 k 份，轮流拿一份当验证集、其余训练，最后把 k 次结果平均。", role: "数据不多时它比单次留出更稳；但切分方式错了（时间序列、分组数据）它会给出虚高的分数。", code: "scores = cross_val_score(model, X, y, cv=5)" },
     { id: "d-pca", names: ["PCA"], group: "数学原理", meaning: "找出数据里方差最大的那几个方向，把点投影上去，用更少的维度保留大部分信息。", role: "降维、去相关、可视化都用它；但它只认线性方向，也不管这些方向对任务有没有用。", code: "X2 = PCA(n_components=2).fit_transform(X)" },
-    { id: "d-svm", names: ["SVM"], group: "模型", meaning: "找一条离两类样本都尽量远的分界线，只有最靠近边界的那几个点（支持向量）说了算。", role: "小数据上很强，配合核技巧还能画弯的边界；代价是样本一多就吃不消。", code: "clf = SVC(kernel=\"rbf\", C=1.0).fit(X, y)" },
+    { id: "d-svm", names: ["SVM"], group: "模型", meaning: "硬间隔 SVM 在可分数据上最大化几何间隔；软间隔允许违规并付出代价。对偶预测式使用非零系数的支持向量，它们不一定很少，也不只在间隔边界上。", role: "可用线性或核方法建模。应验证特征尺度、C 与核参数；训练成本取决于样本、核和求解器，不能统一断言大数据都跑不了。", code: "clf = SVC(kernel=\"rbf\", C=1.0).fit(X, y)" },
     { id: "d-cross-entropy", names: ["交叉熵"], group: "训练", meaning: "衡量模型给出的概率分布和真实答案差多远：正确类别的概率越低，损失越大。", role: "分类任务的默认损失；它和 softmax 合起来算，梯度形式极其简洁也更稳定。", code: "loss = F.cross_entropy(logits, labels)" },
     { id: "d-vanishing-gradient", names: ["梯度消失"], group: "训练", meaning: "反向传播要连乘很多层的导数，每层都小于 1 的话，传到前面几层就几乎变成 0。", role: "前面的层学不动，网络白深；残差连接、ReLU、归一化这一整套都是在治它。", code: "# 连乘 0.5 走 20 层：0.5**20 ≈ 1e-6" },
     { id: "d-gradient-explosion", names: ["梯度爆炸"], group: "训练", meaning: "和梯度消失相反：连乘的因子大于 1，梯度指数级放大，一步就把权重冲飞。", role: "表现是 loss 突然变成 NaN；标准解法是梯度裁剪。", code: "torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)" },
