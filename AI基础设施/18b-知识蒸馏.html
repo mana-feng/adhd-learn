@@ -306,132 +306,217 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="18b">18b · 知识蒸馏</h1>
-<p>⏱ <strong>68 分钟</strong> ｜ ⭐ <strong>压缩三件套里唯一能让模型"变得更适合你"的那件</strong></p>
+<p>⏱ <strong>68 分钟</strong> ｜ ⭐ <strong>用老师的行为训练学生，再验证省下了什么、损失了什么</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p>量化改数值精度、剪枝去掉连接、蒸馏换一个更小的模型 —— 三者正交，可以叠加。
-但蒸馏和另外两件有个本质区别：<strong>量化和剪枝只能让模型变小，蒸馏能让它变得更适合你的任务。</strong>
-代价是它<strong>很容易"整体只掉 1 个点、某个人群掉 15 个点"</strong>，
-而且算力成本比从零训同尺寸模型还贵约 2.8 倍。
-所以这一章的重点不是怎么做，而是 —— 你怎么知道自己伤到了谁、这笔账划不划算。</p>
+<p><strong>蒸馏让学生模型学习老师的输出或中间表示；学生可以更小，但也可能与老师同样大。</strong></p>
+<p>如果你的目标是部署一个更轻的模型，要同时看任务质量、实际速度和训练成本。不能先保证“近乎无损”，再只挑支持这个说法的指标。</p>
+<p>本章有两个停靠点：前半看<strong>软标签、温度与损失</strong>；后半看<strong>LLM 做法、分组验收与成本算账</strong>。不用一次读完全部推导。</p>
 <hr />
 <h2 id="_2">🧩 一、先把压缩三件套摆清楚</h2>
-<p><a href="18-量化.html">第 18 章</a>讲完量化之后，很多人以为压缩就是量化。其实压缩有三条完全不同的路，它们动的是模型的<strong>三个不同维度</strong>：</p>
-<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">同一个 Linear 层：W 的形状 [4096, 4096]，FP16</span></div><div class="vb-flow-row"><span class="vb-flow-step">① 量化：形状不变，每个数从 16 bit 变 4 bit</span></div><div class="vb-flow-row"><span class="vb-flow-step">[4096, 4096] FP16</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">[4096, 4096] INT4 ⭐ 改的是【数值精度】</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 剪枝：数值精度不变，把一部分位置变成 0（或者直接删掉行列）</span></div><div class="vb-flow-row"><span class="vb-flow-step">[4096, 4096] FP16</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">[4096, 4096] 里 90% 是 0 （非结构化）</span></div><div class="vb-flow-row"><span class="vb-flow-step">[4096, 2048] FP16 （结构化）⭐ 改的是【连接/尺寸】</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 蒸馏：这一层本身没变，是【整个模型换成另一个更小的模型】</span></div><div class="vb-flow-row"><span class="vb-flow-step">32 层 × 4096</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">16 层 × 2048，权重全部重新学</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 改的是【模型本身】</span></div></div></section>
-<p>因为动的维度不同，<strong>三者是正交的，可以叠加</strong>：一个典型的极限压缩流水线是「结构化剪枝 → 蒸馏恢复 → INT4 量化」，三步各自独立生效。</p>
-<h3 id="_3">对照表：先看清代价再选</h3>
+<p><strong>量化、剪枝与蒸馏能组合，但效果不独立，不保证相乘得到最终收益。</strong></p>
+<p>用一个 FP16、形状为 [4096, 4096] 的 Linear 权重做示意：</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th></th>
-<th><strong>量化</strong></th>
-<th><strong>非结构化剪枝</strong></th>
-<th><strong>结构化剪枝</strong></th>
-<th><strong>蒸馏</strong></th>
+<th>方法</th>
+<th>改哪里</th>
+<th>示例</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>典型压缩比</strong></td>
-<td>2~4 倍（INT8/INT4）</td>
-<td>稀疏度 50~90%</td>
-<td>1.5~3 倍</td>
-<td>3~10 倍</td>
+<td>量化</td>
+<td>数值的表示方式</td>
+<td>同一形状，从每权重 16 bit 变成 4 bit</td>
 </tr>
 <tr>
-<td><strong>典型掉点</strong></td>
-<td>极小（W4A16 常 &lt;1%）</td>
-<td>小（同压缩比下最优）</td>
-<td><strong>较大</strong> ⚠️</td>
-<td>看任务，窄任务可近乎无损</td>
+<td>非结构化剪枝</td>
+<td>保留哪些连接</td>
+<td>同一形状，假设 90% 权重置零</td>
 </tr>
 <tr>
-<td><strong>要不要重训</strong></td>
-<td>❌ <strong>不用</strong>（PTQ 只要校准集）</td>
-<td>要微调恢复</td>
-<td>⭐ <strong>必须重训/蒸馏恢复</strong></td>
-<td>⭐ <strong>要完整训练</strong></td>
+<td>结构化剪枝</td>
+<td>删除行、列、头或层等结构</td>
+<td>某层变为 [4096, 2048]，相邻层也要兼容</td>
 </tr>
 <tr>
-<td><strong>要不要原始数据</strong></td>
-<td>只要几百条校准样本</td>
-<td>要一部分训练数据</td>
-<td>要相当量的数据</td>
-<td>⭐ <strong>要大量数据（或 teacher 现生成）</strong></td>
-</tr>
-<tr>
-<td><strong>省显存</strong></td>
-<td>✅ 确定省</td>
-<td>⚠️ <strong>默认一点不省</strong></td>
-<td>✅ 确定省</td>
-<td>✅ 确定省</td>
-</tr>
-<tr>
-<td><strong>加速</strong></td>
-<td>✅ 确定加速 ⭐</td>
-<td>💀 <strong>通用硬件上通常不加速</strong></td>
-<td>✅ 确定加速</td>
-<td>✅ 确定加速</td>
-</tr>
-<tr>
-<td><strong>落地成本</strong></td>
-<td>小时级</td>
-<td>天级</td>
-<td>周级</td>
-<td>⭐ <strong>周~月级，最贵</strong></td>
+<td>蒸馏</td>
+<td>学生的训练信号</td>
+<td>用老师监督一个 16 层、宽 2048 的学生，而非直接复制老师的 32 层、宽 4096</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>⭐ <strong>先记住这张表里最反直觉的两格</strong>：
-<strong>非结构化剪枝默认既不省显存、也不加速</strong>（第五节讲透为什么）；
-<strong>蒸馏是三者里最贵的</strong>，贵在你还得跑 teacher（第七节算这笔账）。
-换句话说：<strong>量化是"先做的"，另外两个是"确实需要才做的"。</strong></p>
-</blockquote>
+<p>量化后的恢复训练、剪枝后的微调也能针对任务优化。<strong>蒸馏不是唯一能“更适合任务”的方法</strong>；它的特点是利用老师提供的监督，可以改变学生架构或把集成压到单模型。</p>
+<p>例如“结构化剪枝 → 蒸馏恢复 → INT4 量化”是可测试的组合。顺序会影响结果，每一步都应复测；见<a href="18-量化.html">第 18 章</a>与<a href="18c-剪枝与稀疏化.html">第 18c 章</a>。</p>
+<h3 id="_3">对照表：先看清代价再选</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>可能省什么</th>
+<th>训练与数据需求</th>
+<th>最容易误判的地方</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>量化</td>
+<td>权重存储与部分搬运</td>
+<td>PTQ 不更新权重，部分方案需要校准；QAT 需要训练</td>
+<td>不是所有算子和硬件都加速，质量也可能下降</td>
+</tr>
+<tr>
+<td>非结构化剪枝</td>
+<td>稀疏表示下的存储和运算</td>
+<td>可用恢复训练，取决于方案</td>
+<td>在普通稠密存储中写 0，并不会自动省空间或时间</td>
+</tr>
+<tr>
+<td>结构化剪枝</td>
+<td>参数与部分计算量</td>
+<td>常需微调或蒸馏恢复，但并非定义上必须</td>
+<td>形状变小不保证端到端变快，仍看实现</td>
+</tr>
+<tr>
+<td>蒸馏</td>
+<td>更轻学生的部署成本</td>
+<td>需要学生训练；可用现有、合成或混合数据</td>
+<td>学生不一定更小、更快，也没有固定压缩比或掉点范围</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>怎样读“压缩比”？</strong> 单看权重位宽，FP16→INT8 是 2 倍、FP16→INT4 是 4 倍；实际文件还含缩放参数等信息，运行显存还含激活与缓存。</p>
+<p>稀疏度 50–90%、结构缩小 1.5–3 倍、学生参数少 3–10 倍，都可以是实验目标，<strong>不是这些方法自带的典型保证</strong>。也不能预先承诺“量化几小时，蒸馏一定几周最贵”。</p>
 <hr />
 <h2 id="_4">🌡️ 二、蒸馏的机制：软标签里的"暗知识"</h2>
 <h3 id="_5">硬标签扔掉了什么</h3>
-<p>假设一个 5 类分类任务，一张图是「猫」。</p>
-<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">硬标签（真实 one-hot）：</span></div><div class="vb-flow-row"><span class="vb-flow-step">猫=1 老虎=0 狗=0 汽车=0 卡车=0</span></div><div class="vb-flow-row"><span class="vb-flow-step">↑ 老虎和汽车在标签里【一样错】</span></div><div class="vb-flow-row"><span class="vb-flow-step">teacher 的软标签（softmax 输出）：</span></div><div class="vb-flow-row"><span class="vb-flow-step">猫=0.87 老虎=0.12 狗=0.008 汽车=0.001 卡车=0.001</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 老虎的概率是汽车的【120 倍】</span></div><div class="vb-flow-row"><span class="vb-flow-step">teacher 在告诉学生：「猫更像老虎，一点都不像汽车」</span></div></div></section>
-<p>这个「类与类之间有多像」的信息，<strong>在硬标签里完全不存在</strong>。Hinton 把它叫做<strong>暗知识（dark knowledge）</strong> —— 它藏在那些"错误答案"的相对大小里。</p>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>⭐ 信息量的角度：</p><p>· 硬标签：一个样本只给 log2(5) ≈ 2.3 bit 的监督</p><p>· 软标签：一个样本给的是整个 5 维分布 —— 连续值，信息多得多</p><p>→ 这就是为什么【同样的数据量下】，蒸馏出来的小模型</p><p>常常比拿硬标签从零训练的同尺寸模型强</p></div></section>
-<p>对 LLM 更夸张：词表 12.8 万，硬标签只有 17 bit，而 teacher 每个位置给的是<strong>一个 12.8 万维的分布</strong>。同样的 token 预算，监督信号密度差了好几个数量级 —— <strong>这就是现在各家小尺寸模型普遍用蒸馏而不是从零预训练的根本原因。</strong></p>
+<p><strong>硬标签只说目标是哪类；软标签还给出老师对其他类的判断。</strong></p>
+<p>假设一张猫图片有下面这组人工设定的输出：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>类别</th>
+<th style="text-align: right;">硬标签</th>
+<th style="text-align: right;">teacher 概率</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>猫</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0.870</td>
+</tr>
+<tr>
+<td>老虎</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0.120</td>
+</tr>
+<tr>
+<td>狗</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0.008</td>
+</tr>
+<tr>
+<td>汽车</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0.001</td>
+</tr>
+<tr>
+<td>卡车</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0.001</td>
+</tr>
+</tbody>
+</table></div>
+<p>0.120 / 0.001 = 120，表示<strong>这个老师对这张图片给“老虎”的概率是“汽车”的 120 倍</strong>。它不等于客观上“猫像老虎的程度是汽车的 120 倍”。</p>
+<p>非目标类别之间的相对输出可能携带有用的泛化信息，常称暗知识；也可能包含老师的偏差。学生是否获益，要与只用真实标签训练的基线比较。<a href="https://arxiv.org/html/1503.02531">Hinton 等人的原论文</a>。</p>
+<p><strong>不要用存储量冒充有效知识量。</strong> 若类别等概率，一个 C 类标签的熵为 log₂C；一般情况下最多这么大。5 类的约 2.3 bit、128k 类的约 17 bit，并不是每个训练样本固定贡献的“知识”。</p>
+<p>一个 C 维软分布保存了更多数值，但有归一化、有限精度、冗余和错误。不能拿“17 bit vs 12.8 万个数”就证明蒸馏必胜或监督质量高几个数量级。</p>
 <h3 id="t">温度 T：把暗知识"放大"出来</h3>
-<p>问题是：teacher 训得越好，softmax 越尖锐（猫=0.999），暗知识就被压扁得看不见了。温度就是用来<strong>把分布摊平</strong>的：</p>
+<p><strong>固定 logits 时，T &gt; 1 会把概率摊平，T &lt; 1 会让它更尖锐。</strong> T 必须大于 0；模型好坏不能只由分布尖不尖判断。</p>
 <p>$$p_i = \frac{\exp(z_i / T)}{\sum_j \exp(z_j / T)}$$</p>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">同一组 teacher logits [6.0, 4.0, 0.5, 0.2, -1.0]，不同 T：</span></div><div class="vb-flow-row"><span class="vb-flow-step">T=1</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">[0.875, 0.118, 0.004, 0.003, 0.001] 非目标类几乎全是 0，暗知识看不见</span></div><div class="vb-flow-row"><span class="vb-flow-step">T=2</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">[0.659, 0.243, 0.042, 0.036, 0.020]</span></div><div class="vb-flow-row"><span class="vb-flow-step">T=4</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">[0.441, 0.268, 0.112, 0.103, 0.077] ⭐ 类间差异清楚了</span></div><div class="vb-flow-row"><span class="vb-flow-step">T=8</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">[0.314, 0.245, 0.158, 0.152, 0.131]</span></div><div class="vb-flow-row"><span class="vb-flow-step">T</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">∞</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">均匀分布，什么信息都没有了 💀</span></div></div></section>
-<blockquote>
-<p>🔑 <strong>T 的取值是一个权衡</strong>：
-<strong>T 太小</strong> → 软标签退化成硬标签，蒸馏白做；
-<strong>T 太大</strong> → 所有类趋同，暗知识被"teacher 自己都不确定"的噪声淹没。
-分类任务典型 <strong>T = 2~5</strong>。<strong>LLM 蒸馏常直接用 T = 1</strong> ——
-因为词表巨大，teacher 的分布本来就足够"软"，不需要额外摊平。</p>
-</blockquote>
+<p>zᵢ 是某一类的 logit，pᵢ 是转换后的概率。先除以同一个 T，再做 softmax；不是把已经得到的概率简单除以 T。</p>
+<p>同一组老师 logits [6.0, 4.0, 0.5, 0.2, −1.0]，按公式计算、四舍五入到三位：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th style="text-align: right;">T</th>
+<th style="text-align: right;">猫</th>
+<th style="text-align: right;">老虎</th>
+<th style="text-align: right;">狗</th>
+<th style="text-align: right;">汽车</th>
+<th style="text-align: right;">卡车</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0.875</td>
+<td style="text-align: right;">0.118</td>
+<td style="text-align: right;">0.004</td>
+<td style="text-align: right;">0.003</td>
+<td style="text-align: right;">0.001</td>
+</tr>
+<tr>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">0.659</td>
+<td style="text-align: right;">0.243</td>
+<td style="text-align: right;">0.042</td>
+<td style="text-align: right;">0.036</td>
+<td style="text-align: right;">0.020</td>
+</tr>
+<tr>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">0.441</td>
+<td style="text-align: right;">0.267</td>
+<td style="text-align: right;">0.111</td>
+<td style="text-align: right;">0.103</td>
+<td style="text-align: right;">0.077</td>
+</tr>
+<tr>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">0.314</td>
+<td style="text-align: right;">0.245</td>
+<td style="text-align: right;">0.158</td>
+<td style="text-align: right;">0.152</td>
+<td style="text-align: right;">0.131</td>
+</tr>
+</tbody>
+</table></div>
+<p>看“猫”一列在下降，而几个小概率在增大；舍入后每行不一定恰好加到 1。有限 T 下，类别排序不变，相对差距被压缩。</p>
+<p>T 趋于无穷时，<strong>概率分布本身</strong>趋于均匀；但与 T² 缩放联合考虑的高温损失仍可保留中心化 logit 差异，不能把两者混为一谈。</p>
+<p>可以将 1、2、4 等作为候选温度，配合验证集调整。词表大不保证输出足够软，LLM 也不是天然只能用 T=1；更不能说温度偏小就必然“蒸馏白做”。</p>
 <h3 id="t2">⭐ 那个必须记住的细节：T² 缩放</h3>
-<p>总损失通常长这样：</p>
-<p>$$\mathcal{L} = \alpha \cdot T^2 \cdot \mathrm{KL}\big(p_T^{teacher} \,\|\, p_T^{student}\big) + (1-\alpha)\cdot \mathrm{CE}(z^{student}, y)$$</p>
-<p><strong>那个 $T^2$ 不是装饰，少了它你调 T 就等于同时在调学习率。</strong></p>
-<p><strong>这里有两个需要分开理解的问题。</strong></p>
+<p><strong>先看各项分工，再按需打开推导。</strong></p>
+<p>$$\begin{aligned}
+\mathcal{L} ={}&amp; \alpha T^2\mathrm{KL}(p_T^{t}\|p_T^{s}) \\
+&amp;+ (1-\alpha)\mathrm{CE}(z^{s}, y)
+\end{aligned}$$</p>
+<p>这里上标 t 表示老师（teacher），s 表示学生（student），都不是时间步。分成两行只是为了方便阅读，仍是两项相加的同一个损失。</p>
 <ul>
-<li><strong>优化是否等价：</strong>固定 teacher 分布 p 时，KL(p‖q)=H(p,q)−H(p)。对学生来说，熵项是常数。</li>
-<li><strong>数值是否相等：</strong>KL 与软标签交叉熵通常差一个 teacher 熵；还要统一温度、权重、归约与输入格式，不能直接互换框架调用后就认定结果一致。</li>
+<li>KL 项：让学生在相同温度下接近老师的概率分布。</li>
+<li>CE 项：让学生仍学习真实标签 y，这里不对 logits 除以 T。</li>
+<li>α：两类监督的相对权重，通常取 0–1。</li>
+<li>T²：补偿高温下软损失梯度的近似尺度变化，不保证任何 T 下梯度都不变。</li>
 </ul>
-<p><strong>方向也不能写反。</strong>KL(teacher‖student) 按老师分布加权；KL(student‖teacher) 按学生分布加权。</p>
-<p>受限学生模型在两种方向下可能偏好不同近似。但“反向 KL 必然只挑一个峰、遗漏长尾完全免费”并不成立：若 teacher=(0.5,0.5)、student=(1,0)，反向 KL 仍为 1 比特。</p>
-<p>长尾质量需要按类、按任务验证，不能由 KL 方向直接断言。具体数值和条件见<a href="../机器学习的数学原理/01b-KL散度.html">数学原理 01b</a>。</p>
+<p><strong>优化等价与数值相等是两回事。</strong> 固定老师分布 p 时，KL(p‖q)=H(p,q)−H(p)。对学生来说，最后一项是常数；因此对应的软标签交叉熵可有相同梯度，但数值不同。</p>
+<p>替换框架调用时还要统一输入格式、温度、权重和归约，不能只把函数名换掉。实现参照 <a href="https://docs.pytorch.org/tutorials/beginner/knowledge_distillation_tutorial.html">PyTorch 蒸馏教程</a>。</p>
+<p><strong>方向也不能写反。</strong> KL(teacher‖student) 按老师分布加权；反向按学生分布加权。受限学生可能偏好不同近似，但不存在“遗漏长尾完全免费”的通则。</p>
+<p>例如老师 (0.5,0.5)、学生 (1,0)，反向 KL 仍为 1 比特。长尾质量要实际验证，详见<a href="../机器学习的数学原理/01b-KL散度.html">数学原理 01b</a>。</p>
 <details>
 <summary>📐 <b>为什么恰好是 T²（想看再点）</b></summary>
 <p>KL 项对学生 logit $z_i$ 的梯度是</p>
 <p>$$\frac{\partial}{\partial z_i}\mathrm{KL} = \frac{1}{T}\Big(\sigma(z/T)_i - \sigma(t/T)_i\Big)$$</p>
 <p>前面那个 $\frac{1}{T}$ 来自链式法则（softmax 的输入被除了 T）。</p>
-<p>当 T 较大时，对 $\sigma(z/T)_i$ 做一阶展开（设 logits 零均值、类数 C）：</p>
+<p>当 T 相对 logits 的差异足够大时，对 $\sigma(z/T)_i$ 做一阶展开（设 logits 零均值、类数 C）：</p>
 <p>$$\sigma(z/T)_i \approx \frac{1}{C} + \frac{z_i}{C\,T}$$</p>
 <p>代回去：</p>
 <p>$$\frac{\partial}{\partial z_i}\mathrm{KL} \approx \frac{1}{T}\cdot\frac{z_i - t_i}{C\,T} = \frac{z_i - t_i}{C\,T^2}$$</p>
-<p><strong>梯度正比于 $1/T^2$。</strong> 所以乘上 $T^2$ 之后，软损失的梯度尺度<strong>不再随 T 变化</strong> ——
-这样 $\alpha$（软硬损失的配比）才有稳定含义，你调 T 的时候不会顺带把有效学习率改了 64 倍。</p>
+<p><strong>这里是高温近似，不是任意 T 的精确等式。</strong> 乘上 $T^2$ 可以补偿这种近似尺度变化，但有限 T 下，概率差本身也会变化；软损失梯度不一定保持不变。</p>
+<p>这也是为什么不能把改温度精确等同于改学习率：更新方向、硬软损失的相对贡献与概率分布都可能改变。</p>
 </details>
-<p>下面这段可以直接跑，<strong>它就是上面那段推导的数值验证</strong>：</p>
+<p>下面是保留的梯度实验，需安装 PyTorch。两组 logits 是给定的教学输入，不是训练中期的实测记录。每次从同一个 student0 开始，比较是否乘 T²。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
 
@@ -455,19 +540,63 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">T</span><span class="si">:</span><span class="s2">&lt;5</span><span class="si">}{</span><span class="n">l1</span><span class="si">:</span><span class="s2">&gt;12.6f</span><span class="si">}{</span><span class="n">g1</span><span class="si">:</span><span class="s2">&gt;12.6f</span><span class="si">}{</span><span class="n">l2</span><span class="si">:</span><span class="s2">&gt;12.6f</span><span class="si">}{</span><span class="n">g2</span><span class="si">:</span><span class="s2">&gt;12.6f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </code></pre></div>
 
-<p>实跑结果：</p>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">T loss(raw) |grad|raw loss(xT2) |grad|xT2</span></div><div class="vb-flow-row"><span class="vb-flow-step">1.0 0.086481 0.128587 0.086481 0.128587</span></div><div class="vb-flow-row"><span class="vb-flow-step">2.0 0.073135 0.090805 0.292538 0.363222</span></div><div class="vb-flow-row"><span class="vb-flow-step">4.0 0.030420 0.030387 0.486713 0.486194</span></div><div class="vb-flow-row"><span class="vb-flow-step">8.0 0.008472 0.007675 0.542194 0.491218</span></div><div class="vb-flow-row"><span class="vb-flow-step">16.0 0.002127 0.001868 0.544426 0.478094</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 看 |grad|raw 那一列：4</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">8</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">16，每翻一倍 T，梯度缩小【正好约 4 倍】</span></div><div class="vb-flow-row"><span class="vb-flow-step">0.0304</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">0.00768</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">0.00187 （3.96×、4.11×）—— 这就是 1/T²</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 看 |grad|xT2 那一列：0.486</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">0.491</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">0.478，稳定住了</span></div></div></section>
-<blockquote>
-<p>⭐ <strong>一句话记住</strong>：
-<strong>不乘 T²，你把 T 从 2 调到 8，等于偷偷把蒸馏损失的学习率降了 16 倍。</strong>
-很多"蒸馏调不出效果"的案例，根因就是这一行。</p>
-</blockquote>
+<p><strong>按相同输入、自然对数和解析梯度独立复核的结果</strong>如下，保留六位；PyTorch 浮点计算的末位可能略有不同。本表不是一次模型训练的性能报告。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th style="text-align: right;">T</th>
+<th style="text-align: right;">loss(raw)</th>
+<th style="text-align: right;">梯度范数 raw</th>
+<th style="text-align: right;">loss × T²</th>
+<th style="text-align: right;">梯度范数 × T²</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0.086523</td>
+<td style="text-align: right;">0.128606</td>
+<td style="text-align: right;">0.086523</td>
+<td style="text-align: right;">0.128606</td>
+</tr>
+<tr>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">0.073163</td>
+<td style="text-align: right;">0.090825</td>
+<td style="text-align: right;">0.292653</td>
+<td style="text-align: right;">0.363300</td>
+</tr>
+<tr>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">0.030429</td>
+<td style="text-align: right;">0.030393</td>
+<td style="text-align: right;">0.486863</td>
+<td style="text-align: right;">0.486289</td>
+</tr>
+<tr>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">0.008474</td>
+<td style="text-align: right;">0.007677</td>
+<td style="text-align: right;">0.542351</td>
+<td style="text-align: right;">0.491297</td>
+</tr>
+<tr>
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">0.002127</td>
+<td style="text-align: right;">0.001868</td>
+<td style="text-align: right;">0.544590</td>
+<td style="text-align: right;">0.478162</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>看最后一列：</strong> T=4、8、16 时大约为 0.49、0.49、0.48，较稳定；但 T=1 和 T=2 明显不同，这正好说明近似有适用范围。</p>
+<p>不乘 T² 时，从 T=2 到 T=8，梯度范数在这个例子里约缩小 11.8 倍，<strong>不是固定 16 倍</strong>。出现训练问题仍要检查数据、损失权重与实现，不能一概归因于这一个系数。</p>
 <hr />
 <h2 id="logit">🧬 三、蒸馏做在哪一层：logit / 特征 / 注意力</h2>
-<p>蒸馏不是只能学最后的输出。<strong>teacher 内部的每一层都是可以对齐的监督信号。</strong></p>
+<p><strong>不只最终输出可以作为监督，但中间信号需要明确对应关系。</strong></p>
 <figure class="dia">
 <svg viewBox="0 0 700 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="teacher 与 student 的层级对齐：Embedding 做表示蒸馏，中间层做特征与注意力蒸馏，输出层做 logit 蒸馏">
-<text class="dia-t" x="350" y="24" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">teacher 内部的每一层，都可以当成 student 的监督信号</text>
+<text class="dia-t" x="350" y="24" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">可选择的蒸馏对齐信号</text>
 <text class="dia-t" x="100" y="50" font-size="12.5" text-anchor="middle" fill="var(--link)" font-weight="700">teacher（大）</text>
 <text class="dia-t" x="355" y="50" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">student（小）</text>
 <rect x="30" y="64" width="140" height="40" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/>
@@ -504,9 +633,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <line x1="170" y1="276" x2="292" y2="276" stroke="var(--accent)" stroke-width="1.6"/>
 <polygon points="300,276 292,271.5 292,280.5" fill="var(--accent)"/>
 <text class="dia-t" x="231" y="270" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">logit 蒸馏</text>
-<text class="dia-t" x="430" y="280" font-size="11" text-anchor="start" fill="var(--muted)" font-weight="normal">KL + 温度，最通用</text>
+<text class="dia-t" x="430" y="280" font-size="11" text-anchor="start" fill="var(--muted)" font-weight="normal">KL + 温度，需对齐输出</text>
 </svg>
-<figcaption>四种对齐方式可以叠加，但<b>哪一层配哪一层是你自己定的超参</b> —— 这也是特征蒸馏最容易翻车的地方。</figcaption>
+<figcaption>沿横向连线看老师和学生的哪一处被比较。不同信号可以组合，但层、头、位置与维度要能对应；图中配层只是示例，不是必选方案。</figcaption>
 </figure>
 
 <div class="tw"><table>
@@ -515,101 +644,104 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <th>层次</th>
 <th>学什么</th>
 <th>代表工作</th>
-<th>特点 / 坑</th>
+<th>主要检查</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>logit 蒸馏</strong> ⭐</td>
+<td>logit 蒸馏</td>
 <td>输出分布</td>
 <td>Hinton KD</td>
-<td><strong>最通用</strong>：学生结构可以和 teacher 完全不同。信号最少</td>
+<td>输出类别、位置和概率含义是否对齐</td>
 </tr>
 <tr>
-<td><strong>特征蒸馏（hint）</strong></td>
-<td>中间层隐状态</td>
+<td>特征蒸馏</td>
+<td>中间表示</td>
 <td>FitNets / TinyBERT</td>
-<td>信号强得多，收敛更快。⚠️ <strong>维度不同要加投影层</strong>，层怎么配是人定的</td>
+<td>配层方式；维度不同时可用投影，不能直接做逐元素 MSE</td>
 </tr>
 <tr>
-<td><strong>注意力蒸馏</strong> ⭐</td>
-<td>attention map（"看哪里"）</td>
+<td>注意力蒸馏</td>
+<td>注意力或相关结构</td>
 <td>TinyBERT / MiniLM</td>
-<td>Transformer 专用，<strong>对语法/结构类任务提升明显</strong>。⚠️ 要求头数可对齐</td>
+<td>头、位置或关系怎样匹配，依具体损失而定</td>
 </tr>
 <tr>
-<td><strong>关系蒸馏</strong></td>
-<td>样本之间的相对关系</td>
+<td>关系蒸馏</td>
+<td>样本或表示之间的关系</td>
 <td>RKD / MiniLM 的 value-relation</td>
-<td><strong>对结构差异最鲁棒</strong>，不要求维度对齐</td>
+<td>可避免部分逐元素维度约束，但不保证结构差异下最稳</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>⭐ <strong>实践顺序</strong>：
-<strong>先只上 logit 蒸馏，跑通、拿到 baseline，再考虑加特征/注意力。</strong>
-特征蒸馏引入的超参（配层方案、投影层、各项权重）能吃掉你两周，
-而在很多任务上它比纯 logit 蒸馏只多 0.5 个点。</p>
-</blockquote>
+<p>中间层监督可能有帮助，也可能增加对齐负担。一个清晰的起点是先做适合任务的输出蒸馏基线，再逐项加监督做消融；不能预先保证“只提升 0.5 个点”或“一定花两周”。</p>
 <hr />
 <!--MIDSTOP-->
+
 <blockquote>
-<p>🛑 <strong>读到这里可以停</strong> —— 前半章讲完了（约 26 分钟）。
-<strong>后半章还有</strong>：LLM 时代的蒸馏 · 一个事故复盘 · 怎么决策：什么时候值得蒸馏
-回来的时候不用重读，直接从下一节接着看就行。</p>
+<p>🛑 <strong>读到这里可以停。</strong> 你已经知道老师提供什么信号、温度改什么、T² 为什么只是近似尺度补偿。</p>
+<p>回来后从“LLM 时代的蒸馏”继续：后半关注实施方式、分组验收和成本。</p>
 </blockquote>
 <hr />
 <h2 id="llm">🤖 四、LLM 时代的蒸馏</h2>
-<p>LLM 蒸馏和经典分类蒸馏<strong>不是一回事</strong>，主要有三种形态：</p>
+<p>基本思想仍是利用老师监督学生。下面按四个常见视角介绍，它们并非互斥类别。</p>
 <h3 id="1-token-word-level-kd">① Token 级蒸馏（word-level KD）</h3>
-<p>每个位置对齐词表上的完整分布。<strong>信号最密，效果最好</strong>，但有个硬约束：</p>
-<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⚠️ teacher 和 student 必须【同 tokenizer、同词表】</span></div><div class="vb-flow-row"><span class="vb-flow-step">不然两边的 logits 根本对不上位置</span></div><div class="vb-flow-row"><span class="vb-flow-step">这就是为什么各家的小模型基本都是</span></div><div class="vb-flow-row"><span class="vb-flow-step">「同一家、同一个 tokenizer 的大模型」蒸出来的</span></div></div></section>
+<p><strong>在每个位置比较输出分布。</strong> 最直接的逐 token KL 要求两边词表索引含义一致、序列位置和条件上下文对应。</p>
+<p>相同 tokenizer 是一种简化条件，但不能代替所有对齐检查。跨词表蒸馏需要额外映射或其他目标，不能把不同位置的 logits 直接相减。</p>
+<p>输出分布提供了比单个采样 token 更丰富的监督，但数据质量、计算与学生容量都会影响收益；它并非必然效果最好。</p>
 <h3 id="2-seqkd">② 序列级蒸馏（SeqKD）</h3>
-<p>让 teacher <strong>把完整答案生成出来</strong>，学生拿这些答案当硬标签做普通的 SFT。</p>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>⭐ 等价于：在 teacher 的&quot;众数序列&quot;上做最大似然</p><p>信号比 token 级弱（每个位置只有 1 个 token，没有分布）</p><p>✅ 但工程上简单太多：</p><p>· tokenizer 不同也行、架构不同也行</p><p>· teacher 可以只是一个 API</p><p>· 数据可以离线生成一次、反复用</p></div></section>
+<p><strong>老师生成完整答案，学生用这些答案做监督训练。</strong> 数据可离线生成和复用，学生可以使用不同 tokenizer；老师也可通过符合要求的 API 提供输出。</p>
+<p>生成答案可以来自采样、贪心或 beam search。不能把它统一称为老师的“真实众数序列”：beam search 通常也是近似搜索。</p>
+<p>与逐 token 分布相比，它少保存了候选概率，但也减少了分布对齐和存储负担。两者可比较，而不是只按“信号强弱”排固定名次。<a href="https://arxiv.org/abs/1606.07947">Sequence-Level Knowledge Distillation 原论文</a>。</p>
 <h3 id="3">③ 数据蒸馏 —— ⚠️ 这里有法务问题</h3>
-<p><strong>用大模型生成数据来训小模型，也叫蒸馏</strong>，而且它是当下最常见的形态。技术上它就是 SeqKD 的放大版；但它多了一层技术之外的约束：</p>
-<blockquote>
-<p>⚠️ <strong>绝大多数商用大模型 API 的服务条款，明确禁止用其输出去训练竞争模型。</strong>
-开源权重模型也各有各的许可 —— 有些要求衍生模型继承许可，
-有些要求在模型名字里带上原模型名。</p>
-<p><strong>这是立项前的第一道检查，不是上线前的最后一道。</strong>
-一个已经训完的模型如果发现数据来源不合规，<strong>它没有补救措施，只能扔掉。</strong> 💀</p>
-</blockquote>
-<section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>⭐ 立项时必须回答的三个问题：</li><li>数据是哪个模型生成的？它的条款/许可怎么写的？</li><li>这个小模型会不会对外提供服务、会不会和 teacher 构成竞争？</li><li>生成记录留存了吗（哪个模型、哪个版本、什么时候、什么 prompt）？</li></ol></section>
+<p>这里指<strong>用模型生成、筛选或改写训练数据</strong>，不等同于将一个大数据集优化成极小合成数据集的 dataset distillation。它可以包含序列级蒸馏。</p>
+<p>立项前需要留下三个检查结果：</p>
+<ol>
+<li>数据由哪个模型、版本、服务和提示生成？是否可追溯？</li>
+<li>当前适用许可或条款是否允许计划中的训练、分发和服务用途？</li>
+<li>数据是否含敏感信息或受限制内容？谁负责进一步审核？</li>
+</ol>
+<p>不能用“绝大多数 API 都禁止”替代逐项核对，也不能断言发现问题后“只能扔掉、无法补救”。具体处理要依据适用条款与授权；这里不作法律结论。</p>
 <h3 id="4-self-distillation">④ 自蒸馏（self-distillation）</h3>
-<p>teacher 和 student <strong>同尺寸，甚至就是同一个模型</strong>。听起来没意义，但它是好几个实用技巧的统一框架：</p>
+<p>老师和学生可以同架构，甚至来自同一训练过程的不同状态；蒸馏并不必然意味着变小。<a href="https://arxiv.org/abs/1805.04770">Born Again Neural Networks</a>就是同尺寸学生的研究例子。</p>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>用法</th>
-<th>做什么</th>
+<th>想解决什么</th>
+<th>边界</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Born-again</strong></td>
-<td>用训好的自己当 teacher 再训一遍，纯当正则化，指标常有小幅提升</td>
+<td>Born-again</td>
+<td>用已训练模型监督新的同尺寸模型</td>
+<td>可能改善泛化，不保证每次提升</td>
 </tr>
 <tr>
-<td><strong>上下文蒸馏</strong> ⭐</td>
-<td>把一段很长的 system prompt「蒸进权重」：带 prompt 的自己当 teacher，不带 prompt 的自己当 student → <strong>推理时省掉这段上下文</strong></td>
+<td>上下文蒸馏</td>
+<td>把某些提示诱导的行为学习进权重</td>
+<td>可减少部分提示依赖，不保证完整替代所有上下文</td>
 </tr>
 <tr>
-<td><strong>推理链压缩</strong></td>
-<td>把「长 CoT 输出」蒸成「短输出」：省 token、省延迟</td>
+<td>推理链压缩</td>
+<td>用长推理示范训练更短的输出</td>
+<td>短输出是否保持正确性需要评测</td>
 </tr>
 <tr>
-<td><strong>对齐回灌</strong></td>
-<td>把 RLHF/DPO 之后的行为蒸回一个更小或更快的模型</td>
+<td>对齐行为迁移</td>
+<td>将对齐后老师的行为传给另一模型</td>
+<td>学生若更小或不同，属于一般蒸馏，不必称自蒸馏</td>
 </tr>
 </tbody>
 </table></div>
 <hr />
 <h2 id="_6">💀 五、一个事故复盘</h2>
 <h3 id="1-15">事故一：整体掉 1 个点，某个人群掉 15 个点</h3>
-<p>发生了什么：一个客服意图分类服务，7B teacher 蒸成 1.3B student。验收指标：teacher 准确率 93.3%，student 92.3%，<strong>整体只掉 1.03pp</strong>，远好于 3pp 的红线，一次通过上线。上线两周后运营反馈：某类低频工单（占总量 1%）的转人工率翻了 3 倍。回头一查——那个分组的准确率从 85% 掉到了 70%，掉了 15pp。</p>
-<p>这段代码就是<strong>当时应该跑而没跑的那一步</strong>：</p>
+<p><strong>这是教学假设，不是有出处的真实事故。</strong> 下面用人工构造的分组结果，说明为何不能只看总体 accuracy。</p>
+<p>设一个客服分类任务，老师与学生可分别为 7B、1.3B；但参数规模不参与下面的统计计算，也不能由它推出掉点幅度。</p>
+<p>10,000 个样本中，老师答对 9,335 个，学生答对 9,232 个：总体准确率 <strong>93.35% → 92.32%，下降 1.03 个百分点</strong>。其中占 1% 的长尾 D，准确率却是 85% → 70%。</p>
+<p>这段保留的程序构造了这些结果；最后的 assert <strong>预期会报错</strong>，用于演示分组门槛如何阻塞发布。−3pp 只是例子中的策略，不是普适阈值。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">defaultdict</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">stratified_report</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">groups</span><span class="p">):</span>
@@ -643,109 +775,158 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="k">assert</span> <span class="n">worst</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span> <span class="o">-</span><span class="mf">3.0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;⭐ 分组 </span><span class="si">{</span><span class="n">worst</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2"> 掉了 </span><span class="si">{</span><span class="n">worst</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">pp，阻塞上线&quot;</span>
 </code></pre></div>
 
-<p><strong>实跑输出</strong>（最后一行 assert 会触发，这正是它该做的事）：</p>
+<p><strong>对应结果：</strong></p>
 <section class="result-board" aria-label="蒸馏模型分组结果">
-<p class="result-board-title">整体分数不错，不代表每个群体都没问题</p>
+<p class="result-board-title">总体下降较小，仍可能遮住关键分组</p>
 <div class="tw"><table>
-<caption>teacher 和 student 在各分组上的表现</caption>
-<thead><tr><th>分组</th><th>样本数</th><th>teacher</th><th>student</th><th>差距（百分点）</th></tr></thead>
+<caption>人工构造的分组结果，不是模型实测性能</caption>
+<thead><tr><th>分组</th><th>样本数</th><th>teacher 准确率</th><th>student 准确率</th><th>差距（百分点）</th></tr></thead>
 <tbody>
-<tr><td>全体</td><td>10,000</td><td>0.933</td><td>0.923</td><td>-1.03</td></tr>
-<tr><td>主力人群</td><td>8,000</td><td>0.940</td><td>0.933</td><td>-0.70</td></tr>
-<tr><td>次要 A</td><td>1,200</td><td>0.920</td><td>0.915</td><td>-0.50</td></tr>
-<tr><td>次要 B</td><td>500</td><td>0.900</td><td>0.880</td><td>-2.00</td></tr>
-<tr><td>长尾 C</td><td>200</td><td>0.880</td><td>0.800</td><td>-8.00</td></tr>
-<tr><td>长尾 D</td><td>100</td><td>0.850</td><td>0.700</td><td>-15.00：最差</td></tr>
+<tr><td>全体</td><td>10,000</td><td>93.35%</td><td>92.32%</td><td>−1.03</td></tr>
+<tr><td>主力人群</td><td>8,000</td><td>94.0%</td><td>93.3%</td><td>−0.70</td></tr>
+<tr><td>次要 A</td><td>1,200</td><td>92.0%</td><td>91.5%</td><td>−0.50</td></tr>
+<tr><td>次要 B</td><td>500</td><td>90.0%</td><td>88.0%</td><td>−2.00</td></tr>
+<tr><td>长尾 C</td><td>200</td><td>88.0%</td><td>80.0%</td><td>−8.00</td></tr>
+<tr><td>长尾 D</td><td>100</td><td>85.0%</td><td>70.0%</td><td>−15.00</td></tr>
 </tbody>
 </table></div>
-<p class="result-board-takeaway">最差分组是长尾 D：全体只掉 1.03 个点，它却掉了 15 个点。</p>
+<p class="result-board-takeaway">长尾 D 的下降对总体只贡献 1% × 15 = 0.15 个百分点，但对该组用户并不小。</p>
 </section>
-<p><strong>为什么没发现</strong>（三个原因叠在一起）：</p>
-<section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">① 评测集是从【蒸馏数据里随机切】的</span></div><div class="vb-flow-row"><span class="vb-flow-step">分布和蒸馏数据完全一样，长尾 D 只有 100 条</span></div><div class="vb-flow-row"><span class="vb-flow-step">在整体指标里权重只有 1%，掉 15pp 只贡献 0.15pp</span></div><div class="vb-flow-row"><span class="vb-flow-step">② ⭐ 更深的原因：软标签在低频类上【本来就没信息】</span></div><div class="vb-flow-row"><span class="vb-flow-step">teacher 自己在长尾 D 上就不自信（softmax 接近均匀）</span></div><div class="vb-flow-row"><span class="vb-flow-step">蒸馏信号 ≈ 噪声</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">学生等于在这些类上【什么都没学到】</span></div><div class="vb-flow-row"><span class="vb-flow-step">蒸馏对长尾的伤害是【系统性的】，不是偶然</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 验收只看了一个整体 accuracy 数字，没有分层</span></div></div></section>
-<p><strong>代价</strong>：两周 SLA 违约 + 客服加班；回滚到 teacher，1.3B 带来的每月约 40% 推理成本节约<strong>全部退回</strong>；三周的蒸馏工作报废。</p>
-<p>补什么：</p>
+
+<p><strong>这个例子能证明什么？</strong> 总体平均会弱化小群体的变化，应该分组验收。</p>
+<p><strong>不能证明什么？</strong> 它没有老师 logits、真实训练过程或业务日志，不能证明“软标签在长尾天然没信息”“蒸馏必然伤害长尾”，也不能推出转人工率翻三倍、SLA 违约两周或节约了 40% 费用。</p>
+<p>高熵输出有时表达有效的不确定性，低熵输出也可能自信地错。不要只凭熵高就剔除所有样本。</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>补丁</th>
-<th>内容</th>
+<th>检查方向</th>
+<th>实际做什么</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>评测集独立</strong> ⚠️</td>
-<td>评测集必须来自<strong>另一个时间窗、另一个采样源</strong>，不能从蒸馏数据里切</td>
+<td>独立评测</td>
+<td>保留未参与学生拟合和选参的样本，去重并核对标签来源</td>
 </tr>
 <tr>
-<td><strong>分层验收</strong> ⭐</td>
-<td>指标从「整体 Δ」改成「整体 Δ <strong>+ 每个分组 Δ</strong>」，<strong>任一分组 Δ &lt; −3pp 直接阻塞</strong></td>
+<td>分组验收</td>
+<td>预先定义关键人群、样本量和可接受下降，报告不确定性</td>
 </tr>
 <tr>
-<td><strong>长尾特殊对待</strong></td>
-<td>低频类上调高硬标签权重（降 α），或对长尾过采样，或直接保留 teacher 兜底路由</td>
+<td>长尾补救</td>
+<td>分别测试可靠硬标签、采样权重或老师兜底，比较改善与代价</td>
 </tr>
 <tr>
-<td><strong>teacher 不确定性</strong></td>
-<td>teacher 熵高的样本单独标记，这些样本上蒸馏信号本来就不可信</td>
+<td>老师质量</td>
+<td>人工或其他可靠方式核验其错误和不确定样本，检查是否被学生继承</td>
 </tr>
 </tbody>
 </table></div>
+<p>同分布、正确隔离的随机留出集可以检验同分布泛化；需要预测未来或新来源时，再增加时间/来源留出。<strong>不是所有评测都必须另换来源。</strong></p>
 <hr />
 <h2 id="_7">🧭 六、怎么决策：什么时候值得蒸馏</h2>
 <h3 id="_8">决策表</h3>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>你想要什么</th>
-<th>该用什么</th>
+<th>你的目标</th>
+<th>可以比较的起点</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>省显存 + 提速，不想训练</strong></td>
-<td>⭐ <strong>量化</strong>，先做这个，永远先做这个</td>
+<td>减少显存，不想更新权重</td>
+<td>在目标硬件测试 PTQ；先确认质量和 kernel 支持</td>
 </tr>
 <tr>
-<td>量化做完还不够小</td>
-<td>结构化剪枝 + 蒸馏恢复，<strong>再量化</strong></td>
+<td>希望换成明显更轻的模型</td>
+<td>比较现成小模型、任务微调、蒸馏或结构剪枝</td>
 </tr>
 <tr>
-<td><strong>窄任务上要一个远小于通用模型的模型</strong></td>
-<td>⭐ <strong>蒸馏 —— 这是它唯一压过量化的场景</strong></td>
+<td>窄任务需要定制行为</td>
+<td>比较真实标签训练与老师监督，保留老师作基线</td>
 </tr>
 <tr>
-<td>要换一个和 teacher 不同的架构（如换 tokenizer、换成非 Transformer）</td>
-<td>蒸馏（只能序列级）</td>
+<td>更换 tokenizer 或架构</td>
+<td>序列级蒸馏是较直接路径；其他对齐方法需额外设计</td>
 </tr>
 <tr>
-<td>目标硬件有稀疏 Tensor Core</td>
-<td>2:4 半结构化</td>
+<td>硬件支持特定稀疏格式</td>
+<td>评估匹配格式的稀疏化及其真实加速</td>
 </tr>
 <tr>
-<td>只是想省显存，模型能力不能动</td>
-<td>量化 + KV Cache 量化，别碰另外两个</td>
+<td>质量必须满足严格约束</td>
+<td>先定验收标准；量化、剪枝与蒸馏都不能先保证无损</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>⭐ <strong>蒸馏真正的独门价值不是"压缩"，是"专精"</strong>：
-量化和剪枝都只能让模型<strong>变小</strong>，不能让它<strong>变得更适合你的任务</strong>。
-<strong>蒸馏可以：</strong>用 70B 在你的业务数据上生成的答案，训一个 1B 的专用模型，
-<strong>在这一个任务上可以接近甚至超过 teacher，而通用能力全部丢掉</strong> —— 这正是你要的。
-反过来，<strong>如果你要的是一个"什么都会、只是小一点"的通用模型，蒸馏是最差的选择。</strong></p>
-</blockquote>
+<p>蒸馏既能做任务专精，也可训练通用学生或压缩集成。<strong>它不是窄任务上的唯一赢家，也不是通用模型的“最差选择”。</strong></p>
+<p>小学生有时能在特定评测超过老师，但需要实验解释；通用能力是否下降、下降多少，同样要测，而不是“全部丢掉正是目标”。</p>
 <h3 id="_9">⚠️ 蒸馏的成本：这笔账常被低估</h3>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>假设 7B teacher → 1.3B student，用 1.3B 的一次前向当作 1 个单位：</p><p>① student 训练（前向 + 反向）≈ 3 个单位</p><p>② ⭐ teacher 前向 ≈ 7/1.3 ≈ 5.4 个单位</p><p>合计 ≈ 8.4 个单位</p><p>⭐ 其中 【5.4/8.4 ≈ 64% 的算力花在 teacher 身上】</p><p>→ 蒸馏 1.3B 比从零训练同样的 1.3B 贵【约 2.8 倍】</p></div></section>
-<p>那能不能把软标签离线缓存下来、只跑一次 teacher？<strong>能，但存储可能直接劝退</strong>：</p>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>词表 128k，只存 top-50：每 token ≈ 50 × (4 值 + 4 索引) = 400 字节</p><p>100B token × 400 字节 = 40 TB ⚠️</p><p>1T token × 400 字节 = 400 TB 💀</p><p>→ 所以实践里通常是：</p><p>· 小规模、要多轮训练 → 离线缓存 top-k（k 取 5~20）</p><p>· 大规模 → 在线跑 teacher，认下那 64% 的算力</p><p>· 或者干脆用【序列级蒸馏】，只存 teacher 生成的文本（便宜几百倍）⭐</p></div></section>
-<blockquote>
-<p>⚠️ <strong>排期时请把这条写进去</strong>：
-<strong>蒸馏的算力成本 ≈ 训练同尺寸模型的 3 倍，周期以周/月计。</strong>
-而量化是几个小时。<strong>做决定前先算清楚你省下的推理成本要多久才能回本</strong> ——
-一个月省 40% 推理费、花掉三个月工程量的项目，未必划算。</p>
-</blockquote>
+<p><strong>先把 2.8 倍放回它的假设里。</strong> 以下仅是同 token 数、相近架构、每一步都在线跑老师的粗略计算量估计。</p>
+<p>以 1.3B 学生的一次前向为 1 单位，并假设前向成本正比于参数量：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th style="text-align: right;">假设计算量</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>学生前向 + 反向</td>
+<td style="text-align: right;">约 3</td>
+</tr>
+<tr>
+<td>7B 老师前向</td>
+<td style="text-align: right;">7 / 1.3 ≈ 5.38</td>
+</tr>
+<tr>
+<td>在线蒸馏合计</td>
+<td style="text-align: right;">约 8.38</td>
+</tr>
+<tr>
+<td>与只训练学生相比</td>
+<td style="text-align: right;">8.38 / 3 ≈ 2.79 倍</td>
+</tr>
+</tbody>
+</table></div>
+<p>在这组假设下，老师约占 64.2% 计算量；<strong>不是任何蒸馏都比从零训练贵 2.8 倍</strong>。真实 token 数、训练轮数、架构、缓存与利用率可能不同，也不能把计算量比例直接等同墙钟时间或账单。</p>
+<p><strong>离线缓存的账另算。</strong> 假设每个位置只存 top-50，每项用 4 字节数值 + 4 字节索引：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>数量</th>
+<th style="text-align: right;">未压缩的缓存预算</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>每 token</td>
+<td style="text-align: right;">50 × 8 = 400 字节</td>
+</tr>
+<tr>
+<td>100B token</td>
+<td style="text-align: right;">40 TB</td>
+</tr>
+<tr>
+<td>1T token</td>
+<td style="text-align: right;">400 TB</td>
+</tr>
+</tbody>
+</table></div>
+<p>这里 B 表示十亿、T 表示万亿，TB 按十进制；还没包含元数据。词表 128k 不直接出现在这条 top-50 存储式里；存完整词表会更多。</p>
+<p>可以比较更小的 top-k（如 5–20）、较低数值精度、分片重算或只存生成序列。<strong>截断 top-k 已不是完整分布</strong>，需要决定剩余概率质量如何处理；不能截完不管归一化就叫完整 KL。</p>
+<p>只存文本或 token ID 通常少很多，但压缩倍数受编码和数据组成影响。离线缓存减少重复老师计算，也会增加生成、读写与存储成本。</p>
+<p><strong>回本怎么估？</strong> 先算新增训练、数据、评测和部署的一次性成本，再除以每月净节约；只有净节约为正时，这个回本月数才有意义。不能把“每月省 40%”和“三个月工程量”直接相除，见<a href="../模型上线之后/18-成本与容量.html">成本与容量</a>。</p>
 <h3 id="_10">⚠️ 评估：绝不能在蒸馏数据上评</h3>
-<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">💀 最危险的闭环：</span></div><div class="vb-flow-row"><span class="vb-flow-step">teacher 生成数据</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">学生学</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">【在同一批数据上评估学生】</span></div><div class="vb-flow-row"><span class="vb-flow-step">为什么这是错的：</span></div><div class="vb-flow-row"><span class="vb-flow-step">① 学生在上面得分高，只说明它学会了【模仿 teacher】，</span></div><div class="vb-flow-row"><span class="vb-flow-step">不说明它学会了【任务】</span></div><div class="vb-flow-row"><span class="vb-flow-step">② ⭐ teacher 的错误被当成了标准答案 ——</span></div><div class="vb-flow-row"><span class="vb-flow-step">学生把错误学得越像，分数越高 💀</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 分布完全一致，没有任何泛化信号</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 正确做法：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 评测集来自【另一个时间窗 / 另一个采样源】，人工标注</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 必须分层（第五节）</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 必须有一批 teacher 也会答错的样本，用来看错误有没有被继承</span></div></div></section>
+<p>标题里的“不能”指：<strong>不能用学生训练集上的分数，替代独立的泛化验收。</strong> 训练集指标仍可用于调试与检查是否学会拟合。</p>
+<p>还要分清两种目标：</p>
+<ul>
+<li><strong>老师一致性：</strong> 学生是否复现老师行为，可用老师输出对比。</li>
+<li><strong>真实任务质量：</strong> 学生是否答对，需要独立可靠的答案；老师的输出不自动是真值。</li>
+</ul>
+<p>预留未用于训练和调参的测试样本，核对去重与污染；再按目标场景做时间、来源或关键人群验证。另建包含老师已知错误的诊断集，报告它与代表性测试集的区别，不能混成一个总体成功率。</p>
 <hr />
 <h2 id="_11">🔗 和站内其他章的关系</h2>
 <div class="tw"><table>
@@ -757,85 +938,79 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </thead>
 <tbody>
 <tr>
-<td><a href="18-量化.html">第 18 章</a> 量化</td>
-<td><strong>压缩三件套的第一件</strong>；量化改数值精度，蒸馏换整个模型，<strong>正交可叠加</strong> ⭐</td>
+<td><a href="18-量化.html">第 18 章</a></td>
+<td>位宽与数值误差；组合蒸馏后仍须重新验证</td>
 </tr>
 <tr>
-<td><a href="18c-剪枝与稀疏化.html">第 18c 章</a> 剪枝</td>
-<td>第三件。⭐ <strong>现在 LLM 上的主流是组合拳</strong>：结构化剪枝选出小架构 → 蒸馏把能力搬回来</td>
+<td><a href="18c-剪枝与稀疏化.html">第 18c 章</a></td>
+<td>结构与稀疏化，蒸馏可作为恢复训练的一种方式</td>
 </tr>
 <tr>
-<td><a href="19-投机解码.html">第 19 章</a> 投机解码</td>
-<td>也是"用小模型帮大模型"，但<strong>它精确无损，蒸馏是有损的</strong>；草稿模型本身常常就是蒸出来的 ⭐</td>
+<td><a href="19-投机解码.html">第 19 章</a></td>
+<td>正确校正的标准采样方案保持目标分布；蒸馏不保证与老师完全相同</td>
 </tr>
 <tr>
-<td><a href="../推荐算法/18-进阶专题-GNN-蒸馏-去偏-强化学习.html">《推荐算法》18 进阶专题</a> 精排蒸粗排</td>
-<td>那边给<strong>推荐场景的用法</strong>（排序蒸馏、粗排一致性），<strong>本章给温度 / T² 的机制</strong> ⭐</td>
+<td><a href="../推荐算法/18-进阶专题-GNN-蒸馏-去偏-强化学习.html">推荐算法 18</a></td>
+<td>精排到粗排的排序蒸馏场景</td>
 </tr>
 <tr>
-<td><a href="../大模型全景导论/06-推理优化.html">《大模型全景导论》06 推理优化</a> 部署侧取舍清单</td>
-<td>那边给"该不该压缩"的产品视角，<strong>本章给"压了之后怎么验收"</strong></td>
+<td><a href="../大模型全景导论/06-推理优化.html">全景导论 06</a></td>
+<td>部署侧的质量、速度与成本取舍</td>
 </tr>
 <tr>
-<td><a href="../模型上线之后/02-离线好不等于线上好.html">《模型上线之后》02 离线好不等于线上好</a> 离线指标骗人</td>
-<td>⭐ <strong>本章那个事故就是这条规律在蒸馏上的具体形态</strong>：整体 −1pp，长尾 −15pp</td>
+<td><a href="../模型上线之后/02-离线好不等于线上好.html">模型上线 02</a></td>
+<td>总体指标与局部质量的差别，本章用假设分组演示</td>
 </tr>
 <tr>
-<td><a href="../大模型全景导论/05-微调与LoRA.html">《大模型全景导论》主线 5 · 怎样把模型变成你的助手</a></td>
-<td>那一章把蒸馏列为「<strong>想用小模型省钱</strong>」这个场景的主力路径，但只给了一句话。从那边带着「我要蒸一个小模型」的念头过来的人，需要的是本章的温度 / T² 机制和验收纪律</td>
+<td><a href="../大模型全景导论/05-微调与LoRA.html">全景导论 05</a></td>
+<td>小模型定制路径，本章继续解释机制与验收</td>
 </tr>
 <tr>
-<td><a href="../模型上线之后/18-成本与容量.html">《模型上线之后》18 成本与容量</a> 成本核算</td>
-<td><strong>蒸馏值不值得的账在这里算</strong>：省下的推理费要多久覆盖掉三个月工程量</td>
+<td><a href="../模型上线之后/18-成本与容量.html">模型上线 18</a></td>
+<td>用同一货币和时间口径计算净节约</td>
 </tr>
 <tr>
-<td><a href="../Kaggle竞赛方法论/03_模型融合与后处理.html">《Kaggle竞赛方法论》03 模型融合与后处理</a> 集成</td>
-<td><strong>集成蒸馏</strong>：teacher 可以是一个 ensemble，蒸成单模型上线 —— 竞赛里的标准收尾 ⭐</td>
+<td><a href="../Kaggle竞赛方法论/03_模型融合与后处理.html">Kaggle 03</a></td>
+<td>老师可以是集成，学生用于降低部署复杂度；不是所有竞赛都必须这样收尾</td>
 </tr>
 </tbody>
 </table></div>
 <hr />
 <h2 id="_12">✅ 检查点</h2>
 <ol>
-<li>量化、剪枝、蒸馏各自改的是模型的哪个维度？为什么说它们正交？</li>
-<li>为什么学 teacher 的软标签比学硬标签强？"暗知识"具体指什么？</li>
-<li>温度 T 的作用是什么？T 太大和太小分别会怎样？</li>
-<li>蒸馏损失里的 $T^2$ 是干什么的？不加会发生什么？</li>
-<li>logit 蒸馏、特征蒸馏、注意力蒸馏各有什么优势和限制？该先上哪个？</li>
-<li>序列级蒸馏和 token 级蒸馏的区别？各自的约束是什么？</li>
-<li>用大模型生成数据训小模型，技术之外要先检查什么？</li>
-<li>蒸馏为什么会<strong>系统性地</strong>伤害长尾人群？验收指标该怎么改？</li>
-<li>7B 蒸 1.3B，算力成本大概是从零训 1.3B 的几倍？大头在哪？</li>
-<li>蒸馏真正压过量化的场景是哪一个？反过来什么时候它是最差选择？</li>
-<li>为什么绝不能在蒸馏数据上评估学生？</li>
+<li>量化、剪枝和蒸馏各改什么？为什么能组合却不代表收益独立？</li>
+<li>暗知识是什么？120 倍概率能代表客观相似性吗？</li>
+<li>温度怎样改变概率？词表大就能确定 T 吗？</li>
+<li>T² 补偿什么？为什么它不是任意温度下的精确不变量？</li>
+<li>四类对齐信号各需检查什么？</li>
+<li>Token 级与序列级有什么不同？生成答案一定是众数序列吗？</li>
+<li>合成数据训练立项前需留下哪些来源与授权记录？</li>
+<li>分组例子证明了什么，没证明什么？</li>
+<li>2.79 倍与 400 TB 分别用了哪些假设？</li>
+<li>蒸馏只适合窄任务吗？怎样判断是否值得？</li>
+<li>训练集指标、老师一致性和真实任务质量如何区分？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>量化改数值精度</strong>（16bit→4bit，形状不变）、剪枝改连接/尺寸（置零或删行列，精度不变）、蒸馏换整个模型（重新学一套权重）。动的是三个不同维度，所以可叠加，典型流水线是「结构化剪枝 → 蒸馏恢复 → INT4 量化」。</li>
-<li>硬标签里"老虎"和"汽车"<strong>一样错</strong>，而 teacher 的软标签会告诉你猫像老虎的程度是像汽车的 120 倍 —— 这个类间相似性就是暗知识。信息量上硬标签只有 log2(C) bit，软标签是完整的 C 维分布；LLM 上是 17 bit vs 12.8 万维分布。</li>
-<li><strong>把尖锐的 softmax 摊平，让暗知识露出来</strong>。T 太小 → 退化成硬标签，蒸馏白做；T 太大 → 所有类趋同、信号被噪声淹没。分类典型 T=2~5，LLM 常直接用 T=1（词表大，本来就够软）。</li>
-<li>KL 对学生 logit 的梯度<strong>正比于 1/T²</strong>，乘上 T² 让软损失的梯度尺度不随 T 变化，α 才有稳定含义。不加的话，把 T 从 2 调到 8 等于偷偷把蒸馏损失的学习率降了 16 倍 —— 很多"蒸馏没效果"的根因就在这。</li>
-<li><strong>logit 蒸馏最通用</strong>（学生结构可完全不同），但信号最少；特征蒸馏信号强、收敛快，但维度不同要加投影层、配层是超参；注意力蒸馏学"看哪里"，对结构类任务好，但要求头数可对齐。先只上 logit 蒸馏拿到 baseline。</li>
-<li><strong>token 级</strong>每个位置对齐完整词表分布，信号最密，但要求同 tokenizer 同词表；序列级让 teacher 生成完整答案、学生当硬标签学，信号弱但 tokenizer/架构都可以不同，teacher 可以只是个 API，数据能离线复用。</li>
-<li>⚠️ <strong>许可条款</strong>。绝大多数商用 API 禁止用输出训练竞争模型，开源权重也各有许可要求。这是立项前第一道检查 —— 训完才发现不合规的模型没有补救措施，只能扔。</li>
-<li>因为 <strong>软标签在低频类上本来就没信息</strong> —— teacher 自己在这些类上就不自信，softmax 接近均匀，蒸馏信号≈噪声。加上评测集常从蒸馏数据里切、长尾在整体指标里权重极低，所以整体 −1pp 能掩盖某组 −15pp。验收要改成「整体 Δ + 每个分组 Δ，任一组 &lt; −3pp 阻塞」，评测集必须独立于蒸馏数据。</li>
-<li><strong>约 2.8 倍</strong>。student 前向+反向 ≈ 3 个单位，teacher 前向 ≈ 5.4 个单位 —— 大头（约 64%）在 teacher 上。离线缓存软标签能摊销，但 top-50 缓存 1T token 要 400TB，通常只能存很小的 k 或改用序列级蒸馏。</li>
-<li><strong>窄任务上要一个远小于通用模型的专用模型</strong> —— 用 teacher 在业务数据上生成的答案训一个 1B，在这一个任务上可以接近甚至超过 teacher，代价是通用能力全丢，而这正是你要的。反过来，要一个"什么都会、只是小一点"的通用模型，蒸馏是最差选择。</li>
-<li>因为 ① 得分高只说明学生<strong>学会了模仿 teacher</strong>，不说明学会了任务；② teacher 的错误被当成标准答案，学生错得越像分越高；③ 分布完全一致，没有泛化信号。要用另一个时间窗/采样源、人工标注、分层的独立评测集。</li>
+<li>位宽、结构/连接、训练监督分别是主要切入点。它们会相互影响，组合后仍需测质量、文件、显存和速度。</li>
+<li>是老师对非目标类别的相对判断等信息，可能有用也可能有偏差。120 倍只是给定输入上的老师概率比，不是客观相似度比。</li>
+<li>对固定 logits，T 增大时概率更平。最佳 T 需要验证，不能只凭词表大小或“老师很强”确定。</li>
+<li>在 logits 差异相对 T 小时，梯度近似按 1/T² 缩放；有限 T 下概率差仍变化，乘 T² 后梯度不保证相同。</li>
+<li>输出需对齐类别与条件；特征需配层和维度处理；注意力需匹配头、位置或关系；关系蒸馏也有定义与实现边界。</li>
+<li>Token 级比较对齐位置的分布；序列级学习生成答案，可跨 tokenizer。采样、贪心、beam search 均不保证找到真实最高概率序列。</li>
+<li>模型和版本、生成时间与提示、适用许可/条款、预期用途、数据来源与审核记录。不能用泛化断言替代具体核对。</li>
+<li>人工构造结果证明总体平均会遮住小组下降；没有证明蒸馏必然伤害长尾、老师熵就是原因或发生过某起业务事故。</li>
+<li>2.79 倍假设相同 token 预算、前向随参数量线性及在线老师；400 TB 假设 1T token、每项 8 字节的 top-50 缓存，不含额外开销。</li>
+<li>不是。它可用于通用、专用或同尺寸学生。与合适基线同预算比较，任务和分群达标后，再算总成本和净节约。</li>
+<li>训练集指标可调试，不能代替泛化验收；与老师一致也不等于真实正确。独立样本与可靠答案缺一不可。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_13">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
-<blockquote>
-<p>⭐ <strong>压缩三件套动的是三个不同维度</strong>：量化改数值精度、剪枝改连接和尺寸、<strong>蒸馏换整个模型</strong>——三者正交可叠加。⭐ 但蒸馏和另外两件有本质区别：<strong>量化和剪枝只能让模型变小，蒸馏能让它变得更适合你的任务。</strong></p>
-<p>机制：硬标签里「老虎」和「汽车」一样错，而 teacher 的软标签告诉你<strong>猫像老虎远多于像汽车</strong>——这个类间相似性就是暗知识。⭐ 信息量上硬标签只有几个 bit、软标签是完整分布，<strong>这就是小模型普遍用蒸馏而不是从零预训练的根本原因</strong>。</p>
-<p>⭐ <strong>损失里那个 T² 不是装饰</strong>：梯度正比于 1/T²，不乘它就等于<strong>在调高温度时偷偷把学习率降了十几倍</strong>——很多「蒸馏没效果」的根因就在这。⭐ 先只上 logit 蒸馏拿 baseline，特征和注意力蒸馏要投影层和配层超参。</p>
-<p>⚠️ LLM 上三种形态各有硬约束：token 级<strong>要求同 tokenizer 同词表</strong>；序列级信号弱但架构随便、teacher 可以只是个 API；⚠️ <strong>数据蒸馏受许可条款约束——绝大多数商用 API 禁止用输出训竞争模型，这是立项第一道检查</strong>，训完才发现不合规只能扔。</p>
-<p>💀 事故：蒸馏后整体只掉一个百分点就上线，<strong>而某个占 1% 的长尾人群掉了十几个点</strong>。⭐ 更深的原因是<strong>软标签在低频类上本来就没信息</strong>（teacher 自己不自信，分布接近均匀）——<strong>所以蒸馏对长尾的伤害是系统性的，不是这次运气差</strong>。补丁：评测集必须独立于蒸馏数据 + 分层验收。</p>
-<p>🧭 ⭐ <strong>永远先做量化</strong>（几小时就能做完），不够再考虑剪枝加蒸馏。⭐ <strong>蒸馏真正的独门价值不是压缩而是专精</strong>——窄任务上的小专用模型可以接近甚至超过 teacher，代价是通用能力全丢。⚠️ 成本常被低估：teacher 的前向占了大半算力，比从零训还贵。</p>
-</blockquote>
+<section class="reading-recap" aria-label="走神救援"><p>回来时先接上这四点</p><ul><li>蒸馏是利用老师监督学生，不自动保证更小、更快或更准。</li><li>温度改变概率；T² 是高温梯度尺度的近似补偿。</li><li>总体过关还不够：独立样本、可靠标签和关键分组都要检查。</li><li>训练、缓存、评测与部署一起算账，不能照搬固定成本倍数。</li></ul></section>
+
 <p><strong>下一节</strong> 👉 <a href="18c-剪枝与稀疏化.html">18c-剪枝与稀疏化.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>

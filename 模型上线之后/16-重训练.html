@@ -310,117 +310,169 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⏱ <strong>46 分钟</strong> ｜ ⭐ <strong>什么时候训、用什么数据训</strong></p>
 <hr>
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>「定期重训」听起来天经地义，但它有三个必须先回答的问题：
-什么时候训、用多长的数据训、以及 —— 训出来的怎么知道更好。</strong></p>
+<p><strong>重训是一个待验证的改进方案，不是发现异常后的自动答案。</strong></p>
+<p>本章分开回答：什么时候启动检查、用哪些数据训练、怎样证明新模型值得上线。先看三项决策和五道闸门；代码与事故算例可以按需继续。</p>
 <hr>
 <h2 id="_2">🚨 一、先问一句：这次真的该重训吗</h2>
-<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⭐ 按第 6 章的四分法先定性：</span></div><div class="vb-flow-row"><span class="vb-flow-step">① 管道坏了</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">【绝不重训】，先修管道 💀</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 数据漂移</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">重训有效 ✅</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 概念漂移</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">重训有效，但要调训练窗口 ✅⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">④ 标签漂移</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">可能只需重新校准，比重训便宜 ⭐</span></div></div></section>
-<blockquote>
-<p>💀 <strong>再强调一次 ①</strong>：<strong>管道坏了时重训，会把错误数据学进模型，
-把「临时故障」变成「永久损伤」。</strong>
-<strong>重训流水线里应该有一道自动闸门：数据质量检查不通过就不许训。</strong></p>
-</blockquote>
-<hr>
-<h2 id="_3">⏰ 二、什么时候触发重训</h2>
+<p><strong>先排查数据是否可信，再判断模型是否需要改变。</strong> 以下情况可能同时出现，不是互斥的“四种漂移”。</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>触发方式</th>
-<th>说明</th>
-<th>适合</th>
+<th>观察到什么</th>
+<th>先做什么</th>
+<th>重训的边界</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>定时</strong></td>
-<td>每天/每周/每月固定训</td>
-<td>简单，<strong>大多数场景够用</strong> ⭐</td>
+<td>管道、单位或特征生成出了错</td>
+<td>隔离错误数据，修复并追溯污染范围</td>
+<td>不能直接拿仍有问题的数据自动重训；修复或重建数据后再评估</td>
 </tr>
 <tr>
-<td><strong>性能触发</strong></td>
-<td>指标跌破阈值才训</td>
-<td>需要有及时标签</td>
+<td>输入分布变化</td>
+<td>看哪些人群变了、当前效果是否受影响</td>
+<td>分布变了不等于模型一定变差，重训也不一定改善</td>
 </tr>
 <tr>
-<td><strong>漂移触发</strong></td>
-<td>PSI 超阈值才训</td>
-<td>不需要标签 ⭐</td>
+<td>输入与答案的关系变化</td>
+<td>收集可靠的新反馈，比较候选更新方案</td>
+<td>新数据覆盖、标签延迟及训练窗口都会影响效果</td>
 </tr>
 <tr>
-<td><strong>数据量触发</strong></td>
-<td>新增 N 条样本就训</td>
-<td>冷启动期、数据稀疏时</td>
+<td>类别比例变化</td>
+<td>核对标签口径及条件分布是否稳定</td>
+<td>满足标签漂移假设时可考虑先验修正或校准，不能仅凭比例变化确定方案</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>⭐ <strong>实践建议：定时为主 + 漂移触发为辅。</strong>
-定时保证基线（不会忘），漂移触发处理突发情况。
-<strong>纯性能触发的问题是：等指标掉下来时，损失已经发生了。</strong></p>
-</blockquote>
+<p>为什么要先检查数据？错误可能进入新模型并在源故障修复后继续产生影响。它不一定是“永久损伤”，但恢复可能需要回滚、重建数据和重训。</p>
+<p>数据异常检测可以帮助发现问题，<strong>不是自动确认根因或自动批准重训</strong>。见<a href="06-%E6%95%B0%E6%8D%AE%E6%BC%82%E7%A7%BB%E4%B8%8E%E6%A6%82%E5%BF%B5%E6%BC%82%E7%A7%BB.html">第 6 章</a>与 <a href="https://www.tensorflow.org/tfx/data_validation/get_started">TensorFlow Data Validation 的 schema、skew 和 drift 检查说明</a>。</p>
+<hr>
+<h2 id="_3">⏰ 二、什么时候触发重训</h2>
+<p><strong>触发训练与批准发布要分开。</strong> 收到信号后，先检查数据和收益预期，不应直接替换线上模型。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>触发方式</th>
+<th>能提供什么</th>
+<th>还缺什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>定时</td>
+<td>固定的检查与候选训练节奏</td>
+<td>不证明这次重训有收益</td>
+</tr>
+<tr>
+<td>性能触发</td>
+<td>直接观察任务指标退化</td>
+<td>标签可能延迟，指标有抽样波动</td>
+</tr>
+<tr>
+<td>漂移触发</td>
+<td>没有标签也可看到部分输入变化</td>
+<td>PSI 等统计量不能证明任务效果变差</td>
+</tr>
+<tr>
+<td>数据量触发</td>
+<td>提醒已有一批新样本可用</td>
+<td>数量之外还需质量、覆盖与标签成熟度</td>
+</tr>
+</tbody>
+</table></div>
+<p>定时检查加异常调查是一种可选起点，不是所有业务的统一最佳方案。快变环境与稳定环境的成本权衡不同；只等性能跌破阈值也可能反应太晚。</p>
 <h3 id="_4">频率怎么定</h3>
-<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⭐ 一个能算的判据：看【模型效果的衰减速度】</span></div><div class="vb-flow-row"><span class="vb-flow-step">① 拿一个历史模型，冻结它</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 用它去预测之后 1、2、4、8 周的数据</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 画出效果衰减曲线</span></div><div class="vb-flow-row"><span class="vb-flow-step">④ 找到「掉到不可接受」的那个点</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">重训周期设成它的一半</span></div><div class="vb-flow-row"><span class="vb-flow-step">例：8 周后 AUC 掉 0.02（可接受上限是 0.015）</span></div><div class="vb-flow-row"><span class="vb-flow-step">大约 6 周越线</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">重训周期设 3 周</span></div></div></section>
-
+<p><strong>用历史回放比较候选周期，不用“越线时间除以二”代替验证。</strong></p>
+<ol>
+<li>选多个历史训练截止点，按当时可获得的数据和标签训练模型。</li>
+<li>冻结模型，逐个未来时间段评估，查看整体和关键人群。</li>
+<li>模拟不同重训周期，计入训练、标签等待、验证和发布耗时。</li>
+<li>比较质量、风险与资源成本；留出没有参与选周期的较晚时段复核。</li>
+</ol>
+<p>下面的函数展示第 2 步。输入需要整数周编号 <code>week</code>、二元标签 <code>y</code>、特征列，以及只在传入训练集上拟合的 <code>model_fn</code>。每个评估周需同时有两类样本。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">roc_auc_score</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">decay_curve</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">train_end_week</span><span class="p">,</span> <span class="n">model_fn</span><span class="p">,</span> <span class="n">feats</span><span class="p">,</span> <span class="n">horizons</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">12</span><span class="p">)):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;冻结一个在 train_end_week 之前训好的模型，看它之后 k 周的效果衰减</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;冻结一个在 train_end_week 之前训好的模型，逐个检查上线后第 k 周的效果</span>
 <span class="sd">    df 需要有 week 列；model_fn(训练集) 返回一个已 fit 的模型&quot;&quot;&quot;</span>
     <span class="n">m</span> <span class="o">=</span> <span class="n">model_fn</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="n">df</span><span class="o">.</span><span class="n">week</span> <span class="o">&lt;=</span> <span class="n">train_end_week</span><span class="p">])</span>          <span class="c1"># ⭐ 训完就冻住，之后不再更新</span>
     <span class="n">rows</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">horizons</span><span class="p">:</span>
-        <span class="n">seg</span> <span class="o">=</span> <span class="n">df</span><span class="p">[(</span><span class="n">df</span><span class="o">.</span><span class="n">week</span> <span class="o">&gt;</span> <span class="n">train_end_week</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">df</span><span class="o">.</span><span class="n">week</span> <span class="o">&lt;=</span> <span class="n">train_end_week</span> <span class="o">+</span> <span class="n">k</span><span class="p">)]</span>
+        <span class="n">seg</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">df</span><span class="o">.</span><span class="n">week</span> <span class="o">==</span> <span class="n">train_end_week</span> <span class="o">+</span> <span class="n">k</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">seg</span><span class="o">.</span><span class="n">empty</span> <span class="ow">or</span> <span class="n">seg</span><span class="o">.</span><span class="n">y</span><span class="o">.</span><span class="n">nunique</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;第 </span><span class="si">{</span><span class="n">k</span><span class="si">}</span><span class="s2"> 周不足以计算二分类 AUC&quot;</span><span class="p">)</span>
         <span class="n">auc</span> <span class="o">=</span> <span class="n">roc_auc_score</span><span class="p">(</span><span class="n">seg</span><span class="o">.</span><span class="n">y</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">predict_proba</span><span class="p">(</span><span class="n">seg</span><span class="p">[</span><span class="n">feats</span><span class="p">])[:,</span> <span class="mi">1</span><span class="p">])</span>
-        <span class="n">rows</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;上线后第几周&quot;</span><span class="p">:</span> <span class="n">k</span><span class="p">,</span> <span class="s2">&quot;AUC&quot;</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="n">auc</span><span class="p">,</span> <span class="mi">4</span><span class="p">)})</span>
+        <span class="n">rows</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;上线后第几周&quot;</span><span class="p">:</span> <span class="n">k</span><span class="p">,</span> <span class="s2">&quot;样本数&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">seg</span><span class="p">),</span> <span class="s2">&quot;AUC&quot;</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="n">auc</span><span class="p">,</span> <span class="mi">4</span><span class="p">)})</span>
     <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">rows</span><span class="p">)</span>
-
-<span class="c1"># 典型输出：</span>
-<span class="c1">#    上线后第几周     AUC</span>
-<span class="c1">#            1     0.8410</span>
-<span class="c1">#            2     0.8395</span>
-<span class="c1">#            4     0.8352</span>
-<span class="c1">#            8     0.8218      ← ⭐ 相对起点掉了 0.019，接近可接受上限</span>
-<span class="c1">#           12     0.8079</span>
 </code></pre></div>
 
-<p>💡 <strong>这个实验只需要历史数据，不用上线，半天就能做完 ——
-但它能把「凭感觉每周训一次」变成有依据的决策。</strong></p>
-<blockquote>
-<p>⚠️ <strong>一定要用</strong>至少三个不同的 <code>train_end_week</code> <strong>各跑一次</strong>：
-单个起点的衰减速度可能是那段时间碰巧发生了什么。
-<strong>三条曲线形状一致，结论才可信。</strong></p>
-</blockquote>
+<p><strong>读输出时看“单周”。</strong> 第 8 周只使用该周样本，不把第 1–8 周混合成累计 AUC。累计窗口会掩盖最近的退化；AUC 本身也不是各周 AUC 的简单平均。</p>
+<p>原来的数字保留为<strong>假设性结果示例</strong>，不是这段函数自带的实跑数据：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th style="text-align: right;">上线后第几周</th>
+<th style="text-align: right;">假设 AUC</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0.8410</td>
+</tr>
+<tr>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">0.8395</td>
+</tr>
+<tr>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">0.8352</td>
+</tr>
+<tr>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">0.8218</td>
+</tr>
+<tr>
+<td style="text-align: right;">12</td>
+<td style="text-align: right;">0.8079</td>
+</tr>
+</tbody>
+</table></div>
+<p>第 1 到第 8 周相差 0.0192。如果容忍下降 0.015，第 8 周已经越线；但仅靠这些点<strong>不能确定第 6 周越线，更不能直接推出每 3 周重训最佳</strong>。</p>
+<p>多个起点能暴露季节性和偶然事件，不要求曲线形状完全一致才可用。还要报告样本量、误差范围与标签成熟时间。关于模型新鲜度的工程检查，见 <a href="https://developers.google.com/machine-learning/guides/rules-of-ml">Google Rules of ML，第 8 条</a>。</p>
 <hr>
 <h2 id="_5">📅 三、用多长的数据训（训练窗口）</h2>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⭐ 这是重训里最被忽略、也最有价值的一个决策</span></div><div class="vb-flow-row"><span class="vb-flow-step">窗口太短</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">样本少，方差大，学不到长期规律</span></div><div class="vb-flow-row"><span class="vb-flow-step">窗口太长</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">混进了【已经过时】的规律（概念漂移）💀</span></div></div></section>
-<p><strong>三种策略</strong>：</p>
+<p><strong>短窗口减少过时数据，却可能丢掉少见人群和季节性；长窗口增加样本，也可能混入过时规律。</strong></p>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>策略</th>
 <th>做法</th>
-<th>适合</th>
+<th>需要验证的代价</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>固定窗口</strong></td>
+<td>固定窗口</td>
 <td>只用最近 N 天</td>
-<td>概念漂移快（如时效性内容）⭐</td>
+<td>样本是否足够、是否覆盖完整周期</td>
 </tr>
 <tr>
-<td><strong>全量累积</strong></td>
-<td>用所有历史数据</td>
-<td>规律稳定（如 OCR、图像分类）</td>
+<td>全量累积</td>
+<td>保留所有可用历史</td>
+<td>旧数据是否仍相关，是否有历史污染</td>
 </tr>
 <tr>
-<td><strong>加权衰减</strong> ⭐</td>
-<td>全都用，但<strong>老样本权重低</strong></td>
-<td>大多数业务场景，兼顾两者</td>
+<td>加权衰减</td>
+<td>旧样本仍用，但权重逐渐减小</td>
+<td>权重实现、有效样本量与长期知识是否受损</td>
 </tr>
 </tbody>
 </table></div>
+<p>下面仍是接入业务训练代码的骨架，需要已有的 <code>df</code>、<code>model</code>、<code>X</code>、<code>y</code>。<code>days_ago</code> 应非负，<code>half_life</code> 应为正；权重是一维数组，并与训练样本顺序一致。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：`df` 来自你自己的代码，这一段只看写法</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">time_decay_weight</span><span class="p">(</span><span class="n">days_ago</span><span class="p">,</span> <span class="n">half_life</span><span class="o">=</span><span class="mi">30</span><span class="p">):</span>
@@ -428,48 +480,81 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     <span class="k">return</span> <span class="mf">0.5</span> <span class="o">**</span> <span class="p">(</span><span class="n">days_ago</span> <span class="o">/</span> <span class="n">half_life</span><span class="p">)</span>
 
 <span class="n">sample_weight</span> <span class="o">=</span> <span class="n">time_decay_weight</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s2">&quot;days_ago&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">,</span> <span class="n">half_life</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
-<span class="n">model</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">sample_weight</span><span class="o">=</span><span class="n">sample_weight</span><span class="p">)</span>     <span class="c1"># ⭐ 大多数库都支持</span>
+<span class="n">model</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">sample_weight</span><span class="o">=</span><span class="n">sample_weight</span><span class="p">)</span>     <span class="c1"># 先确认所用估计器接受 sample_weight</span>
 </code></pre></div>
 
-<blockquote>
-<p>⭐ <strong>半衰期怎么定</strong>：<strong>用上面那个衰减实验的结果</strong> ——
-如果效果 6 周就明显退化，半衰期设 3~4 周比较合理。
-<strong>这两个决策是同一个数据支撑的。</strong></p>
-</blockquote>
+<p><strong>可观察的结果：</strong> 半衰期 30 天时，今天、30 天前、60 天前的权重分别为 1、0.5、0.25。</p>
+<p><strong>半衰期不等于重训周期。</strong> 前者控制旧样本的影响，后者控制多久更新模型。可以用同一套时间回放选候选值，但不能由“6 周退化”直接推出“半衰期 3–4 周”。</p>
 <h3 id="_6">⚠️ 一个反直觉的发现</h3>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">很多人默认「数据越多越好」，但在概念漂移的场景下：</span></div><div class="vb-flow-row"><span class="vb-flow-step">用最近 3 个月 的数据训</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">AUC 0.81</span></div><div class="vb-flow-row"><span class="vb-flow-step">用全部 2 年 的数据训</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">AUC 0.78 ⭐ 更差</span></div><div class="vb-flow-row"><span class="vb-flow-step">老数据不是没用，是【有害】</span></div></div></section>
-<p>💡 <strong>一定要把「训练窗口」当成一个超参数去调</strong>，而不是默认用全量。</p>
+<p><strong>旧数据有时拖累模型，但不是“老数据一定有害”。</strong></p>
+<p>假设同一未来评估集上，最近三个月训练的 AUC 为 0.81、全两年训练为 0.78。这说明在这次设置里短窗口更好；原因还可能涉及样本权重、数据质量或分布变化，不能只凭两项分数证明概念漂移。</p>
+<p>下面比较候选窗口。先把 <code>df</code> 截到固定验证结束日；<code>model_fn(tr)</code> 必须只使用传入的训练行拟合模型和预处理。不能把用于选窗口的数据再当作最终独立测试。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">roc_auc_score</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">tune_window</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">valid_start</span><span class="p">,</span> <span class="n">model_fn</span><span class="p">,</span> <span class="n">feats</span><span class="p">,</span>
                 <span class="n">windows</span><span class="o">=</span><span class="p">(</span><span class="mi">30</span><span class="p">,</span> <span class="mi">60</span><span class="p">,</span> <span class="mi">90</span><span class="p">,</span> <span class="mi">180</span><span class="p">,</span> <span class="mi">365</span><span class="p">,</span> <span class="mi">10</span><span class="o">**</span><span class="mi">9</span><span class="p">)):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;把训练窗口当超参数调。⭐ 验证集必须在【时间上靠后】，不能随机切&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;按时间比较候选训练窗口；df 需预先截到同一验证结束日。&quot;&quot;&quot;</span>
     <span class="n">va</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">df</span><span class="o">.</span><span class="n">day</span> <span class="o">&gt;=</span> <span class="n">valid_start</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">va</span><span class="o">.</span><span class="n">empty</span> <span class="ow">or</span> <span class="n">va</span><span class="o">.</span><span class="n">y</span><span class="o">.</span><span class="n">nunique</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;验证集不足以计算二分类 AUC&quot;</span><span class="p">)</span>
     <span class="n">rows</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">for</span> <span class="n">w</span> <span class="ow">in</span> <span class="n">windows</span><span class="p">:</span>
         <span class="n">tr</span> <span class="o">=</span> <span class="n">df</span><span class="p">[(</span><span class="n">df</span><span class="o">.</span><span class="n">day</span> <span class="o">&lt;</span> <span class="n">valid_start</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">df</span><span class="o">.</span><span class="n">day</span> <span class="o">&gt;=</span> <span class="n">valid_start</span> <span class="o">-</span> <span class="n">w</span><span class="p">)]</span>
+        <span class="k">if</span> <span class="n">tr</span><span class="o">.</span><span class="n">empty</span> <span class="ow">or</span> <span class="n">tr</span><span class="o">.</span><span class="n">y</span><span class="o">.</span><span class="n">nunique</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;窗口 </span><span class="si">{</span><span class="n">w</span><span class="si">}</span><span class="s2"> 天的训练集不足&quot;</span><span class="p">)</span>
         <span class="n">m</span> <span class="o">=</span> <span class="n">model_fn</span><span class="p">(</span><span class="n">tr</span><span class="p">)</span>
         <span class="n">rows</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;窗口(天)&quot;</span><span class="p">:</span> <span class="n">w</span><span class="p">,</span> <span class="s2">&quot;训练样本&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">tr</span><span class="p">),</span>
                      <span class="s2">&quot;AUC&quot;</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="n">roc_auc_score</span><span class="p">(</span><span class="n">va</span><span class="o">.</span><span class="n">y</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">predict_proba</span><span class="p">(</span><span class="n">va</span><span class="p">[</span><span class="n">feats</span><span class="p">])[:,</span> <span class="mi">1</span><span class="p">]),</span> <span class="mi">4</span><span class="p">)})</span>
     <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">rows</span><span class="p">)</span>
-
-<span class="c1"># 典型输出（⭐ 注意 AUC 是【先涨后跌】的，最优窗口在中间）：</span>
-<span class="c1">#   窗口(天)   训练样本      AUC</span>
-<span class="c1">#        30    62,000     0.7902     ← 样本太少，方差大</span>
-<span class="c1">#        60   124,000     0.8071</span>
-<span class="c1">#        90   186,000     0.8118     ← ⭐ 最优</span>
-<span class="c1">#       180   371,000     0.8043</span>
-<span class="c1">#       365   742,000     0.7961</span>
-<span class="c1">#      全量  1,510,000    0.7834     ← 💀 默认做法，反而最差</span>
 </code></pre></div>
 
-<blockquote>
-<p>⭐ <strong>务必换 3–5 个 <code>valid_start</code> 滚动跑一遍</strong>（滚动验证）：
-单个时间点选出来的"最优窗口"很可能是碰巧。
-<strong>看的是"哪个窗口在多数时间点上都靠前"，不是"哪个窗口拿了一次第一"。</strong></p>
-</blockquote>
+<p><strong>原教学数值对照（假设结果，不是代码内置数据）：</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>窗口</th>
+<th style="text-align: right;">训练样本</th>
+<th style="text-align: right;">假设 AUC</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>30 天</td>
+<td style="text-align: right;">62,000</td>
+<td style="text-align: right;">0.7902</td>
+</tr>
+<tr>
+<td>60 天</td>
+<td style="text-align: right;">124,000</td>
+<td style="text-align: right;">0.8071</td>
+</tr>
+<tr>
+<td>90 天</td>
+<td style="text-align: right;">186,000</td>
+<td style="text-align: right;">0.8118</td>
+</tr>
+<tr>
+<td>180 天</td>
+<td style="text-align: right;">371,000</td>
+<td style="text-align: right;">0.8043</td>
+</tr>
+<tr>
+<td>365 天</td>
+<td style="text-align: right;">742,000</td>
+<td style="text-align: right;">0.7961</td>
+</tr>
+<tr>
+<td>全量</td>
+<td style="text-align: right;">1,510,000</td>
+<td style="text-align: right;">0.7834</td>
+</tr>
+</tbody>
+</table></div>
+<p>这个例子中 90 天最好；其他数据可能随窗口增大而改善，或没有明显差别。不要期待 AUC 必须“先涨后跌”。</p>
+<p>换多个 <code>valid_start</code> 做滚动验证，比较平均表现、波动和关键人群，而不只数谁拿第一。面向未来预测的本章任务按时间切分；其他独立同分布任务并非一律禁止随机切分。见 <a href="https://scikit-learn.org/stable/modules/cross_validation.html#time-series-split">scikit-learn 时间序列验证说明</a>。</p>
 <hr>
 <h2 id="_7">🔬 四、训出来的怎么验证</h2>
-<p><strong>重训不是「跑通就上」，它和首次上线一样要走完整流程</strong>：</p>
+<p><strong>重训不是“跑通就上”，它和首次上线一样需要验证与回退安排。</strong></p>
 <ul class="reading-task-list">
 <li class="reading-task" data-reading-task="1"><label class="reading-task-title"><input type="checkbox" data-task-key="1"><span>验证未来流量</span></label><div class="reading-task-body"> 本章评估重训后的未来表现，用时间上靠后的数据验证，并检查时间泄漏。</div></li>
 <li class="reading-task" data-reading-task="2"><label class="reading-task-title"><input type="checkbox" data-task-key="2"><span>同一批数据比较</span></label><div class="reading-task-body"> 新模型与线上现役模型使用同一评估集，同时查看关键人群。</div></li>
@@ -478,20 +563,28 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li class="reading-task" data-reading-task="5"><label class="reading-task-title"><input type="checkbox" data-task-key="5"><span>分步上线</span></label><div class="reading-task-body"> 先影子验证，再按已定规则灰度；回退路径准备好后才扩大流量，见<a href="03-%E7%81%B0%E5%BA%A6%E5%BD%B1%E5%AD%90%E4%B8%8E%E5%9B%9E%E6%BB%9A.html">第 3 章</a>。</div></li>
 </ul>
 <blockquote>
-<p><strong>第 3 条是排查入口，不是故障诊断。</strong> 重要性变化可能来自坏数据，也可能来自相关特征之间的替代、训练随机性或有效的新规律。应结合数据检查和重复实验判断，不能仅凭排名变化下结论。</p>
+<p><strong>第 3 条是排查入口，不是故障诊断。</strong> 重要性变化可能来自坏数据、相关特征替代、训练随机性或有效的新规律。应结合数据检查和重复实验判断，不能仅凭排名变化下结论。</p>
 </blockquote>
 <h3 id="_8">🚧 一定要有的兜底：模型回退基线</h3>
-<section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">每次重训后，把【新模型】和【上一版】都保留</span></div><div class="vb-flow-row"><span class="vb-flow-step">新模型表现不如预期时，能立刻切回</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 而且要保留【至少 3 个版本】——</span></div><div class="vb-flow-row"><span class="vb-flow-step">因为问题可能是几周前那次重训引入的</span></div></div></section>
+<p><strong>不只保存模型权重，还要保存能运行它的依赖。</strong></p>
+<ul>
+<li>保留线上现役版本、经过验证的回退版本，以及它们的数据、代码与特征版本。</li>
+<li>“至少 3 个版本”可以是团队起始规则，但保留范围应覆盖故障发现延迟、审计要求和可恢复窗口。</li>
+<li>发布前演练回退；旧模型若已不兼容当前特征，文件还在也不代表能立即切回。</li>
+</ul>
 <hr>
 <h2 id="_9">🔁 五、自动重训流水线：五道闸门</h2>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">数据 [闸1]</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">训练 [闸2]</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">评估 [闸3]</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">影子 [闸4]</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">灰度 [闸5]</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">全量</span></div><div class="vb-flow-row"><span class="vb-flow-step">闸1 数据质量：行数、缺失率、分布是否正常 ⭐ 挡住"管道坏了还硬训"</span></div><div class="vb-flow-row"><span class="vb-flow-step">闸2 训练健康：loss 收敛、无 NaN、耗时正常</span></div><div class="vb-flow-row"><span class="vb-flow-step">闸3 效果对比：在同一验证集上不差于现役模型 ⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">闸4 一致性 ：训练/推理特征比对通过（第 4 章）⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">闸5 灰度指标：小流量上业务指标不恶化</span></div></div></section>
-<blockquote>
-<p>⭐ <strong>全自动重训必须有这五道闸</strong>，否则它会<strong>自动地、定期地</strong>把问题推上线 ——
-<strong>自动化会放大你的错误，而不只是放大你的效率。</strong></p>
-</blockquote>
-<p><strong>闸 1 长什么样（大多数团队做得太浅）</strong>：</p>
+<p>这五道检查组织了一个<strong>可用的教学流程</strong>，不是通过它们就不会出事的保证：</p>
+<ol>
+<li><strong>数据质量：</strong> 核对来源、schema、单位、时间范围、标签、缺失与分布。</li>
+<li><strong>训练健康：</strong> 排查 NaN、异常损失和耗时；收敛本身不证明学对了。</li>
+<li><strong>效果对比：</strong> 在相同评估集比较现役与候选模型，包含关键人群及不确定性。</li>
+<li><strong>影子与一致性：</strong> 使用真实请求验证特征、预测、延迟与资源；不能让两边共享同一个错误就算通过。</li>
+<li><strong>灰度与回退：</strong> 预先确定流量、观察时长、业务阈值和停止规则，通过后才扩大。</li>
+</ol>
+<p><strong>闸 1 的一个局部骨架：</strong> 下面只检查数值特征的行数、缺失与 PSI，不能作为生产完整放行条件。依赖<a href="06-%E6%95%B0%E6%8D%AE%E6%BC%82%E7%A7%BB%E4%B8%8E%E6%A6%82%E5%BF%B5%E6%BC%82%E7%A7%BB.html">第 6 章</a>的 <code>psi(base, live)</code>，基准在前。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">gate_data_quality</span><span class="p">(</span><span class="n">new</span><span class="p">,</span> <span class="n">ref</span><span class="p">,</span> <span class="n">feats</span><span class="p">,</span> <span class="n">psi_max</span><span class="o">=</span><span class="mf">0.25</span><span class="p">,</span> <span class="n">row_drop_max</span><span class="o">=</span><span class="mf">0.2</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;闸1：⭐ 不能只看行数和缺失率 —— 那两项是最低标准，挡不住&quot;单位变了&quot;这类故障&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;教学骨架：行数、缺失率与边际分布检查，不是完整放行标准。&quot;&quot;&quot;</span>
     <span class="n">issues</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">new</span><span class="p">)</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">ref</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">row_drop_max</span><span class="p">):</span>
         <span class="n">issues</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;行数骤降：</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">new</span><span class="p">)</span><span class="si">}</span><span class="s2"> vs 基准 </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">ref</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
@@ -499,199 +592,196 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
         <span class="n">miss</span> <span class="o">=</span> <span class="n">new</span><span class="p">[</span><span class="n">f</span><span class="p">]</span><span class="o">.</span><span class="n">isna</span><span class="p">()</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
         <span class="k">if</span> <span class="n">miss</span> <span class="o">&gt;</span> <span class="n">ref</span><span class="p">[</span><span class="n">f</span><span class="p">]</span><span class="o">.</span><span class="n">isna</span><span class="p">()</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span> <span class="o">+</span> <span class="mf">0.05</span><span class="p">:</span>
             <span class="n">issues</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">f</span><span class="si">}</span><span class="s2"> 缺失率异常：</span><span class="si">{</span><span class="n">miss</span><span class="si">:</span><span class="s2">.1%</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="n">p</span> <span class="o">=</span> <span class="n">psi</span><span class="p">(</span><span class="n">new</span><span class="p">[</span><span class="n">f</span><span class="p">],</span> <span class="n">ref</span><span class="p">[</span><span class="n">f</span><span class="p">])</span>                       <span class="c1"># 第 6 章的 PSI</span>
+        <span class="n">p</span> <span class="o">=</span> <span class="n">psi</span><span class="p">(</span><span class="n">ref</span><span class="p">[</span><span class="n">f</span><span class="p">],</span> <span class="n">new</span><span class="p">[</span><span class="n">f</span><span class="p">])</span>                       <span class="c1"># 第 6 章接口：基准在前</span>
         <span class="k">if</span> <span class="n">p</span> <span class="o">&gt;</span> <span class="n">psi_max</span><span class="p">:</span>
-            <span class="n">issues</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">f</span><span class="si">}</span><span class="s2"> 分布突变：PSI=</span><span class="si">{</span><span class="n">p</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>   <span class="c1"># ⭐ 真正挡住事故的是这一行</span>
+            <span class="n">issues</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">f</span><span class="si">}</span><span class="s2"> 分布突变：PSI=</span><span class="si">{</span><span class="n">p</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>   <span class="c1"># 分布告警还需调查原因</span>
     <span class="k">return</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">issues</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">),</span> <span class="n">issues</span>
 </code></pre></div>
 
+<p><strong>这段不能保证识别“天变成小时”。</strong> PSI 只比较分桶后的边际分布，阈值受样本、分桶与场景影响；小比例污染可能被稀释。0.25、20% 和 5 个百分点在此只是示例阈值。</p>
+<p>接入前还要处理空批次、全缺失、重复分位点、非数值列和异常返回值。单位与枚举等语义最好有显式约束；按小时、来源和关键人群检查，不只比较全窗口。</p>
 <h3 id="26">💀 一次自动重训，把 26 小时的脏数据变成三周的损失</h3>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>系统：风控模型，每周一凌晨自动重训，训练窗口 90 天</p><p>周六：上游埋点发版，把 device_age_days 的单位从【天】改成【小时】</p><p>26 小时后被发现并回滚 —— 线上模型当时靠降级扛过去了 ✅</p><p>周一：自动重训照常跑</p></div></section>
-<p><strong>五道闸门为什么全没拦住</strong>：</p>
+<p><strong>教学假设案例，非已核实的真实事故。</strong> 以下时间和指标用于演示“总体指标遮住局部损失”，不是历史事件记录。</p>
+<ol>
+<li>风控模型每周一重训，窗口 90 天。</li>
+<li>假设周六将 <code>device_age_days</code> 从天误改为小时，26 小时后源故障修复。</li>
+<li>若污染记录未纠正或隔离，周一仍可能把它们用于训练。</li>
+</ol>
+<p><strong>五道检查为什么可能漏过：</strong></p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>闸</th>
-<th>检查了什么</th>
-<th>为什么没拦住</th>
+<th>检查</th>
+<th>假设看到的现象</th>
+<th>缺了什么</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>闸1 数据质量</td>
-<td>行数 ✅、缺失率 ✅</td>
-<td><strong>没查分布</strong> —— 那 26 小时的数据"完整而正常" 💀</td>
+<td>数据质量</td>
+<td>行数、缺失率正常</td>
+<td>单位约束及短时段排查</td>
 </tr>
 <tr>
-<td>闸2 训练健康</td>
-<td>loss 收敛 ✅</td>
-<td>模型确实好好地学完了 —— <strong>它学的是错的东西</strong></td>
+<td>训练健康</td>
+<td>loss 收敛</td>
+<td>正确数据与正确目标的验证</td>
 </tr>
 <tr>
-<td>闸3 效果对比</td>
-<td>整体 AUC <strong>0.842 → 0.836</strong></td>
-<td>只掉 0.006，<strong>通过了 −0.01 的阈值</strong> ⭐</td>
+<td>效果对比</td>
+<td>AUC 0.842 → 0.836</td>
+<td>只看整体，并接受下降 0.01</td>
 </tr>
 <tr>
-<td>闸4 一致性</td>
-<td>训练/推理特征比对 ✅</td>
-<td>两边都用了同一批脏数据，<strong>当然一致</strong></td>
+<td>一致性</td>
+<td>两条路径结果一致</td>
+<td>独立的正确基准，防止共同犯错</td>
 </tr>
 <tr>
-<td>闸5 灰度指标</td>
-<td>整体拦截率 ✅</td>
-<td>整体没动</td>
+<td>灰度</td>
+<td>整体拦截率无明显变化</td>
+<td>新设备人群的质量和业务反馈</td>
 </tr>
 </tbody>
 </table></div>
-<p><strong>真正发生的事</strong>：</p>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">模型学到了「device_age_days 取到 1000+ 也是正常的」</span></div><div class="vb-flow-row"><span class="vb-flow-step">它降低了这个特征的整体权重</span></div><div class="vb-flow-row"><span class="vb-flow-step">分人群看才看得见：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 新设备用户的欺诈召回率：61%</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">38% 💀</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 而新设备欺诈是低频场景，整体指标上几乎看不出</span></div><div class="vb-flow-row"><span class="vb-flow-step">三周后由业务方发现（"最近新号薅羊毛的变多了"）</span></div></div></section>
-<blockquote>
-<p>⭐ <strong>这个案例最该记住的一句话</strong>：
-<strong>脏数据占比小 ≠ 影响小。</strong>
-那 26 小时在 90 天窗口里只占 <strong>1.2%</strong> ——
-但它是<strong>系统性错误</strong>，不是随机噪声。
-<strong>随机噪声会被平均掉，系统性错误会被认真地学进去。</strong></p>
-</blockquote>
-<p><strong>三条改进（都很便宜）</strong>：</p>
-<section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>闸1 加 PSI：拿本次训练数据和上次训练数据逐特征对比 ⭐</li><li>闸3 加【分人群】对比：整体不差还不够，每个关键人群都不能明显差 ⭐</li><li>维护一张【数据事故时间表】，重训时自动剔除或降权这些时间段的样本</li><li>💡 ③ 是很多团队没想到的：</li><li>线上事故修好了，但那段时间的数据【永远留在了训练集里】</li></ol></section>
+<p><strong>局部结果另看：</strong> 假设新设备用户的欺诈召回率从 61% 降到 38%，三周后才被发现。下降是 <strong>23 个百分点，约相对下降 38%</strong>，不能由整体 AUC 或特征权重直接推导出来。</p>
+<p>这也不能证明模型一定“降低了设备年龄的权重”。原因需要回放、消融与数据排查，不能替未做的实验写结论。</p>
+<p><strong>26 / (90 × 24) ≈ 1.2% 是时间占比，不是已知样本占比。</strong> 只有流量均匀时，两者才近似相同。少量错误可能集中伤害重要群体；随机噪声也不保证一定被平均掉。</p>
+<p><strong>三项改进：</strong></p>
+<ul>
+<li>数据闸门增加单位契约、短时段和分群统计；PSI 只是其中一项。</li>
+<li>效果闸门增加关键人群、标签成熟度和样本量检查；阈值按风险设定。</li>
+<li>维护事故数据清单：能重建就重建，不能确认可靠的数据先隔离；不能只修线上而忘掉历史训练数据。</li>
+</ul>
 <hr>
 <h2 id="_10">🧊 六、几个特殊情况</h2>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>情况</th>
-<th>注意</th>
+<th>处理方向</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>冷启动期</strong></td>
-<td>数据少时频繁重训会剧烈震荡，<strong>先稳一段</strong></td>
+<td>冷启动</td>
+<td>检查新标签是否足以支持更新；频繁训练不等于频繁发布</td>
 </tr>
 <tr>
-<td><strong>有强季节性</strong></td>
-<td>别用去年同期以外的数据当窗口；或显式加季节特征</td>
+<td>强季节性</td>
+<td>保留相关周期或加入季节特征，比较近期与历史同期数据；不只允许去年同期</td>
 </tr>
 <tr>
-<td><strong>模型被反馈闭环污染</strong></td>
-<td>重训会强化偏差 → 需要随机流量数据纠偏（<a href="07-%E6%B2%A1%E6%9C%89%E6%A0%87%E7%AD%BE%E6%80%8E%E4%B9%88%E5%8F%91%E7%8E%B0%E9%80%80%E5%8C%96.html">第 7 章</a>）⭐</td>
+<td>反馈闭环</td>
+<td>记录哪些样本被策略筛选，评估选择偏差和反馈缺失</td>
 </tr>
 <tr>
-<td><strong>增量训练 vs 全量重训</strong></td>
-<td>增量快但会累积漂移，<strong>建议定期全量重训一次做基准</strong></td>
+<td>增量与全量</td>
+<td>在相同未来评估集上比较；选法取决于数据、算法与恢复要求</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>⭐ <strong>第三行值得展开</strong>：<strong>在推荐/风控这类有反馈闭环的系统里，
-无脑重训会让模型越来越窄</strong> —— 因为训练数据是它自己筛出来的。
-<strong>必须掺入那部分随机流量/随机放行的数据。</strong>
-🔗 <a href="../%E6%8E%A8%E8%8D%90%E7%AE%97%E6%B3%95/02-%E6%8E%A8%E8%8D%90%E7%B3%BB%E7%BB%9F%E5%88%B0%E5%BA%95%E6%98%AF%E4%BB%80%E4%B9%88.html">推荐算法 02</a>、<a href="07-%E6%B2%A1%E6%9C%89%E6%A0%87%E7%AD%BE%E6%80%8E%E4%B9%88%E5%8F%91%E7%8E%B0%E9%80%80%E5%8C%96.html">第 7 章</a>、<a href="14-%E8%BE%9B%E6%99%AE%E6%A3%AE%E6%82%96%E8%AE%BA%E4%B8%8E%E4%B8%83%E4%B8%AA%E9%99%B7%E9%98%B1.html">第 14 章的拒绝推断</a></p>
-</blockquote>
-<p><strong>增量训练 vs 全量重训，摊开说</strong>：</p>
+<p><strong>反馈闭环不能靠一句“掺入随机流量”解决。</strong> 在经过风险评估、权限允许的情况下，受控探索可提供新反馈；还可能需要记录选择概率、人工复核或其他校正方法。不得为了收集标签随意放行风险请求。</p>
+<p>见<a href="../%E6%8E%A8%E8%8D%90%E7%AE%97%E6%B3%95/02-%E6%8E%A8%E8%8D%90%E7%B3%BB%E7%BB%9F%E5%88%B0%E5%BA%95%E6%98%AF%E4%BB%80%E4%B9%88.html">推荐算法 02</a>、<a href="07-%E6%B2%A1%E6%9C%89%E6%A0%87%E7%AD%BE%E6%80%8E%E4%B9%88%E5%8F%91%E7%8E%B0%E9%80%80%E5%8C%96.html">第 7 章</a>与<a href="14-%E8%BE%9B%E6%99%AE%E6%A3%AE%E6%82%96%E8%AE%BA%E4%B8%8E%E4%B8%83%E4%B8%AA%E9%99%B7%E9%98%B1.html">第 14 章的拒绝推断</a>。</p>
+<p><strong>增量训练 vs 全量重训，摊开说：</strong></p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th></th>
+<th>比较项</th>
 <th>增量训练</th>
-<th>全量重训</th>
+<th>从头重训</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>单次耗时</td>
-<td>分钟级 ⭐</td>
-<td>小时级</td>
+<td>工作量</td>
+<td>在已有状态上更新，可减少重复计算</td>
+<td>重新拟合所选训练数据</td>
 </tr>
 <tr>
-<td>对新分布的响应</td>
-<td>快</td>
-<td>慢（老数据稀释）</td>
+<td>新旧规律</td>
+<td>受更新顺序、遗忘与回放策略影响</td>
+<td>受训练窗口和权重影响</td>
 </tr>
 <tr>
-<td><strong>误差累积</strong></td>
-<td><strong>会</strong>，且很难察觉 💀</td>
-<td>不会</td>
+<td>错误风险</td>
+<td>可能延续错误状态</td>
+<td>也可能重复学习脏数据或错误目标</td>
 </tr>
 <tr>
-<td>可复现性</td>
-<td><strong>差</strong>（依赖历史每一步）⭐</td>
-<td>好</td>
+<td>复现</td>
+<td>保存初始状态、优化器、数据顺序和更新记录</td>
+<td>保存数据、代码、环境与随机状态</td>
 </tr>
 <tr>
-<td>出事时的回滚</td>
-<td>难 —— 要回到哪一步？</td>
-<td>简单</td>
+<td>回滚</td>
+<td>保存兼容检查点并演练</td>
+<td>保存兼容版本并演练</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>⭐ <strong>务实的组合</strong>：<strong>增量为主 + 定期（如每月）全量重训一次做基准</strong>。
-每次全量重训后，<strong>把增量模型和全量模型在同一验证集上比一下</strong> ——
-<strong>两者差距如果在扩大，说明增量已经跑偏了。</strong>
-这是一个几乎零成本的漂移探针。</p>
-</blockquote>
+<p>可以定期从头训练一个对照，但周期与计算成本要纳入预算。两者差距扩大是<strong>排查线索</strong>，不能单独证明增量“跑偏”；差异也可能来自窗口、随机性或对新规律的响应。</p>
+<p>这里的“全量重训”指从头拟合，不等于必须使用所有历史数据。</p>
 <hr>
 <h2 id="_11">⚠️ 七、一张坑表</h2>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>坑</th>
-<th>后果</th>
-<th>怎么修</th>
+<th>风险</th>
+<th>修正方向</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>管道坏了还照常重训</strong> 💀</td>
-<td>临时故障变成永久损伤</td>
-<td>闸1 拦住；<strong>PSI 是关键，不是行数和缺失率</strong> ⭐</td>
+<td>用未修复的数据自动重训</td>
+<td>源故障影响继续进入模型</td>
+<td>隔离、重建数据，再验证</td>
 </tr>
 <tr>
-<td><strong>闸门只看整体指标</strong> ⭐</td>
-<td>就是那个 61%→38% 的案例</td>
-<td>闸3 加<strong>分人群</strong>对比</td>
+<td>只看整体指标</td>
+<td>少数重要人群退化被遮住</td>
+<td>分群、样本量与风险阈值</td>
 </tr>
 <tr>
-<td><strong>事故时段的数据留在训练集里</strong></td>
-<td>修好了线上，却把错误学进了下个模型</td>
-<td>维护<strong>数据事故时间表</strong>，重训自动剔除</td>
+<td>事故数据留在训练集</td>
+<td>下轮继续重复错误</td>
+<td>数据版本和事故清单</td>
 </tr>
 <tr>
-<td><strong>默认用全量数据训</strong></td>
-<td>老数据有害，AUC 反而更低（0.7834 vs 0.8118）</td>
-<td>把窗口<strong>当超参数调</strong>，滚动验证</td>
+<td>默认全历史必胜</td>
+<td>过时数据或污染影响模型</td>
+<td>比较训练窗口，不先删光旧数据</td>
 </tr>
 <tr>
-<td><strong>验证集随机切</strong></td>
-<td>泄漏未来信息，离线好线上崩</td>
-<td><strong>时间切分</strong>（<a href="../%E6%9C%BA%E5%99%A8%E5%AD%A6%E4%B9%A0%E4%B8%8E%E6%B7%B1%E5%BA%A6%E5%AD%A6%E4%B9%A0%E5%9F%BA%E7%A1%80/05-%E8%AF%84%E4%BC%B0%E4%B8%8E%E8%BF%87%E6%8B%9F%E5%90%88.html">ML基础 05</a>）</td>
+<td>未来任务随机切分</td>
+<td>时间或标签泄漏、评估目标不匹配</td>
+<td>按当时可得信息做时间回放</td>
 </tr>
 <tr>
-<td><strong>只和自己比，不和现役模型比</strong></td>
-<td>"比上一版好"不等于"比线上那个好"</td>
-<td>闸3 必须在<strong>同一批数据</strong>上对比现役模型</td>
+<td>不与现役模型同集比较</td>
+<td>分数差可能来自不同评估样本</td>
+<td>同数据、同口径对照</td>
 </tr>
 <tr>
-<td><strong>纯性能触发重训</strong></td>
-<td>等指标掉下来，损失已经发生</td>
-<td>定时为主 + 漂移触发为辅</td>
+<td>单凭触发信号发布</td>
+<td>把漂移告警当成重训有效的证明</td>
+<td>调查、训练和发布分开</td>
 </tr>
 <tr>
-<td><strong>重训完直接全量</strong></td>
-<td>没有影子和灰度，出事就是全量出事</td>
-<td>走影子 → 灰度（<a href="03-%E7%81%B0%E5%BA%A6%E5%BD%B1%E5%AD%90%E4%B8%8E%E5%9B%9E%E6%BB%9A.html">第 3 章</a>）</td>
+<td>训练后直接全量替换</td>
+<td>缺少真实请求验证与回退机会</td>
+<td>影子、灰度与回退</td>
 </tr>
 <tr>
-<td><strong>只保留最新一个模型版本</strong></td>
-<td>问题可能是几周前那次重训引入的</td>
-<td><strong>至少保留 3 个版本</strong></td>
+<td>只存最新权重</td>
+<td>缺少可运行的回退版本</td>
+<td>保存依赖并演练恢复</td>
 </tr>
 <tr>
-<td><strong>有反馈闭环还无脑重训</strong></td>
-<td>模型越来越窄，探索能力消失</td>
-<td>掺入随机流量数据纠偏 ⭐</td>
+<td>忽略反馈闭环</td>
+<td>自己选出的样本限制了可见反馈</td>
+<td>记录选择机制，受控评估偏差</td>
 </tr>
 </tbody>
 </table></div>
@@ -706,65 +796,59 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </thead>
 <tbody>
 <tr>
-<td><a href="06-%E6%95%B0%E6%8D%AE%E6%BC%82%E7%A7%BB%E4%B8%8E%E6%A6%82%E5%BF%B5%E6%BC%82%E7%A7%BB.html">第 6 章</a>四种漂移</td>
-<td>决定该不该重训</td>
+<td><a href="06-%E6%95%B0%E6%8D%AE%E6%BC%82%E7%A7%BB%E4%B8%8E%E6%A6%82%E5%BF%B5%E6%BC%82%E7%A7%BB.html">第 6 章</a></td>
+<td>区分异常来源，再决定调查方向</td>
 </tr>
 <tr>
-<td><a href="03-%E7%81%B0%E5%BA%A6%E5%BD%B1%E5%AD%90%E4%B8%8E%E5%9B%9E%E6%BB%9A.html">第 3 章</a>灰度</td>
-<td>重训后的上线流程</td>
+<td><a href="03-%E7%81%B0%E5%BA%A6%E5%BD%B1%E5%AD%90%E4%B8%8E%E5%9B%9E%E6%BB%9A.html">第 3 章</a></td>
+<td>候选模型验证与回退</td>
 </tr>
 <tr>
-<td><a href="04-%E8%AE%AD%E7%BB%83%E6%8E%A8%E7%90%86%E4%B8%80%E8%87%B4%E6%80%A7.html">第 4 章</a>一致性</td>
-<td>闸门 4</td>
+<td><a href="04-%E8%AE%AD%E7%BB%83%E6%8E%A8%E7%90%86%E4%B8%80%E8%87%B4%E6%80%A7.html">第 4 章</a></td>
+<td>训练和线上特征核对</td>
 </tr>
 <tr>
-<td><a href="07-%E6%B2%A1%E6%9C%89%E6%A0%87%E7%AD%BE%E6%80%8E%E4%B9%88%E5%8F%91%E7%8E%B0%E9%80%80%E5%8C%96.html">第 7 章</a>随机流量</td>
-<td>纠正反馈闭环</td>
+<td><a href="07-%E6%B2%A1%E6%9C%89%E6%A0%87%E7%AD%BE%E6%80%8E%E4%B9%88%E5%8F%91%E7%8E%B0%E9%80%80%E5%8C%96.html">第 7 章</a></td>
+<td>标签缺失、反馈闭环与受控探索</td>
 </tr>
 <tr>
-<td><a href="../%E6%9C%BA%E5%99%A8%E5%AD%A6%E4%B9%A0%E4%B8%8E%E6%B7%B1%E5%BA%A6%E5%AD%A6%E4%B9%A0%E5%9F%BA%E7%A1%80/05-%E8%AF%84%E4%BC%B0%E4%B8%8E%E8%BF%87%E6%8B%9F%E5%90%88.html">ML基础 05</a>时间切分</td>
-<td>验证集不能随机切</td>
+<td><a href="../%E6%9C%BA%E5%99%A8%E5%AD%A6%E4%B9%A0%E4%B8%8E%E6%B7%B1%E5%BA%A6%E5%AD%A6%E4%B9%A0%E5%9F%BA%E7%A1%80/05-%E8%AF%84%E4%BC%B0%E4%B8%8E%E8%BF%87%E6%8B%9F%E5%90%88.html">ML 基础 05</a></td>
+<td>让数据切分匹配要预测的场景</td>
 </tr>
 </tbody>
 </table></div>
 <hr>
 <h2 id="_13">✅ 检查点</h2>
 <ol>
-<li>四种漂移分别对应什么处理动作？哪种绝对不能重训？</li>
-<li>重训触发方式有哪几种？实践建议是什么？纯性能触发的问题是什么？</li>
-<li>怎么用数据算出该多久重训一次？这个实验有什么必须注意的地方？</li>
-<li>训练窗口的三种策略？加权衰减的半衰期怎么定？调窗口时验证集有什么要求？</li>
-<li>那个反直觉的发现是什么？说明了什么？</li>
-<li>重训后验证清单里，哪一条是很好用的早期警报？为什么？</li>
-<li>自动重训流水线的五道闸分别挡什么？闸1 只查行数和缺失率够吗？</li>
-<li>那个「26 小时脏数据」的案例里，五道闸为什么全都没拦住？后果是什么？「脏数据占比小 ≠ 影响小」的道理是什么？该怎么改？</li>
-<li>增量训练和全量重训各自的代价是什么？务实的组合是什么？有反馈闭环时无脑重训会怎样？</li>
+<li>发现输入分布变化，为什么不能立即断言重训有效？</li>
+<li>四类触发信号是什么？触发与发布有什么区别？</li>
+<li>怎样检查模型新鲜度？本章函数算的是单周还是累计 AUC？</li>
+<li>训练窗口、权重半衰期、重训周期有什么不同？</li>
+<li>短窗口赢过全历史能证明“旧数据有害”吗？</li>
+<li>特征重要性变化为什么只是排查入口？</li>
+<li>五道闸门各查什么？PSI 能保证拦住单位错误吗？</li>
+<li>假设案例中的 1.2% 是什么比例？如何避免遗漏局部损失？</li>
+<li>增量与从头重训怎样比较？反馈闭环有哪些风险？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>①管道坏了→<strong>绝不重训，先修管道</strong> ②数据漂移→重训 ③概念漂移→重训+调训练窗口 ④标签漂移→可能只需重新校准。①绝对不能重训，会把错误数据学进去，临时故障变永久损伤。</li>
-<li>定时、性能触发、漂移触发、数据量触发。建议<strong>定时为主+漂移触发为辅</strong>。纯性能触发的问题是：等指标掉下来时损失已经发生了。</li>
-<li>冻结一个历史模型，用它预测之后 1/2/4/8/12 周的数据，画<strong>效果衰减曲线</strong>，找到"掉到不可接受"的点，重训周期设成它的一半。只需历史数据，半天能做完。注意：要换至少三个不同的起点各跑一次，单个起点的衰减速度可能是那段时间碰巧发生了什么，三条曲线形状一致结论才可信。</li>
-<li><strong>固定窗口</strong>（概念漂移快）、全量累积（规律稳定）、加权衰减（大多数场景）。半衰期用同一个衰减实验的结果定——效果 6 周退化则设 3~4 周。调窗口时验证集必须在时间上靠后，不能随机切；而且要换 3–5 个验证起点滚动跑，看的是"哪个窗口在多数时间点都靠前"，不是"哪个拿了一次第一"。</li>
-<li><strong>用最近 3 个月训（AUC 0.81）比用全部 2 年训（0.78）更好</strong> ——老数据不是没用，是有害。典型的窗口扫描结果是 AUC 先涨后跌、最优在中间（如 90 天 0.8118，而全量只有 0.7834）。说明训练窗口要当超参数调，不能默认全量。</li>
-<li><strong>特征重要性是否剧烈变化</strong>是早期排查入口。要核对数据质量、相关特征之间的替代、训练随机性和新规律；排名变化本身不能证明数据故障，也不能证明模型进步。</li>
-<li>闸1数据质量（挡住"管道坏了还硬训"）、闸2训练健康、闸3效果对比、闸4训练/推理一致性、闸5灰度指标。<strong>闸1 只查行数和缺失率远远不够</strong>——那是最低标准，挡不住"单位变了"这类故障；真正管用的是逐特征 PSI，拿本次训练数据和上次训练数据对比。</li>
-<li>埋点发版把 <code>device_age_days</code> 的单位从天改成小时，26 小时后回滚。闸1 只查了行数和缺失率（那 26 小时的数据"完整而正常"）；闸2 loss 确实收敛了（<strong>模型好好地学完了，只是学的是错的东西</strong>）；闸3 整体 AUC 0.842→0.836，只掉 0.006，通过了 −0.01 的阈值；闸4 两边用的是同一批脏数据，当然一致；闸5 整体拦截率没动。后果：新设备用户的欺诈召回率 61% → 38%，因为新设备欺诈是低频场景，整体指标上看不出来，三周后才由业务方发现。道理：那 26 小时在 90 天窗口里只占 1.2%，但它是系统性错误不是随机噪声——随机噪声会被平均掉，系统性错误会被认真地学进去。改法：①闸1 加 PSI ②闸3 加分人群对比 ③维护数据事故时间表，重训时自动剔除或降权那些时段的样本。</li>
-<li>增量：快（分钟级）、响应新分布快，但<strong>会累积误差且很难察觉</strong>、可复现性差、出事难回滚。全量：慢，但无累积误差、可复现、好回滚。务实组合是增量为主 + 每月全量重训一次做基准，并且把增量模型和全量模型在同一验证集上比——差距在扩大就说明增量跑偏了，这是零成本的漂移探针。有反馈闭环时无脑重训会让模型越来越窄（训练数据是它自己筛出来的），要掺入随机流量/随机放行的数据纠偏。</li>
+<li>分布变化不等于任务效果变差；要排查管道、覆盖、标签和真实质量。仍有错误的数据不能直接用于自动重训。</li>
+<li>定时、性能、漂移、数据量都能触发检查或候选训练。发布还需要验证收益、质量、风险与回退能力。</li>
+<li>冻结历史模型，在多个未来时段和多个起点回放，并比较候选周期。函数已按第 k 周单独取样；不能从累计指标直接推断某周越线或周期减半。</li>
+<li>窗口选哪些样本，半衰期决定旧样本权重，周期决定何时更新；三者需要分别比较，不能互相直接换算。</li>
+<li>不能。它只说明该次数据与设置下短窗口更好，需要检查污染、覆盖与不确定性，并在其他时间段复核。</li>
+<li>变化可能来自坏数据、相关特征替代、训练随机性或有效的新规律，必须结合证据定位。</li>
+<li>数据、训练健康、同集效果、影子一致性、灰度回退。PSI 依赖分桶且可能稀释局部异常，不能替代单位约束、时间分段和分群检查。</li>
+<li>26 小时占 90 天约 1.2%，不必然等于样本比例。记录事故数据，检查关键人群并采用独立正确基准；案例数字是假设，不是事故实录。</li>
+<li>同集比较质量、成本和恢复要求。两种方法都可能学错，都需可复现记录；反馈偏差要结合选择机制处理，不是无条件随机放行。</li>
 </ol>
 </details>
 <hr>
 <h2 id="_14">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
-<blockquote>
-<p><strong>重训之前先定性</strong>（第 6 章那个四分法）：⭐ <strong>管道坏了绝不重训</strong>——会把错误学进去，把临时故障变成永久损伤；数据漂移可重训；概念漂移要重训并调窗口；标签漂移可能只需要重新校准。</p>
-<p>触发方式：<strong>定时为主、漂移触发为辅</strong>。纯性能触发的问题是等指标掉下来，损失已经发生了。</p>
-<p>⭐ <strong>频率能算出来</strong>：冻结一个历史模型，看它之后几周的效果衰减曲线，找到越线点，周期设成它的一半。<strong>训练窗口是最被忽略也最有价值的决策</strong>——反直觉的实测结果是「用最近三个月训比用全部两年训更好」：老数据不是没用，是有害，要把窗口当超参调。</p>
-<p>⚠️ 有反馈闭环时无脑重训会让模型越来越窄（训练数据是它自己筛的）→ <strong>必须掺随机流量数据纠偏</strong>。</p>
-<p>💀 那个值得记一辈子的案例：埋点发版把一个特征的单位从天改成小时，26 小时后回滚；周一自动重训照常跑，<strong>五道闸全部放行</strong>——查行数缺失率的那道觉得数据「完整而正常」，看 loss 的那道确实收敛了（模型好好地学完了，只是学的是错的东西），整体 AUC 只掉了一点点没触发阈值。后果是某个人群的召回率几乎腰斩，三周后才被业务方发现。</p>
-<p>⭐ <strong>那句该记住的话：脏数据占比小 ≠ 影响小。</strong> 它在窗口里只占百分之一点几，但它是<strong>系统性错误不是随机噪声</strong>——随机噪声会被平均掉，系统性错误会被认真地学进去。所以闸门要加逐特征 PSI 和分人群对比，并维护一张数据事故时间表，重训时自动剔除那些时段。</p>
-</blockquote>
+<section class="reading-recap" aria-label="走神救援"><p>回来时从这三点接上</p><ul><li>先查数据和效果：漂移信号不能直接证明该重训。</li><li>周期、窗口与半衰期分开验证，没有统一的“除以二”公式。</li><li>新旧模型同集、分群比较；通过真实请求验证并准备回退，才考虑扩大流量。</li></ul></section>
+
 <p><strong>下一节</strong> 👉 <a href="17-%E7%89%88%E6%9C%AC%E5%9B%9E%E6%BA%AF%E4%B8%8E%E5%8F%AF%E5%A4%8D%E7%8E%B0.html">17-版本回溯与可复现.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
