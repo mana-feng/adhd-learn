@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading topic-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -293,11 +293,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
-<li><a href="#_2">💸 一、先把账算出来：直接在像素上扩散有多贵</a></li>
-<li><a href="#_3">🗜️ 二、解法：把扩散整个搬进潜空间</a></li>
+<li><a href="#_2">💸 一、先把账算出来：像素空间的哪些操作很贵</a></li>
+<li><a href="#_3">🗜️ 二、把扩散搬进潜空间：先分清你正在做哪件事</a></li>
 <li><a href="#_4">🔢 三、三个倍数，别混成一个</a></li>
 <li><a href="#_5">🧪 四、动手：这笔账自己算一遍</a></li>
-<li><a href="#_6">🔍 五、代价：丢掉的细节，是在编码那一步丢的</a></li>
+<li><a href="#_6">🔍 五、代价：先查重建，再谈细节从哪里损失</a></li>
 <li><a href="#kl">⚖️ 六、KL 项在这里到底管什么</a></li>
 <li><a href="#_7">🔗 这一章连到哪里</a></li>
 <li><a href="#_8">✅ 检查点</a></li>
@@ -305,44 +305,139 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ul>
 </div>
 </details>
-<h1 id="05-latent-diffusion">05 · Latent Diffusion：在压缩过的空间里扩散</h1>
-<p>⏱ <strong>40 分钟</strong> ｜ ⭐ 为什么 Stable Diffusion 能在一张消费级显卡上跑，以及它为什么画不好小字</p>
+<div class="ov-layout"><article class="ov-body"><h1 id="05-latent-diffusion">05 · Latent Diffusion：在压缩过的空间里扩散</h1>
+<!-- topic-reading -->
+
+<p><link rel="stylesheet" href="../assets/diff-formula-help.css"><script defer src="../assets/diff-formula-help.js"></script></p>
+<p>⏱ <strong>40 分钟</strong> ｜ 阅读与计数实验参考，可分次完成 ｜ <strong>先区分“少了多少个数”和“真的快了多少”</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>先用一个自编码器把图压小 48 倍，扩散全程只在压缩后的表示上做，最后再解码回像素 —— 省下的算力从几十倍到几千倍不等，代价是压缩那一步丢掉的细节，后面谁也补不回来。</strong></p>
-<p>上一章开头说过，想让出图变快只有两条路：<strong>少走几步</strong>（那是 DDIM），或者<strong>让每一步更便宜</strong>。这一章走的是第二条。</p>
+<p><strong>Latent Diffusion 把反复去噪放在较小的潜变量张量上做，最后用解码器变成图像。</strong> 它能减少某些计算开销，但尺寸比不等于整机加速比，重建误差也不是所有生成图的统一画质上限。</p>
+<p>先记一组具体尺寸：在本页采用的 <strong>Stable Diffusion 1.x 示例</strong>中，512×512×3 的图像可编码成 64×64×4 的潜变量。元素数从 <strong>786,432</strong> 变成 <strong>16,384</strong>，是原来的 1/48。潜变量仍是一组实数，不是一张缩小后给人看的 RGB 图片。</p>
+<p>这一页有三个入口：</p>
+<ul>
+<li>想知道它在做什么：先看<a href="#_3">训练与两种出图路径</a>。</li>
+<li>想核对 48／64／4096：去<a href="#_4">三个倍数的条件</a>和<a href="#_5">可运行计数</a>。</li>
+<li>想排查小字、纹理或细节：去<a href="#_6">重建能告诉你什么</a>，不要先把所有问题归罪于压缩。</li>
+</ul>
+<p>上一章的 DDIM 主要改变采样方式和步数。本章主要改变<strong>反复计算发生在哪里</strong>；两者可以组合，但不能保证任意压缩率和任意步数都保持原质量。</p>
 <hr />
-<h2 id="_2">💸 一、先把账算出来：直接在像素上扩散有多贵</h2>
-<p>一张 512×512 的 RGB 图是 <strong>512 × 512 × 3 = 786432 个数</strong>。扩散的每一步都要把这 786432 个数喂进网络、再吐出同样多的数，中间的特征图分辨率也一路都是 512×512。而采样要走几十到上百步，步与步之间还是硬串行的。</p>
-<p>拿 U-Net 主干里最普通的一层 3×3 卷积（128 通道进、128 通道出）算：在 512×512 上是 <strong>77.31 GFLOPs</strong>。走 50 步就是 <strong>3.87 TFLOPs</strong> —— 而这只是<strong>一层</strong>，一个 U-Net 有几十层。</p>
-<p>真正劝退的是注意力。把每个空间位置当一个 token，512×512 就是 <strong>262144 个 token</strong>，注意力矩阵有 $262144^2 \approx 6.87\times10^{10}$ 项 —— 光存下这一个矩阵，按 fp16 算就要 <strong>137 GB</strong>，而这还只是一层里的一个头。</p>
-<p>⭐ <strong>所以问题不是「慢一点」，是根本放不下。</strong> 早期的像素空间扩散模型只能在 256×256 甚至 64×64 上训，再靠一串超分模型把图撑大。</p>
+<h2 id="_2">💸 一、先把账算出来：像素空间的哪些操作很贵</h2>
+<p>512×512 的 RGB 图有 <strong>512×512×3 = 786,432</strong> 个数。若在像素空间直接去噪，网络处理的输入、输出仍是这个空间尺度的图像张量。</p>
+<p>但 <strong>U-Net 的中间特征图不是始终 512×512</strong>：它会下采样，再逐步上采样，通道数和注意力位置也由架构决定。不能把最高分辨率的单层成本乘上总层数，当成真实 U-Net 的总成本。</p>
+<h3 id="latent-conv-assumption">一个明确假设下的卷积账</h3>
+<p>只比较一层保持空间大小的 3×3 卷积，输入、输出都为 128 通道，batch 为 1。一次乘法加一次加法计 2 FLOPs，不计偏置及其他操作。</p>
+<ul>
+<li>在 512×512 上，这层约要 <strong>77.31 GFLOPs</strong>。</li>
+<li>同一层运行 50 次，合计约 <strong>3.87 TFLOPs</strong>。</li>
+<li>这是浮点运算<strong>次数</strong>，不是 GPU 速度，也不是一次真实出图的总成本。</li>
+</ul>
+<p>下面会把同一层移到 64×64 上比较，其他条件不动。先控制变量，才知道节省来自哪里。</p>
+<h3 id="latent-attention-memory">“137 GB 注意力矩阵”是怎样算出来的？</h3>
+<p>假设每个像素位置是一个 token，并且在 512×512 上做<strong>全局自注意力</strong>，单头、单样本的打分矩阵有：</p>
+<p>$$N=512^2=262144,\qquad N^2=68719476736.$$</p>
+<p>如果把这张矩阵<strong>完整保存为 fp16</strong>，每项 2 字节，单这个矩阵就约为 <strong>137.44 GB（128 GiB）</strong>。这里 GB 按十进制、GiB 按二进制计，不能混着比。</p>
+<p>这笔算术没有错，错的是把它读成“所有像素扩散模型都必须占这些显存”。实际模型可以在较低分辨率做注意力，也可以采用不完整保存打分矩阵的实现；模型参数、其他激活和训练梯度还要另外计算。</p>
+<p>事实上，<a href="https://github.com/openai/guided-diffusion">OpenAI 的 guided-diffusion 官方仓库</a>已提供 512×512 像素模型，并把注意力放在指定的较低分辨率上；同一仓库也提供 64→256、128→512 的超分路线。<strong>级联超分是一种设计，不是高分辨率像素扩散唯一能走的路。</strong></p>
 <hr />
-<h2 id="_3">🗜️ 二、解法：把扩散整个搬进潜空间</h2>
-<p>Latent Diffusion 的做法是把生成拆成三段：</p>
-<p><strong>① 编码</strong>：训练一个自编码器，编码器 $E$ 把 512×512×3 的图压成 <strong>64×64×4</strong> 的张量（空间边长下采样 8 倍，通道数 3→4）。
-<strong>② 扩散</strong>：前向加噪、训练目标、DDIM 采样，<strong>公式一个字都不改</strong>，只是作用对象从像素换成了这个 64×64×4。
-<strong>③ 解码</strong>：解码器 $D$ 把去噪完的潜变量还原回 512×512×3 的图。</p>
-<p>压缩倍数就是 786432 ÷ 16384 = ⭐ <strong>48 倍</strong>。<code>Latent</code> 这个词指的正是第 ② 步的作用对象。</p>
-<p>⭐ <strong>关键在于次数不对等</strong>：$E$ 和 $D$ 各只跑一次，而扩散要跑几十上百次。省掉的正是那个要乘以步数的部分 —— 编解码这点固定开销，摊到 50 步里几乎看不见。</p>
-<figure class="dia"><svg viewBox="0 0 760 234" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="编码器把 512x512x3 压成 64x64x4，扩散在中间那一段进行，最后解码器还原成像素"><text class="dia-t" x="380" y="24" font-size="14" text-anchor="middle" fill="var(--fg)" font-weight="700">扩散不在像素上做，在压缩过的潜空间里做</text><rect x="30" y="52" width="150" height="68" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="105" y="86" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">512×512×3</text><text class="dia-t" x="105" y="103" font-size="11.5" text-anchor="middle" fill="var(--muted)">786432 个数</text><line x1="180" y1="86" x2="227" y2="86" stroke="var(--accent)" stroke-width="2"/><polygon points="236,86 227,81 227,91" fill="var(--accent)"/><text class="dia-t" x="208" y="74" font-size="13" text-anchor="middle" fill="var(--accent)" font-weight="700">E</text><rect x="240" y="52" width="150" height="68" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"/><text class="dia-t" x="315" y="86" font-size="13" text-anchor="middle" fill="var(--accent)" font-weight="700">64×64×4</text><text class="dia-t" x="315" y="103" font-size="11.5" text-anchor="middle" fill="var(--muted)">16384 个数</text><line x1="390" y1="86" x2="437" y2="86" stroke="var(--accent)" stroke-width="2"/><polygon points="446,86 437,81 437,91" fill="var(--accent)"/><text class="dia-t" x="418" y="74" font-size="13" text-anchor="middle" fill="var(--accent)" font-weight="700">D</text><rect x="450" y="52" width="150" height="68" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="525" y="86" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">512×512×3</text><text class="dia-t" x="525" y="103" font-size="11.5" text-anchor="middle" fill="var(--muted)">还原回像素</text><text class="dia-t" x="315" y="142" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">扩散在这里跑几十到上百步</text><path d="M300 126 C 300 158, 330 158, 330 126" fill="none" stroke="var(--accent)" stroke-width="2"/><text class="dia-t" x="380" y="176" font-size="12" text-anchor="middle" fill="var(--muted)">E 和 D 各跑一次，扩散跑几十上百次 —— 省的是次数不对等的那一头</text><text class="dia-t" x="380" y="200" font-size="12.5" text-anchor="middle" fill="var(--done)" font-weight="700">元素数省 48 倍 · 主干卷积省 64 倍 · 注意力省 4096 倍</text><text class="dia-t" x="380" y="222" font-size="12" text-anchor="middle" fill="var(--danger,#e5534b)">⚠️ 代价：E 在扩散之前跑，画质上限就被它钉死了</text></svg><figcaption>看中间那个小方块：<b>扩散全程只在它上面跑</b>。⭐ 三个倍数别混 —— 元素数只省 48 倍，但注意力省 4096 倍，<b>越贵的层省得越狠</b>，这才是它 work 的原因。</figcaption></figure>
+<h2 id="_3">🗜️ 二、把扩散搬进潜空间：先分清你正在做哪件事</h2>
+<p><strong>潜空间</strong>就是自编码器学到的图像表示空间。“潜”不是另一个神秘坐标系，而是模型内部用来表达图像的一组数。</p>
+<p>自编码器有两个部分：</p>
+<ul>
+<li><strong>编码器 E</strong>：从已有图像得到潜变量。本页用 $z_{\mathrm{AE}}=E(x)$ 简记一次编码结果；KL 版实际可从条件高斯后验取样，<a href="#kl">第六节</a>再解释。</li>
+<li><strong>解码器 D</strong>：从潜变量得到像素图像。它不是把一个小缩略图简单放大，而是学习怎样用这组数合成图像。</li>
+</ul>
+<p>先训练好 E、D，再训练潜空间去噪器，是原始 LDM 的两阶段思路。<a href="https://arxiv.org/html/2112.10752v2#S3">原论文 §3.1–3.2</a>给出了这个分工；具体编码细节与缩放见附录 G。</p>
+<h3 id="latent-three-paths">训练、文生图、图生图不是同一条流程</h3>
+<figure class="dia">
+<svg viewBox="0 0 760 430" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="三条不同路径：扩散训练把训练图编码、抽一个时间加噪并训练预测器；文生图从潜空间高斯噪声反复去噪后解码，不经过图像编码器；图生图先编码参考图，再加噪、去噪和解码。">
+<text x="28" y="24" font-size="15" fill="var(--fg)" font-weight="700">扩散训练：自编码器已经训练好并冻结</text>
+<rect x="28" y="44" width="122" height="68" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<rect x="184" y="44" width="122" height="68" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+<rect x="340" y="44" width="154" height="68" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<rect x="528" y="44" width="204" height="68" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<text x="89" y="71" font-size="13" text-anchor="middle" fill="var(--fg)">训练图片</text>
+<text x="89" y="93" font-size="12" text-anchor="middle" fill="var(--muted)">512×512×3</text>
+<text x="245" y="71" font-size="13" text-anchor="middle" fill="var(--fg)">E 得到潜变量</text>
+<text x="245" y="93" font-size="12" text-anchor="middle" fill="var(--muted)">64×64×4</text>
+<text x="417" y="71" font-size="13" text-anchor="middle" fill="var(--fg)">抽一个 t 加噪</text>
+<text x="417" y="93" font-size="12" text-anchor="middle" fill="var(--muted)">直接得到 zₜ</text>
+<text x="630" y="71" font-size="13" text-anchor="middle" fill="var(--fg)">预测噪声并计算损失</text>
+<text x="630" y="93" font-size="12" text-anchor="middle" fill="var(--muted)">更新去噪网络</text>
+<path d="M150 78 H174" fill="none" stroke="var(--accent)" stroke-width="2"/><polygon points="181,78 173,73 173,83" fill="var(--accent)"/>
+<path d="M306 78 H330" fill="none" stroke="var(--accent)" stroke-width="2"/><polygon points="337,78 329,73 329,83" fill="var(--accent)"/>
+<path d="M494 78 H518" fill="none" stroke="var(--accent)" stroke-width="2"/><polygon points="525,78 517,73 517,83" fill="var(--accent)"/>
+<text x="28" y="156" font-size="15" fill="var(--fg)" font-weight="700">文生图：不需要把一张真实图片交给 E</text>
+<rect x="28" y="176" width="150" height="68" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<rect x="212" y="176" width="204" height="68" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+<rect x="450" y="176" width="110" height="68" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<rect x="594" y="176" width="138" height="68" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<text x="103" y="203" font-size="13" text-anchor="middle" fill="var(--fg)">潜空间高斯噪声</text>
+<text x="103" y="225" font-size="12" text-anchor="middle" fill="var(--muted)">64×64×4</text>
+<text x="314" y="203" font-size="13" text-anchor="middle" fill="var(--fg)">若干次潜空间去噪</text>
+<text x="314" y="225" font-size="12" text-anchor="middle" fill="var(--muted)">使用文本条件</text>
+<text x="505" y="215" font-size="13" text-anchor="middle" fill="var(--fg)">D 解码</text>
+<text x="663" y="203" font-size="13" text-anchor="middle" fill="var(--fg)">生成图片</text>
+<text x="663" y="225" font-size="12" text-anchor="middle" fill="var(--muted)">512×512×3</text>
+<path d="M178 210 H202" fill="none" stroke="var(--accent)" stroke-width="2"/><polygon points="209,210 201,205 201,215" fill="var(--accent)"/>
+<path d="M416 210 H440" fill="none" stroke="var(--accent)" stroke-width="2"/><polygon points="447,210 439,205 439,215" fill="var(--accent)"/>
+<path d="M560 210 H584" fill="none" stroke="var(--accent)" stroke-width="2"/><polygon points="591,210 583,205 583,215" fill="var(--accent)"/>
+<text x="28" y="288" font-size="15" fill="var(--fg)" font-weight="700">图生图：参考图先编码，再从选定的噪声强度开始</text>
+<rect x="28" y="308" width="122" height="68" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<rect x="184" y="308" width="100" height="68" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<rect x="318" y="308" width="128" height="68" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+<rect x="480" y="308" width="110" height="68" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<rect x="624" y="308" width="108" height="68" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<text x="89" y="347" font-size="13" text-anchor="middle" fill="var(--fg)">参考图像</text>
+<text x="234" y="347" font-size="13" text-anchor="middle" fill="var(--fg)">E 编码</text>
+<text x="382" y="336" font-size="13" text-anchor="middle" fill="var(--fg)">加噪到选定 t</text>
+<text x="382" y="358" font-size="12" text-anchor="middle" fill="var(--muted)">仍在潜空间</text>
+<text x="535" y="347" font-size="13" text-anchor="middle" fill="var(--fg)">去噪</text>
+<text x="678" y="347" font-size="13" text-anchor="middle" fill="var(--fg)">D 解码</text>
+<path d="M150 342 H174" fill="none" stroke="var(--accent)" stroke-width="2"/><polygon points="181,342 173,337 173,347" fill="var(--accent)"/>
+<path d="M284 342 H308" fill="none" stroke="var(--accent)" stroke-width="2"/><polygon points="315,342 307,337 307,347" fill="var(--accent)"/>
+<path d="M446 342 H470" fill="none" stroke="var(--accent)" stroke-width="2"/><polygon points="477,342 469,337 469,347" fill="var(--accent)"/>
+<path d="M590 342 H614" fill="none" stroke="var(--accent)" stroke-width="2"/><polygon points="621,342 613,337 613,347" fill="var(--accent)"/>
+<text x="28" y="415" font-size="12.5" fill="var(--muted)">尺寸是本页示例；潜变量的约定缩放省略在图中，正文另行说明。</text>
+</svg>
+<figcaption>先看第二行：文生图从潜空间噪声开始，不是先压缩一张输入图片。第一行训练通常只抽一个时间点来计算损失，也不是每次训练样本都跑完整条采样链。</figcaption>
+</figure>
 
+<p>对应到基本单次流程：</p>
+<ul>
+<li><strong>训练自编码器</strong>：E、D 都参加前向计算，训练更新会重复很多轮，不是“总共各跑一次”。</li>
+<li><strong>训练扩散模型</strong>：编码训练图片或使用预先缓存的潜变量，随机取一个 t 加噪并训练去噪器；基础噪声预测损失在潜空间计算，不必每次解码到像素。</li>
+<li><strong>文生图</strong>：图像 E 不运行；文本编码器是另一组件。潜空间去噪结束后，D 解码一次。</li>
+<li><strong>图生图</strong>：先编码一次参考图，再加到选定噪声水平，从那里去噪，最后解码一次。</li>
+</ul>
+<p>这里不含额外的高分辨率二次处理、阶段预览或分块解码。原始 Stable Diffusion 的 <a href="https://github.com/CompVis/stable-diffusion/blob/main/scripts/txt2img.py">txt2img 脚本</a>与 <a href="https://github.com/CompVis/stable-diffusion/blob/main/scripts/img2img.py">img2img 脚本</a>可直接核对后两条路径。</p>
+<h3 id="latent-noising">加噪公式保留，作用对象和尺度要说清</h3>
+<p>先按模型约定把自编码器潜变量缩放成 $z_0$。前向加噪仍可以写成：</p>
+<p>$$z_t=\sqrt{\bar\alpha_t}\,z_0+\sqrt{1-\bar\alpha_t}\,\epsilon,\qquad \epsilon\sim\mathcal N(0,I).$$</p>
+<ul>
+<li>$z_0$ 是<strong>干净的、已按约定缩放的潜变量</strong>，不是 RGB 像素。</li>
+<li>$\bar\alpha_t$ 控制保留多少信号；另一项加入同形状的高斯噪声。</li>
+<li>在噪声预测训练中，去噪器根据 $z_t$、t 和可选条件，预测这次实际加进去的 $\epsilon$。</li>
+</ul>
+<p>例如 $\bar\alpha_t=0.25$ 时，干净信号乘 0.5，噪声乘 $\sqrt{0.75}$。系数的形式与像素扩散相同，<strong>不代表可以把任何像素模型的调度、缩放和预测目标原封不动移过来</strong>。</p>
+<p>反复去噪器能在较小空间工作，这是潜空间路线的核心收益。E、D、文本编码等开销是否可以忽略，仍取决于分辨率、步数和具体实现；尤其步数很少时，固定开销占比会变大。</p>
 <hr />
 <h2 id="_4">🔢 三、三个倍数，别混成一个</h2>
+<p>下表继续使用 512×512×3 与 64×64×4，batch 为 1。卷积采用前面的固定层假设；注意力只数<strong>全局自注意力的打分矩阵元素</strong>。</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>每一步里的这一项</th>
-<th>像素空间 512×512×3</th>
-<th>潜空间 64×64×4</th>
-<th>倍数</th>
+<th>比较项</th>
+<th>像素尺寸上的数量</th>
+<th>潜空间尺寸上的数量</th>
+<th>比值</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>要去噪的数的个数</td>
-<td>786432</td>
-<td>16384</td>
+<td>输入／输出元素数</td>
+<td>786,432</td>
+<td>16,384</td>
 <td><strong>48</strong></td>
 </tr>
 <tr>
@@ -352,18 +447,25 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <td><strong>64</strong></td>
 </tr>
 <tr>
-<td>一层全局注意力的矩阵项数</td>
-<td>$6.87\times10^{10}$</td>
-<td>$1.68\times10^{7}$</td>
+<td>全局自注意力打分矩阵项数</td>
+<td>$6.872\times10^{10}$</td>
+<td>$1.678\times10^7$</td>
 <td><strong>4096</strong></td>
 </tr>
 </tbody>
 </table></div>
-<p>⚠️ 三个数不一样，来路也不同：<strong>48</strong> 是元素个数之比（通道 3→4 抵消掉了一点空间上的压缩）；主干里两边的通道数是一样的，差别只剩空间面积，就是 $8^2=64$；而注意力的代价按面积的<strong>平方</strong>走，于是 $(8^2)^2 = 4096$。</p>
-<p>⭐ <strong>越贵的那一层，省得越狠。</strong> 这才是它真正 work 的原因 —— 如果所有层都只省 48 倍，故事远没有这么好听。</p>
+<p><strong>48 看的是总元素。</strong> 高和宽各除以 8，让空间位置减少 64 倍；通道从 3 改成 4，所以元素数只减少 48 倍。</p>
+<p><strong>64 看的是同通道卷积。</strong> 两边都为 128→128，卷积核也一样，计算量随空间面积变成原来的 1/64。如果比较输入首层，通道分别为 3→128 和 4→128，得到的又是 48 倍。</p>
+<p><strong>4096 看的是位置两两配对。</strong> 全局自注意力矩阵为 N×N；N 减少 64 倍，矩阵元素数减少 $64^2=4096$ 倍。</p>
+<p>有两个限制必须和这张表一起看：</p>
+<ol>
+<li>这是<strong>三个局部计数</strong>，不是实际两个完整模型的架构对比。通道、网络深度、层所在分辨率、模型调用次数和内存实现变化，都会改变总成本。</li>
+<li>图像对固定长度文本的<strong>交叉注意力</strong>是 N×M，不是 N×N。M 不变时，打分矩阵按 N 缩放；不能把 4096 倍直接套过去。注意力层的投影和其他操作也不全按 N² 变化。</li>
+</ol>
 <hr />
 <h2 id="_5">🧪 四、动手：这笔账自己算一遍</h2>
-<p>不需要模型也不需要 GPU，纯计数，跑多少遍结果都一模一样：</p>
+<p><strong>这是计数实验，不是模型性能测试。</strong> 保留下面完整的 PyTorch 小程序：它只创建两个小 CPU 张量来数元素，不下载模型，也不需要 GPU。运行环境需有 PyTorch；<code>numel()</code> 返回元素总数，不返回字节数。</p>
+<p>卷积函数假设输出高宽与输入相同，batch 为 1、不分组，一次乘加算 2 FLOPs，忽略偏置。程序没有真的执行卷积或注意力，也不会申请前面那张巨大的矩阵。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 像素空间 vs 潜空间：同一件事各要花多少算力（纯计数，不测秒）</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
@@ -394,73 +496,183 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
           <span class="sa">f</span><span class="s2">&quot;  vs  潜空间 </span><span class="si">{</span><span class="n">f_bd_l</span><span class="o">*</span><span class="n">steps</span><span class="o">/</span><span class="mf">1e12</span><span class="si">:</span><span class="s2">5.3f</span><span class="si">}</span><span class="s2"> TFLOPs&quot;</span><span class="p">)</span>
 </code></pre></div>
 
-<p>真实输出：</p>
-<div class="codehilite" data-code-language="text"><pre><span></span><code>每步要去噪的量：  786432 个数  vs  16384 个数  → 压缩 48 倍
-首层 3x3 卷积：      1.81 GFLOPs vs  0.038 GFLOPs → 48 倍
-主干 128→128 卷积： 77.31 GFLOPs vs  1.208 GFLOPs → 64 倍
-注意力矩阵项数：  6.872e+10     vs 1.678e+07    → 4096 倍
-走   50 步，光②这一层就要： 像素空间   3.87 TFLOPs  vs  潜空间 0.060 TFLOPs
-走 1000 步，光②这一层就要： 像素空间  77.31 TFLOPs  vs  潜空间 1.208 TFLOPs
-</code></pre></div>
-
-<p>💡 最后两行值得停一下：<strong>在潜空间里走满 1000 步（1.208 TFLOPs），都比在像素空间里走 50 步（3.87 TFLOPs）便宜</strong>。上一章省下来的步数，和这一章省下来的单步开销，是可以叠乘的。</p>
-<hr />
-<h2 id="_6">🔍 五、代价：丢掉的细节，是在编码那一步丢的</h2>
-<p>自编码器不是无损压缩。48 倍压下去，一定有东西回不来。</p>
-<p>⭐ <strong>要命的是顺序</strong>：$E$ 在扩散<strong>之前</strong>跑。这意味着整条链路的画质上限是 $D(E(x))$ —— 把原图编码再解码得到的那张图。⚠️ <strong>扩散模型无论学得多好、步数走得多足，都只能逼近这个上限，不可能超过它。</strong></p>
-<p>具体丢的是什么？做一次除法就清楚了：512×512 的图压到 64×64，一个潜空间格子对应原图 <strong>8×8 = 64 个像素</strong>，也就是 <strong>192 个数被压成 4 个数</strong>。而一个小字的笔画只有一两个像素宽、整个字可能只占十几个像素 —— 它整个人就住在一两个格子里。</p>
-<p>💀 <strong>这就是这类模型画不好小字的第一层原因</strong>，同一条解释也覆盖了远景人脸、手指关节、密集纹理和网格：⭐ <strong>凡是「在 8×8 的块尺度上无法从周围推断出来」的高频细节，编码那一步就已经交代了。</strong></p>
-<p>⚠️ <strong>但别把锅全甩给自编码器</strong>：提示词理解不到位、训练数据里就没有清晰小字，同样会让字画歪。自编码器那一份是<strong>下界</strong> —— 你可以拿一张写着清晰小字的照片，只做一次编码再解码、扩散模型完全不参与，字通常就已经糊了。<strong>这一步不解决，后面怎么调都白搭。</strong></p>
-<p>于是有了三条对着这个上限使劲的路：</p>
-<ul>
-<li><strong>别压那么狠</strong>。下采样 8 倍是权衡点，压 4 倍更清楚但每步贵 4 倍 —— 又回到第一节那笔账。</li>
-<li>⭐ <strong>加宽潜空间的通道</strong>。SD 1.x / SDXL 都是 4 通道，SD3、FLUX 这一代提到了 <strong>16</strong> —— 空间尺寸没变，每个格子能装的信息多了，买回来的正是这部分细节。</li>
-<li><strong>直接出更大的图</strong>。1024×1024 对应 128×128 的潜空间，同一个字占的格子多了自然清楚些 —— 代价还是那笔按面积走的账。</li>
-</ul>
-<hr />
-<h2 id="kl">⚖️ 六、KL 项在这里到底管什么</h2>
-<p>自编码器如果只用重建损失训，潜空间可以长得非常离谱：整体尺度可能是几十上百，分布里全是空洞和悬崖。</p>
-<p>⚠️ <strong>扩散模型在这样的空间上学不动。</strong> 原因很直接：前向加噪那条公式 $x_t=\sqrt{\bar\alpha_t}x_0+\sqrt{1-\bar\alpha_t}\,\epsilon$ 里的噪声方差是 1，它默认了数据本身的尺度也在 1 附近。要是潜变量的幅度是 100，整张 $\bar\alpha$ 调度表就全错位 —— 前面大半段的「加噪」相对信号约等于没加，模型在那些步上没东西可学。</p>
-<p>所以 LDM 在重建损失之外加了一项 KL，把每个位置的后验 $q(z\mid x)$ 往标准正态 $\mathcal N(0,I)$ 推。</p>
-<p>$$\mathcal L = \underbrace{\|x - D(z)\|}_{\text{重建，要准}} + \underbrace{\lambda \cdot D_{KL}\big(q(z\mid x)\,\|\,\mathcal N(0,I)\big)}_{\text{别太散}},\qquad \lambda \text{ 极小}$$</p>
-<p>⭐⭐ <strong>这里的 $\lambda$ 小得几乎可以忽略，而这是故意的，不是调参调出来的。</strong> 关键在于目标不同：</p>
+<p>这段程序已独立执行，原来的输出数值保留如下。前四项也可以与上一节的公式手算互相核对。</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th></th>
-<th>普通 VAE</th>
-<th>LDM 的自编码器</th>
+<th>程序计算的项目</th>
+<th>像素尺寸</th>
+<th>潜空间尺寸</th>
+<th>比值</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>生成时 $z$ 从哪来</td>
-<td>⭐ 直接从先验 $\mathcal N(0,I)$ 里采</td>
-<td>由<strong>扩散模型</strong>生成</td>
+<td>每步去噪元素</td>
+<td>786432</td>
+<td>16384</td>
+<td>48</td>
 </tr>
 <tr>
-<td>所以潜分布必须</td>
-<td><strong>真的是</strong>标准正态，否则采出来的 $z$ 解码成噪声</td>
-<td>只要<strong>不太离谱</strong>：尺度受控、别有大片空洞</td>
+<td>输入首层 3×3 卷积</td>
+<td>1.81 GFLOPs</td>
+<td>0.038 GFLOPs</td>
+<td>48</td>
 </tr>
 <tr>
-<td>KL 权重</td>
-<td>大（它是正经的正则项）</td>
-<td>⭐ 极小</td>
+<td>主干假设层 128→128 卷积</td>
+<td>77.31 GFLOPs</td>
+<td>1.208 GFLOPs</td>
+<td>64</td>
+</tr>
+<tr>
+<td>全局自注意力矩阵元素</td>
+<td>6.872e+10</td>
+<td>1.678e+07</td>
+<td>4096</td>
 </tr>
 </tbody>
 </table></div>
-<p>💡 <strong>一句话：LDM 根本不从先验里采样，那 KL 就没必要收得那么紧。</strong> 而 KL 一大就会挤占重建质量 —— 直接把上一节那个 $D(E(x))$ 上限拉低，那是 LDM 最不能让的东西。</p>
-<p>⭐ <strong>有个能自己核对的痕迹</strong>：Stable Diffusion 的代码里，潜变量送进扩散模型之前要乘一个常数 <code>0.18215</code>，解码前再除回去。⚠️ <strong>如果 KL 真把潜空间压成了标准正态，这个缩放常数根本没有存在的理由。</strong> 它的存在恰好说明：KL 只是把潜空间「拴住」了，实际标准差离 1 还差着好几倍，得靠一个事后量出来的常数补上。</p>
-<details>
-<summary>📐 另一条路：不用 KL，用 VQ（想看再点）</summary>
-<p>LDM 原论文给了两种正则方式，KL 只是其中一种。另一种是 <strong>VQ</strong>：不再往标准正态上推，而是维护一本码本，把每个位置的潜向量<strong>量化到码本里最近的那一条</strong>。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>这一个 128→128 层重复多少次</th>
+<th>像素尺寸合计</th>
+<th>潜空间尺寸合计</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>50 次</td>
+<td>3.87 TFLOPs</td>
+<td>0.060 TFLOPs</td>
+</tr>
+<tr>
+<td>1000 次</td>
+<td>77.31 TFLOPs</td>
+<td>1.208 TFLOPs</td>
+</tr>
+</tbody>
+</table></div>
+<p>看最后两行：在<strong>这个假设层</strong>上，潜空间执行 1000 次的计数，确实小于像素尺寸执行 50 次。它不证明“真实潜空间模型跑 1000 步比另一模型 50 步更快”——那需要实际模型、相同设备与明确质量条件的测量。</p>
+<p>少步数与较便宜的单次调用可以同时节省工作量。在这个简化模型里，成本就是“调用次数 × 每次 FLOPs”；完整管线还要加固定组件、调度和数据搬运等成本。</p>
+<blockquote>
+<p>可以在这里停：你已经知道 48／64／4096 分别在比什么。后半页转向另一个问题——压缩会影响什么、怎样查明原因。</p>
+</blockquote>
+<hr />
+<h2 id="_6">🔍 五、代价：先查重建，再谈细节从哪里损失</h2>
+<p>自编码器通常追求感知上接近原图，不是无损逐像素还原。它可能把细笔画、规则网格、密集纹理等细节重建错；具体问题要对着具体模型和图片检查。</p>
+<h3 id="latent-reconstruction-test">重建图是诊断工具，不是所有生成图的硬上限</h3>
+<p>把一张已知原图只做编码、解码，得到：</p>
+<p>$$\hat x=D(E(x)).$$</p>
+<p>这个测试回答的是：<strong>当前自编码器能否通过这次编码，把这张输入图重建回来？</strong> KL 版还要明确使用后验均值还是固定随机种子的采样，避免每次编码本身的随机性干扰对照。</p>
 <ul>
-<li><strong>KL 版</strong>：潜变量是连续的，扩散模型直接在实数张量上跑。Stable Diffusion 走的这条。</li>
-<li><strong>VQ 版</strong>：潜变量成了一串离散 token，天然接得上自回归那一套生成方式。</li>
+<li>原图中的清晰小字在重建后已损坏：说明编码—解码阶段值得优先排查，不必把这次损坏归因于采样器。</li>
+<li>重建能保留小字，生成却写错：不能再用这次重建结果给压缩定罪；还要查训练数据、条件对齐、生成先验、采样和后处理。</li>
+<li>这只是排查方法。<strong>本页没有加载真实图像自编码器做小字实验，也没有声称某个具体 VAE 一定会糊字。</strong></li>
 </ul>
-<p>⭐ 两者的共同点才是重点：<strong>都不是为了得到一个漂亮的先验分布，而是为了不让潜空间散成扩散模型学不动的样子。</strong></p>
-</details>
+<p>固定解码器的可表达范围确实约束输出，但 $D(E(x))$ <strong>不是任意生成图片、任意画质指标的数学上限</strong>。文生图并没有先编码这张 x；它生成的潜变量也不必等于 E(x)。</p>
+<p>即使讨论同一张 x，编码器给出的 E(x) 也不自动等于“在这个解码器下最优的潜变量”。更长采样不能保证找回被输入编码丢掉的具体信息，但模型可以依据数据规律合成新细节；合成得像不等于忠实恢复了原细节。</p>
+<h3 id="latent-receptive-field">下采样 8 倍，不是把图切成互不相干的 8×8 小块</h3>
+<p>512→64 说明潜变量网格在高、宽方向各稀疏了 8 倍。按整体数量平均，每个潜格对应原图 64 个空间位置，即 <strong>192 个 RGB 数对 4 个潜通道数</strong>。</p>
+<p><strong>这只是数量平均，不能当成信息分区。</strong> 编码器有多层卷积和下采样，相邻潜格的感受野可以重叠，一个潜格能受更大区域影响；解码时相邻格也共同影响像素。<a href="https://github.com/CompVis/latent-diffusion/blob/main/ldm/modules/diffusionmodules/model.py">CompVis 的编码器实现</a>可看到这些操作。</p>
+<p>因此，小字只占几像素不意味着它必然被锁在某一个潜格、必然丢失。远景人脸、手指、细纹理也不能只凭格点尺寸归为同一种错误；数据、训练目标和结构建模都可能参与。</p>
+<h3 id="latent-quality-tradeoffs">三条改进路线：都需匹配模型能力并验证</h3>
+<p><strong>1. 降低空间压缩率。</strong> 若同一张 512 图从下采样 8 倍改为 4 倍，潜网格从 64×64 变为 128×128。更多空间位置可能有利于保留细节，但在同通道假设下卷积位置数增加 4 倍，全局注意力打分矩阵增加 16 倍；不是“整个模型必然只贵 4 倍”。</p>
+<p><strong>2. 增加潜通道。</strong> 4 通道不是 LDM 的定义。原始 SD 1.x 与 SDXL 的具体自编码器配置使用 4 通道；SD3 参考实现和 FLUX.1-dev／schnell 的公开配置使用 16 通道。更多通道提供更大的表示容量，但不能只换一个数字或解码器，就保证旧去噪模型正常工作或小字变清楚。</p>
+<p>这些例子按具体版本核对：<a href="https://github.com/CompVis/stable-diffusion/blob/main/configs/stable-diffusion/v1-inference.yaml">SD 1.x 配置</a>、<a href="https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/blob/main/vae/config.json">SDXL 配置</a>、<a href="https://github.com/Stability-AI/sd3-ref/blob/master/sd3_impls.py">SD3 的 VAE 实现</a>、<a href="https://github.com/black-forest-labs/flux/blob/main/src/flux/util.py">FLUX.1 的自编码器参数</a>。它们不是说以后所有同名系列都固定采用这些通道数。</p>
+<p><strong>3. 使用与模型匹配的更高分辨率。</strong> 下采样仍为 8 倍时，1024×1024 对应 128×128 潜网格。如果同一个文字区域也随画面同比放大，它能覆盖更多潜格；但如果只是增加画布、字仍只有原来的像素大小，这个推论就不成立。更高尺寸还要考虑模型训练范围、位置表示、算力和重建能力。</p>
+<p>这三条都在改变模型的表示或工作条件，不能保证独立于训练而提升质量。应使用一致的原图重建、生成任务和评估口径做对照。</p>
+<hr />
+<h2 id="kl">⚖️ 六、KL 项在这里到底管什么</h2>
+<p>先区分两类“高斯”，否则很容易把这节读反：</p>
+<ul>
+<li><strong>自编码器的后验</strong> $q_\phi(z_{\mathrm{AE}}\mid x)$：给定一张真实图，它的潜变量可以是什么。KL 正则约束的是这层分布。</li>
+<li><strong>扩散采样的末端噪声</strong> $z_T$：文生图开始去噪时抽的噪声。它不是已经能直接解码为合适图像的干净潜变量。</li>
+</ul>
+<p>所以“LDM 不从高斯噪声开始”是错的。正确的区别是：它<strong>先把噪声经去噪模型转成学到的潜变量分布，再交给 D</strong>，而不是跳过去噪直接解码初始噪声。</p>
+<h3 id="latent-kl-purpose">KL 是权衡，不是把每张图都变成标准正态</h3>
+<p>KL 版编码器输出一个依赖 x 的高斯后验，$\phi$ 只是编码器参数的记号。以对角高斯为例，有均值和标准差，再从中取样；同一 x 的采样可以不同。这里 $\mathcal N(0,I)$ 表示各维均值为 0、方差为 1 且相互独立的高斯参考分布。</p>
+<p>KL 惩罚把这个后验往标准正态拉，避免潜变量尺度任意扩张。这里只展示<strong>损失的组成示意</strong>，不是原论文完整的对抗训练公式：</p>
+<p>$$\mathcal L_{\mathrm{AE}}=\mathcal L_{\mathrm{rec}}+\lambda_{\mathrm{KL}}\mathcal L_{\mathrm{KL}}+\lambda_{\mathrm{adv}}\mathcal L_{\mathrm{adv}}.$$</p>
+<p>$$\mathcal L_{\mathrm{KL}}=\mathbb E_x\!\left[D_{\mathrm{KL}}\!\left(q_\phi(z_{\mathrm{AE}}\mid x)\,\|\,\mathcal N(0,I)\right)\right].$$</p>
+<ul>
+<li>$\mathcal L_{\mathrm{rec}}$ 表示重建方面的目标，原始 LDM 的方案还采用感知损失，不只逐像素误差。</li>
+<li>$\mathcal L_{\mathrm{adv}}$ 是生成侧的对抗项；判别器有自己的训练目标，本式没有把整个极小极大过程写出来。</li>
+<li>$\lambda_{\mathrm{KL}}$ 控制重建与潜变量正则之间的权衡。论文使用较弱正则，<a href="https://arxiv.org/html/2112.10752v2#A7">附录 G</a>报告了约 $10^{-6}$ 的 KL 权重；这不是任意实现、任意损失归一化下都能照搬的默认值。</li>
+</ul>
+<p>一个重要反例：如果每张图的后验都被强制为<strong>完全相同</strong>的 $\mathcal N(0,I)$，z 的分布就不再依赖 x，反而难以携带这张图的重建信息。因此不能把“每图后验严格标准正态”当成自编码器训练成功的条件。</p>
+<h3 id="latent-vae-compare">与普通 VAE 的区别，不是“一个 KL 必须大，一个必须小”</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>比较项</th>
+<th>从固定先验生成的普通 VAE</th>
+<th>LDM 的两阶段方案</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>生成的干净潜变量来自哪里</td>
+<td>从指定先验采样后解码</td>
+<td>由学习到的潜空间生成模型产生，再解码</td>
+</tr>
+<tr>
+<td>自编码器重建质量</td>
+<td>需要与潜变量正则权衡</td>
+<td>同样要权衡，表示需适合后续生成学习</td>
+</tr>
+<tr>
+<td>后验是否每张图都必须标准正态</td>
+<td>不要求完全相同</td>
+<td>同样不要求完全相同</td>
+</tr>
+<tr>
+<td>KL 权重能否仅凭模型名决定</td>
+<td>不能</td>
+<td>不能</td>
+</tr>
+</tbody>
+</table></div>
+<p>普通 VAE 的固定先验与编码数据的潜分布不匹配，可能影响生成质量；但不等于“只要不完全相同，所有样本就都是噪声”。LDM 学习更灵活的潜空间生成分布，也不等于它能轻松学好任意不规则的编码。</p>
+<h3 id="latent-scaling">缩放常数解决的是噪声调度的尺度配合</h3>
+<p>在前面的加噪公式中，若把同一干净潜变量整体乘 100、其他设置不动，它的信号方差会乘 10,000；同一份单位方差噪声的相对强度就变了。公式仍成立，但信噪比与训练时设计的不再相同，终点是否足够接近纯噪声也可能受影响。</p>
+<p>这不意味着“数据方差不是 1 就不能扩散”。可以约定潜变量缩放、调整噪声调度，或采用其他一致的参数化；关键是训练与采样使用相同约定。</p>
+<p>SD 1.x 的一个具体约定是：</p>
+<p>$$z_0=s\,z_{\mathrm{AE}},\qquad s=0.18215.$$</p>
+<p>送进扩散模型前乘 s，交给原自编码器解码前再除回去，即输出为 $D(z_0/s)$。对应实现可核对 <a href="https://github.com/CompVis/stable-diffusion/blob/main/ldm/models/diffusion/ddpm.py">CompVis 的潜空间扩散代码</a>；不要对输入像素或文本向量随意套这个缩放。</p>
+<p>原始 LDM 论文在 KL 版本里描述过按一批潜变量估计标准差再缩放的做法。但 <strong>0.18215 是具体模型约定，不是所有 LDM 的数学常数</strong>；SDXL 等模型有各自配置。</p>
+<p>即使缩放后的总体标准差接近 1，也不证明每张图的后验是标准正态，更不证明整组潜变量独立。反过来，某个缩放常数非 1 也不能单独证明“KL 失败”；还要看定义、损失权重和数据分布。</p>
+<h3 id="latent-vq">VQ 版本：码本是离散的，不等于 LDM 在离散 token 上扩散</h3>
+<p>原论文还提出另一条正则路线：<strong>向量量化（VQ）</strong>用码本存一组向量，把连续表示映射到距离最近的码本项。码本索引可以构成离散 token；其他 VQ 生成系统确实可以用自回归模型预测索引。</p>
+<p>但 <strong>LDM 原论文的 VQ 版本没有因此改为离散 token 扩散</strong>。它取量化之前的连续潜表示作为扩散对象，把量化操作放进解码器的开头。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>路线</th>
+<th>生成模型处理什么</th>
+<th>量化在哪里</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>KL 正则的 LDM</td>
+<td>连续潜变量</td>
+<td>没有 VQ 码本量化</td>
+</tr>
+<tr>
+<td>原论文 VQ 正则的 LDM</td>
+<td>仍是量化前的连续潜变量</td>
+<td>解码时先经过量化，再还原像素</td>
+</tr>
+<tr>
+<td>自回归 VQ token 模型</td>
+<td>码本索引序列</td>
+<td>这是另一种生成建模路线，不要与上一行混同</td>
+</tr>
+</tbody>
+</table></div>
+<p>这一点可以直接检查 <a href="https://github.com/CompVis/latent-diffusion/blob/main/ldm/models/autoencoder.py">CompVis 的 VQModelInterface</a>：<code>encode</code> 返回连续 h，<code>decode</code> 内部调用量化。两种 LDM 都在学习的表示空间中做生成，不是在证明某个固定潜先验已经完美拟合数据。</p>
 <hr />
 <h2 id="_7">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
@@ -472,54 +684,59 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </thead>
 <tbody>
 <tr>
-<td><a href="../机器学习的数学原理/01b-KL散度.html">数学原理 01b · KL 散度：交叉熵的真身</a></td>
-<td>⭐ 那一页的「前向 KL vs 反向 KL」对照表里，直接点名了 <strong>VAE / 变分推断用的是反向 KL，mode-seeking，所以估出来的后验偏窄</strong>。本章第六节那个 $D_{KL}(q(z\mid x)\,\|\,\mathcal N(0,I))$ 正是这一类 —— 它罚的是「潜变量跑到先验不敢去的地方」，而不是「盖住先验的每个角落」</td>
+<td><a href="../机器学习的数学原理/01b-KL散度.html">数学原理 01b · KL 散度</a></td>
+<td>核对 KL 两个参数的方向与不同目标的含义；不要仅凭“反向 KL”四个字，就断言本页高斯后验必然偏窄或已经覆盖全部图像信息</td>
 </tr>
 <tr>
 <td><a href="../机器学习与深度学习基础/06-无监督-聚类与降维.html">ML 基础 06 · 无监督：聚类与降维</a></td>
-<td>压缩表示这件事最经典的那一版：PCA 找方差最大的几个方向投影上去，用途表里就写着「<strong>去噪：丢掉的小方差方向往往是噪声</strong>」。⭐ 值得对照的是<strong>丢的东西不一样</strong> —— PCA 是线性的、丢掉的是小方差方向；自编码器是学出来的非线性压缩，丢掉的是<strong>重建损失不在乎的东西</strong>，而小字恰好就属于那一类</td>
+<td>对照 PCA 的线性投影与自编码器的学习表示。小方差不天然等于噪声，自编码器也不是统一丢掉“小字”；保留什么取决于数据、容量与目标</td>
 </tr>
 <tr>
 <td><a href="../AI基础设施/09-显存优化全家桶.html">AI 基础设施 09 · 显存优化全家桶</a></td>
-<td>本章省的是<strong>每一步的计算量</strong>；那一页是省<strong>显存</strong>的完整清单，七件武器按性价比排好了序（梯度检查点把激活从 $O(L)$ 降到 $O(\sqrt L)$、换 8-bit 优化器、LoRA/QLoRA…）。⭐ 想自己训一个扩散模型时，这两条路是叠加的，不是二选一</td>
+<td>潜空间减少某些重复计算；显存还包括参数、激活、梯度和优化器状态。训练遇到 OOM 时，要按实际占用选技术，不能把 FLOPs 比当显存比</td>
 </tr>
 <tr>
-<td><a href="../大模型全景导论/10b-图像生成.html">全景导论 10b · 图像生成：扩散模型</a></td>
-<td>14 分钟的索引版。⭐ 那一页的组件表里，VAE 只有一行字：「把图压缩到低维潜空间再扩散，省算力（Latent Diffusion）」—— 而它的深挖清单把 Latent Diffusion 整块标成「📕 要外找」。<strong>你正在读的就是那一行的展开</strong></td>
+<td><a href="../大模型全景导论/10b-图像生成.html">全景导论 10b · 图像生成</a></td>
+<td>从本页返回组件总览，重新看自编码器、去噪主干和条件控制各负责什么；导论已经链接到本站完整《扩散模型》板块，不再需要为了本主题另找站外入口</td>
 </tr>
 </tbody>
 </table></div>
 <hr />
 <h2 id="_8">✅ 检查点</h2>
 <ol>
-<li>512×512×3 的图有多少个数？压到 Stable Diffusion 的潜空间之后剩多少？压缩几倍？</li>
-<li>为什么说像素空间扩散「不是慢一点，是根本放不下」？举出那个最劝退的数字。</li>
-<li>编码器和解码器各跑几次？扩散跑几次？省下来的到底是哪一部分？</li>
-<li>48 倍、64 倍、4096 倍这三个数分别是什么之比？为什么它们不一样？</li>
-<li>整条链路的画质上限是什么？为什么扩散模型再准也超不过它？</li>
-<li>一个潜空间格子对应原图多少个像素、多少个数压成多少个数？这怎么解释小字画不好？</li>
-<li>LDM 的 KL 权重为什么设得极小？普通 VAE 为什么不能这么干？<code>0.18215</code> 那个缩放常数又说明了 KL 项的什么事？</li>
+<li>本页 SD 1.x 尺寸例子中，512×512×3 和 64×64×4 各有多少元素？48 倍是在比什么，能否泛化为所有潜空间模型？</li>
+<li>137.44 GB（128 GiB）是按哪些假设算出的？它为什么不是所有像素扩散模型必需的显存？</li>
+<li>训练去噪器、文生图、图生图三种流程中，图像编码器 E 与解码器 D 各在什么时候出现？为什么不能统一说“E、D 各跑一次”？</li>
+<li>48、64、4096 分别比较什么？输入首层与同通道主干层有什么区别？图像对固定长度文本的交叉注意力能套 4096 倍吗？</li>
+<li>$D(E(x))$ 能用于诊断什么，为什么不能当成所有生成图片或指标的严格画质上限？</li>
+<li>下采样 8 倍时，192 个 RGB 数与 4 个潜通道数是怎样算出的？为什么不表示独立 8×8 小块？压得更轻、加通道或加大分辨率是否都保证改善细节？</li>
+<li>KL 正则、扩散初始高斯噪声与 0.18215 缩放分别负责什么？普通 VAE 是否要求每图后验完全一样？原论文 VQ-LDM 的去噪对象是连续潜变量还是离散码本索引？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>786432</strong> 个数（512×512×3），压到 64×64×4 = <strong>16384</strong> 个数，⭐ <strong>48 倍</strong>。</li>
-<li>因为注意力的代价按面积的平方走：512×512 = <strong>262144 个 token</strong>，注意力矩阵 $6.87\times10^{10}$ 项，光存这一个矩阵按 fp16 算就要 <strong>137 GB</strong> —— 而这还只是一层里的一个头。所以早期像素空间的模型只能在 256×256 甚至 64×64 上训。</li>
-<li><strong>编码器和解码器各只跑 1 次，扩散要跑几十上百次。</strong> 省的正是那个要乘以步数的部分；编解码那点固定开销摊到 50 步里几乎看不见。</li>
-<li><strong>48</strong> 是元素个数之比（通道 3→4 抵消掉一点空间压缩）；<strong>64</strong> 是主干卷积之比 —— 两边通道数一样，差别只剩空间面积 $8^2$；<strong>4096</strong> 是注意力矩阵之比 —— 它按面积的<strong>平方</strong>走，$(8^2)^2$。⭐ 越贵的层省得越狠，这才是它 work 的原因。</li>
-<li>上限是 $D(E(x))$，也就是原图<strong>编码再解码</strong>得到的那张图。因为 $E$ 在扩散<strong>之前</strong>跑，细节在那一步就已经没了，后面的扩散只在潜空间里工作，无从补起。</li>
-<li>一个格子对应 <strong>8×8 = 64 个像素</strong>，即 <strong>192 个数压成 4 个数</strong>。小字的笔画只有一两个像素宽、整个字只占十几个像素，整个住在一两个格子里 —— 凡是「在 8×8 块尺度上无法从周围推断」的高频细节，编码那步就交代了。⚠️ 但它只是<strong>下界</strong>，提示词理解和训练数据同样有份。</li>
-<li>因为 <strong>LDM 不从先验里采样</strong>：$z$ 由扩散模型生成，不是从 $\mathcal N(0,I)$ 里抽的。所以潜空间只要「不太离谱」（尺度受控、别有大片空洞）就够，KL 收紧只会挤占重建质量、拉低 $D(E(x))$ 这个上限。⭐ 普通 VAE 生成时<strong>就是</strong>从先验里采 $z$，潜分布不真的接近标准正态，采出来的 $z$ 解码就是噪声。而 <code>0.18215</code> 的存在说明 KL <strong>没有</strong>真把潜空间压成标准正态 —— 实际标准差离 1 还差好几倍，得靠一个事后量出来的常数补上；真是标准正态的话，这个常数没有存在的理由。</li>
+<li>786,432 与 16,384 个元素，前者是后者的 48 倍。这是本页指定高、宽、通道的张量元素比，不是实际生成速度或所有 LDM 的固定压缩率。</li>
+<li>单样本、单头、512×512 个 token 做全局自注意力，N² 项的整张打分矩阵按 fp16 每项 2 字节保存，约为 137.44 GB，即 128 GiB。实际可以在较低分辨率做注意力或不完整保存矩阵，还要另算其他存储，所以它不是必需显存的通用下界。</li>
+<li>训练去噪器编码训练图或读缓存潜变量，抽 t 加噪算潜空间损失，基础流程不必解码；文生图从潜空间噪声开始，不经过图像 E，最后 D 解码；图生图先 E 编码参考图，再加噪和去噪，最后 D 解码。自编码器自身训练又是另一阶段，E、D 要随训练重复前向与更新。</li>
+<li>48 是输入／输出元素比，也是在本例 3→128 与 4→128 首层假设下的卷积 FLOPs 比；64 是同核、同 128→128 通道层的空间面积比；4096 是 N×N 全局自注意力矩阵元素比。固定文本长度 M 的交叉注意力为 N×M，打分矩阵随 N 线性缩放，不能直接套 4096；整层其他运算也需另算。</li>
+<li>它检验当前自编码器对给定原图的重建表现，能帮助隔离编码—解码造成的损坏。但文生图不先编码那张 x，生成潜变量不必等于 E(x)，E(x) 也不保证是固定 D 下的最优编码。因此不能从单次重建推出任何生成图、任何指标都不能更好。</li>
+<li>空间面积平均缩小 8²=64 倍，64×3=192 个原图通道数对应 4 个潜通道数；这只是整体数量平均。多层卷积有重叠感受野，潜格不是独立小块。更多位置或通道提供容量，但还要匹配训练、模型和算力；更大画布也不保证同一字真的变大，三条路线都没有无条件质量保证。</li>
+<li>KL 约束图像条件后验，初始高斯噪声是扩散采样的起点，0.18215 是特定 SD 1.x 的潜变量尺度约定，解码前需逆变换。普通 VAE 与 LDM 都不要求每图后验完全一样；一样反而丢失对输入的依赖。原论文 VQ-LDM 对量化前连续表示做扩散，量化被归到解码器，不能把它说成离散 token 扩散。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_9">🛑 可以停在这里</h2>
-<p>读到这里，你已经能解释 Stable Diffusion 为什么塞得进一张消费级显卡，也知道了「换更好的模型就能写对小字」这个期待错在哪一层。</p>
-<p><strong>出现这些情况时再回来</strong>：出图细节糊、小字或手指崩（第五节，先确认是不是自编码器的下界问题）；想训自己的扩散模型却 OOM（第六节末尾那条链接）；看到别人说「换了 16 通道 VAE」不知道在换什么（第五节最后）。</p>
+<p>你已经能区分：潜空间缩小了什么、几种流程分别在哪里编码、重建对照能证明什么。这些比背下三个加速倍数更重要。</p>
+<p>回来排查时，从具体问题进入：<a href="#_2">算力／显存口径</a>、<a href="#_6">细节与重建</a>、<a href="#latent-scaling">潜变量缩放</a>、<a href="#latent-vq">KL 与 VQ 的区别</a>。训练 OOM 可去上面的显存优化链接，不必把整页重读。</p>
 <p>⚡ <strong>走神救援</strong></p>
-<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>Latent Diffusion 先压缩图像，在潜空间执行反复去噪，最后解码回像素。</li><li>编码解码只占部分流程，反复运行的主干因此能在更小空间工作。</li><li>压缩也会丢失细节；先看重构质量，再判断问题来自编码器还是去噪模型。</li></ul></section>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>文生图从潜空间噪声去噪再解码，不先编码一张真实图片。</li><li>48／64／4096 是带假设的不同计数，不能冒充实际模型加速比。</li><li>重建用来排查表示瓶颈，不是所有生成图的统一画质上限。</li><li>潜变量正则、尺度约定和采样噪声不同；VQ-LDM 仍可对连续表示做扩散。</li></ul></section>
 
-<p><strong>下一节</strong> 👉 <a href="06-条件控制与CFG.html">06-条件控制与CFG.md</a></p>
+<p><strong>下一节</strong> 👉 <a href="06-条件控制与CFG.html">06 · 条件控制与 CFG</a></p>
+<p>下一节再看提示词如何参与去噪，以及 guidance scale 改变的是哪一个组合，而不只问“滑块越大是不是越好”。</p></article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
+<button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">💸 一、先把账算出来：像素空间的哪些操作很贵</a><a href="#_3">🗜️ 二、把扩散搬进潜空间：先分清你正在做哪件事</a><a href="#_4">🔢 三、三个倍数，别混成一个</a><a href="#_5">🧪 四、动手：这笔账自己算一遍</a><a href="#_6">🔍 五、代价：先查重建，再谈细节从哪里损失</a><a href="#kl">⚖️ 六、KL 项在这里到底管什么</a><a href="#_7">🔗 这一章连到哪里</a><a href="#_8">✅ 检查点</a><a href="#_9">🛑 可以停在这里</a></nav>
+<button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
+<a href="index.html">回到本模块目录</a></div></aside></div>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="04-DDIM与采样加速.html"><div class="dir">← 上一节</div>⏩ 04 · DDIM 与采样加速</a><a class="next" href="06-条件控制与CFG.html"><div class="dir">下一节 →</div>🎚️ 06 · 条件控制与 CFG</a></nav>
