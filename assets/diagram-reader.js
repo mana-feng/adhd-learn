@@ -60,8 +60,12 @@
     if (!svg) return;
     var figureBox = figure.getBoundingClientRect();
     var svgBox = svg.getBoundingClientRect();
-    tools.style.left = Math.max(0, Math.round(Math.min(svgBox.right, figureBox.right) - figureBox.left - 44)) + "px";
-    tools.style.top = Math.max(0, Math.round(svgBox.top - figureBox.top + 5)) + "px";
+    // The absolute tool lives in the figure's scrollable content coordinates.
+    // Convert the visible SVG edge back into those coordinates so horizontal
+    // panning cannot carry the control off screen. Keep small centered drawings
+    // and any text above the SVG anchored to the same edge as before.
+    tools.style.left = (figure.scrollLeft + Math.max(0, Math.round(Math.min(svgBox.right, figureBox.right) - figureBox.left - 44))) + "px";
+    tools.style.top = (figure.scrollTop + Math.max(0, Math.round(svgBox.top - figureBox.top + 5))) + "px";
   }
 
   function addButton(figure, dialog) {
@@ -77,6 +81,7 @@
     tools.appendChild(button);
     figure.appendChild(tools);
     placeTools(figure, tools);
+    figure.addEventListener("scroll", function () { placeTools(figure, tools); }, { passive: true });
   }
 
   function run() {
