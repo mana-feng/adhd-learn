@@ -183,7 +183,13 @@ th,td{min-width:5.2em}
 </style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script><style>
+/* This long worked example keeps the code wide beside the page navigation. */
+body.rec-sequence-reading .cr-study.cr-has-notes { grid-template-columns:minmax(0,1fr); }
+body.rec-sequence-reading .cr-study .cr-notes { grid-template-columns:repeat(2,minmax(0,1fr)); }
+body.rec-sequence-reading .ov-body table caption { padding:14px; text-align:left; font-size:15px; line-height:1.8; color:var(--muted); }
+@media(max-width:600px) { body.rec-sequence-reading .cr-study .cr-notes { grid-template-columns:minmax(0,1fr); } }
+</style></head><body class="overview-reading topic-reading rec-sequence-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -196,10 +202,10 @@ th,td{min-width:5.2em}
 <main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
-<li><a href="#_2">🧠 为什么顺序重要（三个例子秒懂）</a></li>
+<li><a href="#_2">🧠 顺序多提供了什么线索</a></li>
 <li><a href="#_3">🔄 换一个问题定义</a></li>
 <li><a href="#transformer">📜 演进：从马尔可夫链到 Transformer</a></li>
-<li><a href="#sasrec">⭐ SASRec：值得完全搞懂的那一个</a></li>
+<li><a href="#sasrec">⭐ SASRec：先看懂下一项预测</a></li>
 <li><a href="#bert4rec">🎭 BERT4Rec：另一条路（了解即可）</a></li>
 <li><a href="#_7">🕐 序列推荐的四个实战难题</a></li>
 <li><a href="#_8">📏 序列推荐的评测（⚠️ 有大坑）</a></li>
@@ -209,335 +215,467 @@ th,td{min-width:5.2em}
 </ul>
 </div>
 </details>
-<h1 id="09">09 · 序列推荐</h1>
-<p>⏱ <strong>25 分钟</strong> ｜ ⭐ <strong>核心</strong></p>
+<div class="ov-layout"><article class="ov-body"><h1 id="09">09 · 序列推荐</h1>
+<p>⏱ <strong>主线阅读约 25 分钟</strong> ｜ ⭐ <strong>核心</strong>；动手检查另留时间</p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>「你看东西的顺序，本身就是信息。」</strong>
-序列推荐把「用户是一个静态画像」改成「用户是一串行为的轨迹」，然后预测：<strong>下一个是什么？</strong></p>
+<p><strong>「你看东西的顺序，本身就是信息。」</strong>本章把用户近期的行为按发生顺序排好，再预测下一个可能交互的物品。</p>
+<p>先看三个例子和因果掩码；想动手时直接去<a href="#_6">可独立运行的教学代码</a>。代码只检查接口与数值，不承诺训练一步就会推荐得好。</p>
 <hr />
-<h2 id="_2">🧠 为什么顺序重要（三个例子秒懂）</h2>
-<div class="codehilite"><pre><span></span><code>  ① 顺序改变含义
-     [手机 → 手机壳]   ✅ 合理，该推手机壳
-     [手机壳 → 手机]   ❌ 已经有手机了，别再推手机
-
-  ② 近期行为权重远大于远期
-     一年前看了育儿书，昨天连看 5 个健身视频
-     → 现在该推健身，不是育儿
-
-  ③ 兴趣会漂移
-     3个月前：婚纱、婚礼策划
-     现在：  婴儿用品
-     → 用户的人生阶段变了，旧兴趣要衰减
-</code></pre></div>
-
-<p><strong>传统 CF/MF 完全丢失了这些信息</strong>——它们眼里用户只是一个「集合」，不是「序列」。</p>
+<h2 id="_2">🧠 顺序多提供了什么线索</h2>
+<p><strong>顺序、时间和行为类型都是线索，不是可以直接下结论的事实。</strong>下面的箭头表示已经发生的浏览顺序；待预测的是序列之后的物品。</p>
+<section aria-label="例子一：顺序">
+<h3>① 同一组物品，最后正在看的东西不同</h3>
+<div class="table-scroll"><table><caption>两个浏览历史：物品集合相同，次序不同</caption>
+<thead><tr><th scope="col">已发生的浏览</th><th scope="col">多保留了什么线索</th><th scope="col">不能据此断言</th></tr></thead>
+<tbody><tr><td>手机 → 手机壳</td><td>最近一次在看配件，可能影响下一件物品的概率。</td><td>不能确定已经买了手机，也不能把已出现在历史里的手机壳再当成已知正确答案。</td></tr>
+<tr><td>手机壳 → 手机</td><td>最近一次在看整机，与上一行的上下文不同。</td><td>不能直接判“顺序不合理”或“已经有手机，绝不能再推手机”。</td></tr></tbody></table></div>
+<p>看这个对照：序列模型能区分这两条历史；是否应该推荐配件、整机或别的物品，仍要从所定义的行为数据中学习。</p>
+</section>
+<section aria-label="例子二：近期性">
+<h3>② 昨天的行为可能比一年前更能反映当前需求</h3>
+<p>一年前看了育儿书，昨天连续看了 <strong>5 个健身视频</strong>。近期健身行为可能是强信号，但不代表育儿兴趣已经消失，也没有“近期权重永远远大于远期”的规则。</p>
+<p>下一步要看：这是偶尔点开，还是持续观看？历史是点击、购买还是收藏？这些条件会改变结论。</p>
+</section>
+<section aria-label="例子三：兴趣漂移">
+<h3>③ 兴趣会变，但浏览不等于人生事实</h3>
+<div class="table-scroll"><table><caption>人为教学情境，不是对某个用户的事实判断</caption>
+<thead><tr><th scope="col">时间</th><th scope="col">浏览主题</th><th scope="col">可考虑的建模线索</th></tr></thead>
+<tbody><tr><td>3 个月前</td><td>婚纱、婚礼策划</td><td>较早的主题偏好。</td></tr>
+<tr><td>现在</td><td>婴儿用品</td><td>当前浏览主题发生变化，旧行为可能需要不同权重。</td></tr></tbody></table></div>
+<p>看这个对照：可以学习兴趣随时间变化；不能仅凭这段浏览就认定用户结婚、生育或进入了某个人生阶段。</p>
+</section>
+<p>基础的、没有显式加入时间和顺序的协同过滤（CF）或矩阵分解（MF） 通常只利用用户—物品交互信息，无法区分上面那两条相同物品集合的排列。加上时间或序列机制的扩展版本不在这个限定里。</p>
 <hr />
 <h2 id="_3">🔄 换一个问题定义</h2>
-<div class="tw"><table>
-<thead>
-<tr>
-<th></th>
-<th>传统推荐</th>
-<th>序列推荐</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>问题</strong></td>
-<td>用户 u 对物品 i 的评分是多少？</td>
-<td>用户看了 [i₁, i₂, ..., iₜ]，下一个 i₍ₜ₊₁₎ 是什么？</td>
-</tr>
-<tr>
-<td><strong>数据</strong></td>
-<td>(user, item, rating)</td>
-<td>(user, [item序列])</td>
-</tr>
-<tr>
-<td><strong>像什么</strong></td>
-<td>打分预测</td>
-<td><strong>语言模型</strong> ⭐</td>
-</tr>
-</tbody>
-</table></div>
-<blockquote>
-<p>🔑 <strong>关键类比</strong>：把「物品 ID」当成「单词」，把「用户行为序列」当成「句子」，
-那么<strong>推荐 = 预测下一个词</strong> = <strong>一个语言模型问题</strong>。</p>
-<p>这个类比是过去十年推荐算法进步的最大引擎，也直接导向了第 14 节的生成式推荐。</p>
-</blockquote>
+<div class="table-scroll"><table><caption>两种常见任务视角，不是推荐系统的全部分类</caption>
+<thead><tr><th scope="col">比较什么</th><th scope="col">基础打分任务</th><th scope="col">本章的下一物品任务</th></tr></thead>
+<tbody><tr><th scope="row">问题</th><td>用户 u 对物品 i 的分数是多少？</td><td>给定 [i₁, i₂, …, iₜ]，下一个可能交互的是谁？</td></tr>
+<tr><th scope="row">典型输入</th><td>(user, item, rating) 或隐式交互</td><td>按发生时间排列的用户行为历史</td></tr>
+<tr><th scope="row">容易理解的类比</th><td>对候选打分</td><td>像语言模型一样，根据前缀预测后续符号</td></tr></tbody></table></div>
+<blockquote><p>🔑 把物品 ID 类比成 token、把行为历史类比成句子，可以帮助理解“下一项预测”。<strong>相似的是目标对齐方式，不是所有训练细节。</strong></p></blockquote>
+<p>例如原 SASRec 和本页代码使用正、负物品的二元分类损失；常见语言模型通常做词表上的分类交叉熵。候选空间、负采样与评测协议也可能不同。这个类比是理解生成式推荐的一条入口，后续可去第 14 节，但不要写成“推荐等于语言模型”。</p>
 <hr />
 <h2 id="transformer">📜 演进：从马尔可夫链到 Transformer</h2>
-<div class="codehilite"><pre><span></span><code> ①  FPMC (2010)  马尔可夫链 + MF
-     只看上一个物品 → 简单，但记不住长期兴趣
-
- ②  GRU4Rec (2016)  循环神经网络
-     用 GRU 把整个序列压成一个隐状态
-     ✅ 能记长期  ❌ 串行计算慢，长序列会遗忘
-
- ③  Caser (2018)  用 CNN 做序列
-     把序列当&quot;图片&quot;，用卷积核捕捉局部模式
-     ✅ 快  ❌ 感受野有限
-
- ④  SASRec (2018)  ⭐ 单向 Transformer
-     自注意力：每个位置能直接看到之前所有位置
-     ✅ 并行、长程依赖、可解释
-     ✅ 至今仍是最强 baseline 之一
-
- ⑤  BERT4Rec (2019)  双向 Transformer + 完形填空
-     随机遮住序列中的物品，让模型猜
-     ✅ 双向上下文，表征更强
-     ⚠️ 但线上是&quot;预测下一个&quot;，训练/推理有 gap
-
- ⑥  HSTU / 生成式推荐 (2024+)  ⭐ 见第 14 节
-     千亿参数、超长序列、出现 Scaling Law
-</code></pre></div>
-
+<p><strong>先看每种方法用什么表示历史，再看它的适用边界。</strong>年代顺序不是“后一种在所有任务上淘汰前一种”。</p>
+<div class="table-scroll"><table><caption>六种历史建模思路</caption>
+<thead><tr><th scope="col">模型</th><th scope="col">怎样使用历史</th><th scope="col">要保留的边界</th></tr></thead>
+<tbody><tr><th scope="row">FPMC（2010）</th><td>一阶马尔可夫转移 + MF 用户偏好。</td><td>单项序列中，转移项关注上一物品；原论文的购物篮场景会汇总上一篮物品。MF 项仍保留一般/长期用户偏好，不能说整个模型“记不住长期兴趣”。<a href="https://archives.iw3c2.org/www2010/pub/pdfs/RendleFreudenthaler2010-FPMC.pdf">原论文</a></td></tr>
+<tr><th scope="row">GRU4Rec（2016）</th><td>用 GRU 状态逐步累计当前会话的信息。</td><td>原任务是会话推荐；递归计算有顺序依赖，状态也不保证可靠记住任意长的历史。<a href="https://arxiv.org/abs/1511.06939">原论文</a></td></tr>
+<tr><th scope="row">Caser（2018）</th><td>把一段历史的 embedding 排成矩阵，用卷积提取序列模式。</td><td>使用给定的历史窗口；不同卷积方向捕捉不同组合，不能只用“快、感受野小”概括所有设置。<a href="https://arxiv.org/abs/1809.07426">原论文</a></td></tr>
+<tr><th scope="row">SASRec（2018）⭐</th><td>因果自注意力：一个有效位置可直接连接窗口内更早的有效位置。</td><td>可并行计算训练位置、访问长距离信息；不保证任意长序列效果，也不自动提供因果解释。值得认真调优的常用基线。<a href="https://arxiv.org/abs/1808.09781">原论文</a></td></tr>
+<tr><th scope="row">BERT4Rec（2019）</th><td>训练时随机遮住物品，用双向上下文填空。</td><td>测试时在历史末尾添加 [MASK] 预测下一物品，不要求线上拿到未来行为。<a href="https://arxiv.org/html/1904.06690v1">原论文</a></td></tr>
+<tr><th scope="row">HSTU / 生成式推荐（2024+）</th><td>面向大规模生成式推荐的序列变换与工程优化。</td><td>论文研究长序列和模型扩展；大规模总参数包含 embedding。HSTU 不等于线性注意力，也不是所有生成式推荐的同义词。<a href="https://arxiv.org/html/2402.17152v1">原论文</a></td></tr></tbody></table></div>
+<p><strong>HSTU 的参数扩展，要连同统计口径看：</strong>上述论文报告到 <strong>1.5 万亿总参数</strong>，其中包含 embedding 参数，不能理解成 1.5 万亿个非 embedding 网络参数。</p>
+<p>论文还在其工业数据、适当超参数和跨三个数量级的训练计算范围内，观察到指标随计算量变化的经验幂律（Scaling Law）。这是有实验条件的扩展趋势，不是“所有推荐任务只要堆参数就会变好”的保证。<a href="https://arxiv.org/html/2402.17152v1#S4.SS3.SSS1">原论文 §4.3.1</a></p>
+<p>现在只需读懂下一节 SASRec 的“一个位置预测下一项”。其他模型保留为比较与后续选择的入口。</p>
 <hr />
-<h2 id="sasrec">⭐ SASRec：值得完全搞懂的那一个</h2>
-<p><strong>SASRec = Self-Attentive Sequential Recommendation</strong></p>
+<h2 id="sasrec">⭐ SASRec：先看懂下一项预测</h2>
+<p><strong>SASRec = Self-Attentive Sequential Recommendation。</strong>这里先讲它的核心思路；后面的 PyTorch 代码是 SASRec-like 教学基线，不是作者实现的精确复刻。</p>
 <h3 id="_4">它做的事</h3>
-<div class="codehilite"><pre><span></span><code>  输入序列:  [i₁, i₂, i₃, i₄]
-                              ↓ 每个位置预测下一个
-  预测目标:  [i₂, i₃, i₄, i₅]
-
-  这叫 &quot;next-item prediction&quot;，和 GPT 的训练方式一模一样
-</code></pre></div>
-
+<div class="table-scroll"><table><caption>同一列：输入位置处理当前物品，输出负责预测下一物品</caption>
+<thead><tr><th scope="col">位置</th><th scope="col">1</th><th scope="col">2</th><th scope="col">3</th><th scope="col">4</th></tr></thead>
+<tbody><tr><th scope="row">输入</th><td>i₁</td><td>i₂</td><td>i₃</td><td>i₄</td></tr>
+<tr><th scope="row">对应目标</th><td>i₂</td><td>i₃</td><td>i₄</td><td>i₅</td></tr></tbody></table></div>
+<p>看“位置 2”这一列：位置 2 已知 i₁、i₂，要预测 i₃。目标比输入向后移一项，这叫 <strong>next-item prediction</strong>。它与自回归语言模型的目标对齐方式相似，但损失和候选协议未必相同。</p>
 <h3 id="causal-mask">关键结构：因果掩码（Causal Mask）</h3>
-<div class="codehilite"><pre><span></span><code>      能看到谁                 位置1  位置2  位置3  位置4
-   位置1 只能看自己              ✅    ❌     ❌    ❌
-   位置2 能看 1,2                ✅    ✅     ❌    ❌
-   位置3 能看 1,2,3              ✅    ✅     ✅    ❌
-   位置4 能看 1,2,3,4            ✅    ✅     ✅    ✅
-
-   为什么？防止「偷看未来」——预测第3个时不能看到第3个是什么
-</code></pre></div>
-
-<h3 id="_5">注意力权重的可解释性 🎁</h3>
-<p>SASRec 训练完，注意力权重是可以看的：</p>
-<div class="codehilite"><pre><span></span><code>  预测下一个物品时，模型关注了：
-    3天前的  机械键盘   ████████ 0.42
-    1周前的  显示器     █████    0.28
-    2个月前的 咖啡杯    █        0.05
-    1年前的  运动鞋     ▏        0.01
-
-  → 模型自己学会了「近期 + 同品类」的注意力模式
-</code></pre></div>
-
-<h3 id="_6">🔨 完整实现（能跑）</h3>
-<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+<div class="table-scroll"><table><caption>四个都是真实物品的位置；允许 = 可作为注意力的 key</caption>
+<thead><tr><th scope="col">当前 query</th><th scope="col">key 1</th><th scope="col">key 2</th><th scope="col">key 3</th><th scope="col">key 4</th></tr></thead>
+<tbody><tr><th scope="row">位置 1</th><td>允许</td><td>禁止</td><td>禁止</td><td>禁止</td></tr>
+<tr><th scope="row">位置 2</th><td>允许</td><td>允许</td><td>禁止</td><td>禁止</td></tr>
+<tr><th scope="row">位置 3</th><td>允许</td><td>允许</td><td>允许</td><td>禁止</td></tr>
+<tr><th scope="row">位置 4</th><td>允许</td><td>允许</td><td>允许</td><td>允许</td></tr></tbody></table></div>
+<p>query 是“当前哪个位置在发问”，key 是“可以访问哪个历史位置”。表格的一行对应一个 query，一列对应一个 key；这里只比较位置能否互相访问。</p>
+<p><strong>每行只看自己及过去。</strong>这与“预测第 3 个物品时不能看 i₃”不矛盾：预测 i₃ 的是位置 2 的输出，不是位置 3 的输出。</p>
+<p>批量输入还可能含补齐长度的 0（padding）。因果 mask 处理“未来”，padding mask 处理“不是物品的位置”，两者都需要。下面代码还会避免 padding query 一整行全被遮住的数值陷阱。</p>
+<h3 id="_5">注意力权重：能看出什么，不能推出什么</h3>
+<p>训练后可以查看某层、某个头、某个 query 的注意力分布，帮助诊断模型在访问什么。<strong>以下数字完全是人为教学示意，不是原模型输出，也不是本页代码训练得到的结果。</strong></p>
+<div class="table-scroll"><table><caption>一个假设的 attention 分布：其余历史合并展示，总和为 1</caption>
+<thead><tr><th scope="col">历史时间</th><th scope="col">物品 / 位置集合</th><th scope="col">示意权重</th></tr></thead>
+<tbody><tr><td>3 天前</td><td>机械键盘</td><td>0.42</td></tr>
+<tr><td>1 周前</td><td>显示器</td><td>0.28</td></tr>
+<tr><td>2 个月前</td><td>咖啡杯</td><td>0.05</td></tr>
+<tr><td>1 年前</td><td>运动鞋</td><td>0.01</td></tr>
+<tr><td>其他时间</td><td>其余未列出的历史位置合计</td><td>0.24</td></tr>
+<tr><th scope="row" colspan="2">全部有效历史位置</th><td>1.00</td></tr></tbody></table></div>
+<p>看数值只能说：如果某个头出现这样的分布，它给键盘和显示器较大权重。不能从人为示意推出“模型已经学会近期 + 同品类”，也不能把 attention 权重直接当成推荐原因。</p>
+<p>一个小反例：两个 value 都是 [2, 1] 时，权重 [0.99, 0.01] 与 [0.01, 0.99] 得到同一个加权输出 [2, 1]。还需看 value、其他头和后续网络。相关边界可读<a href="https://aclanthology.org/N19-1357/">注意力解释研究</a>；那项研究并非本页 SASRec 的专属实验。</p>
+<h3 id="_6">🔨 核心实现与最小运行检查</h3>
+<p><strong>复制下面整块代码即可跑一个 CPU 小例子：</strong>构造样本、训练一步、显式切到 eval 推理，再检查因果性、候选不足和错误输入。需要 Python、NumPy 和 PyTorch；不下载数据或模型。</p>
+<p>原作者代码可在 <a href="https://github.com/kang205/SASRec">SASRec 仓库</a>对照。本例保留“物品与位置 embedding → 因果 Transformer → 点积打分”的思路，使用通用 TransformerEncoderLayer；层结构、训练数据、超参和训练预算不构成论文复现。</p>
+<div class="table-scroll"><table><caption>运行前先认清四个接口</caption>
+<thead><tr><th scope="col">输入 / 输出</th><th scope="col">本例约定</th></tr></thead>
+<tbody><tr><th scope="row">物品 ID</th><td>真实物品为 1…n_items；0 只用于模型输入的左 padding。原始 history 不含 0。</td></tr>
+<tr><th scope="row">seq</th><td>torch.long，形状 (B, L)，1 ≤ L ≤ max_len；每行至少一个真实物品，最后位置必须真实。</td></tr>
+<tr><th scope="row">训练样本</th><td>原始训练历史至少有两个有效 ID；pos 与 seq 对齐，0 目标不参加 loss。依据训练期已知历史排除已见物品，再从剩余目录采负项，不使用验证或测试反馈。</td></tr>
+<tr><th scope="row">recommend</th><td>先调用 model.eval()。返回每用户的 (scores, IDs) 列表，允许不同用户返回不同数量。</td></tr></tbody></table></div>
+<p>本例按“排除已见物品”策略推荐：默认只知道传入的窗口；可用 <code>seen_histories</code> 补充窗口外的完整已见历史。重复消费任务不一定采用这个策略，训练和评测要另行保持一致。</p>
+<blockquote><p>左 padding 的坑：早期 padding query 的过去全是 padding，未来真实 key 又被因果 mask 禁止，可能形成全 masked 行并产生 NaN。这里让 padding query 仅看自身 dummy 项，随后把 padding 输出清零；<strong>有效 query 仍不能看未来或 padding key，也没有全局关闭 fastpath。</strong></p></blockquote>
+<section class="cr-study" aria-label="SASRec-like 教学代码与函数定位">
+<div class="cr-notes">
+<button type="button" class="cr-note" data-code-lines="141-169"><strong>样本与负项：右移一次</strong><span>make_training_sample 生成对齐的 seq/pos；sample_negatives 排除提供的完整训练历史。短历史、非法 ID 和负项池耗尽明确报错。</span><span class="cr-note-range">定位样本与负采样 ↗</span></button>
+<button type="button" class="cr-note" data-code-lines="61-81"><strong>forward：守住因果与 padding</strong><span>有效 query 的可见 key 是非 padding 的过去和自己；padding query 只留自身 dummy。每层清零 padding，避免 NaN 进入下一层。</span><span class="cr-note-range">定位组合 mask ↗</span></button>
+<button type="button" class="cr-note" data-code-lines="83-103"><strong>loss：只算有目标的位置</strong><span>先用 valid 索引真实目标，再做稳定 BCEWithLogits。空目标批次拒绝执行，不除以 0。</span><span class="cr-note-range">定位稳定损失 ↗</span></button>
+<button type="button" class="cr-note" data-code-lines="106-138"><strong>recommend：不返回假候选</strong><span>no_grad 不等于 eval。先检查隐藏状态和原始分数，NaN/Inf 明确报错；再排除已见项，真实候选不足时少返回或返回空 tensor。</span><span class="cr-note-range">定位推理与过滤 ↗</span></button>
+<button type="button" class="cr-note" data-code-lines="172-210"><strong>demo：真的训练一步</strong><span>固定两个随机种子、构造两个用户的样本，执行 backward 和 optimizer.step；随后用完整 toy 历史作前缀推理。</span><span class="cr-note-range">定位最小运行 ↗</span></button>
+<button type="button" class="cr-note" data-code-lines="212-244"><strong>断言：检查边界，不测准确率</strong><span>改未来不影响前缀；padding 输出为零；候选不足和耗尽返回 1/0；7 类非法调用都应被拒绝。</span><span class="cr-note-range">定位可观察检查 ↗</span></button>
+</div>
+<div class="codehilite" data-code-language="python" data-code-title="SASRec-like：一步训练、推理与边界检查"><pre><code><span class="sd">&quot;&quot;&quot;SASRec-like 教学基线：仅做 CPU 一步训练与边界检查，不复现论文准确率。&quot;&quot;&quot;</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numbers</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">positive_int</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">numbers</span><span class="o">.</span><span class="n">Integral</span><span class="p">)</span> <span class="ow">or</span> <span class="n">value</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> must be a positive integer&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">checked_history</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">n_items</span><span class="p">,</span> <span class="n">min_len</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+    <span class="n">history</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">items</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">history</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">min_len</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;history needs at least </span><span class="si">{</span><span class="n">min_len</span><span class="si">}</span><span class="s2"> valid item(s)&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">numbers</span><span class="o">.</span><span class="n">Integral</span><span class="p">)</span>
+           <span class="ow">or</span> <span class="ow">not</span> <span class="mi">1</span> <span class="o">&lt;=</span> <span class="n">i</span> <span class="o">&lt;=</span> <span class="n">n_items</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">history</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;history IDs must be integers in 1..n_items; no padding here&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">history</span><span class="p">]</span>
+
 
 <span class="k">class</span><span class="w"> </span><span class="nc">SASRec</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;物品+位置 embedding、因果 Transformer、点积打分；不是作者实现的精确复刻。&quot;&quot;&quot;</span>
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">n_items</span><span class="p">,</span> <span class="n">max_len</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span> <span class="n">d</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">n_heads</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">n_blocks</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">dropout</span><span class="o">=</span><span class="mf">0.2</span><span class="p">):</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">max_len</span> <span class="o">=</span> <span class="n">max_len</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">item_emb</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Embedding</span><span class="p">(</span><span class="n">n_items</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">padding_idx</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">pos_emb</span>  <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Embedding</span><span class="p">(</span><span class="n">max_len</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span>       <span class="c1"># 位置编码：告诉模型顺序</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">n_items</span> <span class="o">=</span> <span class="n">positive_int</span><span class="p">(</span><span class="n">n_items</span><span class="p">,</span> <span class="s2">&quot;n_items&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">max_len</span> <span class="o">=</span> <span class="n">positive_int</span><span class="p">(</span><span class="n">max_len</span><span class="p">,</span> <span class="s2">&quot;max_len&quot;</span><span class="p">)</span>
+        <span class="n">d</span> <span class="o">=</span> <span class="n">positive_int</span><span class="p">(</span><span class="n">d</span><span class="p">,</span> <span class="s2">&quot;d&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span> <span class="o">=</span> <span class="n">positive_int</span><span class="p">(</span><span class="n">n_heads</span><span class="p">,</span> <span class="s2">&quot;n_heads&quot;</span><span class="p">)</span>
+        <span class="n">n_blocks</span> <span class="o">=</span> <span class="n">positive_int</span><span class="p">(</span><span class="n">n_blocks</span><span class="p">,</span> <span class="s2">&quot;n_blocks&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">d</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;d must be divisible by n_heads&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">item_emb</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Embedding</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">n_items</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">padding_idx</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pos_emb</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Embedding</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">max_len</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">dropout</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Dropout</span><span class="p">(</span><span class="n">dropout</span><span class="p">)</span>
-
         <span class="bp">self</span><span class="o">.</span><span class="n">blocks</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">ModuleList</span><span class="p">([</span>
             <span class="n">nn</span><span class="o">.</span><span class="n">TransformerEncoderLayer</span><span class="p">(</span>
-                <span class="n">d_model</span><span class="o">=</span><span class="n">d</span><span class="p">,</span> <span class="n">nhead</span><span class="o">=</span><span class="n">n_heads</span><span class="p">,</span> <span class="n">dim_feedforward</span><span class="o">=</span><span class="n">d</span> <span class="o">*</span> <span class="mi">4</span><span class="p">,</span>
+                <span class="n">d_model</span><span class="o">=</span><span class="n">d</span><span class="p">,</span> <span class="n">nhead</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span><span class="p">,</span> <span class="n">dim_feedforward</span><span class="o">=</span><span class="n">d</span> <span class="o">*</span> <span class="mi">4</span><span class="p">,</span>
                 <span class="n">dropout</span><span class="o">=</span><span class="n">dropout</span><span class="p">,</span> <span class="n">batch_first</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">norm_first</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
             <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_blocks</span><span class="p">)</span>
         <span class="p">])</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">norm</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">LayerNorm</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
 
+    <span class="k">def</span><span class="w"> </span><span class="nf">_check_seq</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">seq</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">seq</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="ow">or</span> <span class="n">seq</span><span class="o">.</span><span class="n">dtype</span> <span class="o">!=</span> <span class="n">torch</span><span class="o">.</span><span class="n">long</span> <span class="ow">or</span> <span class="n">seq</span><span class="o">.</span><span class="n">ndim</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;seq must be a torch.long tensor shaped (B, L)&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">seq</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;</span> <span class="mi">1</span> <span class="ow">or</span> <span class="ow">not</span> <span class="mi">1</span> <span class="o">&lt;=</span> <span class="n">seq</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_len</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;require B &gt;= 1 and 1 &lt;= L &lt;= max_len&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">seq</span><span class="o">.</span><span class="n">device</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">item_emb</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">device</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;seq and model must be on the same device&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="p">((</span><span class="n">seq</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="o">|</span> <span class="p">(</span><span class="n">seq</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_items</span><span class="p">))</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;seq IDs must be in 0..n_items&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">seq</span><span class="o">.</span><span class="n">ne</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;each row needs a real item; cold start needs another policy&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">seq</span><span class="p">[:,</span> <span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">ne</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">&amp;</span> <span class="n">seq</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">:]</span><span class="o">.</span><span class="n">eq</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;use left padding only; the final position must be real&quot;</span><span class="p">)</span>
+
     <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">seq</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;seq: (B, L) 物品 ID 序列，0 表示 padding&quot;&quot;&quot;</span>
-        <span class="n">B</span><span class="p">,</span> <span class="n">L</span> <span class="o">=</span> <span class="n">seq</span><span class="o">.</span><span class="n">shape</span>
-        <span class="n">pos</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">L</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">seq</span><span class="o">.</span><span class="n">device</span><span class="p">)</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">expand</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">L</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_seq</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span>
+        <span class="n">batch</span><span class="p">,</span> <span class="n">length</span> <span class="o">=</span> <span class="n">seq</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">pad</span> <span class="o">=</span> <span class="n">seq</span><span class="o">.</span><span class="n">eq</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">positions</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">length</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">seq</span><span class="o">.</span><span class="n">device</span><span class="p">)</span><span class="o">.</span><span class="n">expand</span><span class="p">(</span><span class="n">batch</span><span class="p">,</span> <span class="n">length</span><span class="p">)</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">item_emb</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">item_emb</span><span class="o">.</span><span class="n">embedding_dim</span> <span class="o">**</span> <span class="mf">0.5</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropout</span><span class="p">(</span><span class="n">x</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">pos_emb</span><span class="p">(</span><span class="n">positions</span><span class="p">))</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">masked_fill</span><span class="p">(</span><span class="n">pad</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="mi">0</span><span class="p">)</span>
 
-        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">item_emb</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">item_emb</span><span class="o">.</span><span class="n">embedding_dim</span> <span class="o">**</span> <span class="mf">0.5</span><span class="p">)</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropout</span><span class="p">(</span><span class="n">x</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">pos_emb</span><span class="p">(</span><span class="n">pos</span><span class="p">))</span>
-
-        <span class="c1"># ⭐ 因果掩码：位置 i 不能看到 i 之后的内容</span>
-        <span class="n">causal</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">triu</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">L</span><span class="p">,</span> <span class="n">L</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">seq</span><span class="o">.</span><span class="n">device</span><span class="p">),</span> <span class="n">diagonal</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">bool</span><span class="p">()</span>
-        <span class="n">pad_mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">seq</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
-
-        <span class="k">for</span> <span class="n">blk</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">blocks</span><span class="p">:</span>
-            <span class="n">x</span> <span class="o">=</span> <span class="n">blk</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">src_mask</span><span class="o">=</span><span class="n">causal</span><span class="p">,</span> <span class="n">src_key_padding_mask</span><span class="o">=</span><span class="n">pad_mask</span><span class="p">)</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>                        <span class="c1"># (B, L, d)</span>
+        <span class="c1"># 有效 query：仅看过去和当前位置的有效 key。</span>
+        <span class="n">future</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">triu</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">length</span><span class="p">,</span> <span class="n">length</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">seq</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+                                       <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bool</span><span class="p">),</span> <span class="n">diagonal</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">blocked</span> <span class="o">=</span> <span class="n">future</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">|</span> <span class="n">pad</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="c1"># padding query：只看自身 dummy 项，避免全 masked 行；其输出随后丢弃。</span>
+        <span class="n">self_only</span> <span class="o">=</span> <span class="o">~</span><span class="n">torch</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="n">length</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">seq</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bool</span><span class="p">)</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">blocked</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">pad</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">self_only</span><span class="p">,</span> <span class="n">blocked</span><span class="p">)</span>
+        <span class="n">mask</span> <span class="o">=</span> <span class="n">blocked</span><span class="o">.</span><span class="n">repeat_interleave</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">block</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">blocks</span><span class="p">:</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">block</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">src_mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">masked_fill</span><span class="p">(</span><span class="n">pad</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">masked_fill</span><span class="p">(</span><span class="n">pad</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="mi">0</span><span class="p">)</span>  <span class="c1"># (B, L, d)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">loss</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">seq</span><span class="p">,</span> <span class="n">pos_items</span><span class="p">,</span> <span class="n">neg_items</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        seq:       (B, L)  历史序列</span>
-<span class="sd">        pos_items: (B, L)  每个位置的真实下一个物品</span>
-<span class="sd">        neg_items: (B, L)  随机采的负样本</span>
-<span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">h</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">forward</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span>                                 <span class="c1"># (B, L, d)</span>
-        <span class="n">pos_e</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">item_emb</span><span class="p">(</span><span class="n">pos_items</span><span class="p">)</span>
-        <span class="n">neg_e</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">item_emb</span><span class="p">(</span><span class="n">neg_items</span><span class="p">)</span>
-
-        <span class="n">pos_logit</span> <span class="o">=</span> <span class="p">(</span><span class="n">h</span> <span class="o">*</span> <span class="n">pos_e</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>                       <span class="c1"># (B, L)</span>
-        <span class="n">neg_logit</span> <span class="o">=</span> <span class="p">(</span><span class="n">h</span> <span class="o">*</span> <span class="n">neg_e</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
-
-        <span class="n">mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">pos_items</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>                       <span class="c1"># 忽略 padding 位置</span>
-        <span class="c1"># 二元交叉熵：正样本分数要高，负样本分数要低</span>
-        <span class="n">loss</span> <span class="o">=</span> <span class="o">-</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">sigmoid</span><span class="p">(</span><span class="n">pos_logit</span><span class="p">)</span> <span class="o">+</span> <span class="mf">1e-24</span><span class="p">)</span> <span class="o">*</span> <span class="n">mask</span>
-                 <span class="o">+</span> <span class="n">torch</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">torch</span><span class="o">.</span><span class="n">sigmoid</span><span class="p">(</span><span class="n">neg_logit</span><span class="p">)</span> <span class="o">+</span> <span class="mf">1e-24</span><span class="p">)</span> <span class="o">*</span> <span class="n">mask</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
-        <span class="k">return</span> <span class="n">loss</span> <span class="o">/</span> <span class="n">mask</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_seq</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">targets</span> <span class="ow">in</span> <span class="p">(</span><span class="n">pos_items</span><span class="p">,</span> <span class="n">neg_items</span><span class="p">):</span>
+            <span class="k">if</span> <span class="p">(</span><span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">targets</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="ow">or</span> <span class="n">targets</span><span class="o">.</span><span class="n">dtype</span> <span class="o">!=</span> <span class="n">torch</span><span class="o">.</span><span class="n">long</span>
+                    <span class="ow">or</span> <span class="n">targets</span><span class="o">.</span><span class="n">shape</span> <span class="o">!=</span> <span class="n">seq</span><span class="o">.</span><span class="n">shape</span> <span class="ow">or</span> <span class="n">targets</span><span class="o">.</span><span class="n">device</span> <span class="o">!=</span> <span class="n">seq</span><span class="o">.</span><span class="n">device</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;targets must match seq shape/device and use torch.long&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="p">((</span><span class="n">targets</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="o">|</span> <span class="p">(</span><span class="n">targets</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_items</span><span class="p">))</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;target IDs must be in 0..n_items&quot;</span><span class="p">)</span>
+        <span class="n">valid</span> <span class="o">=</span> <span class="n">pos_items</span><span class="o">.</span><span class="n">ne</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">valid</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;no valid next-item targets in this batch&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">valid</span> <span class="o">&amp;</span> <span class="n">seq</span><span class="o">.</span><span class="n">eq</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;a padding query cannot carry a target&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">valid</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">neg_items</span><span class="o">.</span><span class="n">eq</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">|</span> <span class="n">neg_items</span><span class="o">.</span><span class="n">eq</span><span class="p">(</span><span class="n">pos_items</span><span class="p">)))</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;valid negatives must be real items, different from positives&quot;</span><span class="p">)</span>
+        <span class="n">h</span> <span class="o">=</span> <span class="bp">self</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span>
+        <span class="n">pos_logits</span> <span class="o">=</span> <span class="p">(</span><span class="n">h</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">item_emb</span><span class="p">(</span><span class="n">pos_items</span><span class="p">))</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)[</span><span class="n">valid</span><span class="p">]</span>
+        <span class="n">neg_logits</span> <span class="o">=</span> <span class="p">(</span><span class="n">h</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">item_emb</span><span class="p">(</span><span class="n">neg_items</span><span class="p">))</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)[</span><span class="n">valid</span><span class="p">]</span>
+        <span class="c1"># 先索引有效位置，再用稳定 logits loss；等价于两项之和/有效目标数。</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">binary_cross_entropy_with_logits</span><span class="p">(</span><span class="n">pos_logits</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">pos_logits</span><span class="p">))</span>
+                <span class="o">+</span> <span class="n">F</span><span class="o">.</span><span class="n">binary_cross_entropy_with_logits</span><span class="p">(</span><span class="n">neg_logits</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">neg_logits</span><span class="p">)))</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">recommend</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">seq</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">10</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;用最后一个位置的表示，和所有物品 Embedding 点积&quot;&quot;&quot;</span>
-        <span class="n">h</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">forward</span><span class="p">(</span><span class="n">seq</span><span class="p">)[:,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="p">:]</span>                       <span class="c1"># (B, d)</span>
-        <span class="n">scores</span> <span class="o">=</span> <span class="n">h</span> <span class="o">@</span> <span class="bp">self</span><span class="o">.</span><span class="n">item_emb</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">T</span>                   <span class="c1"># (B, n_items+1)</span>
-        <span class="n">scores</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span>                                <span class="c1"># 屏蔽 padding</span>
-        <span class="c1"># 屏蔽已经看过的</span>
-        <span class="n">scores</span><span class="o">.</span><span class="n">scatter_</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">seq</span><span class="p">,</span> <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">)</span>
-        <span class="k">return</span> <span class="n">scores</span><span class="o">.</span><span class="n">topk</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">recommend</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">seq</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">seen_histories</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;返回每用户的 (scores, IDs) 列表；不足 k 少返回，无候选返回空 tensor。</span>
+<span class="sd">        默认排除 seq 窗口；seen_histories 可补充窗口之外的完整已见历史。</span>
+<span class="sd">        这是“排除已见”的教学策略，重复消费任务要另定过滤协议。</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">training</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;call model.eval() before recommend(); no_grad is not eval&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">numbers</span><span class="o">.</span><span class="n">Integral</span><span class="p">)</span> <span class="ow">or</span> <span class="n">k</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;k must be a nonnegative integer&quot;</span><span class="p">)</span>
+        <span class="n">h</span> <span class="o">=</span> <span class="bp">self</span><span class="p">(</span><span class="n">seq</span><span class="p">)[:,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="p">:]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">h</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
+            <span class="k">raise</span> <span class="ne">FloatingPointError</span><span class="p">(</span><span class="s2">&quot;nonfinite hidden state; inspect model/input numerics&quot;</span><span class="p">)</span>
+        <span class="n">scores</span> <span class="o">=</span> <span class="n">h</span> <span class="o">@</span> <span class="bp">self</span><span class="o">.</span><span class="n">item_emb</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">T</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">scores</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
+            <span class="k">raise</span> <span class="ne">FloatingPointError</span><span class="p">(</span><span class="s2">&quot;nonfinite raw scores; this is not candidate exhaustion&quot;</span><span class="p">)</span>
+        <span class="n">scores</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="o">-</span><span class="n">torch</span><span class="o">.</span><span class="n">inf</span>
+        <span class="k">if</span> <span class="n">seen_histories</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">seen_histories</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">seq</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;seen_histories needs one history per user&quot;</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">seq</span><span class="p">)):</span>
+            <span class="n">seen</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">seq</span><span class="p">[</span><span class="n">row</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span> <span class="o">-</span> <span class="p">{</span><span class="mi">0</span><span class="p">}</span>
+            <span class="k">if</span> <span class="n">seen_histories</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">seen</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">checked_history</span><span class="p">(</span><span class="n">seen_histories</span><span class="p">[</span><span class="n">row</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_items</span><span class="p">,</span> <span class="n">min_len</span><span class="o">=</span><span class="mi">0</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">seen</span><span class="p">:</span>
+                <span class="n">scores</span><span class="p">[</span><span class="n">row</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">seen</span><span class="p">)]</span> <span class="o">=</span> <span class="o">-</span><span class="n">torch</span><span class="o">.</span><span class="n">inf</span>
+            <span class="n">allowed</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nonzero</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">scores</span><span class="p">[</span><span class="n">row</span><span class="p">]),</span> <span class="n">as_tuple</span><span class="o">=</span><span class="kc">True</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">count</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">k</span><span class="p">),</span> <span class="n">allowed</span><span class="o">.</span><span class="n">numel</span><span class="p">())</span>
+            <span class="k">if</span> <span class="n">count</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">result</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">scores</span><span class="p">[</span><span class="n">row</span><span class="p">,</span> <span class="p">:</span><span class="mi">0</span><span class="p">],</span> <span class="n">allowed</span><span class="p">[:</span><span class="mi">0</span><span class="p">]))</span>
+                <span class="k">continue</span>
+            <span class="n">values</span><span class="p">,</span> <span class="n">order</span> <span class="o">=</span> <span class="n">scores</span><span class="p">[</span><span class="n">row</span><span class="p">,</span> <span class="n">allowed</span><span class="p">]</span><span class="o">.</span><span class="n">topk</span><span class="p">(</span><span class="n">count</span><span class="p">)</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">values</span><span class="p">,</span> <span class="n">allowed</span><span class="p">[</span><span class="n">order</span><span class="p">]))</span>
+        <span class="k">return</span> <span class="n">result</span>
 
 
-<span class="c1"># ---- 训练数据怎么造 ----</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">make_training_sample</span><span class="p">(</span><span class="n">user_seq</span><span class="p">,</span> <span class="n">max_len</span><span class="o">=</span><span class="mi">50</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    user_seq = [3, 7, 12, 45, 9]</span>
-<span class="sd">    →  seq = [0,...,0, 3, 7, 12, 45]   （左 padding）</span>
-<span class="sd">       pos = [0,...,0, 7, 12, 45, 9]   （每个位置的下一个）</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">make_training_sample</span><span class="p">(</span><span class="n">user_seq</span><span class="p">,</span> <span class="n">max_len</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">n_items</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;历史至少两个有效 ID；左 padding，pos 是每个有效位置的下一物品。&quot;&quot;&quot;</span>
+    <span class="n">n_items</span> <span class="o">=</span> <span class="n">positive_int</span><span class="p">(</span><span class="n">n_items</span><span class="p">,</span> <span class="s2">&quot;n_items&quot;</span><span class="p">)</span>
+    <span class="n">max_len</span> <span class="o">=</span> <span class="n">positive_int</span><span class="p">(</span><span class="n">max_len</span><span class="p">,</span> <span class="s2">&quot;max_len&quot;</span><span class="p">)</span>
+    <span class="n">history</span> <span class="o">=</span> <span class="n">checked_history</span><span class="p">(</span><span class="n">user_seq</span><span class="p">,</span> <span class="n">n_items</span><span class="p">,</span> <span class="n">min_len</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
     <span class="n">seq</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">max_len</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span>
     <span class="n">pos</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">max_len</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span>
-    <span class="n">nxt</span> <span class="o">=</span> <span class="n">user_seq</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
-    <span class="n">idx</span> <span class="o">=</span> <span class="n">max_len</span> <span class="o">-</span> <span class="mi">1</span>
-    <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="nb">reversed</span><span class="p">(</span><span class="n">user_seq</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]):</span>
-        <span class="n">seq</span><span class="p">[</span><span class="n">idx</span><span class="p">],</span> <span class="n">pos</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">item</span><span class="p">,</span> <span class="n">nxt</span>
-        <span class="n">nxt</span> <span class="o">=</span> <span class="n">item</span>
-        <span class="n">idx</span> <span class="o">-=</span> <span class="mi">1</span>
-        <span class="k">if</span> <span class="n">idx</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span> <span class="k">break</span>
+    <span class="n">kept</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">max_len</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">history</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">seq</span><span class="p">[</span><span class="o">-</span><span class="n">kept</span><span class="p">:]</span> <span class="o">=</span> <span class="n">history</span><span class="p">[</span><span class="o">-</span><span class="n">kept</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">pos</span><span class="p">[</span><span class="o">-</span><span class="n">kept</span><span class="p">:]</span> <span class="o">=</span> <span class="n">history</span><span class="p">[</span><span class="o">-</span><span class="n">kept</span><span class="p">:]</span>
     <span class="k">return</span> <span class="n">seq</span><span class="p">,</span> <span class="n">pos</span>
-</code></pre></div>
 
+
+<span class="k">def</span><span class="w"> </span><span class="nf">sample_negatives</span><span class="p">(</span><span class="n">pos</span><span class="p">,</span> <span class="n">history</span><span class="p">,</span> <span class="n">n_items</span><span class="p">,</span> <span class="n">rng</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;单个用户，均匀有放回抽负项；排除提供的完整训练历史与 padding。&quot;&quot;&quot;</span>
+    <span class="n">n_items</span> <span class="o">=</span> <span class="n">positive_int</span><span class="p">(</span><span class="n">n_items</span><span class="p">,</span> <span class="s2">&quot;n_items&quot;</span><span class="p">)</span>
+    <span class="n">known</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">checked_history</span><span class="p">(</span><span class="n">history</span><span class="p">,</span> <span class="n">n_items</span><span class="p">,</span> <span class="n">min_len</span><span class="o">=</span><span class="mi">2</span><span class="p">))</span>
+    <span class="n">pos</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">pos</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">pos</span><span class="o">.</span><span class="n">ndim</span> <span class="o">!=</span> <span class="mi">1</span> <span class="ow">or</span> <span class="n">pos</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">kind</span> <span class="ow">not</span> <span class="ow">in</span> <span class="s2">&quot;iu&quot;</span> <span class="ow">or</span> <span class="p">((</span><span class="n">pos</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="o">|</span> <span class="p">(</span><span class="n">pos</span> <span class="o">&gt;</span> <span class="n">n_items</span><span class="p">))</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;pos must be a 1D integer array in 0..n_items&quot;</span><span class="p">)</span>
+    <span class="n">valid</span> <span class="o">=</span> <span class="n">pos</span> <span class="o">!=</span> <span class="mi">0</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">valid</span><span class="o">.</span><span class="n">any</span><span class="p">()</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">set</span><span class="p">(</span><span class="n">pos</span><span class="p">[</span><span class="n">valid</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span><span class="o">.</span><span class="n">issubset</span><span class="p">(</span><span class="n">known</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;valid positive targets must belong to the training history&quot;</span><span class="p">)</span>
+    <span class="n">pool</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">i</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">n_items</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="k">if</span> <span class="n">i</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">known</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">pool</span><span class="o">.</span><span class="n">size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;no unobserved item available for this negative-sampling policy&quot;</span><span class="p">)</span>
+    <span class="n">neg</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">pos</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span>
+    <span class="n">neg</span><span class="p">[</span><span class="n">valid</span><span class="p">]</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">pool</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">valid</span><span class="o">.</span><span class="n">sum</span><span class="p">()),</span> <span class="n">replace</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">neg</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">demo</span><span class="p">():</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">set_num_threads</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">20260911</span><span class="p">)</span>
+    <span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">20260911</span><span class="p">)</span>
+    <span class="n">histories</span> <span class="o">=</span> <span class="p">[[</span><span class="mi">3</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">45</span><span class="p">,</span> <span class="mi">9</span><span class="p">],</span> <span class="p">[</span><span class="mi">5</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">7</span><span class="p">]]</span>
+    <span class="n">samples</span> <span class="o">=</span> <span class="p">[</span><span class="n">make_training_sample</span><span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">max_len</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">n_items</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span> <span class="k">for</span> <span class="n">h</span> <span class="ow">in</span> <span class="n">histories</span><span class="p">]</span>
+    <span class="n">seq</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">s</span> <span class="k">for</span> <span class="n">s</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">samples</span><span class="p">]))</span>
+    <span class="n">pos</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">p</span> <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">samples</span><span class="p">]))</span>
+    <span class="n">neg</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span>
+        <span class="n">sample_negatives</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="mi">50</span><span class="p">,</span> <span class="n">rng</span><span class="p">)</span> <span class="k">for</span> <span class="p">(</span><span class="n">_</span><span class="p">,</span> <span class="n">p</span><span class="p">),</span> <span class="n">h</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">samples</span><span class="p">,</span> <span class="n">histories</span><span class="p">)]))</span>
+    <span class="k">assert</span> <span class="n">seq</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span> <span class="o">==</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">45</span><span class="p">]</span>
+    <span class="k">assert</span> <span class="n">pos</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span> <span class="o">==</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">45</span><span class="p">,</span> <span class="mi">9</span><span class="p">]</span>
+
+    <span class="n">model</span> <span class="o">=</span> <span class="n">SASRec</span><span class="p">(</span><span class="mi">50</span><span class="p">,</span> <span class="n">max_len</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">d</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_heads</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">n_blocks</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+    <span class="n">optimizer</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">Adam</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">)</span>
+    <span class="n">model</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
+    <span class="n">optimizer</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+    <span class="n">loss</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">loss</span><span class="p">(</span><span class="n">seq</span><span class="p">,</span> <span class="n">pos</span><span class="p">,</span> <span class="n">neg</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">torch</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">loss</span><span class="p">)</span>
+    <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="k">assert</span> <span class="nb">all</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">grad</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">()</span> <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">grad</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="n">optimizer</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+
+    <span class="n">model</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+    <span class="c1"># 现在把完整 toy 历史当成已知前缀，预测它之后的物品，不评估准确率。</span>
+    <span class="n">infer</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">2</span><span class="p">,</span> <span class="mi">6</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">long</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">row</span><span class="p">,</span> <span class="n">history</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">histories</span><span class="p">):</span>
+        <span class="n">infer</span><span class="p">[</span><span class="n">row</span><span class="p">,</span> <span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">history</span><span class="p">):]</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">history</span><span class="p">)</span>
+    <span class="n">recommendations</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">recommend</span><span class="p">(</span><span class="n">infer</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">seen_histories</span><span class="o">=</span><span class="n">histories</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="nb">all</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span> <span class="o">==</span> <span class="mi">3</span> <span class="ow">and</span> <span class="n">torch</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">scores</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+               <span class="k">for</span> <span class="n">scores</span><span class="p">,</span> <span class="n">ids</span> <span class="ow">in</span> <span class="n">recommendations</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="nb">all</span><span class="p">(</span><span class="ow">not</span> <span class="nb">set</span><span class="p">(</span><span class="n">ids</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span> <span class="o">&amp;</span> <span class="nb">set</span><span class="p">(</span><span class="n">h</span><span class="p">)</span>
+               <span class="k">for</span> <span class="p">(</span><span class="n">_</span><span class="p">,</span> <span class="n">ids</span><span class="p">),</span> <span class="n">h</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">recommendations</span><span class="p">,</span> <span class="n">histories</span><span class="p">))</span>
+
+    <span class="c1"># 改未来两项，较早有效 query 的输出应保持不变。</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">45</span><span class="p">]])</span>
+    <span class="n">b</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">21</span><span class="p">]])</span>
+    <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+        <span class="n">ya</span><span class="p">,</span> <span class="n">yb</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">a</span><span class="p">),</span> <span class="n">model</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">torch</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">ya</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span> <span class="ow">and</span> <span class="p">(</span><span class="n">ya</span><span class="p">[</span><span class="n">a</span> <span class="o">==</span> <span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+    <span class="n">prefix_error</span> <span class="o">=</span> <span class="nb">float</span><span class="p">((</span><span class="n">ya</span><span class="p">[:,</span> <span class="mi">2</span><span class="p">:</span><span class="mi">4</span><span class="p">]</span> <span class="o">-</span> <span class="n">yb</span><span class="p">[:,</span> <span class="mi">2</span><span class="p">:</span><span class="mi">4</span><span class="p">])</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>
+    <span class="k">assert</span> <span class="n">prefix_error</span> <span class="o">&lt;</span> <span class="mf">1e-6</span>
+
+    <span class="n">tiny</span> <span class="o">=</span> <span class="n">SASRec</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">max_len</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">d</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">n_heads</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">n_blocks</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+    <span class="n">fewer</span> <span class="o">=</span> <span class="n">tiny</span><span class="o">.</span><span class="n">recommend</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">]]),</span> <span class="n">k</span><span class="o">=</span><span class="mi">10</span><span class="p">)[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">empty</span> <span class="o">=</span> <span class="n">tiny</span><span class="o">.</span><span class="n">recommend</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">]]),</span> <span class="n">k</span><span class="o">=</span><span class="mi">10</span><span class="p">)[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span>
+    <span class="k">assert</span> <span class="n">fewer</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span> <span class="o">==</span> <span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="ow">and</span> <span class="n">empty</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span>
+
+    <span class="n">rejected</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">bad_calls</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">make_training_sample</span><span class="p">([</span><span class="mi">3</span><span class="p">],</span> <span class="n">max_len</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">n_items</span><span class="o">=</span><span class="mi">50</span><span class="p">),</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">make_training_sample</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span> <span class="n">max_len</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">n_items</span><span class="o">=</span><span class="mi">50</span><span class="p">),</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">make_training_sample</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span> <span class="n">max_len</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">n_items</span><span class="o">=</span><span class="mi">50</span><span class="p">),</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">model</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">]])),</span>  <span class="c1"># 右 padding</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">model</span><span class="o">.</span><span class="n">loss</span><span class="p">(</span><span class="n">seq</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">pos</span><span class="p">),</span> <span class="n">neg</span><span class="p">),</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">sample_negatives</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">]),</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span> <span class="mi">3</span><span class="p">,</span> <span class="n">rng</span><span class="p">),</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">tiny</span><span class="o">.</span><span class="n">train</span><span class="p">()</span><span class="o">.</span><span class="n">recommend</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">]])),</span>
+    <span class="p">]</span>
+    <span class="k">for</span> <span class="n">call</span> <span class="ow">in</span> <span class="n">bad_calls</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">call</span><span class="p">()</span>
+        <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">RuntimeError</span><span class="p">):</span>
+            <span class="n">rejected</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="k">assert</span> <span class="n">rejected</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">bad_calls</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;torch:&quot;</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">__version__</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;seq[0]:&quot;</span><span class="p">,</span> <span class="n">seq</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;pos[0]:&quot;</span><span class="p">,</span> <span class="n">pos</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;training loss:&quot;</span><span class="p">,</span> <span class="nb">round</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">loss</span><span class="o">.</span><span class="n">detach</span><span class="p">()),</span> <span class="mi">6</span><span class="p">),</span> <span class="s2">&quot;; gradients finite&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;recommendation counts:&quot;</span><span class="p">,</span> <span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span> <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">ids</span> <span class="ow">in</span> <span class="n">recommendations</span><span class="p">])</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;causal prefix error:&quot;</span><span class="p">,</span> <span class="n">prefix_error</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;candidate boundary counts:&quot;</span><span class="p">,</span> <span class="n">fewer</span><span class="o">.</span><span class="n">numel</span><span class="p">(),</span> <span class="n">empty</span><span class="o">.</span><span class="n">numel</span><span class="p">())</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;expected invalid inputs rejected:&quot;</span><span class="p">,</span> <span class="n">rejected</span><span class="p">)</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">demo</span><span class="p">()</span>
+</code></pre></div>
+</section>
+<p><strong>这份代码在 Python 3.12.14 / NumPy 2.3.5 / PyTorch 2.14.0+cpu 上的实际输出：</strong>浮点末位可能随版本和内核变化，下面的形状、有限性和边界断言才是检查目标。</p>
+<div class="table-scroll"><table><caption>固定种子的教学运行结果，不是推荐质量成绩</caption>
+<thead><tr><th scope="col">观察项</th><th scope="col">实际结果</th><th scope="col">说明什么</th></tr></thead>
+<tbody><tr><td>第一行 seq / pos</td><td>[0, 0, 3, 7, 12, 45]<br>[0, 0, 7, 12, 45, 9]</td><td>左 padding 与下一项对齐正确。</td></tr>
+<tr><td>training loss</td><td>2.734558；梯度全部有限</td><td>前向/反向/更新走通；没有证明准确率提高。</td></tr>
+<tr><td>每用户推荐数量</td><td>[3, 3]</td><td>两个用户都有至少 3 个有限、允许候选。</td></tr>
+<tr><td>改变未来后的前缀误差</td><td>0.0</td><td>本测试的早期有效输出没有偷看未来。</td></tr>
+<tr><td>候选不足 / 耗尽</td><td>返回 1 / 0 个</td><td>不把 -inf 的 padding 或已见项硬塞进 top-k。</td></tr>
+<tr><td>预期非法输入</td><td>7 / 7 被拒绝</td><td>包含短历史、非法 ID、错误长度、右 padding、空目标、空负项池和忘记 eval。</td></tr></tbody></table></div>
+<p>如果要继续做真正项目，还需要训练/验证/测试划分、批量数据管线、验证选参、多轮训练和评测。这里的随机负项也不代表用户真实讨厌这些物品，只是给定训练损失下的采样对象。</p>
 <hr />
 <h2 id="bert4rec">🎭 BERT4Rec：另一条路（了解即可）</h2>
-<div class="tw"><table>
-<thead>
-<tr>
-<th></th>
-<th>SASRec</th>
-<th>BERT4Rec</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>训练方式</strong></td>
-<td>预测下一个（自回归）</td>
-<td>随机遮住中间的，双向猜（完形填空）</td>
-</tr>
-<tr>
-<td><strong>能看到的上下文</strong></td>
-<td>只能看左边</td>
-<td>左右都能看</td>
-</tr>
-<tr>
-<td><strong>和线上任务的一致性</strong></td>
-<td>✅ 完全一致</td>
-<td>⚠️ 有 gap（线上没有"右边"）</td>
-</tr>
-<tr>
-<td><strong>实际效果</strong></td>
-<td>论文里略低，但复现研究表明<strong>调参充分后常常反超</strong></td>
-<td>论文里更高</td>
-</tr>
-</tbody>
-</table></div>
-<blockquote>
-<p>⚠️ <strong>一个重要的行业教训</strong>：2022 年后多篇复现研究指出，许多序列推荐论文的「超越 SASRec」在公平调参下无法复现。
-<strong>SASRec 依然是最强的 baseline 之一。</strong>
-教训：<strong>别轻信论文里的 SOTA，自己跑一遍 baseline。</strong></p>
-</blockquote>
+<p><strong>两者训练目标不同，但都可以用已知历史预测下一物品。</strong>不要把“双向”理解为线上必须取得未来点击。</p>
+<div class="table-scroll"><table><caption>比较目标、可见信息与推理接口</caption>
+<thead><tr><th scope="col">维度</th><th scope="col">SASRec 思路</th><th scope="col">BERT4Rec 思路</th></tr></thead>
+<tbody><tr><th scope="row">训练方式</th><td>每个位置预测下一项。</td><td>随机遮住物品，用其他未遮位置填空。</td></tr>
+<tr><th scope="row">训练上下文</th><td>当前位置与更早位置，不可见未来。</td><td>被遮位置左右的可用上下文。</td></tr>
+<tr><th scope="row">预测下一项</th><td>用历史末位的表示打分，目标对齐较直接。</td><td>历史末尾加 [MASK]，预测这个新位置；原论文也包含仅遮最后一项的训练情形。</td></tr>
+<tr><th scope="row">如何比较效果</th><td colspan="2">统一数据切分、候选集、过滤、损失选择与训练预算，再看验证/测试结果；不能只由单向或双向推出谁更好。</td></tr></tbody></table></div>
+<p><a href="https://arxiv.org/html/1904.06690v1">BERT4Rec 原论文 §3.6</a>说明了末尾 [MASK] 推理和缓解训练/推理差异的做法。SASRec 的 next-item 目标更直接，但也有训练负采样与推理候选空间等差异，不能说所有环节都与线上完全一致。</p>
+<blockquote><p>⚠️ <strong>值得保留的行业教训：不要只看论文中的 SOTA 标签，要认真训练和比较基线。</strong></p></blockquote>
+<p>例如，<a href="https://arxiv.org/abs/2207.07483">2022 年 BERT4Rec 复现研究</a>强调充分训练的重要性；<a href="https://arxiv.org/abs/2309.07602">2023 年 SASRec/BERT4Rec 比较</a>研究统一损失、增加负样本等改变后，在其数据上得到 SASRec 优势。这些结论有各自实验条件，不是“普通调参后 SASRec 永远反超”。</p>
 <hr />
 <h2 id="_7">🕐 序列推荐的四个实战难题</h2>
 <h3 id="1">① 长序列怎么办？</h3>
-<p>用户可能有 10 万条历史，Transformer 是 O(L²)，扛不住。</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>方案</th>
-<th>做法</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>截断</strong></td>
-<td>只取最近 50–200 条。最简单，损失长期兴趣</td>
-</tr>
-<tr>
-<td><strong>SIM (阿里)</strong></td>
-<td>两阶段：先用类目/向量<strong>检索</strong>出相关的历史（GSU），再对这一小部分做注意力（ESU）⭐</td>
-</tr>
-<tr>
-<td><strong>长短期分离</strong></td>
-<td>长期兴趣用池化/聚类压缩成几个向量，短期用完整序列</td>
-</tr>
-<tr>
-<td><strong>线性注意力 / HSTU</strong></td>
-<td>改注意力的复杂度，见第 14 节</td>
-</tr>
-</tbody>
-</table></div>
+<p>用户可能有 <strong>10 万条历史</strong>。普通 dense attention 的位置两两交互项随 L² 增长；完整层还包含投影、前馈等计算，因此“Transformer 是 O(L²)”通常省略了固定宽度等条件。</p>
+<div class="table-scroll"><table><caption>先决定怎样保留历史，再选择计算方式</caption>
+<thead><tr><th scope="col">方案</th><th scope="col">做法</th><th scope="col">代价 / 边界</th></tr></thead>
+<tbody><tr><th scope="row">截断</th><td>例如只输入最近 50–200 条。</td><td>简单，但更早的原始行为不在窗口里；范围需验证，不是通用最佳值，也不等于模型毫无长期偏好。</td></tr>
+<tr><th scope="row">SIM（阿里）</th><td>相对当前候选物品，先用类目/向量筛相关历史（GSU），再对小子集精细建模（ESU）。</td><td>原任务是 CTR 预测；它依赖当前候选，不是一个无需候选的通用用户向量召回器。<a href="https://arxiv.org/abs/2006.05639">原论文</a></td></tr>
+<tr><th scope="row">长短期分离</th><td>长期历史池化/聚类成若干表示，短期保留细节。</td><td>压缩有信息损失，需比较下游任务效果。</td></tr>
+<tr><th scope="row">线性注意力</th><td>采用不同的注意力形式，改变成对计算的组织。</td><td>不是只切换一个参数便与原 dense attention 完全等价，效果和具体复杂度取决于方法。</td></tr>
+<tr><th scope="row">HSTU</th><td>结合大规模生成式建模与 ragged 数据、融合内核、长度策略等工程设计。</td><td>原论文仍有 O(N²d + Nd²) 的交互/投影项，不能归为“所有交互都线性”。更大规模总参数也包含 embedding。<a href="https://arxiv.org/html/2402.17152v1">原论文 §2.3/§3.2</a>，后续见第 14 节。</td></tr></tbody></table></div>
 <h3 id="2">② 多行为怎么融合？</h3>
-<p>点击、加购、购买、收藏……不能都当成一样的。
-→ 给每个行为加 <strong>behavior type embedding</strong>，或分别建序列后融合。</p>
+<p>点击、加购、购买、收藏表示的行为不同。可以给每条行为加 <strong>behavior type embedding</strong>，或分别建序列后再融合。先定义本次目标是下一次点击还是下一次购买，才能决定标签和损失。</p>
 <h3 id="3">③ 时间间隔要不要建模？</h3>
-<p>连续 3 次点击间隔 5 秒 vs 间隔 3 天，含义完全不同。
-→ <strong>TiSASRec</strong>：把时间间隔也编码进注意力。
-→ 简化做法：加「距今时长分桶」的 Embedding。</p>
+<p>连续 3 次点击，间隔 <strong>5 秒</strong>与间隔 <strong>3 天</strong>，可能对应不同节奏。相同物品序列不一定代表相同意图。</p>
+<p><strong>TiSASRec</strong>把交互之间的时间间隔纳入注意力，也考虑位置。简单的“距今时长分桶” embedding 可以作为工程特征，但不等价于每对交互之间的时间间隔。可对照<a href="https://github.com/JiachengLi1995/TiSASRec">作者实现说明</a>。</p>
 <h3 id="4-vs">④ 会话推荐 vs 长期推荐</h3>
-<p><strong>匿名用户/新会话</strong>（电商游客、新闻网站）只有当前会话几个点击。
-→ 这叫 <strong>Session-based Recommendation</strong>，GRU4Rec、SR-GNN 就是为它设计的。</p>
+<p>匿名游客或新会话可能只有几个点击，没有完整用户长期历史。<strong>Session-based Recommendation</strong>就是根据当前会话预测后续行为；<a href="https://arxiv.org/abs/1511.06939">GRU4Rec</a>、<a href="https://arxiv.org/abs/1811.00855">SR-GNN</a>都是这一场景的代表。</p>
+<p>“当前会话的整体偏好”不等于“已经观察到用户多年偏好”；有稳定用户 ID 与长期日志时，可以再考虑跨会话信息。</p>
 <hr />
 <h2 id="_8">📏 序列推荐的评测（⚠️ 有大坑）</h2>
-<p><strong>标准做法：Leave-One-Out（留一法）</strong></p>
-<div class="codehilite"><pre><span></span><code>  用户序列: [i₁, i₂, ..., i₄₈, i₄₉, i₅₀]
-                              ↑验证  ↑测试
-  用前 48 个训练，i₄₉ 验证，i₅₀ 测试
-</code></pre></div>
-
-<p><strong>指标</strong>：HR@K（命中率）、NDCG@K（考虑位置的命中）</p>
-<h3 id="_9">🚨 大坑：负采样评测不可信</h3>
-<p>很多论文的做法：从没交互的物品里<strong>随机采 100 个</strong>当负样本，看真实物品能不能排进前 10。</p>
-<p><strong>问题</strong>：随机采的 100 个基本都是冷门物品，太容易排赢了 → 指标虚高、模型排名会变。</p>
-<p>✅ <strong>正确做法</strong>：全量排序评测（把真实物品和全部 N 个物品一起排）。
-Krichene &amp; Rendle (KDD 2020) 的论文专门论证了这一点——<strong>采样评测会导致错误的模型排名结论</strong>。</p>
-<blockquote>
-<p>📌 你自己做项目时也遵守这条：<strong>能全量排就全量排。</strong></p>
-</blockquote>
+<p><strong>先定预测时刻、可用历史和候选集，再讨论指标。</strong>逐用户 Leave-One-Out（留末项）是常见研究协议，不是天然无泄漏的唯一标准。</p>
+<div class="table-scroll"><table><caption>用户历史 [i₁, i₂, …, i₄₈, i₄₉, i₅₀] 的一种划分</caption>
+<thead><tr><th scope="col">阶段</th><th scope="col">可用历史 / 数据</th><th scope="col">本阶段目标</th></tr></thead>
+<tbody><tr><th scope="row">训练</th><td>i₁…i₄₈</td><td>只在训练部分构造样本并更新参数。</td></tr>
+<tr><th scope="row">验证</th><td>历史 i₁…i₄₈</td><td>预测 i₄₉，用验证结果选超参。</td></tr>
+<tr><th scope="row">测试</th><td>历史可以包含已经发生的 i₄₉</td><td>预测 i₅₀；测试反馈不得用于选参。</td></tr></tbody></table></div>
+<p>读表结论：i₄₉ 到测试时已经是过去，可以作为测试前缀；“能作为输入历史”和“能拿来调参或泄漏测试标签”是两件事。</p>
+<p><strong>还要检查跨用户的全局时间。</strong>假设 A 的行为发生在时刻 [1,2,3,4]，B 在 [10,11,12,13]；各自留末两项后，共享训练集含 B 的 10、11，已经晚于 A 的测试时刻 4。逐用户顺序正确，也可能使用预测时本不该知道的未来日志。实际部署评测应按可用时间设计切分与物品目录。<a href="https://arxiv.org/abs/2010.11060">时间泄漏研究</a></p>
+<div class="table-scroll"><table><caption>只有一个真实下一物品时，先读懂两个指标</caption>
+<thead><tr><th scope="col">指标</th><th scope="col">单个测试样本怎样算</th><th scope="col">小例子</th></tr></thead>
+<tbody><tr><th scope="row">HR@K</th><td>真实物品进入前 K 为 1，否则为 0；再对样本求平均。</td><td>K=10，真物品第 3 名：1；第 11 名：0。</td></tr>
+<tr><th scope="row">NDCG@K</th><td>命中时按位置折扣；单个真物品第 r 名时为 1/log₂(r+1)，超出 K 为 0。</td><td>K=10，第 3 名为 1/log₂4=0.5；第 1 名为 1。</td></tr></tbody></table></div>
+<h3 id="_9">🚨 抽样候选排名不等于全量排名</h3>
+<p>常见做法是给每个真实目标再采 <strong>100 个</strong>未交互物品，只在这个小候选集里看能否进入前 10。它评的是“小候选集上的排名”，不能直接当成全目录排名。</p>
+<p><strong>问题不只是负项可能冷门，而是候选池本身变了。</strong>即使物品同等热门，真实目标前面的竞争者大多没被采到，也可能造成指标虚高和模型相对排名反转。采样方式还可能是均匀或按流行度，不能一概说“100 个基本都是冷门”。</p>
+<div class="table-scroll"><table><caption>可精确算出的反例：目录共 1000 项，每个目标从其余 999 项均匀不放回采 100 项</caption>
+<thead><tr><th scope="col">评价</th><th scope="col">模型 A：两次真实 rank 为 1、1000</th><th scope="col">模型 B：两次真实 rank 为 20、20</th></tr></thead>
+<tbody><tr><th scope="row">全目录 HR@10</th><td>0.5</td><td>0</td></tr>
+<tr><th scope="row">采样后期望 HR@10</th><td>0.5</td><td>约 0.999997</td></tr></tbody></table></div>
+<p>这是对抽样分布求期望的构造例，不是某个训练模型的效果。模型 A 原本更好，小候选集却几乎总让模型 B 命中。<a href="https://research.google/pubs/on-sampled-metrics-for-item-recommendation/">Krichene &amp; Rendle（KDD 2020）</a>讨论了这种比较不一致性。</p>
+<blockquote><p>📌 <strong>能全量排就优先全量排，并说清协议。</strong>全量指预测时允许的候选目录，真实物品只计一次；已见物品、重复消费、上市时间等过滤要保持一致。</p></blockquote>
+<p>全量候选不能自动解决曝光偏差或时间泄漏。确实只能采样时，应报告方案、数量及局限，不能把采样指标当成可直接比较的全量成绩。未交互也不等于用户一定不喜欢。</p>
 <hr />
 <h2 id="xref">🔗 这一章连到哪里</h2>
-<div class="tw"><table class="xref"><thead><tr><th>去哪</th><th>为什么</th></tr></thead><tbody><tr><td><a href="../机器学习与深度学习基础/13-RNN与序列建模.html">ML基础 13</a></td><td>GRU4Rec 的底子，也解释了 RNN 为什么最终被自注意力取代</td></tr><tr><td><a href="../大模型全景导论/02-Transformer原理.html">全景导论 02</a></td><td>SASRec 就是单向 Transformer：位置编码 + 因果掩码 + 自注意力，一个不少</td></tr><tr><td><a href="../模型上线之后/02-离线好不等于线上好.html">上线之后 02</a></td><td>本章说「采样评测会骗你」，那一章把<strong>整个离线评测为什么骗人</strong>拆成五道坎。⭐ <strong>坎 ① 和本章是同一个病根的另一半</strong>：评估集里全是<strong>旧模型曝光过的</strong>样本，新模型想推的东西压根不在候选里 —— 务实解法是<strong>留 1% 随机流量攒一份无偏评估集</strong></td></tr>
-<tr><td><a href="12-评估与AB实验.html">12 · 评估与 AB 实验</a></td><td>本章这条结论在板块内的落点：那一章「离线评估的五个致命陷阱」的<strong>陷阱 2「负采样评测」</strong>就写着「第 9 节讲过」，⭐ 顺带把旁边四个陷阱（随机切分 / 曝光偏差 / 位置偏差 / 只看总体）一起收了</td></tr><tr><td><a href="../Kaggle竞赛方法论/18_召回算法.html#mindmulti-interest-network">Kaggle 18 · 多兴趣召回</a></td><td>⭐ 本章把用户历史压成<strong>一个</strong>向量。但一个人可以同时喜欢科幻片和纪录片，压成一个向量等于取平均、两头不讨好。<a href="../Kaggle竞赛方法论/18_召回算法.html#comirec">MIND / ComiRec 给一个用户产出多个兴趣向量</a>，那边讲了怎么做</td></tr></tbody></table></div>
+<div class="table-scroll"><table class="xref"><thead><tr><th scope="col">去哪</th><th scope="col">为什么</th></tr></thead><tbody>
+<tr><td><a href="../机器学习与深度学习基础/13-RNN与序列建模.html">ML基础 13</a></td><td>理解 GRU4Rec 的循环状态，再比较循环网络与自注意力在串行依赖、历史访问和计算上的取舍；不是所有任务上彻底取代的关系。</td></tr>
+<tr><td><a href="../大模型全景导论/02-Transformer原理.html">全景导论 02</a></td><td>理解位置编码、因果掩码与自注意力。SASRec-like 代码用了这些部件，但推荐损失不必等于语言模型损失。</td></tr>
+<tr><td><a href="../模型上线之后/02-离线好不等于线上好.html">上线之后 02</a></td><td>继续区分候选抽样与旧策略曝光日志的偏差。探索流量可以帮助收集评估数据，但“留 1%”本身不保证无偏：仍需动作支持、日志策略、选择概率及合适估计方法。<a href="https://arxiv.org/abs/1003.5956">无偏离线评估原研究</a></td></tr>
+<tr><td><a href="12-评估与AB实验.html">12 · 评估与 AB 实验</a></td><td>把本章的负采样问题与随机切分、曝光偏差、位置偏差、总体指标掩盖差异一起检查，再学习 AB 实验。</td></tr>
+<tr><td><a href="../Kaggle竞赛方法论/18_召回算法.html#mindmulti-interest-network">Kaggle 18 · 多兴趣召回</a></td><td>本章用一个末位向量打分；一个向量并非数学上等于取平均。<a href="../Kaggle竞赛方法论/18_召回算法.html#comirec">MIND / ComiRec</a>用多个兴趣向量组织匹配，可进一步比较表达能力、检索方式与成本。<a href="https://arxiv.org/abs/1904.08030">MIND 原论文</a></td></tr>
+</tbody></table></div>
 <hr />
 <h2 id="_10">✅ 检查点</h2>
 <ol>
 <li>序列推荐和传统推荐在「问题定义」上有什么不同？</li>
-<li>为什么说序列推荐 ≈ 语言模型？</li>
-<li>SASRec 的因果掩码是干什么的？</li>
-<li>SASRec 和 BERT4Rec 的训练方式区别？哪个和线上任务更一致？</li>
+<li>为什么说序列推荐 ≈ 语言模型？这个类比在哪一步要停下来？</li>
+<li>SASRec 的因果掩码是干什么的？为什么当前位置可以看自己？</li>
+<li>SASRec 和 BERT4Rec 的训练方式区别？它们线上各怎样预测下一项？</li>
 <li>长序列（10 万条历史）怎么处理？SIM 的思路是什么？</li>
-<li>为什么「采样 100 个负样本」的评测方式不可信？</li>
+<li>为什么「采样 100 个负样本」不能直接当作全量排序的评测？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
-
-1. 传统：预测 (u,i) 的分数。序列：给定行为序列，预测下一个物品。
-2. 物品 ID = 单词，用户行为序列 = 句子，推荐 = 预测下一个词。训练方式（next-token prediction）完全一致。
-3. 防止位置 i 看到 i 之后的信息，避免"偷看未来"导致的信息泄漏。
-4. SASRec 自回归预测下一个（只看左边），BERT4Rec 双向完形填空。SASRec 和线上任务更一致（线上没有"右边"的信息）。
-5. 截断（最简单）；SIM 两阶段：先用类目/向量检索出相关历史，再对这个小子集做注意力；长短期分离。
-6. 随机采的负样本大多是冷门物品，太容易被排在后面，指标虚高，且会导致模型间的相对排名结论错误。应做全量排序评测。
-
+<ol>
+<li><p>一种常见传统任务是预测 (u,i) 分数；本章任务是给定有序行为历史，预测下一物品。传统推荐不只做评分，序列推荐也不只限这一种目标。</p></li>
+<li><p>物品 ID 可类比 token，历史可类比句子；相似的是根据前缀预测后续、目标右移一项。损失、负采样、候选空间与评测不一定相同，不能说训练完全一致。</p></li>
+<li><p>禁止位置 t 访问 t 之后的输入，避免偷看未来。位置 t 的输出预测 t+1，所以可看当前物品；padding 的处理还要单独保证数值有效。</p></li>
+<li><p>SASRec 思路按位置预测下一项，BERT4Rec 用双向上下文填空。前者目标对齐更直接；后者测试在历史末尾加 [MASK]，原论文也用只遮末项的训练情形缓解差异。它不要求拿到未来点击，效果需公平实验比较。</p></li>
+<li><p>可截断、长短期分离或筛选相关历史。SIM 先相对当前候选物品检索相关历史（GSU），再对小子集细建模（ESU）。线性注意力是另一类方法；HSTU 有工程优化但仍保留二次交互项，不能混成同一种方法。</p></li>
+<li><p>缩小候选池会改变排名分布，即使物品同等热门也可能使指标虚高、模型优劣反转。优先按合法全目录评测，真物品只计一次，并交代过滤和时间协议；全量本身也不能自动消除曝光偏差。</p></li>
+</ol>
 </details>
-
 <hr />
 <h2 id="_11">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>序列推荐利用行为顺序预测后续选择，不只是汇总用户点过什么。</li><li>因果掩码让训练位置只能使用过去信息，与预测场景对应。</li><li>行为类型、时间间隔和会话长度要分开考虑，并保持评测口径公平。</li></ul></section>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>序列推荐利用行为顺序预测后续选择，不只是汇总用户点过什么。</li><li>因果掩码让训练位置只能使用过去和当前位置的信息，与下一项预测对应。</li><li>行为类型、时间间隔和会话长度要分开考虑，并保持评测口径公平。</li></ul></section>
 </blockquote>
-<p><strong>下一节</strong> 👉 <a href="10-向量检索与ANN.html">10-向量检索与ANN.md</a></p>
+<p><strong>下一节</strong> 👉 <a href="10-向量检索与ANN.html">10 · 向量检索与 ANN</a></p>
+</article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
+<button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">🧠 顺序多提供了什么线索</a><a href="#_3">🔄 换一个问题定义</a><a href="#transformer">📜 演进：从马尔可夫链到 Transformer</a><a href="#sasrec">⭐ SASRec：先看懂下一项预测</a><a href="#bert4rec">🎭 BERT4Rec：另一条路（了解即可）</a><a href="#_7">🕐 序列推荐的四个实战难题</a><a href="#_8">📏 序列推荐的评测（⚠️ 有大坑）</a><a href="#xref">🔗 这一章连到哪里</a><a href="#_10">✅ 检查点</a><a href="#_11">🛑 可以停在这里</a></nav>
+<button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
+<a href="index.html">回到本模块目录</a></div></aside></div>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="08-深度学习推荐模型.html"><div class="dir">← 上一节</div>🧠 08 · 深度学习模型</a><a class="next" href="10-向量检索与ANN.html"><div class="dir">下一节 →</div>🔍 10 · 向量检索 ANN</a></nav>
