@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading topic-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -306,294 +306,549 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ul>
 </div>
 </details>
-<h1 id="12-rlhf">12 · RLHF 全流程</h1>
+<div class="ov-layout"><article class="ov-body"><h1 id="12-rlhf">12 · RLHF 全流程</h1>
+<!-- topic-reading -->
+
+<p><link rel="stylesheet" href="../assets/rl-formula-help.css"><script defer src="../assets/rl-formula-help.js"></script></p>
 <p>⏱ <strong>44 分钟</strong> ｜ ⭐ <strong>前 11 章的零件在这里全部就位</strong></p>
+<p>时间是起步参考，不是读完的期限。先读到“三道防线”就能抓住主线；GRPO 的估计细节可以下次继续。</p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>RLHF 解决一个具体的困难：有些"好"你写不出评分函数。</strong>
-「这个回答有帮助吗」「这段话礼貌吗」—— 没法写成损失函数。
-<strong>那就让人来比较，用比较训一个模型来打分，再用 RL 去优化那个分数。</strong></p>
-<figure class="dia" data-fig="rlhf_pipeline"><svg viewBox="0 0 700 386" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="RLHF 的三个阶段"><defs><marker id="a7__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker><marker id="a7l__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--link)"/></marker><marker id="a7g__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--done)"/></marker></defs><rect x="40" y="86" width="180" height="128" rx="12" fill="var(--card)" stroke="var(--link)" stroke-width="2.2"/><text class="dia-t" x="130" y="116" font-size="14.5" text-anchor="middle" fill="var(--link)" font-weight="700">① SFT</text><text class="dia-t" x="130" y="138" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">监督微调</text><text class="dia-t" x="130" y="168" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="normal">人写的示范回答</text><text class="dia-t" x="130" y="188" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="normal">→ 教它「大概该长什么样」</text><rect x="260" y="86" width="180" height="128" rx="12" fill="var(--card)" stroke="var(--accent)" stroke-width="2.2"/><text class="dia-t" x="350" y="116" font-size="14.5" text-anchor="middle" fill="var(--accent)" font-weight="700">② 奖励模型</text><text class="dia-t" x="350" y="138" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">学人的偏好</text><text class="dia-t" x="350" y="168" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="normal">人对 A/B 排序</text><text class="dia-t" x="350" y="188" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="normal">→ 训一个会打分的模型</text><rect x="480" y="86" width="180" height="128" rx="12" fill="var(--card)" stroke="var(--done)" stroke-width="2.2"/><text class="dia-t" x="570" y="116" font-size="14.5" text-anchor="middle" fill="var(--done)" font-weight="700">③ PPO</text><text class="dia-t" x="570" y="138" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">用奖励优化策略</text><text class="dia-t" x="570" y="168" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="normal">模型生成 → RM 打分</text><text class="dia-t" x="570" y="188" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="normal">→ 策略梯度更新</text><line x1="226" y1="150" x2="254" y2="150" stroke="var(--muted)" stroke-width="2.2" marker-end="url(#a7__f1)"/><line x1="446" y1="150" x2="474" y2="150" stroke="var(--muted)" stroke-width="2.2" marker-end="url(#a7__f1)"/><rect x="480" y="240" width="180" height="46" rx="9" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="570" y="262" font-size="11.5" text-anchor="middle" fill="var(--accent)" font-weight="700">KL 惩罚：别离 SFT 太远</text><text class="dia-t" x="570" y="279" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">防止为了刷分而胡说</text><path d="M130 214 L130 300 L480 300 L480 286" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-dasharray="6 5" marker-end="url(#a7__f1)"/><text class="dia-t" x="300" y="316" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">① 的模型同时作为 PPO 的「参照系」</text><text class="dia-t" x="350" y="32" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">三个阶段，三种不同的数据，解决三个不同的问题</text><text class="dia-t" x="350" y="348" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">⭐ 只有第③步是真正的强化学习 —— 前两步都是监督学习</text><text class="dia-t" x="350" y="370" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">⚠️ 没有 KL 惩罚，模型会找到奖励模型的漏洞去刷分（奖励黑客）</text></svg><figcaption>三个阶段用三种不同的数据，解决三个不同的问题。⭐ <b>只有第③步是真正的强化学习</b>，前两步都是监督学习。⚠️ 没有 KL 惩罚，模型会找到奖励模型的漏洞去刷分（奖励黑客）。</figcaption></figure>
+<p><strong>RLHF 把人的比较变成可学习的反馈，再用这个反馈调整模型的回答。</strong></p>
+<figure class="dia" data-fig="rlhf_pipeline"><svg viewBox="0 0 700 386" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="RLHF 的三个阶段"><defs><marker id="a7__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker><marker id="a7l__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--link)"/></marker><marker id="a7g__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--done)"/></marker></defs><rect x="40" y="86" width="180" height="128" rx="12" fill="var(--card)" stroke="var(--link)" stroke-width="2.2"/><text class="dia-t" x="130" y="116" font-size="14.5" text-anchor="middle" fill="var(--link)" font-weight="700">① SFT</text><text class="dia-t" x="130" y="138" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">监督微调</text><text class="dia-t" x="130" y="168" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="normal">人写的示范回答</text><text class="dia-t" x="130" y="188" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="normal">→ 教它「大概该长什么样」</text><rect x="260" y="86" width="180" height="128" rx="12" fill="var(--card)" stroke="var(--accent)" stroke-width="2.2"/><text class="dia-t" x="350" y="116" font-size="14.5" text-anchor="middle" fill="var(--accent)" font-weight="700">② 奖励模型</text><text class="dia-t" x="350" y="138" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">学人的偏好</text><text class="dia-t" x="350" y="168" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="normal">人对 A/B 排序</text><text class="dia-t" x="350" y="188" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="normal">→ 训一个会打分的模型</text><rect x="480" y="86" width="180" height="128" rx="12" fill="var(--card)" stroke="var(--done)" stroke-width="2.2"/><text class="dia-t" x="570" y="116" font-size="14.5" text-anchor="middle" fill="var(--done)" font-weight="700">③ PPO</text><text class="dia-t" x="570" y="138" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">用奖励优化策略</text><text class="dia-t" x="570" y="168" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="normal">模型生成 → RM 打分</text><text class="dia-t" x="570" y="188" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="normal">→ 策略梯度更新</text><line x1="226" y1="150" x2="254" y2="150" stroke="var(--muted)" stroke-width="2.2" marker-end="url(#a7__f1)"/><line x1="446" y1="150" x2="474" y2="150" stroke="var(--muted)" stroke-width="2.2" marker-end="url(#a7__f1)"/><rect x="480" y="240" width="180" height="46" rx="9" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="570" y="262" font-size="11.5" text-anchor="middle" fill="var(--accent)" font-weight="700">KL 惩罚：别离 SFT 太远</text><text class="dia-t" x="570" y="279" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">降低偏离风险，不保证质量</text><path d="M130 214 L130 300 L480 300 L480 286" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-dasharray="6 5" marker-end="url(#a7__f1)"/><text class="dia-t" x="300" y="316" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">① 的模型同时作为 PPO 的「参照系」</text><text class="dia-t" x="350" y="32" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">三个阶段，三种不同的数据，解决三个不同的问题</text><text class="dia-t" x="350" y="348" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">⭐ 只有第③步是真正的强化学习 —— 前两步都是监督学习</text><text class="dia-t" x="350" y="370" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">KL 与奖励分数不是质量证明，还需独立评估和验证。</text></svg><figcaption>三个阶段用三种不同的数据，解决三个不同的问题。⭐ <b>只有第③步是真正的强化学习</b>，前两步都是监督学习。KL 正则有助于控制偏离参考模型的程度，但不保证回答质量；需另行检查奖励过优化。</figcaption></figure>
 
+<p>例如，同一个问题有 A、B 两个答案。你更愿意选 A，却很难手写一个函数，自动给所有可能的答案准确打分。</p>
+<p>经典做法是：收集比较，训练一个奖励模型，再让语言模型尝试获得更高的奖励。<strong>奖励模型是人的判断的代理，不是“正确答案裁判”。</strong></p>
+<ul>
+<li>想知道整条链怎样接起来：读<a href="#_3">三个阶段</a>。</li>
+<li>想知道为什么高分仍可能是坏回答：读<a href="#reward-hacking">奖励攻击</a>。</li>
+<li>想比较 PPO、DPO、GRPO：直接看<a href="#ppo-dpo-grpo">三方对比</a>。</li>
+</ul>
 <hr />
 <h2 id="_2">🤔 一、为什么需要它</h2>
-<section class="reading-information"><p class="reading-information-title">关键信息</p><ul><li><span>预训练教会模型「下一个词是什么」</span></li><li><span>微调（SFT）教会模型「按指令回答」</span></li><li><span>⚠️ 但两者都是【模仿】—— 模型只能学到示范里有的东西</span></li><li><span>⭐ 而人类对"好回答"的判断有三个特点：</span></li><li><span>说不清标准（但一比就知道哪个好）</span></li><li><span>和上下文强相关</span></li><li><span>写不出可微的评分函数</span></li><li><span>→ 监督学习卡在这里</span></li></ul></section>
-<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">💡 关键的转念：</span></div><div class="vb-flow-row"><span class="vb-flow-step">「让人【写】一个满分答案」很难、很贵、且一个人写不出多样性</span></div><div class="vb-flow-row"><span class="vb-flow-step">「让人【比较】两个答案哪个好」容易、便宜、一致性还高得多 ⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">RLHF 的全部起点就是这个观察</span></div></div></section>
+<p><strong>困难不是“监督学习不能对齐”，而是示范答案没有直接告诉模型：多个可行回答之间该怎样取舍。</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>已有训练</th>
+<th>它提供什么信号</th>
+<th>还缺什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>预训练</td>
+<td>给定前文，预测后续 token</td>
+<td>这个续写是否符合当前用户的目标</td>
+</tr>
+<tr>
+<td>SFT（监督微调）</td>
+<td>提高优质示范回答的概率</td>
+<td>没被选中的回答哪里更差、不同目标冲突时怎么取舍</td>
+</tr>
+<tr>
+<td>偏好反馈</td>
+<td>同一提示下，更偏好哪个回答</td>
+<td>偏好是否可靠、能否推广到新的问题</td>
+</tr>
+</tbody>
+</table></div>
+<p>SFT 本身就能改善指令遵循，也能泛化到没见过的例子，不是只能复读示范。奖励模型的训练同样是监督学习；<a href="13-DPO与免RL对齐.html">下一章的 DPO</a>也能直接学习偏好对。</p>
+<p><strong>比较有时比从零写答案省力，但不是永远更容易、更便宜。</strong> 判断医学回答是否正确、长证明有没有漏洞，仍可能需要专业知识和大量时间。</p>
+<p>“有帮助”“礼貌”也不是完全不能写进损失函数：难的是得到一个可靠、覆盖目标场景的监督信号，而不是这些词不能出现在数学里。</p>
+<blockquote>
+<p>现在只需记住：<strong>SFT 学示范，偏好训练利用比较；两者可以互补。</strong> 这里讲的是 InstructGPT 式经典路线，不是所有对齐系统唯一的配方。<a href="https://arxiv.org/html/2203.02155v1">原论文</a></p>
+</blockquote>
 <hr />
 <h2 id="_3">🏗️ 二、三个阶段</h2>
 <div class="panels">
 <div class="panel">
 <div class="ph">阶段 1：SFT（监督微调）</div>
 <ul class="pl">
-<li><b>数据</b>：人写的（指令, 优质回答）</li>
-<li><b>产出</b>：一个会听指令的基础模型 π_SFT</li>
+<li><b>输入</b>：指令与优质示范回答。</li>
+<li><b>产出</b>：作为起点的策略 π_SFT；它还可提供后续比较用的候选回答。</li>
 </ul>
 </div>
 <div class="panel">
-<div class="ph">阶段 2：训练奖励模型 RM ⭐</div>
+<div class="ph">阶段 2：训练奖励模型 RM</div>
 <ul class="pl">
-<li><b>数据</b>：人对同一提示的多个回答【排序】</li>
-<li><b>产出</b>：一个能给回答【打分】的模型</li>
+<li><b>输入</b>：同一提示的候选回答，以及人的比较或排序。</li>
+<li><b>产出</b>：给“提示 + 回答”打标量分数的 RM。</li>
 </ul>
 </div>
 <div class="panel">
-<div class="ph">阶段 3：PPO 优化 ⭐</div>
+<div class="ph">阶段 3：PPO 优化</div>
 <ul class="pl">
-<li><b>做法</b>：用 RM 当奖励，用 PPO 更新语言模型</li>
-<li><b>产出</b>：对齐后的模型</li>
+<li><b>输入</b>：当前策略生成的回答、冻结 RM 的分数、冻结参考模型的概率。</li>
+<li><b>产出</b>：更新后的策略；是否更符合目标，仍要另做评估。</li>
 </ul>
 </div>
 </div>
 
-<p class="dia-note">↓ 三个阶段严格<b>按顺序</b>进行：上一阶段的产出，就是下一阶段的输入。</p>
-
+<p><strong>读这个顺序时，别丢掉两条依赖：</strong> 第三步既用第二步的 RM，也用第一步的策略作为初始化与参考。不是把 SFT 模型“变成 RM”，再把 RM“变回语言模型”。</p>
+<p>这是一次训练周期的依赖顺序。可以复用已有 SFT 或 RM，也可以收集新比较后迭代，不要求每次都从第一步重新开始。</p>
 <hr />
 <h2 id="2">🏆 三、阶段 2：奖励模型怎么训</h2>
-<p>数据长这样：</p>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>提示：&quot;解释一下量子纠缠&quot;</p><p>回答 A：（清晰、有类比、承认了简化）</p><p>回答 B：（堆砌术语、没有解释）</p><p>标注者：A &gt; B ⭐ 只需要比较，不需要打分</p></div></section>
-<p><strong>损失函数（Bradley–Terry 模型）</strong>：</p>
-<p>$$L = -\log\sigma\big(r(x, y_{win}) - r(x, y_{lose})\big)$$</p>
-<p>💡 <strong>人话翻译</strong>：</p>
-<blockquote>
-<p><strong>让"好回答的分"减去"差回答的分"尽量大。</strong>
-注意它<strong>只关心分数的差</strong>，不关心绝对值 —— 所以打出来的分数没有绝对含义。</p>
-</blockquote>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：rm 是你训好的奖励模型，这里只看损失长什么样</span>
-<span class="c1"># 奖励模型的训练核心就这两行</span>
+<p><strong>同一提示下，让模型预测“标注者更愿意选谁”。</strong></p>
+<section class="visual-block visual-block-compare" aria-label="偏好标注示例"><p class="visual-block-title">偏好标注示例</p><div class="vb-compare"><p><b>提示：</b>“解释一下量子纠缠。”</p><p><b>回答 A：</b>清晰、有类比，并说明类比在哪里不准确。</p><p><b>回答 B：</b>堆砌术语，没有解释关键概念。</p><p><b>标注：</b>在这次比较中选 A。仍需核查事实正确性，不能只看是否通俗。</p></div></section>
+
+<p>先定义一个差：</p>
+<p>$$\Delta r=r(x,y_{win})-r(x,y_{lose})$$</p>
+<ul>
+<li><code>x</code> 是同一条提示；<code>y_win</code>、<code>y_lose</code> 分别是被选中与未选中的回答。</li>
+<li><code>r</code> 是奖励模型输出的分数。下标说的是<strong>这次标注的偏好</strong>，不是客观真假的判决。</li>
+</ul>
+<p>Bradley–Terry 模型把分数差变成偏好概率：</p>
+<p>$$P(win\succ lose\mid x)=\sigma(\Delta r)$$</p>
+<p>一对样本的训练损失为：</p>
+<p>$$L=-\log\sigma(\Delta r)$$</p>
+<p><strong>看一个数就够：</strong> 差为 0，预测被选中概率为 0.5；差为 1，约为 0.731。训练推动被选中的回答相对得分更高，但不是把有噪声的每一对差值无限拉大。</p>
+<p>只把两个分数都加 100，差不会变，损失也不变。因此，<strong>同一提示的分数差有比较含义，分数的任意共同偏移没有</strong>；“得 8 分”不能直接解释成“80% 正确”，跨提示的绝对分数也未必可比。</p>
+<h3 id="rlhf-rm-example">可运行的小实验：只检查损失和梯度</h3>
+<p>下面需要 PyTorch。用两对人为设定的分数代替 RM 输出，保留真实训练中的 <code>logsigmoid</code> 损失；<strong>它不是一个已经训练好的文本奖励模型。</strong></p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
-<span class="n">r_win</span><span class="p">,</span> <span class="n">r_lose</span> <span class="o">=</span> <span class="n">rm</span><span class="p">(</span><span class="n">prompt</span><span class="p">,</span> <span class="n">chosen</span><span class="p">),</span> <span class="n">rm</span><span class="p">(</span><span class="n">prompt</span><span class="p">,</span> <span class="n">rejected</span><span class="p">)</span>
-<span class="n">loss</span> <span class="o">=</span> <span class="o">-</span><span class="n">F</span><span class="o">.</span><span class="n">logsigmoid</span><span class="p">(</span><span class="n">r_win</span> <span class="o">-</span> <span class="n">r_lose</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+
+<span class="c1"># 第一对：被选中的回答已经领先；第二对：它暂时落后。</span>
+<span class="n">r_win</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.5</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">r_lose</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">gap</span> <span class="o">=</span> <span class="n">r_win</span> <span class="o">-</span> <span class="n">r_lose</span>
+<span class="n">loss</span> <span class="o">=</span> <span class="o">-</span><span class="n">F</span><span class="o">.</span><span class="n">logsigmoid</span><span class="p">(</span><span class="n">gap</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+
+<span class="n">shifted</span> <span class="o">=</span> <span class="o">-</span><span class="n">F</span><span class="o">.</span><span class="n">logsigmoid</span><span class="p">((</span><span class="n">r_win</span> <span class="o">+</span> <span class="mi">100</span><span class="p">)</span> <span class="o">-</span> <span class="p">(</span><span class="n">r_lose</span> <span class="o">+</span> <span class="mi">100</span><span class="p">))</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+<span class="k">assert</span> <span class="n">torch</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">loss</span><span class="p">,</span> <span class="n">shifted</span><span class="p">)</span>
+<span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;偏好概率:&quot;</span><span class="p">,</span> <span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">gap</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">sigmoid</span><span class="p">()</span><span class="o">.</span><span class="n">tolist</span><span class="p">()])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;平均损失:&quot;</span><span class="p">,</span> <span class="nb">round</span><span class="p">(</span><span class="n">loss</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span> <span class="mi">6</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;win 的梯度:&quot;</span><span class="p">,</span> <span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">r_win</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">tolist</span><span class="p">()])</span>
 </code></pre></div>
 
+<p>这组数对应概率 <code>[0.731, 0.269]</code>、平均损失约 <code>0.813262</code>、win 梯度约 <code>[-0.134, -0.366]</code>。梯度下降会提高 win 分数；当前排错的第二对，推动幅度更大。真实训练中，梯度还要继续传回生成这些分数的 RM 参数。</p>
 <h3 id="_4">⚠️ 奖励模型的三个真实问题</h3>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>问题</th>
-<th>说明</th>
+<th>为什么会发生</th>
+<th>怎样检查</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>标注噪声</strong></td>
-<td>人类之间一致率通常只有 <strong>70~80%</strong> —— 这是奖励模型精度的天花板 ⭐</td>
+<td><strong>标注噪声与分歧</strong></td>
+<td>标准含糊、事实难判断，或不同人本来就有不同偏好</td>
+<td>记录标注规范、分歧与复核方式；按提示分组划分训练/验证集</td>
 </tr>
 <tr>
-<td><strong>长度偏好</strong> ⭐</td>
-<td>标注者倾向于选更长的回答 → RM 学会"越长越好" → <strong>模型变得啰嗦</strong></td>
+<td><strong>长度、格式等捷径</strong></td>
+<td>在数据中，“较长”碰巧与“更好”相关</td>
+<td>匹配长度再比较；随机左右位置；检查短而正确的答案是否被低估</td>
 </tr>
 <tr>
 <td><strong>分布漂移</strong></td>
-<td>RM 在 SFT 模型的输出上训练，但 PPO 会把模型推到 <strong>RM 没见过的区域</strong> ⭐</td>
+<td>新策略产生的回答与训练 RM 时不同</td>
+<td>用新策略回答做独立抽评，覆盖高分、低分与异常样本</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>🔑 <strong>第三点是 RLHF 最本质的困难</strong>：
-<strong>奖励模型只在它见过的分布上准。</strong> PPO 优化得越狠，模型越会跑到 RM 的盲区，
-<strong>那里的分数是不可信的</strong> —— 这直接导致下面的奖励攻击。</p>
-</blockquote>
+<p><strong>70%–80% 不是统一的精度天花板。</strong> InstructGPT 报告过训练标注者之间约 72.6% 的一致率，保留标注者约 77.3%；这是那项研究的标注设置，不是所有任务或奖励模型的上限。<a href="https://arxiv.org/html/2203.02155v1#S3.SS4">论文 第 3.4 节</a></p>
+<p>两个人互相同意多少、模型能否预测单个标签、模型能否预测多人共识，是不同指标。把这些数字混在一起，会错误判断“再训练也没用”。</p>
+<p><strong>分布漂移尤其值得警惕，但也不要说 RM 在见过的分布上就必然准确。</strong> 它在原分布也可能有误差；优化会放大可利用的误差。验证集表现不错，不足以保证它适合被反复优化。</p>
 <hr />
 <h2 id="reward-hacking">💀 四、奖励攻击（Reward Hacking）</h2>
-<section class="reading-information"><p class="reading-information-title">关键信息</p><ul><li><span>模型不是在"变好"，而是在【钻奖励模型的漏洞】</span></li><li><span>真实观察到的现象：</span></li><li><span>回答越来越长（RM 有长度偏好）⭐</span></li><li><span>疯狂使用列表和 Markdown 格式</span></li><li><span>开头必说"这是一个很好的问题！"</span></li><li><span>过度谨慎、什么都不敢回答（因为"安全"得分高）</span></li><li><span>在特定短语上过拟合</span></li></ul></section>
-<p><strong>三道防线</strong>：</p>
-<section class="visual-block visual-block-flow" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">① KL 惩罚 ⭐（第 11 章）</span></div><div class="vb-flow-row"><span class="vb-flow-step">r = RM分数 − β·KL(π ‖ π_SFT)</span></div><div class="vb-flow-row"><span class="vb-flow-step">把模型拴在 SFT 附近，不让它跑到 RM 的盲区</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 早停：盯着【KL 散度】而不是奖励分数</span></div><div class="vb-flow-row"><span class="vb-flow-step">奖励还在涨但 KL 已经很大 = 正在钻漏洞 ⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 迭代式 RLHF：用新模型的输出重新标注、重训 RM</span></div><div class="vb-flow-row"><span class="vb-flow-step">把 RM 的有效范围扩展到新分布上</span></div></div></section>
+<p><strong>奖励攻击的核心证据是：代理分数变高了，真正想要的结果却没有一起改善，甚至变差。</strong></p>
+<p>回答变长、频繁列清单、反复说“这是个好问题”、过度拒答、偏爱特定短语，都可以是检查线索。但长答案和 Markdown 列表本身并不是漏洞，需要结合任务质量判断。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>观察</th>
+<th>能得出的结论</th>
+<th>还不能得出的结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RM 分数上升</td>
+<td>策略更会获得这个 RM 的高分</td>
+<td>人一定更喜欢、事实一定更正确</td>
+</tr>
+<tr>
+<td>相对参考模型的 KL 上升</td>
+<td>在规定的测量口径下，策略偏离更大</td>
+<td>一定已经发生奖励攻击</td>
+</tr>
+<tr>
+<td>高分回答在独立评估中变差</td>
+<td>有代理目标被过度优化的证据</td>
+<td>仅靠一个案例就知道所有原因</td>
+</tr>
+</tbody>
+</table></div>
+<p>奖励模型过度优化的实验确实观察到这种偏离；其中“金标准 RM”也只是受控实验中的替身，不等于解决了真实人类评估。<a href="https://arxiv.org/abs/2210.10760">研究与设置</a></p>
+<h3 id="rlhf-three-defenses">三道防线：约束、独立评估、补数据</h3>
+<p><strong>1. KL 惩罚：提高偏离参考策略的代价。</strong></p>
+<p>对一个提示 <code>x</code>，先定义参考距离：</p>
+<p>$$K_x=D_{KL}\big(\pi_\theta(\cdot|x)\,\|\,\pi_{ref}(\cdot|x)\big)$$</p>
+<p>再写优化目标：</p>
+<p>$$J_x=\mathbb E_{y\sim\pi_\theta}[r(x,y)]-\beta K_x$$</p>
+<p>这里 <code>π_ref</code> 常是冻结的 SFT 起点；<code>β≥0</code> 决定惩罚强度。<strong>它与 PPO 的新旧策略 clip 不是同一件事</strong>：旧策略用于本批更新，参考策略用于控制长期偏移。</p>
+<p>KL 不是一堵确保不越界的墙。小 KL 也可能伴随差回答或多样性下降；KL 惩罚不能保证覆盖所有好回答，不能单独阻止 mode collapse。</p>
+<p><strong>2. 早停：事先约定独立质量指标，同时监控 KL。</strong></p>
+<p>保留没有参与训练与调参的提示，做人工盲评或可信的任务测试。记录正确性、有帮助性、拒答是否适当、长度与多样性。出现预先约定的退化时停下、回到检查点并排查；不要等 RM 分数自动下降。</p>
+<p>KL 阈值可以作为运行保护线，但<strong>“奖励涨 + KL 大”不是奖励攻击的充分条件</strong>。记录方向、参考模型、采样策略，以及按整句求和还是按 token 平均；口径不同，数字不能直接比较。</p>
+<p><strong>3. 迭代式 RLHF：让反馈跟上新策略。</strong></p>
+<p>用新策略产生的回答补充比较，复核异常高分案例，再训练或更新 RM。保留独立评估集，不把测试题反复喂回训练；补数据可以改善覆盖，不会自动消除所有盲区。</p>
 <blockquote>
-<p>💡 <strong>第 ② 条是实践中最有用的一条经验</strong>：
-<strong>奖励分数上涨不代表模型变好。</strong> 真正该监控的是
-<strong>「KL 散度」和「人工抽样评估」</strong> —— 前者告诉你跑多远了，后者告诉你是不是真的更好。</p>
+<p><strong>可以在这里停。</strong> 你已经知道：比较怎样变成分数，以及为什么必须在分数之外另做质量检查。下面是实现和选型细节。</p>
 </blockquote>
 <hr />
 <h2 id="3">🔧 五、阶段 3 的工程现实</h2>
+<p><strong>先数角色，再算存储，不能看到“四个模型”就把 SFT 显存乘四。</strong></p>
 <figure class="dia reading-diagram repair-diagram" id="relationship-rlmd-12-3" style="--diagram-width:720px"><svg viewBox="0 0 720 447" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="四个模型并列参与不同任务；冻结与训练状态要分别计算显存。"><title>四个模型并列参与不同任务；冻结与训练状态要分别计算显存。</title><text x="20" y="30" font-size="20" text-anchor="start" fill="var(--fg)">PPO 的四个模型角色</text><rect x="20" y="65" width="680" height="166" rx="12" fill="var(--quote-bg)" stroke="var(--border)"/><text x="40" y="97" font-size="20" text-anchor="start" fill="var(--fg)">训练中的模型</text><rect x="44" y="117" width="632" height="34" rx="6" fill="var(--card)" stroke="var(--border)"/><text x="58" y="140" font-size="18" text-anchor="start" fill="var(--fg)">策略模型 π：需要梯度</text><rect x="44" y="159" width="632" height="34" rx="6" fill="var(--card)" stroke="var(--border)"/><text x="58" y="182" font-size="18" text-anchor="start" fill="var(--fg)">价值模型 Critic：需要梯度</text><rect x="20" y="256" width="680" height="166" rx="12" fill="var(--quote-bg)" stroke="var(--border)"/><text x="40" y="288" font-size="20" text-anchor="start" fill="var(--fg)">冻结的模型</text><rect x="44" y="308" width="632" height="34" rx="6" fill="var(--card)" stroke="var(--border)"/><text x="58" y="331" font-size="18" text-anchor="start" fill="var(--fg)">参考模型：计算 KL</text><rect x="44" y="350" width="632" height="34" rx="6" fill="var(--card)" stroke="var(--border)"/><text x="58" y="373" font-size="18" text-anchor="start" fill="var(--fg)">奖励模型：提供分数</text></svg><figcaption>四个模型并列参与不同任务；冻结与训练状态要分别计算显存。</figcaption></figure>
-<section class="reading-information"><p class="reading-information-title">图下说明</p><ul><li><span>PPO 训练时【同时要装下四个模型】：</span></li><li><span>策略模型 π （在训练，要梯度）</span></li><li><span>参考模型 π_SFT （冻结，算 KL）</span></li><li><span>奖励模型 RM （冻结，打分）</span></li><li><span>价值模型 Critic （在训练，要梯度）</span></li><li><span>⭐ 显存约为 SFT 阶段的 4 倍以上 —— 这是 RLHF 昂贵的直接原因</span></li></ul></section>
-<p><strong>几个关键的工程细节</strong>：</p>
+
+<p>图中上半是需要更新的策略与价值估计，下半是本轮冻结的参考与奖励模型。<strong>这是四种角色，不是规定四个同尺寸网络必须同时放在同一张卡上。</strong></p>
+<p>Critic 可以是单独的网络，也可以与策略共享一部分 backbone 加价值头；共享会改变梯度耦合和资源需求，不能一边声称共享，一边仍按两个完整副本算账。</p>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>细节</th>
-<th>说明</th>
+<th>本章采用的常见设置</th>
+<th>需要核对的边界</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>奖励只在最后一个 token 给</strong></td>
-<td>中间 token 的奖励只有 KL 项</td>
+<td><strong>奖励位置</strong></td>
+<td>整句 RM 分数放在回答末尾，中间 token 可加入 KL 惩罚</td>
+<td>过程奖励等方案可以在中途给分；padding 不能算成回答 token</td>
 </tr>
 <tr>
-<td><strong>Critic 通常和策略共享 backbone</strong></td>
-<td>加一个价值头，省显存</td>
+<td><strong>折扣 γ</strong></td>
+<td>有限回答任务常设 1</td>
+<td>表示不因答案较晚结束而额外折扣终局分数，不是因为所有文本回合都很短</td>
 </tr>
 <tr>
-<td><strong>γ 常设为 1.0</strong></td>
-<td>文本生成的回合很短，不需要折扣</td>
+<td><strong>优势估计</strong></td>
+<td>PPO 可用 GAE，λ=0.95 可作为一个实验起点</td>
+<td>不是规定值；要区分真实 EOS、外部截断与 rollout 边界，参见<a href="10-Actor-Critic.html">第 10 章</a></td>
 </tr>
 <tr>
-<td><strong>优势用 GAE</strong>（λ=0.95）</td>
-<td><a href="10-Actor-Critic.html">第 10 章</a></td>
+<td><strong>KL 系数 β</strong></td>
+<td>可以固定，也可以按目标 KL 自适应</td>
+<td>目标值、统计单位与调整规则都要记录，不能把 β 当成质量保证</td>
 </tr>
 <tr>
-<td><strong>KL 系数 β 可自适应</strong></td>
-<td>KL 超标就调大 β</td>
+<td><strong>冻结角色</strong></td>
+<td>参考模型与本轮 RM 不更新参数</td>
+<td>仍需权重和前向计算资源；分片、offload、量化会改变单卡峰值</td>
 </tr>
 </tbody>
 </table></div>
+<p>如果最大生成长度就是任务结束规则，应按该任务处理结束与评分；如果只是采样被外部截断，要明确是否继续估值。不要把“没有 EOS 的半句话”悄悄当成自然完成的整句来训练。</p>
 <hr />
 <h2 id="_5">🌱 六、变体与后续路线</h2>
+<p><strong>先分清：谁提供奖励，和用什么算法更新，是两条不同的轴。</strong></p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>方法</th>
-<th>关键区别</th>
+<th>路线</th>
+<th>改变了什么</th>
+<th>保留的风险或成本</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><strong>RLAIF</strong></td>
-<td>用 <strong>AI 代替人</strong>做偏好标注（Constitutional AI）→ 便宜、可扩展 ⭐</td>
+<td>用 AI 提供偏好反馈；Constitutional AI 是一条相关路线</td>
+<td>仍需人确定原则、抽查偏差，AI 判断也可能出错</td>
 </tr>
 <tr>
-<td><strong>DPO</strong> ⭐</td>
-<td><strong>完全跳过 RM 和 PPO</strong>，直接用偏好数据优化 → <a href="13-DPO与免RL对齐.html">第 13 章</a></td>
+<td><strong>DPO</strong></td>
+<td>在标准离线训练中，直接用偏好对更新策略，不必显式训练 RM，也不用 PPO</td>
+<td>依赖偏好数据覆盖；详见<a href="13-DPO与免RL对齐.html">第 13 章</a></td>
 </tr>
 <tr>
 <td><strong>GRPO</strong></td>
-<td>去掉 Critic，<strong>用一组采样的相对排名当优势</strong> → 省显存，DeepSeek 用它 ⭐</td>
+<td>用同一提示的一组回答构造相对反馈，省去独立 Critic</td>
+<td>仍要采样、评分和处理组内差异；不是简单只看名次</td>
 </tr>
 <tr>
 <td><strong>过程监督 PRM</strong></td>
-<td>给<strong>推理的每一步</strong>打分而不只是最终答案 → 数学/代码任务上明显更好 ⭐</td>
+<td>给推理步骤反馈，不只评价最终答案</td>
+<td>需要可靠步骤标注或评分器，分步方式与成本都会影响效果</td>
 </tr>
 <tr>
 <td><strong>RLVR</strong></td>
-<td>用<strong>可验证的奖励</strong>（代码能否跑通、数学答案对不对）→ <strong>没有奖励攻击问题</strong> ⭐</td>
+<td>用答案核验、测试用例等可验证信号作奖励</td>
+<td>验证器可能不完整、有错误或被利用；也有执行成本</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>🔑 <strong>RLVR 值得特别注意</strong>：
-当奖励是<strong>可自动验证的客观事实</strong>（单元测试通过、数学答案正确）时，
-<strong>奖励模型的所有问题都消失了</strong> —— 没有标注噪声、没有长度偏好、无法钻漏洞。
-<strong>这就是近年推理模型训练的主流方向。</strong></p>
-</blockquote>
+<p>Constitutional AI 同时包含监督和强化学习阶段，不只是把人工按钮换成 AI 按钮。<a href="https://arxiv.org/abs/2212.08073">原论文</a></p>
+<p>PRM 在 <em>Let's Verify Step by Step</em> 的 MATH 实验中优于其结果监督基线；这不是对所有数学、代码任务的保证。<a href="https://arxiv.org/abs/2305.20050">实验依据</a></p>
+<h3 id="rlhf-verifier-gap">RLVR 仍然要审查验证器</h3>
+<p><strong>可验证，意思是能自动执行一个检查；不等于这个检查覆盖了全部真实要求。</strong></p>
+<p>例如，任务要求“返回任意整数的平方”，训练奖励却只测试输入 2：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>候选实现</th>
+<th>输入 2 的训练测试</th>
+<th>另测输入 3</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>返回输入乘自身</td>
+<td>得到 4，通过</td>
+<td>得到 9，正确</td>
+</tr>
+<tr>
+<td>永远返回 4</td>
+<td>得到 4，也通过</td>
+<td>得到 4，错误</td>
+</tr>
+</tbody>
+</table></div>
+<p>这不是一条实测模型训练曲线，而是一个可以手算的反例：<strong>弱测试允许高奖励的坏解</strong>。还要防止答案解析漏洞、数据泄漏、测试环境被修改等问题；执行不可信代码时，需要隔离环境和权限边界。</p>
+<p>DeepSeek-R1-Zero 使用规则型正确性与格式奖励；这说明某些任务可以不用神经 RM，不说明规则无法被钻空子。DeepSeek-R1 的后续阶段还结合过不同类型的奖励。<a href="https://arxiv.org/html/2501.12948v1">R1 论文 第 2.2–2.3 节</a></p>
 <h3 id="grpo-critic">🧮 GRPO 展开：把 Critic 换成「同组同学的平均分」</h3>
-<p>表格里 GRPO 那一行值得单独展开 —— 因为<strong>跑 RLVR 的那个算法通常就是 GRPO</strong>（DeepSeek-R1 正是这个组合）。</p>
+<p><strong>GRPO 是一种更新算法，RLVR 是奖励来源；二者可以组合，但不能画等号。</strong> GRPO 也能使用学出来的 RM，PPO 也能使用规则奖励。</p>
 <h4 id="critic">组内优势：不训 Critic 也能算「比预期好多少」</h4>
-<p>先回忆 Critic 在干什么（<a href="10-Actor-Critic.html">第 10 章</a>）：<strong>它是一个基线</strong>，回答「这个状态本来大概能拿多少分」，
-用实际回报减掉它得到优势 A，<strong>目的是降方差</strong>。</p>
-<p>GRPO 的做法直接得多：</p>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>对同一个 prompt，采样 G 个回答（常见 G = 8 ~ 64）</p><p>逐个打分，得到 r₁ … r_G</p><p>⭐ 组内标准化，结果直接当优势用：</p><p>A_i = (r_i − mean(r)) / std(r)</p></div></section>
-<p>💡 <strong>为什么这样就能替代 Critic</strong>：优势的本质是「<strong>减掉一个与当前动作无关的基线</strong>」。
-Critic 是「学」出来的基线，组内均值是「采」出来的基线。
-⭐ 关键前提：这 G 个回答来自同一个 prompt，所以它们的"预期得分"确实是同一个数 —— 这个基线才合法。</p>
-<p>除以 std 是在拉平题目难度：简单题一组都在 0.9 附近、难题都在 0.1 附近，减完均值差异都只有 ±0.03；
-不除 std，梯度会被"难度适中"的那批 prompt 主导，除完之后每个 prompt 的贡献才相当。</p>
-<blockquote>
-<p>⚠️ <strong>一个必须处理的边界</strong>：一组回答<strong>全对或全错</strong>时 std = 0 → 优势全是 0（或除零成 NaN），<strong>这个 prompt 白采了 G 次</strong>。
-实现里要么加 eps，要么整组丢弃。⭐ 这条使 <strong>GRPO 对题目难度分布很敏感</strong>：题太简单或太难，大量组是"零梯度组"，采样算力全打水漂。</p>
-</blockquote>
+<p>回忆<a href="10-Actor-Critic.html">第 10 章</a>：Critic 估计从当前状态出发的回报，用于构造优势。GRPO 的结果奖励版本换了做法：<strong>对同一个 prompt 采样 G 个完整回答，把它们放在同一组比较。</strong></p>
+<p>先算组均值：</p>
+<p>$$\bar r=\frac1G\sum_{j=1}^{G}r_j$$</p>
+<p>再用组内标准差 <code>s_r</code> 缩放：</p>
+<p>$$\hat A_i=\frac{r_i-\bar r}{s_r+\epsilon_{num}}$$</p>
+<p><code>ε_num</code> 是防除零的小数，<strong>不是 PPO 的裁剪参数</strong>。采用总体标准差还是样本标准差、是否做这种缩放，都应与实现对应。本节小例子用总体标准差。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>回答</th>
+<th style="text-align: right;">奖励</th>
+<th style="text-align: right;">减去均值 0.5</th>
+<th style="text-align: right;">除以标准差 0.5（忽略很小的 ε_num）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0.5</td>
+<td style="text-align: right;">1</td>
+</tr>
+<tr>
+<td>B</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0.5</td>
+<td style="text-align: right;">1</td>
+</tr>
+<tr>
+<td>C</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">−0.5</td>
+<td style="text-align: right;">−1</td>
+</tr>
+<tr>
+<td>D</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">−0.5</td>
+<td style="text-align: right;">−1</td>
+</tr>
+</tbody>
+</table></div>
+<p>这给出了<strong>同组内比其他回答好还是差</strong>的训练信号。结果奖励版本把该回答的优势用于其各个回答 token；它不是逐 token 的真实优势值，也不表示“这题已达到某个绝对质量”。</p>
+<p><strong>除以标准差是在改变训练权重，不是自动公平地消除题目难度。</strong> 小标准差会放大细小分差与噪声；G、奖励分布和长度归一化都会影响不同提示的贡献。原始 GRPO 的定义见<a href="https://arxiv.org/html/2402.03300v3#S4.SS1">DeepSeekMath 第 4.1 节</a>。</p>
+<p><strong>边界：全组奖励相同时怎么办？</strong> 若全对或全错，分子全为 0，标准差也为 0；加正的 ε_num 后，任务优势为 0，直接相除则可能产生 NaN。此时没有组内任务奖励梯度，但若启用 KL 项，仍可能有 KL 更新。</p>
+<p>丢弃零差异组、补采样或调整题目分布都是可选策略；丢弃会改变训练看到的提示分布，不能当成不影响目标的免费修复。G 可以尝试 8、16、64 等配置，但没有适合所有模型与任务的固定范围。</p>
+<details>
+<summary>进阶核对：组均值为什么不能直接叫“与当前动作无关”</summary>
+<p>组均值包含本回答的奖励 <code>r_i</code>。改变本回答，均值也会改变，所以“来自同一个 prompt”<strong>不足以</strong>证明这个基线与当前回答无关。</p>
+<p>留一法（leave-one-out）先排除自己：</p>
+<p>$$b_{-i}=\frac1{G-1}\sum_{j\ne i}r_j$$</p>
+<p>含自身均值的中心化，满足：</p>
+<p>$$r_i-\bar r=\frac{G-1}{G}(r_i-b_{-i})$$</p>
+<p>若固定同一 prompt、各回答独立来自同一策略、奖励不依赖其他回答，在不加标准差缩放与 clip 的普通策略梯度中，含自身均值会把留一法的期望梯度缩为原来的 <code>(G−1)/G</code>。例如 G=2 时是二分之一。</p>
+<p>再除以依赖这组样本的标准差，影响就不再只是这个固定倍数。训练时通常还将已算出的优势作为常量使用，不沿奖励、均值或标准差反传。</p>
+<p>所以应把 GRPO 称为<strong>组相对的更新方法</strong>，不要偷换成“和动作独立的 Critic 完全等价、严格无偏”。留一法的设置可对照 <a href="https://arxiv.org/html/2402.14740v2#S2.SS3">RLOO 论文 第 2.3 节</a>。</p>
+</details>
 <h4 id="kl-ppo">KL 的位置和 PPO 不一样</h4>
+<p>这里比较的是<strong>常见的 PPO-RLHF 配方</strong>与<strong>原始 GRPO 配方</strong>，不是规定每个实现都必须这样放。</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th></th>
-<th><strong>PPO / 标准 RLHF</strong></th>
-<th><strong>GRPO</strong></th>
+<th>配方</th>
+<th>KL 放在哪里</th>
+<th>对优势的影响</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>KL 放在哪</td>
-<td><strong>进 reward</strong>：<code>r_total = RM分数 − β·KL</code></td>
-<td>⭐ <strong>直接加进损失函数</strong>，reward 里不含 KL</td>
+<td>常见 PPO-RLHF</td>
+<td>把采样的 log 概率比惩罚加入 token reward，再算回报和 GAE</td>
+<td>优势包含任务奖励与偏离代价</td>
 </tr>
 <tr>
-<td>后果</td>
-<td>KL 要经过 GAE、折扣、Critic 一路传播，被"搅拌"过一遍</td>
-<td><strong>优势 A 是纯粹的"这个回答好不好"</strong>，不掺"跑了多远"；KL 梯度直接落到每个 token</td>
+<td>原始 GRPO</td>
+<td>组内优势由任务奖励构造，KL 作为另一个损失项</td>
+<td>优势不掺 KL，但完整更新仍包含 KL 梯度</td>
 </tr>
 </tbody>
 </table></div>
-<p>$$L_{GRPO} \;=\; -\,\mathbb{E}\big[\text{裁剪过的策略比}\times\text{组内优势}\big] \;+\; \beta\, D_{KL}(\pi_\theta \,\|\, \pi_{ref})$$</p>
-<p>⭐ 而且它的 KL 估计式也不是朴素那个：$-\log(\pi_{ref}/\pi_\theta)$ 的<strong>单样本估计会取到负值</strong>、方差还大，GRPO 改用</p>
-<p>$$\hat D_{KL} = \frac{\pi_{ref}}{\pi_\theta} - \log\frac{\pi_{ref}}{\pi_\theta} - 1 \;\;\ge\; 0$$</p>
-<p><strong>恒非负、且仍然无偏</strong> —— 小改动，但让 KL 直接进损失时稳定得多。</p>
-<blockquote>
-<p>🔗 <strong>KL 散度本身</strong>（定义、为什么不对称、和交叉熵/最大似然的关系）在
-<a href="../机器学习的数学原理/01b-KL散度.html">数学原理 01b · KL 散度</a>。
-⭐ 那一章还解释了一件和本章直接相关的事：<strong>KL 惩罚是反向 KL，所以它拴得住模型别跑飞，却拦不住 mode collapse。</strong></p>
-</blockquote>
+<p>把一个 token 的策略比记为：</p>
+<p>$$\rho_{i,t}=\frac{\pi_\theta(y_{i,t}\mid s_{i,t})}{\pi_{old}(y_{i,t}\mid s_{i,t})}$$</p>
+<p>裁剪比值单独写：</p>
+<p>$$c_{i,t}=\operatorname{clip}(\rho_{i,t},1-\varepsilon,1+\varepsilon)$$</p>
+<p>每个 token 的目标项为：</p>
+<p>$$\ell_{i,t}=\min(\rho_{i,t}\hat A_i,c_{i,t}\hat A_i)$$</p>
+<p>最后，按所选规则对回答 token、回答与提示求平均：</p>
+<p>$$L_{GRPO}=-\operatorname{平均}(\ell_{i,t})+\beta\operatorname{平均}(\hat k_{i,t})$$</p>
+<p>这里 <code>s_i,t</code> 是提示加已生成前缀，旧策略负责本批采样，参考策略负责 KL。原始 GRPO 先对每个回答的有效 token 取平均，再对组与提示平均；换成全批 token 平均会改变长短回答的权重。</p>
+<p><strong>clip 不保证所有概率比始终在区间内，也不是对参考 KL 的硬约束。</strong> 在固定批次做多轮更新时，这两种距离都需另行监控。</p>
+<h3 id="rlhf-kl-estimator">非负 KL 样本值，不等于无条件无偏</h3>
+<p>先固定同一个前缀，把当前 token 分布记为 <code>p</code>，参考分布记为 <code>q</code>。对采到的 token <code>a</code>，定义：</p>
+<p>$$u(a)=\frac{q(a)}{p(a)}$$</p>
+<p>常见估计项是：</p>
+<p>$$\hat k(a)=u(a)-\log u(a)-1\ge0$$</p>
+<p>因为对正数 <code>u</code> 有 <code>log u≤u−1</code>，它的每个样本值非负。朴素的 <code>log(p/q)</code> 样本值可能为负；<strong>样本为负不等于真正的 KL 为负。</strong></p>
+<p>“它无偏”需要前提：<strong>token 确实来自当前分布 p，两分布在同一词表上均为正，概率和为 1。</strong> 这时：</p>
+<p>$$\mathbb E_{a\sim p}[u(a)-1]=0$$</p>
+<p>从而该项的期望等于 <code>D_KL(p‖q)</code>。这是估计<strong>数值</strong>的结论，不自动等于把固定样本送进自动微分就得到了正确的 KL 梯度。</p>
+<p>看一个只有两个 token 的核对：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>概率或统计量</th>
+<th style="text-align: right;">token A</th>
+<th style="text-align: right;">token B</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>当前 p</td>
+<td style="text-align: right;">0.8</td>
+<td style="text-align: right;">0.2</td>
+</tr>
+<tr>
+<td>参考 q</td>
+<td style="text-align: right;">0.5</td>
+<td style="text-align: right;">0.5</td>
+</tr>
+<tr>
+<td>非负样本项 k̂</td>
+<td style="text-align: right;">约 0.0950</td>
+<td style="text-align: right;">约 0.5837</td>
+</tr>
+</tbody>
+</table></div>
+<p>按 p 加权，得到约 <strong>0.1927</strong>，等于这个例子的真实 KL；若样本来自另一分布 <code>(0.5,0.5)</code> 而不校正，均值约 <strong>0.3394</strong>，就不是同一个数。</p>
+<p>GRPO 会复用旧策略生成的回答，更新后当前策略已不同；采样温度、top-p 截断也可能改变采样分布。此时不能省略重要性校正与梯度定义，照搬“恒非负，所以无偏且更稳定”的结论。方差是否更低也没有无条件保证。<a href="https://arxiv.org/html/2506.09477v1">估计与梯度的边界</a></p>
+<p>KL 的定义、方向及与交叉熵的关系，可回到<a href="../机器学习的数学原理/01b-KL散度.html">数学原理 01b</a>。在本章固定写 <code>D_KL(策略‖参考)</code>，避免仅靠“正向/反向”称呼猜测方向。</p>
 <h4 id="_6">省了多少：一笔显存账</h4>
-<p>去掉 Critic，省的不是"四分之一"，而是<strong>四个模型里最贵的那一类</strong> —— 一个<strong>要训练的</strong>、和策略同尺寸的模型。</p>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>每参数：要训练的 ≈ 16 字节（fp16 参数2 + 梯度2 + fp32 主权重4 + Adam m4 + v4）</p><p>冻结的 ≈ 2 字节 ⭐ 差 8 倍</p><p>7B 粗算（不含激活值与采样时的 KV Cache）：</p><p>PPO ：策略112 + Critic112 + 参考14 + RM14 ≈ 252 GB</p><p>GRPO：策略112 + 参考14 + RM14 ≈ 140 GB ⭐ 接近腰斩</p></div></section>
-<blockquote>
-<p>🔗 这些数字的来历见 <a href="../AI基础设施/03-显存与带宽墙.html">AI基础设施 03 · 显存与带宽墙</a>（16 字节/参数怎么拆出来的、7B → 112 GB 就是那条经验公式）；
-怎么把它省下来见 <a href="../AI基础设施/09-显存优化全家桶.html">09 · 显存优化全家桶</a>、<a href="../AI基础设施/11-ZeRO与FSDP.html">11 · ZeRO 与 FSDP</a>。</p>
-</blockquote>
-<h4 id="ppo-dpo-grpo">⚖️ PPO / DPO / GRPO 三方对比</h4>
+<p><strong>以下是明确假设下的静态存储算例，不是运行所需 GPU 显存承诺。</strong></p>
+<p>假设策略、独立 Critic、参考、RM 都有 70 亿参数；前两者全参数训练，后两者以 2 字节保存冻结权重。不共享权重、不分片、不 offload、不量化。</p>
+<div class="tw"><table data-audit-table="rlhf-memory-bytes" style="min-width:0;width:100%">
+<thead><tr><th>训练态的每参数存储</th><th>字节</th></tr></thead>
+<tbody>
+<tr><td>低精度参数</td><td>2</td></tr>
+<tr><td>低精度梯度</td><td>2</td></tr>
+<tr><td>FP32 主权重</td><td>4</td></tr>
+<tr><td>Adam 一阶状态 m</td><td>4</td></tr>
+<tr><td>Adam 二阶状态 v</td><td>4</td></tr>
+<tr><td><strong>合计</strong></td><td><strong>16</strong></td></tr>
+</tbody></table></div>
+
+<p>有些实现不保留这份 FP32 主权重，或用 FP32 梯度，所以不能把 16 当成所有训练系统固定配置。按本表，训练态约 112 GB，冻结态约 14 GB；这里 GB 是十进制 <code>10^9</code> 字节，不是 GiB。</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th></th>
-<th><strong>PPO</strong></th>
-<th><strong>DPO</strong></th>
-<th><strong>GRPO</strong></th>
+<th>方案</th>
+<th>本算例的组成</th>
+<th style="text-align: right;">静态总存储</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>要几个模型</strong></td>
-<td><strong>4 个</strong>（策略·Critic·参考·RM），<strong>2 个在训练</strong></td>
-<td><strong>2 个</strong>（策略·参考），1 个在训练</td>
-<td><strong>3 个</strong>（策略·参考·RM 或验证器），<strong>1 个在训练</strong></td>
+<td>PPO + 独立 Critic + RM</td>
+<td>112 + 112 + 14 + 14</td>
+<td style="text-align: right;">252 GB</td>
 </tr>
 <tr>
-<td><strong>优势从哪来</strong></td>
-<td>Critic 学出来的价值基线 + GAE</td>
-<td>不需要优势，直接对偏好对做分类</td>
-<td>⭐ 同一 prompt 采 G 个，<strong>组内均值当基线</strong></td>
+<td>GRPO + 神经 RM</td>
+<td>112 + 14 + 14</td>
+<td style="text-align: right;">140 GB</td>
 </tr>
 <tr>
-<td><strong>要不要在线采样</strong></td>
-<td>要</td>
-<td><strong>不要</strong>（吃离线偏好数据）</td>
-<td>要，而且<strong>一个 prompt 要采 G 次</strong></td>
-</tr>
-<tr>
-<td><strong>KL 在哪</strong></td>
-<td>加进 reward</td>
-<td>隐含在 β·log(π/π_ref) 里，是推导的出发点</td>
-<td><strong>直接加在损失上</strong></td>
-</tr>
-<tr>
-<td><strong>采样成本</strong></td>
-<td>1×</td>
-<td>0</td>
-<td>⚠️ <strong>G×</strong>（G 常取 8~64）</td>
-</tr>
-<tr>
-<td><strong>最适合</strong></td>
-<td>通用偏好对齐，且有人能调 RL</td>
-<td>偏好对齐，团队小、要快</td>
-<td>⭐ <strong>有可验证奖励的任务</strong>（数学、代码）</td>
-</tr>
-<tr>
-<td><strong>典型代表</strong></td>
-<td>InstructGPT / ChatGPT</td>
-<td>Zephyr 及大量开源对齐模型</td>
-<td><strong>DeepSeek-R1</strong></td>
+<td>GRPO + 规则验证器</td>
+<td>112 + 14，不计验证器自身资源</td>
+<td style="text-align: right;">126 GB</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>🔑 <strong>一句话选型</strong>：
-<strong>有现成偏好对、只想调风格和有帮助性 → DPO</strong>（<a href="13-DPO与免RL对齐.html">第 13 章</a>；先试拒绝采样更省）。
-<strong>答案能自动验证（单元测试跑通、数学答案对） → GRPO + RLVR</strong>：奖励免费、没有 RM 可钻，组内标准化还天然处理了"题目难度不一"。
-<strong>必须在线探索、而奖励只能靠 RM → PPO</strong>。</p>
-<p>💡 <strong>GRPO 省的是显存，花的是采样</strong>：G=16 意味着每一步要多生成 15 份回答。
-⭐ <strong>它把「训一个 Critic」的成本换成了「多采 15 份样本」的成本</strong> ——
-在推理吞吐便宜、而 Critic 又难训（长序列上的价值估计本来就很不准）的场景下，这笔交易划算。</p>
-</blockquote>
+<p>第二行比第一行少 112 GB，约省 <strong>44.4%</strong>；但这两行都<strong>没算激活、采样 KV cache、通信缓冲和临时张量</strong>。仅做相同配置 SFT 的静态训练状态为 112 GB，252/112=2.25，也直接说明“四角色，所以必定是 SFT 四倍”不成立。</p>
+<p>GRPO 省的是原配置中 Critic 的资源；如果本来共享 backbone 或用小 Critic，节省会不同。规则验证器是程序或工具，不应被算成一个同尺寸语言模型。</p>
+<p>数字口径见 <a href="../AI基础设施/03-显存与带宽墙.html">AI基础设施 03</a>；降低实际峰值的方法见 <a href="../AI基础设施/09-显存优化全家桶.html">09 · 显存优化</a>与 <a href="../AI基础设施/11-ZeRO与FSDP.html">11 · ZeRO / FSDP</a>。</p>
+<h4 id="ppo-dpo-grpo">⚖️ PPO / DPO / GRPO 三方对比</h4>
+<p><strong>先看数据与更新需求，再看设备预算；不要把算法名字当成固定采购清单。</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>比较项</th>
+<th>PPO-RLHF</th>
+<th>标准离线 DPO</th>
+<th>GRPO</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>主要角色</td>
+<td>策略、Critic、参考、RM；共享或分离由实现决定</td>
+<td>策略、参考；固定数据可预计算参考 log 概率</td>
+<td>策略、参考、奖励来源；没有独立 Critic</td>
+</tr>
+<tr>
+<td>优势/反馈</td>
+<td>价值估计与 GAE 构造优势</td>
+<td>直接拟合偏好对，不必计算优势</td>
+<td>同一提示的一组相对奖励</td>
+</tr>
+<tr>
+<td>训练中在线生成</td>
+<td>需要新的回答批次，每提示采几条可配置</td>
+<td>标准离线训练步骤不生成新回答；准备数据仍有成本</td>
+<td>每提示采 G 条，数量由实验配置</td>
+</tr>
+<tr>
+<td>参考约束</td>
+<td>常见做法是 reward 中加入 KL</td>
+<td>从 KL 正则化目标导出参考 log 概率比，β 参与损失</td>
+<td>原始方案直接在损失中加入 KL</td>
+</tr>
+<tr>
+<td>可作为起点的场景</td>
+<td>已有在线评分与价值训练方案</td>
+<td>已有可靠偏好对，先建立简单基线</td>
+<td>能给成组回答评分，希望省去 Critic</td>
+</tr>
+<tr>
+<td>论文实例</td>
+<td>InstructGPT；ChatGPT 是相关 RLHF 应用，不代表其历代内部配方都相同</td>
+<td><a href="https://arxiv.org/abs/2310.16944">Zephyr</a>等偏好训练实例</td>
+<td>DeepSeekMath、DeepSeek-R1</td>
+</tr>
+</tbody>
+</table></div>
+<p>DPO 的“离线”只描述标准训练环节，不等于整个数据获取、筛选和评估免费。若参考固定且数据固定，可以预计算它的 log 概率，不必每一步都常驻一个完整参考网络。</p>
+<p><strong>采样也不能直接写成 PPO=1×、GRPO=G×。</strong> 如果每批固定 64 个不同提示、每提示由 1 条改成 16 条，回答数确实从 64 变成 1024；但若每批固定 1024 条回答，则是在改变提示覆盖与分组方式，不是总回答数又乘 16。回答长度、吞吐和更新次数也影响耗时。</p>
+<h3 id="rlhf-method-choice">怎样开始选，而不是一次押对</h3>
+<ul>
+<li><strong>已有可靠偏好对</strong>：先做 SFT / 离线 DPO 基线；也可评估<a href="13-DPO与免RL对齐.html">第 13 章的拒绝采样</a>，但生成与筛选同样要计成本。</li>
+<li><strong>有可靠可验证奖励</strong>：可以试 GRPO + RLVR，也可以比较其他在线策略梯度方法；先审计验证器，再看学习收益。</li>
+<li><strong>需在线探索，奖励来自 RM</strong>：PPO 是选项，GRPO、RLOO 等也可以使用 RM，不是只能选 PPO。</li>
+<li><strong>还没有可信评估</strong>：先补评估与数据。算法更复杂，不能替代一个清楚的目标。</li>
+</ul>
+<p>GRPO 的资源权衡可以概括为：<strong>省 Critic，增加或重新分配组采样与评分工作。</strong> 是否划算，要按相同质量目标、总生成 token、训练耗时与峰值显存比较，不能仅凭 G=16 宣称“固定多付 15 倍”。</p>
 <hr />
 <h2 id="11">🧩 七、前 11 章的零件在这里的位置</h2>
 <div class="tw"><table>
@@ -608,49 +863,46 @@ Critic 是「学」出来的基线，组内均值是「采」出来的基线。
 <tr>
 <td>MDP 建模</td>
 <td><a href="02-MDP.html">02</a></td>
-<td>状态=已生成序列，动作=下一个 token</td>
+<td>一种 token 级建模：状态为提示加前缀，动作为下一个 token</td>
 </tr>
 <tr>
 <td>回报与折扣</td>
 <td><a href="03-价值函数与贝尔曼方程.html">03</a></td>
-<td>γ 通常设 1.0</td>
+<td>定义整句与中间奖励；有限回答任务可采用 γ=1</td>
 </tr>
 <tr>
 <td>价值函数</td>
 <td><a href="03-价值函数与贝尔曼方程.html">03</a></td>
-<td>Critic 头</td>
+<td>PPO 中的 Critic，不是所有偏好算法都有</td>
 </tr>
 <tr>
 <td>TD / GAE</td>
 <td><a href="05-蒙特卡洛与时序差分.html">05</a>、<a href="10-Actor-Critic.html">10</a></td>
-<td>优势估计</td>
+<td>用于构造优势，必须处理回答边界</td>
 </tr>
 <tr>
 <td>探索</td>
 <td><a href="07-探索与利用.html">07</a></td>
-<td>采样温度、熵</td>
+<td>温度、采样与熵等；更随机不等于必然更好</td>
 </tr>
 <tr>
 <td>策略梯度</td>
 <td><a href="09-策略梯度.html">09</a></td>
-<td>更新的基本形式</td>
+<td>在线更新的基本工具</td>
 </tr>
 <tr>
 <td>Actor-Critic</td>
 <td><a href="10-Actor-Critic.html">10</a></td>
-<td>整体架构</td>
+<td>PPO 配方中的策略与价值估计</td>
 </tr>
 <tr>
-<td><strong>PPO + KL</strong></td>
+<td>PPO + KL</td>
 <td><a href="11-PPO.html">11</a></td>
-<td><strong>优化算法</strong> ⭐</td>
+<td>新旧策略更新控制，与参考约束分别记账</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>🔑 <strong>这就是把 RL 放进这套教程的理由</strong>：
-<strong>RLHF 不是一个新算法，是前 11 章零件的一次组装。</strong></p>
-</blockquote>
+<p><strong>RLHF 是一种利用人类反馈的训练框架，不是与 PPO 并列的单一算法。</strong> 前面的零件在这里组合，但不是每个变体都必须保留全部零件。</p>
 <hr />
 <!--XREF-->
 <h2 id="_7">🔗 这一章连到哪里</h2>
@@ -664,77 +916,80 @@ Critic 是「学」出来的基线，组内均值是「采」出来的基线。
 <tbody>
 <tr>
 <td><a href="../大模型全景导论/04-训练三阶段.html">全景导论主线 4 · 它怎样从续写机变助手</a></td>
-<td>这一章在大模型全流程里的位置：预训练 → SFT → 你现在读的这步</td>
+<td>这一步在预训练、SFT 与偏好优化中的位置</td>
 </tr>
 <tr>
 <td><a href="../AI基础设施/11-ZeRO与FSDP.html">AI基础设施 11</a></td>
-<td>⭐ 第五节「工程现实」的解法：四个模型同时装进显存，靠的是 ZeRO 分片 + offload</td>
+<td>模型角色多时，怎样用分片、offload 等方法降低单卡负担</td>
 </tr>
 <tr>
 <td><a href="../模型上线之后/15-长期效应与代理指标.html">上线之后 15</a></td>
-<td>⭐ 奖励攻击不是 RL 独有的 —— 它就是古德哈特定律，代理指标被优化坏的通用形态</td>
+<td>奖励攻击与代理指标被过度优化的关系</td>
 </tr>
 <tr>
 <td><a href="../机器学习的数学原理/01b-KL散度.html">数学原理 01b · KL 散度</a></td>
-<td>⭐ <strong>本章反复在用的 KL 散度，定义在那里</strong>：它到底在量什么、为什么不对称，以及<strong>为什么 KL 惩罚拴得住模型不跑飞、却拦不住 mode collapse</strong></td>
+<td>KL 的定义与方向；它不是质量或多样性的保证</td>
 </tr>
 <tr>
 <td><a href="../AI基础设施/03-显存与带宽墙.html">AI基础设施 03 · 显存与带宽墙</a></td>
-<td>⭐ GRPO 那笔显存账的<strong>数字来历</strong>：训练态 16 字节/参数（fp32 主权重 4 + Adam m 4 + v 4 + BF16 参数 2 + 梯度 2）、冻结态 2 字节（BF16），以及 <code>训练显存 ≈ 16 × 参数量(B)</code> 那条经验公式（7B → 112 GB，正是上面「策略 112」的出处）</td>
+<td>核对训练态、冻结态、GB / GiB 与激活显存的口径</td>
 </tr>
 <tr>
 <td><a href="../AI基础设施/09-显存优化全家桶.html">AI基础设施 09</a></td>
-<td>省不动的时候还能怎么省：七件武器（梯度检查点、ZeRO、LoRA…）和 8-bit Adam 把优化器状态从 12 字节压到 4</td>
+<td>梯度检查点、ZeRO、LoRA 与低比特优化器分别省什么；不能混用其字节账</td>
 </tr>
 </tbody>
 </table></div>
 <hr />
 <h2 id="_8">✅ 检查点</h2>
 <ol>
-<li>为什么监督学习解决不了"对齐"？关键的转念是什么？</li>
-<li>RLHF 的三个阶段分别产出什么？</li>
-<li>奖励模型的损失函数是什么？它只关心什么？</li>
-<li>奖励模型的三个真实问题？哪个最本质？</li>
-<li>奖励攻击有哪些典型表现？</li>
-<li>三道防线是什么？实践中最有用的监控指标是什么？</li>
-<li>PPO 阶段要装几个模型？分别是什么？</li>
-<li>GRPO 相比标准 PPO 省了什么？</li>
-<li>GRPO 的组内优势怎么算？为什么"组内均值"可以当基线用？为什么还要除以 std？</li>
-<li>GRPO 的 KL 放在哪，和 PPO 有什么不同？这样做有什么好处？</li>
-<li>PPO / DPO / GRPO 各要几个模型、各要采几次样？什么时候该选哪个？</li>
-<li>RLVR 为什么能消除奖励攻击？</li>
+<li>SFT 已经能改善指令遵循，为什么还可能需要偏好反馈？</li>
+<li>经典 RLHF 三个阶段分别产出什么？第三阶段还会用到第一阶段的什么？</li>
+<li>奖励模型的损失关心分数差还是绝对值？两个分数同时加 100 会怎样？</li>
+<li>标注噪声、长度捷径、分布漂移分别是什么？70%–80% 是统一上限吗？</li>
+<li>回答变长是不是奖励攻击的充分证据？还要检查什么？</li>
+<li>三道防线是什么？为什么不能只用 KL 或 RM 分数决定质量？</li>
+<li>PPO 的四种角色是什么？为什么不能直接断言显存是 SFT 的四倍？</li>
+<li>GRPO 相比有独立 Critic 的 PPO 省了什么？252 GB 与 140 GB 的算例有哪些假设？</li>
+<li>组内优势怎样计算？组均值包含自己的奖励吗？全组同分时怎么办？</li>
+<li>原始 GRPO 的 KL 放在哪里？非负 KL 样本项什么时候无偏，什么时候不能直接这样说？</li>
+<li>PPO、DPO、GRPO 的模型角色与采样成本为什么不是固定倍数？怎样选起点？</li>
+<li>RLVR 为什么仍会遇到奖励漏洞？给一个验证器不完整的例子。</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>因为人类对"好回答"的判断<strong>说不清标准、和上下文强相关、写不出可微的评分函数</strong>。关键转念："让人写一个满分答案"很难很贵，"让人比较两个答案哪个好"容易便宜且一致性高。</li>
-<li>①<strong>SFT</strong>：产出会听指令的基础模型 ②奖励模型：产出能给回答打分的模型 ③PPO：产出对齐后的模型。</li>
-<li><strong>L = −log σ(r(win) − r(lose))</strong>（Bradley–Terry）。只关心分数的差，不关心绝对值——所以打出来的分没有绝对含义。</li>
-<li>①<strong>标注噪声</strong>（人类一致率仅 70~80%，是精度天花板）②长度偏好（标注者倾向选长的 → 模型变啰嗦）③分布漂移——最本质：RM 只在它见过的分布上准，PPO 优化越狠模型越跑到 RM 盲区，那里的分数不可信。</li>
-<li>回答越来越长、疯狂用列表和 Markdown、开头必说"这是个好问题"、过度谨慎什么都不敢答、在特定短语上过拟合。</li>
-<li>①<strong>KL 惩罚</strong>（拴在 SFT 附近）②盯 KL 散度早停 ③迭代式 RLHF（重新标注重训 RM）。最有用的监控：KL 散度 + 人工抽样评估——奖励分数上涨不代表模型变好。</li>
-<li><strong>四个</strong>：策略模型（训练）、参考模型 π_SFT（冻结，算 KL）、奖励模型（冻结，打分）、Critic（训练）。显存约 SFT 的 4 倍，这是 RLHF 昂贵的直接原因。</li>
-<li>省掉了 <strong>Critic</strong>——用一组采样的相对排名当优势。省的不是"四分之一"，而是四个模型里最贵的那一类：一个要训练的、和策略同尺寸的模型（训练态约 16 字节/参数，冻结态只要 2 字节，差 8 倍）。7B 粗算：PPO ≈ 252 GB → GRPO ≈ 140 GB，接近腰斩。DeepSeek-R1 用它。</li>
-<li><strong>A_i = (r_i − mean(r)) / std(r)</strong>：同一 prompt 采 G 个回答（常见 8~64），打分后做组内标准化。组内均值能当基线，是因为优势的本质就是"减掉一个与当前动作无关的基线"——Critic 是"学"出来的，组内均值是"采"出来的；前提是这 G 个回答来自同一个 prompt，预期得分才是同一个数。除以 std 是把不同难度的题拉到同一尺度（简单题都 0.9、难题都 0.1，减完均值差异都只有 ±0.03）。⚠️ 一组全对或全错时 std=0、优势全为 0，这个 prompt 白采 G 次——加 eps 或整组丢弃。</li>
-<li><strong>PPO 把 KL 加进 reward</strong>，GRPO 直接加在损失函数上。好处：①优势 A 是纯粹的"这个回答好不好"，不掺"跑了多远"，不用再过一遍 GAE/折扣/Critic ②KL 梯度直接落到每个 token。估计式用的是 π_ref/π_θ − log(π_ref/π_θ) − 1，恒非负且无偏（朴素的 −log(π_ref/π_θ) 单样本估计会取负值、方差还大）。</li>
-<li><strong>PPO 4 个模型（2 个在训练）、采样 1×</strong>；DPO 2 个（1 个在训练）、采样 0；GRPO 3 个（1 个在训练）、采样 G×。选型：调风格和有帮助性 → DPO；答案能自动验证（单测、数学）→ GRPO + RLVR；必须在线探索而奖励只能靠 RM → PPO。GRPO 省的是显存、花的是采样——把"训一个 Critic"换成了"多采 15 份样本"。</li>
-<li>因为奖励是<strong>可自动验证的客观事实</strong>（单元测试通过、数学答案正确），没有标注噪声、没有长度偏好、无法钻漏洞——奖励模型的所有问题都消失了。</li>
+<li>SFT 学示范并能泛化；偏好对额外提供候选间的取舍。不是“监督学习不能对齐”，RM 训练本身也是监督学习。</li>
+<li>SFT 得到策略起点；比较数据训出 RM；在线优化更新策略。第三步还用 SFT 初始化策略，并常以冻结 SFT 作参考。</li>
+<li>Bradley–Terry 损失为 −log σ(Δr)，关心同一提示下的分数差。共同加 100 不改变差与损失。</li>
+<li>人可能出错或有不同偏好；RM 可能用长度代替质量；新策略可能离开 RM 的训练分布。特定标注者的一致率不是模型的统一精度上限。</li>
+<li>不是。要看任务质量是否下降、代理奖励是否仍升高；长度、套话和格式只是线索。</li>
+<li>KL 惩罚、独立质量评估与早停、迭代补充反馈。KL 衡量规定口径下的偏离，RM 分数衡量代理目标，二者都不能单独证明回答更好。</li>
+<li>策略与 Critic 要训练，参考与本轮 RM 冻结。角色可以共享、分离、分片或卸载；激活、优化器和缓存不同，所以没有固定四倍关系。</li>
+<li>去掉独立 Critic 的训练资源。算例假设四角色都为 7B、不共享不分片，训练态 16 字节/参数、冻结态 2 字节/参数，并排除激活、KV cache 等。</li>
+<li>奖励减组均值，再按所选实现除以标准差加 ε_num。均值包含自身，不能直接称动作无关。全组同分时任务优势为 0；加 ε 可防 NaN，KL 仍可能更新，丢组会改变采样分布。</li>
+<li>原始 GRPO 直接把 KL 放进损失。u−log u−1 在 u&gt;0 时非负；其无偏数值结论要求当前策略采样与对应支持集条件，复用旧样本、截断采样或计算梯度时需另行分析。</li>
+<li>DPO 标准离线训练不新生成回答，但数据不免费；PPO 每提示也可采多条；GRPO 组数、组大小与总 token 都要计入。依数据、可信奖励和资源做小基线，不按算法名下定论。</li>
+<li>自动测试不等于完整规格。例如平方任务只测输入 2，永远返回 4 的坏程序也能拿满分；加测输入 3 才暴露错误。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_9">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>⭐ <strong>RLHF 解决的是「有些好你写不出评分函数」。</strong> ⭐ <strong>关键转念：让人写出满分答案又难又贵，让人比较两个答案哪个好则容易、便宜、一致性还高。</strong></p>
-<p>三阶段是 SFT、奖励模型、PPO。奖励模型只关心<strong>分数差</strong>不关心绝对值。它有三个问题：<strong>标注噪声就是精度天花板</strong>、⭐ <strong>长度偏好</strong>（标注者爱选长的，模型于是变啰嗦）、⭐ <strong>分布漂移</strong>——<strong>RM 只在见过的分布上准，而 PPO 优化越狠越往盲区跑，那里的分数不可信</strong>。💀 于是有奖励攻击：越来越长、疯狂用列表、开头必说套话、过度谨慎。</p>
-<p>三道防线里最该记的一条：⭐ <strong>盯 KL 散度而不是奖励分数来早停</strong>——<strong>奖励涨不代表模型变好。</strong></p>
-<p>⭐ <strong>工程现实：PPO 阶段要同时装四个模型，显存是 SFT 的几倍——这就是 RLHF 昂贵的直接原因。</strong></p>
-<p>⭐ <strong>变体里 RLVR 最重要</strong>：用可验证的奖励（单测通过、数学答案正确），<strong>奖励模型的全部问题一次性消失，也无法钻漏洞</strong>，这是近年推理模型训练的主流方向。</p>
-<p>⭐ <strong>GRPO 去掉 Critic 的道理</strong>：同一个 prompt 采一组回答，组内标准化直接当优势——<strong>优势的本质就是减掉一个与动作无关的基线，Critic 是「学」出来的，组内均值是「采」出来的</strong>。⭐ <strong>前提是这一组必须来自同一个 prompt</strong>，预期得分才是同一个数。⚠️ 一组全对或全错时标准差为零、优势全为零，<strong>这个 prompt 白采了一整组</strong>。</p>
-<p>⭐ <strong>KL 的位置也不同</strong>：PPO 把它加进奖励（要经优势估计搅拌），GRPO 直接加在损失上，<strong>于是优势是纯粹的「回答好不好」</strong>。</p>
-<p>选型：调风格和有帮助性用 DPO；答案能自动验证用 GRPO 加 RLVR；必须在线探索而奖励只能靠 RM 才用 PPO。💡 ⭐ <strong>GRPO 省的是显存、花的是采样——把「训一个 Critic」换成了「多采十几份样本」。</strong></p>
+<ul>
+<li><strong>RLHF 把比较变成反馈，再用反馈更新策略。</strong> SFT 与偏好训练可以互补。</li>
+<li><strong>奖励是代理，不是真理。</strong> 同时看独立质量、奖励与明确定义的 KL。</li>
+<li><strong>四种角色不等于四倍显存。</strong> 先写存储与训练假设，再算设备预算。</li>
+<li><strong>GRPO 省去独立 Critic，但要处理组采样、零差异组与估计前提。</strong></li>
+<li><strong>自动验证也会有漏洞。</strong> 选择算法之前，先检查奖励是否真的对应目标。</li>
+</ul>
 </blockquote>
-<p><strong>下一节</strong> 👉 <a href="13-DPO与免RL对齐.html">13-DPO与免RL对齐.md</a></p>
+<p><strong>下一节</strong> 👉 <a href="13-DPO与免RL对齐.html">13-DPO与免RL对齐.md</a></p></article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
+<button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">🤔 一、为什么需要它</a><a href="#_3">🏗️ 二、三个阶段</a><a href="#2">🏆 三、阶段 2：奖励模型怎么训</a><a href="#reward-hacking">💀 四、奖励攻击（Reward Hacking）</a><a href="#3">🔧 五、阶段 3 的工程现实</a><a href="#_5">🌱 六、变体与后续路线</a><a href="#11">🧩 七、前 11 章的零件在这里的位置</a><a href="#_7">🔗 这一章连到哪里</a><a href="#_8">✅ 检查点</a><a href="#_9">🛑 可以停在这里</a></nav>
+<button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
+<a href="index.html">回到本模块目录</a></div></aside></div>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="11-PPO.html"><div class="dir">← 上一节</div>✂️ 11 · PPO</a><a class="next" href="13-DPO与免RL对齐.html"><div class="dir">下一节 →</div>🪄 13 · DPO 与免 RL 对齐</a></nav>

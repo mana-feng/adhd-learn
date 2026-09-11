@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading topic-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -305,235 +305,314 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ul>
 </div>
 </details>
+<div class="ov-layout"><article class="ov-body"><!-- topic-reading -->
+
+<p><link rel="stylesheet" href="../assets/rl-formula-help.css"><script defer src="../assets/rl-formula-help.js"></script></p>
 <h1 id="13-dpo-rl">13 · DPO 与免 RL 对齐</h1>
 <p>⏱ <strong>26 分钟</strong> ｜ ⭐ <strong>"能不能不用 RL"</strong></p>
+<p>这是参考用时，不是倒计时。想先知道怎么选，可以直接去<a href="#dpo-vs-ppo">方案选择</a>；想亲手看损失怎样变化，去<a href="#dpo-code">可运行的小实验</a>。</p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>DPO 用已有的偏好对直接训练策略，不必单独拟合奖励模型再运行 PPO。</strong>它利用带 KL 正则目标与偏好模型之间的关系构造损失；不表示任意数据与训练设置下，DPO 和 PPO 的结果都相同。</p>
+<p>例如，同一个问题有两份回答，标注者觉得 A 比 B 好。DPO 读取这份比较，调整模型对 A、B 的相对偏好；它不是把 A 当成“唯一正确答案”。</p>
+<p>这一章回答三件事：<strong>它优化什么、它省掉什么、什么情况下值得选它。</strong></p>
 <hr />
 <h2 id="_2">💡 一、核心洞察</h2>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>RLHF 的目标（第 11、12 章）：</p><p>max E[r(x,y)] − β·KL(π ‖ π_ref)</p><p>↑ 奖励高 ↑ 别离参考模型太远</p></div></section>
-<p>对固定提示 x、给定奖励 r、β&gt;0，并且归一化常数有限时，在参考策略允许的支持范围内自由选择策略，可得到以下闭式最优解。参数化神经网络未必能精确达到它。</p>
-<p>$$\pi^*(y|x) = \frac{1}{Z(x)}\,\pi_{ref}(y|x)\,\exp\Big(\frac{1}{\beta}r(x,y)\Big)$$</p>
-<p>先看两个部分：参考策略给出原来的概率；指数项按奖励重新加权；Z(x) 再把总和归一化为 1。</p>
-<p>KL 的定义与归一化条件共同参与这个推导，不是只把对数比从式子里搬出来。原始推导见 <a href="https://arxiv.org/abs/2305.18290">DPO 论文</a>，基础概念见<a href="../机器学习的数学原理/01b-KL散度.html">数学原理 01b</a>。</p>
-<p>反向 KL 对偏离参考策略收取代价，<strong>不等于对模式集中零惩罚</strong>。最终多样性还取决于奖励、正则强度、数据与训练过程，不能单由方向下结论。</p>
-<p>把它反过来解出 r：</p>
-<p>$$r(x,y) = \beta\log\frac{\pi^*(y|x)}{\pi_{ref}(y|x)} + \beta\log Z(x)$$</p>
-<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⭐ 这一步是全部的关键：</span></div><div class="vb-flow-row"><span class="vb-flow-step">「奖励函数」可以用「最优策略和参考策略的对数比」表示出来</span></div><div class="vb-flow-row"><span class="vb-flow-step">也就是说，【策略本身就隐含了一个奖励模型】</span></div><div class="vb-flow-row"><span class="vb-flow-step">那还训练什么奖励模型？直接优化策略就行了 ⭐</span></div></div></section>
-<p><strong>代入 Bradley–Terry 损失</strong>（<a href="12-RLHF全流程.html">第 12 章</a>），那个讨厌的 $Z(x)$ <strong>正好抵消</strong>：</p>
-<p>$$L_{DPO} = -\log\sigma\Big(\beta\log\frac{\pi_\theta(y_w|x)}{\pi_{ref}(y_w|x)} - \beta\log\frac{\pi_\theta(y_l|x)}{\pi_{ref}(y_l|x)}\Big)$$</p>
-<p>💡 <strong>人话翻译</strong>：</p>
-<p>这条损失推动“偏好回答相对非偏好回答的对数概率差”，相对于参考策略变大；不保证两个回答的绝对概率一定一升一降。</p>
-<p>标准离线 DPO 在这一步使用已有偏好对，不需在线生成回答来计算该损失，也不需要单独的奖励模型或 PPO。偏好数据的收集仍可能包含生成与人工判断。</p>
-<hr />
-<h2 id="_3">🔨 二、实现有多简单</h2>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># DPO 的全部核心</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">dpo_loss</span><span class="p">(</span><span class="n">policy_logps</span><span class="p">,</span> <span class="n">ref_logps</span><span class="p">,</span> <span class="n">beta</span><span class="o">=</span><span class="mf">0.1</span><span class="p">):</span>
-    <span class="c1"># 每个都是 (chosen, rejected) 两项</span>
-    <span class="n">pi_logratio</span>  <span class="o">=</span> <span class="n">policy_logps</span><span class="o">.</span><span class="n">chosen</span> <span class="o">-</span> <span class="n">policy_logps</span><span class="o">.</span><span class="n">rejected</span>
-    <span class="n">ref_logratio</span> <span class="o">=</span> <span class="n">ref_logps</span><span class="o">.</span><span class="n">chosen</span>    <span class="o">-</span> <span class="n">ref_logps</span><span class="o">.</span><span class="n">rejected</span>
-    <span class="k">return</span> <span class="o">-</span><span class="n">F</span><span class="o">.</span><span class="n">logsigmoid</span><span class="p">(</span><span class="n">beta</span> <span class="o">*</span> <span class="p">(</span><span class="n">pi_logratio</span> <span class="o">-</span> <span class="n">ref_logratio</span><span class="p">))</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
-</code></pre></div>
-
-<p>对比一下工程复杂度：</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th></th>
-<th>RLHF (PPO)</th>
-<th><strong>DPO</strong></th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>需要的模型</td>
-<td><strong>4 个</strong>（策略/参考/RM/Critic）</td>
-<td><strong>2 个</strong>（策略/参考）⭐</td>
-</tr>
-<tr>
-<td>需要在线采样</td>
-<td>✅ 要</td>
-<td>❌ <strong>不用</strong> ⭐</td>
-</tr>
-<tr>
-<td>训练稳定性</td>
-<td>差，超参敏感</td>
-<td><strong>好，就是监督学习</strong></td>
-</tr>
-<tr>
-<td>显存</td>
-<td>高</td>
-<td><strong>约一半</strong></td>
-</tr>
-<tr>
-<td>实现难度</td>
-<td>高</td>
-<td><strong>几十行</strong></td>
-</tr>
-</tbody>
-</table></div>
+<h3 id="dpo-pair">1. 先把一条偏好数据看清楚</h3>
+<p>一条记录包含同一个提示 $x$、较受偏好的完整回答 $y_w$（chosen），以及较不受偏好的完整回答 $y_l$（rejected）。</p>
+<p>“较受偏好”只表示这次比较中的选择，不表示回答绝对正确。若 A、B 都答错，A 比 B 好也不能把 A 变成正确示范。</p>
+<p>我们用 $\pi_\theta$ 表示正在训练的策略，$\pi_{\mathrm{ref}}$ 表示冻结的参考策略。后者是这轮训练的比较基准，不跟着每个优化步一起更新。</p>
+<h3 id="dpo-kl-objective">2. 从“奖励高，但别偏离太多”出发</h3>
+<p>先固定一个提示 $x$。沿用<a href="12-RLHF全流程.html">第 12 章</a>的思想，考虑这个目标：</p>
+<p>$$J(\pi)=\mathbb{E}_{y\sim\pi(\cdot|x)}[r(x,y)]-\beta K(\pi)$$</p>
+<p>其中，当前策略与参考策略之间的反向 KL 为：</p>
+<p>$$K(\pi)=D_{\mathrm{KL}}\!\left(\pi(\cdot|x)\,\|\,\pi_{\mathrm{ref}}(\cdot|x)\right)$$</p>
+<p>第一项鼓励生成高奖励回答；第二项扣除偏离参考策略的代价。$\beta&gt;0$ 决定这项代价的权重。对不同提示再取平均，就得到训练分布上的目标。</p>
+<p><strong>这是正则化目标，不是保证 KL 永远低于某个阈值的硬约束。</strong>反向 KL 也不等于“集中到一个模式完全不付代价”；多样性还取决于奖励、数据和优化过程。</p>
+<h3 id="dpo-optimum">3. 为什么能把奖励换成概率？</h3>
+<p>在奖励 $r$ 固定、$\beta&gt;0$、归一化常数有限，而且允许在参考策略支持的回答范围内自由选择策略时，最优策略可以写成：</p>
+<p>$$\pi^*(y|x)=\frac{\pi_{\mathrm{ref}}(y|x)}{Z(x)}\exp\!\left(\frac{r(x,y)}{\beta}\right)$$</p>
+<p>读法分成三步：</p>
+<ol>
+<li><strong>参考概率</strong>给每个回答一个起点。</li>
+<li><strong>指数项</strong>按奖励重新加权。</li>
+<li><strong>$Z(x)$</strong>把这些权重归一化，让所有回答的概率加起来是 1。</li>
+</ol>
+<p>$Z(x)$ 就是上面所有“参考概率 × 指数项”的总和。这是理论上的最优解；有限数据、有限参数的神经网络不一定能精确达到它。</p>
+<p>对这条式子取对数、整理，可把奖励写回：</p>
+<p>$$r(x,y)=\beta\log\frac{\pi^*(y|x)}{\pi_{\mathrm{ref}}(y|x)}+\beta\log Z(x)$$</p>
+<p><strong>关键关系：奖励可以用策略相对参考策略的对数概率来表示。</strong>因此可以采用这种奖励参数化来拟合偏好，而不另建一个输出分数的 RM。</p>
+<p>这里不是“任何策略天然知道人类想要什么”。偏好数据仍然告诉模型该往哪调；理论转换也仍然依赖上述条件。推导依据见 <a href="https://arxiv.org/abs/2305.18290">DPO 原论文</a>的第 4 节与附录 A（<a href="https://arxiv.org/html/2305.18290v3">HTML 全文</a>）；KL 的基础读法见<a href="../机器学习的数学原理/01b-KL散度.html">数学原理 01b</a>。</p>
+<h3 id="dpo-loss">4. 损失只需算四个量</h3>
+<p>Bradley–Terry 模型用两个回答的奖励差来表示偏好概率。同一个提示下，两个 $\beta\log Z(x)$ 相减后抵消，不用真的枚举所有回答去计算它。</p>
+<p>先算当前策略对两个回答的对数概率差：</p>
+<p>$$d_\theta=\log\pi_\theta(y_w|x)-\log\pi_\theta(y_l|x)$$</p>
+<p>再算参考策略中同样的差：</p>
+<p>$$d_{\mathrm{ref}}=\log\pi_{\mathrm{ref}}(y_w|x)-\log\pi_{\mathrm{ref}}(y_l|x)$$</p>
+<p>用二者的差构造偏好间隔：</p>
+<p>$$m=\beta(d_\theta-d_{\mathrm{ref}})$$</p>
+<p>最后，单条偏好记录的损失是：</p>
+<p>$$\ell_{\mathrm{DPO}}=-\log\sigma(m)$$</p>
+<p>$\sigma$ 是 sigmoid，$\sigma(m)$ 是这个模型对“chosen 胜过 rejected”的偏好概率。它不是 chosen 这整段文字被生成的概率。整批训练的 $L_{\mathrm{DPO}}$ 是各条 $\ell_{\mathrm{DPO}}$ 的平均值。</p>
+<p><strong>看一个数字：</strong>当策略刚好等于参考策略，$m=0$，于是偏好概率为 0.5、损失约为 0.693。若其他条件不变，$m$ 增大，这条记录的损失会减小。</p>
+<p>训练会推动这个相对间隔改善，但共享参数下，不保证每一对、每一步都改善，更不保证 chosen 的绝对概率必然上升。</p>
+<h3 id="dpo-answer-logprob">5. “回答的 logprob”究竟算哪一段？</h3>
+<p>把完整回答拆成 token 后，它的对数概率是每一步对数概率的<strong>求和</strong>：</p>
+<p>$$\log\pi_\theta(y|x)=\sum_{t=1}^{T}\log\pi_\theta(y_t|x,y_{&lt;t})$$</p>
+<ul>
+<li>每一步都以提示 $x$ 和这个回答已经出现的前缀为条件；这是按已知回答计算概率，不是现场采样一份新回答。</li>
+<li>只对回答 token 计分，<strong>不把 prompt 和 padding 计入这个求和</strong>。</li>
+<li>本章以 EOS（结束标记）结束完整回答，EOS 也计分。真实聊天模板若用其他结束标记，要保持相同的完整回答边界，不能重复追加或漏掉结束符。</li>
+<li>chosen、rejected 使用同一个提示、同一套 tokenizer 和聊天模板；策略与参考模型也必须在相同的 token 序列上比较。</li>
+<li>太长而被截断的回答只是前缀，不再是原来那条完整回答。要记录截断规则并检查偏好是否仍成立，不能静默截掉决定优劣的结尾。</li>
+</ul>
+<p>标准 DPO 用求和；擅自改成“平均每个 token 的 logprob”会改变目标，不是无影响的代码简化。SimPO 的长度归一化属于后面介绍的另一种设计。作者实现中的<a href="https://github.com/eric-mitchell/direct-preference-optimization/blob/main/trainers.py">回答计分</a>和<a href="https://github.com/eric-mitchell/direct-preference-optimization/blob/main/preference_datasets.py">标签、EOS 处理</a>可用于对照。</p>
 <blockquote>
-<p>🔑 <strong>DPO 之所以影响巨大，是因为它把"需要 RL 专家才能调通"的东西
-变成了"会写监督学习就能跑"的东西。</strong></p>
+<p><strong>中途停靠：</strong>知道“算当前偏好差，再减去参考偏好差”已经够进入下一节。闭式解可以以后回来推，不必现在背完。</p>
 </blockquote>
 <hr />
-<h2 id="dpo">⚠️ 三、但 DPO 不是免费的</h2>
+<h2 id="_3">🔨 二、实现有多简单</h2>
+<h3 id="dpo-code">1. 在 CPU 上跑通一次损失与反向传播</h3>
+<p>这段只依赖 PyTorch，不下载语言模型，也不调用外部服务。它用一个小型“上一个 token 预测下一个 token”的概率表，演示<strong>回答求和、冻结参考、DPO 损失、反向传播和一次更新</strong>。</p>
+<p>两行数据共用提示 token 0、1。chosen 是“2、EOS”，rejected 是“3、4、EOS”；这里约定 EOS 为 5，尾部补齐位用 0。<code>-100</code> 是“不计入损失”的标签标记，不是词表里的 token。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">set_num_threads</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">set_default_dtype</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">answer_logps</span><span class="p">(</span><span class="n">logits</span><span class="p">,</span> <span class="n">labels</span><span class="p">):</span>
+    <span class="c1"># 第 t 个位置的 logits 预测第 t+1 个 token。</span>
+    <span class="n">targets</span> <span class="o">=</span> <span class="n">labels</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">:]</span>
+    <span class="n">mask</span> <span class="o">=</span> <span class="n">targets</span><span class="o">.</span><span class="n">ne</span><span class="p">(</span><span class="o">-</span><span class="mi">100</span><span class="p">)</span>
+    <span class="n">safe_targets</span> <span class="o">=</span> <span class="n">targets</span><span class="o">.</span><span class="n">masked_fill</span><span class="p">(</span><span class="o">~</span><span class="n">mask</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="n">token_logps</span> <span class="o">=</span> <span class="n">logits</span><span class="p">[:,</span> <span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">log_softmax</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span>
+        <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">safe_targets</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="c1"># ⭐ 只对回答（含 EOS）求和；不平均长度。</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">token_logps</span> <span class="o">*</span> <span class="n">mask</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">dpo_loss</span><span class="p">(</span><span class="n">policy_logps</span><span class="p">,</span> <span class="n">ref_logps</span><span class="p">,</span> <span class="n">beta</span><span class="o">=</span><span class="mf">0.1</span><span class="p">):</span>
+    <span class="c1"># 这份最小实验只有一对，顺序是 chosen、rejected。</span>
+    <span class="n">pi_logratio</span> <span class="o">=</span> <span class="n">policy_logps</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="n">policy_logps</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">ref_logratio</span> <span class="o">=</span> <span class="n">ref_logps</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="n">ref_logps</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="k">return</span> <span class="o">-</span><span class="n">F</span><span class="o">.</span><span class="n">logsigmoid</span><span class="p">(</span><span class="n">beta</span> <span class="o">*</span> <span class="p">(</span><span class="n">pi_logratio</span> <span class="o">-</span> <span class="n">ref_logratio</span><span class="p">))</span>
+
+<span class="n">tokens</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span>
+    <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span>
+    <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">],</span>
+<span class="p">])</span>
+<span class="n">labels</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span>
+    <span class="p">[</span><span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">],</span>
+    <span class="p">[</span><span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">],</span>
+<span class="p">])</span>
+<span class="c1"># 6 行分别表示“看到某个 token 后”的下一个 token logits。</span>
+<span class="n">policy</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="mi">6</span><span class="p">))</span>
+<span class="n">reference</span> <span class="o">=</span> <span class="n">policy</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span>  <span class="c1"># ⭐ 冻结，不是跟着 policy 更新。</span>
+<span class="n">optimizer</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">SGD</span><span class="p">([</span><span class="n">policy</span><span class="p">],</span> <span class="n">lr</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="n">ref_logps</span> <span class="o">=</span> <span class="n">answer_logps</span><span class="p">(</span><span class="n">reference</span><span class="p">[</span><span class="n">tokens</span><span class="p">],</span> <span class="n">labels</span><span class="p">)</span>
+
+<span class="n">before</span> <span class="o">=</span> <span class="n">dpo_loss</span><span class="p">(</span><span class="n">answer_logps</span><span class="p">(</span><span class="n">policy</span><span class="p">[</span><span class="n">tokens</span><span class="p">],</span> <span class="n">labels</span><span class="p">),</span> <span class="n">ref_logps</span><span class="p">)</span>
+<span class="n">optimizer</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+<span class="n">before</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="n">grad_norm</span> <span class="o">=</span> <span class="n">policy</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+<span class="k">assert</span> <span class="n">grad_norm</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">reference</span><span class="o">.</span><span class="n">grad</span> <span class="ow">is</span> <span class="kc">None</span>
+<span class="n">optimizer</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="n">after</span> <span class="o">=</span> <span class="n">dpo_loss</span><span class="p">(</span><span class="n">answer_logps</span><span class="p">(</span><span class="n">policy</span><span class="p">[</span><span class="n">tokens</span><span class="p">],</span> <span class="n">labels</span><span class="p">),</span> <span class="n">ref_logps</span><span class="p">)</span>
+
+<span class="k">assert</span> <span class="n">math</span><span class="o">.</span><span class="n">isclose</span><span class="p">(</span><span class="n">before</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span> <span class="n">math</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span> <span class="n">rel_tol</span><span class="o">=</span><span class="mf">1e-10</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">after</span> <span class="o">&lt;</span> <span class="n">before</span>
+<span class="k">assert</span> <span class="n">torch</span><span class="o">.</span><span class="n">equal</span><span class="p">(</span><span class="n">reference</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">reference</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;更新前损失: </span><span class="si">{</span><span class="n">before</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;梯度范数: </span><span class="si">{</span><span class="n">grad_norm</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;更新后损失: </span><span class="si">{</span><span class="n">after</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p><strong>先看这里：</strong>起点的两套概率完全一致，损失应为 $\log 2$；断言同时检查梯度确实存在、参考表未更新，以及这个特定例子的一步更新让损失下降。</p>
+<p>这段 CPU 小实验的实跑结果（保留 6 位小数）：</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>局限</th>
+<th>观察项</th>
+<th style="text-align: right;">数值</th>
 <th>说明</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>离线</strong> ⭐</td>
-<td>只能用<strong>固定的偏好数据集</strong>；PPO 能在训练中<strong>探索新回答</strong>并获得反馈</td>
+<td>更新前损失</td>
+<td style="text-align: right;">0.693147</td>
+<td>策略与参考相同，偏好间隔为 0</td>
 </tr>
 <tr>
-<td><strong>分布依赖</strong></td>
-<td>数据必须来自和当前模型接近的分布，否则效果差</td>
+<td>梯度范数</td>
+<td style="text-align: right;">0.106066</td>
+<td>确实发生了非零反向传播</td>
 </tr>
 <tr>
-<td><strong>容易过优化</strong></td>
-<td>β 太小会让模型剧烈偏离参考模型 ⭐</td>
-</tr>
-<tr>
-<td><strong>概率下降现象</strong> ⭐</td>
-<td><strong>训练中 chosen 的绝对概率常常也在下降</strong>——它只保证"相对差距"拉大</td>
-</tr>
-<tr>
-<td>对噪声敏感</td>
-<td>标注错误会被直接学进去（没有 RM 做平滑）</td>
+<td>更新后损失</td>
+<td style="text-align: right;">0.681952</td>
+<td>本例这一步改善了训练目标，不代表真实问答质量</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>💡 <strong>"概率下降"是 DPO 一个反直觉的真实现象</strong>：
-损失只约束 chosen 和 rejected 的<strong>相对</strong>对数比，
-<strong>完全允许两个都下降，只要 rejected 降得更多。</strong>
-后果是模型可能变得整体不自信、输出退化。
-<strong>这催生了一批加正则项的变体。</strong></p>
-</blockquote>
-<hr />
-<h2 id="dpo_1">🌿 四、DPO 的变体家族</h2>
+<p>真实 Transformer 需要用完整前缀预测，不能用这个只看上一个 token 的表替代。还要传入正确的 attention mask；padding 不计入损失，不代表它一定不会影响模型的注意力计算。</p>
+<p>多条偏好记录时，每一对分别得到一个损失，再对 batch 取平均。这个实验验证的是 DPO 核心与标签边界，<strong>不是完成语言模型对齐，更不是证明输出质量提高</strong>。</p>
+<h3 id="dpo-engineering">2. 省的是训练环节，不是固定一半的资源</h3>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>方法</th>
-<th>改了什么</th>
+<th>对比项</th>
+<th>PPO 式 RLHF</th>
+<th>标准离线 DPO</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>IPO</strong></td>
-<td>换损失形式，缓解 DPO 的<strong>过拟合到确定性策略</strong></td>
+<td>常见逻辑角色</td>
+<td>策略、参考、奖励模型、价值估计</td>
+<td>策略、参考；训练损失不另拟合 RM 或 Critic</td>
 </tr>
 <tr>
-<td><strong>KTO</strong> ⭐</td>
-<td><strong>不需要成对偏好</strong>，只要"这个回答好/不好"的二元标注 → <strong>数据便宜得多</strong></td>
+<td>当前训练步需要生成新回答吗</td>
+<td>通常要采样，再计算奖励和优势</td>
+<td>直接读取已有偏好对，计算其 logprob</td>
 </tr>
 <tr>
-<td><strong>ORPO</strong></td>
-<td>把 SFT 和对齐<strong>合成一步</strong>，<strong>不需要参考模型</strong> ⭐</td>
+<td>优化循环</td>
+<td>采样、奖励、优势、策略/价值更新等</td>
+<td>以偏好损失反向传播，工程环节较少</td>
 </tr>
 <tr>
-<td><strong>SimPO</strong></td>
-<td>用<strong>长度归一化</strong>的对数概率，<strong>去掉参考模型</strong>且缓解长度偏好 ⭐</td>
+<td>仍须调什么</td>
+<td>学习率、采样、PPO 与 KL 等设置</td>
+<td>学习率、$\beta$、batch、数据、长度与训练轮数</td>
 </tr>
 <tr>
-<td><strong>cDPO / rDPO</strong></td>
-<td>显式建模标注噪声</td>
+<td>资源怎样估计</td>
+<td>看角色是否共享参数、模型大小与采样开销</td>
+<td>看训练参数、激活、回答长度、参考计分与缓存</td>
 </tr>
 </tbody>
 </table></div>
+<p>“4 个角色变成 2 个角色”不等于显存恰好减半。PPO 的策略/价值网络可能共享底座；DPO 也要为 chosen 和 rejected 计算训练激活。冻结参考、预计算参考 logprob、LoRA、精度和并行方式都会改变资源账单。</p>
+<p>DPO 核心损失很短，但一套可信训练还包括数据清理、模板、掩码、检查点和评测。<strong>环节更少，是更容易开始的理由；不是“就是监督学习，所以保证稳定”。</strong></p>
+<hr />
+<h2 id="dpo">⚠️ 三、但 DPO 不是免费的</h2>
+<h3 id="dpo-coverage">1. 离线数据没有覆盖的地方，结论要保守</h3>
+<p>标准离线 DPO 在一轮训练中使用固定偏好数据。它不会自动去找尚未记录的新回答，也不会自动得到那些回答的优劣标签。</p>
+<p>这不要求数据必须恰好来自当前策略。其他模型或人工写出的回答也可以用；关键是提示与任务是否匹配、回答是否有可学习的支持，以及这些比较有没有覆盖要改善的行为。</p>
+<p>如果数据只比较“短句是否礼貌”，就不能仅凭训练损失下降断言模型已经更会写代码。可以补数据或重新采样形成下一轮偏好训练；这与“一直用最初那份离线数据”是不同的数据协议。</p>
+<h3 id="dpo-beta">2. $\beta$ 不是一个“偏移量旋钮”</h3>
+<p>在固定奖励的理想 KL 正则目标里，$\beta$ 控制偏离的代价。实际 DPO 中，$\beta$ 又出现在偏好间隔内，会一起改变损失和梯度。</p>
+<p>因此，“$\beta$ 较小”不能推出“这次有限步训练的 KL 一定更大”，更不能推出“一定过优化”。还要看学习率、训练步数、数据和模型参数共享。</p>
+<p>一个边界尤其容易混淆：<strong>把标准 DPO 损失中的 $\beta$ 直接设成 0，会让间隔恒为 0、损失恒为 $\log 2$，对策略的梯度也为 0。</strong>这不是 PPO 式 RLHF 中“去掉 KL 项继续最大化奖励”的操作。</p>
+<h3 id="dpo-probability-drop">3. chosen 概率下降，不等于已经退化</h3>
+<p>DPO 关心的是相对参考策略的偏好差，不要求每个 chosen 的绝对概率上升。看同一提示下的这个<strong>数学例子，不是训练实测曲线</strong>：</p>
+<div class="tw"><table data-audit-table="dpo-probability-shift" style="min-width:0;width:100%">
+<thead><tr><th>整段回答概率</th><th>参考/起点</th><th>某次更新后</th></tr></thead>
+<tbody>
+<tr><td>chosen</td><td>0.20</td><td>0.15</td></tr>
+<tr><td>rejected</td><td>0.10</td><td>0.03</td></tr>
+<tr><td>其余回答合计</td><td>0.70</td><td>0.82</td></tr>
+<tr><td>chosen / rejected</td><td>2</td><td>5</td></tr>
+</tbody></table></div>
+
+<p>两个指定回答的概率都降了，但概率比从 2 变成 5，$d_\theta-d_{\mathrm{ref}}=\log(5/2)&gt;0$。对任意固定 $\beta&gt;0$，这对数据的 DPO 损失比起点更小。</p>
+<p><strong>0.82 转去了哪些回答，才决定这种变化意味着什么。</strong>可能是其他合理表述，也可能是错误输出。只盯着某句 chosen 的概率，不能诊断整个模型“更不自信”或“输出退化”。</p>
+<p>要一起看留出提示上的偏好胜率、任务正确率、输出长度和实际样本。提高训练偏好间隔不是独立质量验收。</p>
+<h3 id="dpo-noise">4. 没有显式 RM，也仍然会学错</h3>
+<p>偏好标签可能有错误、冲突或长度偏见；反复拟合有限偏好对也可能过拟合。显式 RM 本身同样会受这些问题影响，不能说“有 RM 就自动平滑、没有 RM 就必然照单全收”。</p>
+<p>先按提示分组划分训练/验证集，检查重复样本与同题泄漏；再检查标注标准、长度分布和独立质量指标。需要时再考虑下面的噪声稳健目标，而不是把一个变体当成数据清洗的替代品。</p>
+<hr />
+<h2 id="dpo_1">🌿 四、DPO 的变体家族</h2>
+<p>这些名字不用一次背完。先看你遇到的是<strong>什么问题</strong>，再去看相应方法；它们不是一代代删除依赖、最终总有一个更好的统一路线。</p>
+<h3 id="dpo-ipo">换偏好目标：IPO</h3>
+<p><strong>IPO</strong> 在其理论框架下改变偏好优化目标，避免把确定性的成对标签无止境地推向极端间隔。它不是只删掉一个模型，也不能据此保证所有任务上都比 DPO 好。<a href="https://arxiv.org/abs/2310.12036">IPO 原论文</a></p>
+<h3 id="dpo-kto">换数据形式：KTO</h3>
+<p><strong>KTO</strong> 可以使用单个回答“可取 / 不可取”的二元反馈，不必每条都有 chosen–rejected 配对。它仍需要可靠标准；类别不平衡和反馈质量仍要处理。二元标签更易取得的场景可能降低成本，不是数据必然便宜很多。<a href="https://arxiv.org/abs/2402.01306">KTO 原论文</a></p>
+<h3 id="dpo-reference-free">去掉参考模型：ORPO 与 SimPO</h3>
+<ul>
+<li><strong>ORPO</strong> 把 SFT 的似然目标与基于 odds ratio 的偏好项结合，在同一训练目标中做指令学习和偏好优化；不需要独立参考模型。它不意味着“没有似然训练，只剩 DPO”。<a href="https://arxiv.org/abs/2403.07691">ORPO 原论文</a></li>
+<li><strong>SimPO</strong> 使用长度归一化的回答 logprob 作为隐式奖励，并加入目标间隔，不需要参考模型。归一化改变了长度的作用，但不是彻底消除所有长度偏见的保证。<a href="https://arxiv.org/abs/2405.14734">SimPO 原论文</a></li>
+</ul>
+<h3 id="dpo-noisy-variants">应对噪声：cDPO 与 rDPO</h3>
+<p><strong>cDPO</strong> 通过标签平滑，不把观察到的 chosen 当成百分之百可靠的赢家；作者实现用 <code>label_smoothing</code> 控制它。<a href="https://github.com/eric-mitchell/direct-preference-optimization/blob/main/trainers.py">DPO 作者实现</a></p>
+<p><strong>rDPO</strong> 针对随机偏好翻转构造去偏损失；其理论保证有翻转率、策略参数化和数据覆盖等条件。它不是“任意类型、任意比例的脏标签都能修复”。<a href="https://arxiv.org/abs/2403.00409">rDPO 原论文</a></p>
 <blockquote>
-<p>💡 <strong>注意这些变体的共同方向</strong>：
-<strong>越来越少的依赖</strong> —— 去掉 RM、去掉 Critic、去掉在线采样、去掉参考模型、去掉成对数据。</p>
+<p><strong>这里可以暂停：</strong>只需记住三个不同方向——换目标、换数据、减少模型依赖。不同方向可以解决不同瓶颈，不必把所有变体都试一遍。</p>
 </blockquote>
 <hr />
 <h2 id="dpo-vs-ppo">⚖️ 五、DPO vs PPO：到底该用哪个</h2>
-<section class="reading-information"><p class="reading-information-title">关键信息</p><ul><li><span>✅ 选 DPO：</span></li><li><span>已经有高质量的成对偏好数据</span></li><li><span>算力/显存有限</span></li><li><span>团队没有 RL 调参经验</span></li><li><span>想快速迭代</span></li><li><span>✅ 选 PPO（或 GRPO）：</span></li><li><span>需要【在线探索】（模型要发现训练数据里没有的好回答）⭐</span></li><li><span>奖励是【可验证的】（代码跑通、数学正确）⭐</span></li><li><span>追求最高上限</span></li><li><span>有算力和 RL 经验</span></li></ul></section>
-<blockquote>
-<p>🔑 <strong>一个当前的实践共识</strong>：
-<strong>偏好对齐（有帮助、无害、风格）→ DPO 类方法已经够好且便宜得多。</strong>
-<strong>推理能力提升（数学、代码）→ 必须用在线 RL</strong>，
-因为<strong>模型需要自己探索出正确的推理路径，这是离线数据里没有的</strong> ⭐</p>
-<p>🔗 这就是<a href="12-RLHF全流程.html">第 12 章</a>提到的 <strong>RLVR / GRPO</strong> 路线 ——
-近年推理模型的训练主力。</p>
-</blockquote>
+<h3 id="dpo-offline-choice">已有可靠偏好对，先建立离线基线</h3>
+<p>如果已经有相关任务的高质量成对数据，又希望先控制工程复杂度，DPO 是值得比较的基线。先与原 SFT 模型比较，再看它是否真正改善了留出提示上的目标行为。</p>
+<p>算力有限或缺少 RL 工程经验，是选择更简单起点的理由；不是“不做资源估算和评测”的理由。</p>
+<h3 id="dpo-online-choice">需要对新生成回答持续给分，考虑在线更新</h3>
+<p>如果模型要不断生成候选，而你有能对这些新回答给出有效反馈的 RM、人工或验证器，那么 PPO / GRPO 等在线方法可以把这条反馈回路纳入训练。</p>
+<p>这通常要求额外的采样预算、稳定的评估器和对奖励投机的检查。在线采样能发现候选，但不保证一定找到离线数据之外的好答案，也不保证最高上限。</p>
+<h3 id="dpo-reasoning">“数学、代码就必须在线 RL”不成立</h3>
+<p>有可验证奖励，让在线探索更有吸引力；<strong>它不是在线 RL 的必要性证明</strong>。高质量推理示范可以做 SFT，生成后筛选的正确解也可以用于再训练，已有好坏解答可以做偏好优化。</p>
+<p>例如 <a href="https://arxiv.org/abs/2203.14465">STaR</a> 通过生成、筛选与监督微调来改进推理，已经足以反驳“提升推理只能用 PPO/GRPO”。这也不等于 STaR、DPO 与在线 RL 的效果在所有任务上相同。</p>
+<p>所以应问：<strong>手上有什么反馈，缺的是覆盖、探索，还是数据质量？</strong>而不是用“偏好任务 / 推理任务”把方法一刀切。<a href="12-RLHF全流程.html">第 12 章的 RLVR / GRPO</a>介绍的是可选训练路线，不是 DPO 永远无法涉及的能力范围。</p>
+<h3 id="dpo-evaluation">比较之前，先固定评测口径</h3>
+<ol>
+<li><strong>分开训练与评价：</strong>留出提示，不用训练时同一套自动评分器的升分作为唯一证据。</li>
+<li><strong>固定生成设置：</strong>长度上限、采样参数、模板、测试问题一致；偏好比较随机化答案位置。</li>
+<li><strong>算清成本：</strong>既可报告对齐阶段，也可报告含 SFT、数据生成、RM 准备的端到端成本，但不能把两个口径混用。</li>
+<li><strong>一起报告不确定性与副作用：</strong>样本量、不同训练种子、长度变化、正确率与安全性，而不只报一个胜率。</li>
+</ol>
 <hr />
 <h2 id="rl">🧭 六、还有哪些"免 RL"的路线</h2>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>路线</th>
-<th>做法</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>拒绝采样 / Best-of-N 蒸馏</strong> ⭐</td>
-<td>采样 N 个回答，用 RM 挑最好的，<strong>再拿去做 SFT</strong> → 极简单且有效</td>
-</tr>
-<tr>
-<td><strong>Constitutional AI</strong></td>
-<td>用一套书面原则让 AI 自我批评并修改</td>
-</tr>
-<tr>
-<td><strong>上下文蒸馏</strong></td>
-<td>把长系统提示的效果蒸馏进权重</td>
-</tr>
-<tr>
-<td><strong>条件化训练</strong></td>
-<td>训练时给数据打质量标签，推理时要求"高质量"</td>
-</tr>
-</tbody>
-</table></div>
-<blockquote>
-<p>💡 <strong>拒绝采样值得特别提</strong>：它简单到几乎不需要新知识
-（采样 → 打分 → 挑最好的 → SFT），<strong>却经常能拿到 RLHF 大部分的收益</strong>。
-<strong>很多团队的实际做法是：先做拒绝采样，不够再上 DPO，最后才考虑 PPO。</strong></p>
-</blockquote>
+<p>这里的“免 RL”指<strong>不用 PPO 一类在线策略梯度更新</strong>，不意味着无需采样、反馈、算力或风险评估。下面也特意区分“其中一个阶段免 RL”和“整套方法免 RL”。</p>
+<h3 id="dpo-rejection">1. 拒绝采样 / Best-of-N 蒸馏</h3>
+<p>基本做法是：为提示生成若干候选，用 RM 或其他质量规则筛选，再把选中的回答当作 SFT 数据。可以按最高分选，也可以用阈值保留一组；需要明确自己的筛选规则。<a href="https://arxiv.org/abs/2304.06767">RAFT</a>是奖励筛选后微调的研究例子。</p>
+<p>它值得作为基线，是因为更新步骤熟悉、筛选结果可以直接查看。不是因为它保证拿到“RLHF 大部分收益”，也不是所有团队都必须按“拒绝采样 → DPO → PPO”升级。</p>
+<p><strong>区分两个位置：</strong>推理时生成 N 个再选最好的，不更新权重；把这些选中答案拿去训练，才是这里说的蒸馏。两者的生成成本和部署成本不同，RM 的偏见也可能被筛选放大。</p>
+<h3 id="dpo-constitutional">2. Constitutional AI：原始方法不全是免 RL</h3>
+<p>Constitutional AI 用书面原则指导 AI 的反馈。原始工作先让模型自我批评、修改回答，再用改好的回答做监督微调；这一部分可以不使用 RL。</p>
+<p>但原论文还包含<strong>根据 AI 偏好训练奖励模型，再进行 RLAIF</strong> 的阶段。因此不能把完整 Constitutional AI 简写成一种“纯免 RL 算法”。“反馈来自谁”和“用哪种优化方法”是两个不同问题。<a href="https://arxiv.org/abs/2212.08073">Constitutional AI 原论文</a></p>
+<h3 id="dpo-context-distillation">3. 上下文蒸馏</h3>
+<p>先让教师在较丰富的上下文中给出回答，再让学生在较简短的上下文下学习这些行为。它可以把一部分提示带来的行为差异转入参数，但不保证完整保留所有指令效果，也不能消除教师本来的错误。<a href="https://arxiv.org/html/2112.00861v3#S2.SS1">上下文蒸馏原始讨论</a></p>
+<h3 id="dpo-conditional">4. 条件化训练</h3>
+<p>把质量分或质量标签作为训练条件，让模型学习不同条件下的回答分布；推理时请求较高质量条件。它依赖质量信号和数据覆盖，“贴上高质量标签”本身不会创造正确内容。<a href="https://arxiv.org/abs/2302.08582">条件化训练研究</a></p>
 <hr />
 <h2 id="_4">🔗 和站内其他章的关系</h2>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>相关的地方</th>
-<th>这里的位置</th>
+<th>想补哪一块</th>
+<th>去哪里看</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><a href="11-PPO.html">第 11 章</a> KL 惩罚</td>
-<td><strong>DPO 推导的出发点</strong> ⭐</td>
+<td>PPO 更新与 KL 的区别</td>
+<td><a href="11-PPO.html">第 11 章</a>：PPO 的新旧策略比率不等于 DPO 的策略/参考比较</td>
 </tr>
 <tr>
-<td><a href="../机器学习的数学原理/01b-KL散度.html">数学原理 01b · KL 散度</a></td>
-<td>出发点的出发点。<strong>整章推导都建在 $\log\frac{\pi}{\pi_{ref}}$ 上，而那一项就是 KL 积分号里的东西</strong>——KL 在本教程被引用了六次却从没定义过，那一章补的就是这个 ⭐</td>
+<td>KL 为什么衡量分布差异</td>
+<td><a href="../机器学习的数学原理/01b-KL散度.html">数学原理 01b · KL 散度</a>：本章对数比的基础</td>
 </tr>
 <tr>
-<td><a href="12-RLHF全流程.html">第 12 章</a> Bradley–Terry 损失</td>
-<td>DPO 直接用了它</td>
+<td>偏好、Bradley–Terry 与奖励过优化</td>
+<td><a href="12-RLHF全流程.html">第 12 章</a>：没有显式 RM，也仍需独立质量评价</td>
 </tr>
 <tr>
-<td><a href="12-RLHF全流程.html">第 12 章</a> 奖励攻击</td>
-<td>DPO 没有 RM，但<strong>仍可能过优化</strong></td>
+<td>可验证奖励与 GRPO</td>
+<td><a href="12-RLHF全流程.html">第 12 章</a>：选择反馈回路，而不是把能力分成互不相通的两类</td>
 </tr>
 <tr>
-<td><a href="12-RLHF全流程.html">第 12 章</a> RLVR</td>
-<td>DPO 替代不了的那部分 ⭐</td>
-</tr>
-<tr>
-<td><a href="../大模型全景导论/12-对齐与AI安全.html">全景导论第 12 章</a></td>
 <td>对齐的全景</td>
+<td><a href="../大模型全景导论/12-对齐与AI安全.html">全景导论第 12 章</a></td>
 </tr>
 <tr>
-<td><a href="../大模型全景导论/04-训练三阶段.html">全景导论主线 4 · 它怎样从续写机变助手</a></td>
-<td>那一章把「RLHF → DPO → GRPO 三代方法」压成了一段缩写版，<strong>本章和第 12 章就是它承诺的展开版</strong>。想先看清 DPO 在整条训练链上的位置，回那里</td>
+<td>DPO 在训练链中的位置</td>
+<td><a href="../大模型全景导论/04-训练三阶段.html">全景导论主线 4 · 它怎样从续写机变助手</a>：先看 SFT、偏好对齐各自解决什么问题</td>
 </tr>
 </tbody>
 </table></div>
@@ -541,33 +620,37 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h2 id="_5">✅ 检查点</h2>
 <ol>
 <li>DPO 的核心洞察是什么？用一句话说。</li>
-<li>那个闭式最优解反过来说明了什么？</li>
-<li>DPO 损失里那个讨厌的 Z(x) 去哪了？</li>
-<li>DPO 相比 PPO 省掉了哪些东西？</li>
-<li>"概率下降现象"是什么？为什么会发生？</li>
-<li>KTO、ORPO、SimPO 各去掉了什么依赖？</li>
-<li>什么情况下必须用 PPO/GRPO 而不能用 DPO？为什么？</li>
-<li>拒绝采样为什么值得先试？</li>
+<li>闭式最优解在什么条件下成立，它反过来说明了什么？</li>
+<li>DPO 损失里的 $Z(x)$ 去哪了？</li>
+<li>DPO 相比 PPO 式 RLHF 省掉哪些环节？能否据此说显存减半？</li>
+<li>chosen 的绝对概率下降，为什么还能让这对数据的损失改善？这能否单独证明输出退化？</li>
+<li>KTO、ORPO、SimPO 各改变了什么依赖或目标？</li>
+<li>什么需求让在线 PPO/GRPO 更值得考虑？“提升推理必须在线 RL”对吗？</li>
+<li>拒绝采样为什么值得作为基线？Constitutional AI 为什么不能整体归为免 RL？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>策略本身就隐含了一个奖励模型</strong>——所以不需要单独训 RM，直接优化策略即可。</li>
-<li>带 KL 约束的 RLHF 目标有闭式解 π<em> ∝ π_ref·exp(r/β)，</em><em>反解出 r = β·log(π</em>/π_ref) + β·logZ(x)**，即奖励函数可以用"最优策略和参考策略的对数比"表示。</li>
-<li>代入 <strong>Bradley–Terry 损失</strong>（只关心两个回答的分数差）时，Z(x) 只依赖 x，在相减时正好抵消。</li>
-<li>省掉了<strong>奖励模型、Critic、在线采样、PPO 的全部超参</strong>。模型从 4 个降到 2 个，显存约一半，实现只要几十行。</li>
-<li><strong>训练中 chosen 的绝对概率常常也在下降</strong>。因为损失只约束 chosen 和 rejected 的相对对数比，完全允许两个都降，只要 rejected 降得更多。后果是模型整体不自信、输出退化。</li>
-<li><strong>KTO</strong> 去掉成对偏好（只要二元的好/不好标注）；ORPO 去掉参考模型（并把 SFT 和对齐合成一步）；SimPO 去掉参考模型并用长度归一化缓解长度偏好。</li>
-<li>当需要<strong>在线探索</strong>、或奖励是可验证的（代码跑通、数学正确）时。因为模型需要自己探索出正确的推理路径，而这在离线偏好数据里根本不存在。</li>
-<li>因为它简单到几乎不需要新知识（采样 N 个 → RM 打分 → 挑最好的 → SFT），<strong>却经常能拿到 RLHF 大部分的收益</strong>。实践顺序通常是：拒绝采样 → 不够再上 DPO → 最后才考虑 PPO。</li>
+<li>把带 KL 正则的奖励—最优策略关系代入偏好模型，得到可直接训练策略的损失；不需要另拟合显式 RM 再运行 PPO。</li>
+<li>固定提示与奖励、$\beta&gt;0$、归一化有限，并在参考策略支持内自由选择策略时，$\pi^*$ 与参考概率乘奖励指数成正比。反解得到“策略/参考的对数比加一个只依赖提示的常数”；参数化神经网络未必达到理想解。</li>
+<li>chosen 与 rejected 对应同一个提示，在 Bradley–Terry 的奖励差里，两个 $\beta\log Z(x)$ 抵消。</li>
+<li>标准离线 DPO 的训练损失不用显式 RM、Critic、在线 rollout 和 PPO 更新环节；偏好数据生成、参考计分与评测仍有成本。角色数不是显存比例。</li>
+<li>它的目标允许 chosen、rejected 都下降，只要相对参考的偏好差改善。例子中概率比从 2 变成 5；新增概率去了好答案还是坏答案，需要另外检查。</li>
+<li>KTO 使用单回答二元反馈；ORPO 将 SFT 与 odds-ratio 偏好项结合并去掉参考模型；SimPO 使用长度归一化 logprob 与目标间隔，并去掉参考模型。</li>
+<li>希望对新生成候选持续获取有效反馈并更新，且有预算和可靠评分时，值得考虑在线方法。推理也可以通过示范、筛选再训练或离线偏好优化改善，没有“必须在线 RL”的一般结论。</li>
+<li>筛选后 SFT 的步骤容易检查，但收益取决于候选覆盖和筛选质量。原始 Constitutional AI 同时包含监督微调和 RLAIF，不是整套免 RL。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_6">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
-<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>DPO 用偏好对调整策略与参考策略的相对概率，不需要沿用完整 PPO 流程。</li><li>离线偏好数据有覆盖范围，目标改善不保证每个好回答的绝对概率都上升。</li><li>按数据、验证方式和探索需求选择方案，持续检查过优化与分布变化。</li></ul></section>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>DPO 直接学习偏好对，但比较的是相对参考策略的完整回答 logprob 差。</li><li>工程环节更少，不等于显存必减半、训练必稳定或质量必改善。</li><li>chosen 概率与训练损失只是局部信号，最终要看留出问题上的实际回答。</li><li>按数据、反馈与探索需求选方法；推理任务没有“必须在线 RL”的通用规定。</li></ul></section>
 
-<p><strong>下一节</strong> 👉 <a href="14-RL在推荐与智能体里.html">14-RL在推荐与智能体里.md</a></p>
+<p><strong>下一节</strong> 👉 <a href="14-RL在推荐与智能体里.html">14-RL在推荐与智能体里.md</a></p></article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
+<button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">💡 一、核心洞察</a><a href="#_3">🔨 二、实现有多简单</a><a href="#dpo">⚠️ 三、但 DPO 不是免费的</a><a href="#dpo_1">🌿 四、DPO 的变体家族</a><a href="#dpo-vs-ppo">⚖️ 五、DPO vs PPO：到底该用哪个</a><a href="#rl">🧭 六、还有哪些&quot;免 RL&quot;的路线</a><a href="#_4">🔗 和站内其他章的关系</a><a href="#_5">✅ 检查点</a><a href="#_6">🛑 可以停在这里</a></nav>
+<button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
+<a href="index.html">回到本模块目录</a></div></aside></div>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="12-RLHF全流程.html"><div class="dir">← 上一节</div>🤖 12 · RLHF 全流程</a><a class="next" href="14-RL在推荐与智能体里.html"><div class="dir">下一节 →</div>🔌 14 · RL 在推荐与智能体里</a></nav>
