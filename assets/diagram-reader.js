@@ -4,7 +4,30 @@
 
   function addStyles() {
     var style = document.createElement("style");
-    style.textContent = "figure.dia{position:relative}.diagram-tools{position:absolute;z-index:2;width:44px;height:44px;display:grid;place-items:center}.diagram-expand{position:relative;isolation:isolate;width:44px;height:44px;border:0;padding:0;display:grid;place-items:center;background:transparent;color:var(--muted,#7b6558);font:inherit;cursor:pointer;transition:color 180ms ease}.diagram-expand::before{content:\"\";position:absolute;z-index:0;width:30px;height:30px;border:1px solid rgba(128,100,82,.22);border-radius:50%;background:rgba(255,253,249,.88);box-shadow:0 2px 9px rgba(75,54,38,.09);transition:background 180ms ease,border-color 180ms ease,box-shadow 180ms ease}.diagram-expand svg{position:relative;z-index:1;width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}.diagram-expand:hover{color:#b95e3c}.diagram-expand:hover::before{background:#fff9f5;border-color:rgba(194,98,62,.42);box-shadow:0 4px 12px rgba(125,70,43,.14)}.diagram-zoom,.diagram-close{min-height:44px;border:1px solid var(--border,#d9e0ea);background:var(--card,#fff);color:var(--fg,#172033);font:inherit;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(25,38,60,.16)}.diagram-zoom:hover,.diagram-close:hover{background:var(--quote-bg,#f2f5f8)}.diagram-expand:focus-visible,.diagram-zoom:focus-visible,.diagram-close:focus-visible,.diagram-reader-stage:focus-visible{outline:3px solid #c8724e;outline-offset:3px}#diagram-reader{width:min(1120px,calc(100% - 24px));height:fit-content;max-height:calc(100% - 24px);border:1px solid var(--border,#d9e0ea);border-radius:16px;padding:0;background:var(--card,#fff);color:var(--fg,#172033);box-shadow:0 20px 65px rgba(0,0,0,.3)}#diagram-reader::backdrop{background:rgba(20,28,42,.52)}.diagram-reader-sheet{height:auto;max-height:calc(100dvh - 40px);display:flex;flex-direction:column;padding:18px}.diagram-reader-head{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.diagram-reader-title{margin:0;font-size:1.1em;line-height:1.35}.diagram-reader-actions{display:flex;align-items:center;gap:7px}.diagram-zoom{min-width:44px;border-radius:9px;padding:8px}.diagram-close{min-width:44px;border-radius:9px;padding:8px;font-size:1.25em}.diagram-reader-stage{flex:0 1 auto;min-height:0;overflow:auto;border:1px solid var(--border,#d9e0ea);border-radius:10px;background:var(--quote-bg,#f4f7fb);padding:16px}.diagram-reader-stage svg{display:block;width:calc(100% * var(--diagram-zoom,1));min-width:0;max-width:none;height:auto;margin:0 auto}.diagram-reader-stage svg text{paint-order:stroke;stroke:var(--card,#fff);stroke-width:.7px;stroke-linejoin:round}@media(max-width:640px){.diagram-reader-sheet{padding:12px}.diagram-reader-stage{padding:10px}.diagram-reader-title{font-size:1em}.diagram-reader-stage svg{min-width:0}}";
+    style.textContent = [
+      "figure.dia{position:relative}",
+      ".diagram-tools{position:absolute;z-index:2;width:44px;height:44px;display:grid;place-items:center}",
+      ".diagram-expand{position:relative;isolation:isolate;width:44px;height:44px;border:0;padding:0;display:grid;place-items:center;background:transparent;color:var(--muted,#7b6558);font:inherit;cursor:pointer;transition:color 180ms ease}",
+      ".diagram-expand::before{content:\"\";position:absolute;z-index:0;width:30px;height:30px;border:1px solid rgba(128,100,82,.22);border-radius:50%;background:rgba(255,253,249,.88);box-shadow:0 2px 9px rgba(75,54,38,.09);transition:background 180ms ease,border-color 180ms ease,box-shadow 180ms ease}",
+      ".diagram-expand svg{position:relative;z-index:1;width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}",
+      ".diagram-expand:hover{color:#b95e3c}.diagram-expand:hover::before{background:#fff9f5;border-color:rgba(194,98,62,.42);box-shadow:0 4px 12px rgba(125,70,43,.14)}",
+      ".diagram-zoom,.diagram-close{min-height:44px;border:1px solid var(--border,#d9e0ea);background:var(--card,#fff);color:var(--fg,#172033);font:inherit;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(25,38,60,.16)}",
+      ".diagram-zoom:hover,.diagram-close:hover{background:var(--quote-bg,#f2f5f8)}",
+      ".diagram-expand:focus-visible,.diagram-zoom:focus-visible,.diagram-close:focus-visible,.diagram-reader-stage:focus-visible{outline:3px solid #c8724e;outline-offset:3px}",
+      "#diagram-reader{box-sizing:border-box;width:min(1120px,calc(100% - 24px));height:fit-content;max-height:calc(100dvh - 24px);border:1px solid var(--border,#d9e0ea);border-radius:16px;padding:0;overflow:hidden;background:var(--card,#fff);color:var(--fg,#172033);box-shadow:0 20px 65px rgba(0,0,0,.3)}",
+      "#diagram-reader::backdrop{background:rgba(20,28,42,.52)}",
+      ".diagram-reader-sheet{box-sizing:border-box;max-height:calc(100dvh - 28px);display:flex;flex-direction:column;padding:18px}",
+      ".diagram-reader-head{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}",
+      ".diagram-reader-title{margin:0;font-size:1.1em;line-height:1.35;min-width:0}",
+      ".diagram-reader-actions{display:flex;flex-shrink:0;align-items:center;gap:7px}",
+      ".diagram-zoom{min-width:44px;border-radius:9px;padding:8px}.diagram-close{min-width:44px;border-radius:9px;padding:8px;font-size:1.25em}",
+      ".diagram-reader-help{flex-shrink:0;margin:0 0 12px;font-size:.85em;line-height:1.5;color:var(--muted,#7b6558)}",
+      ".diagram-reader-stage{flex:0 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;border:1px solid var(--border,#d9e0ea);border-radius:10px;background:var(--quote-bg,#f4f7fb);padding:16px}",
+      ".diagram-reader-stage svg{display:block;width:calc(var(--diagram-base-width,760px) * var(--diagram-zoom,1));min-width:0;max-width:none;height:auto;margin:0}",
+      ".diagram-reader-stage svg text{paint-order:stroke;stroke:var(--card,#fff);stroke-width:.7px;stroke-linejoin:round}",
+      ".diagram-reader-caption{max-width:65ch;margin:20px 0 0;font-size:.9em;line-height:1.8;overflow-wrap:anywhere}",
+      "@media(max-width:640px){.diagram-reader-sheet{padding:12px}.diagram-reader-stage{padding:10px}.diagram-reader-title{font-size:1em}.diagram-reader-head{align-items:flex-start;flex-wrap:wrap;gap:8px}.diagram-reader-actions{margin-left:auto}}"
+    ].join("");
     document.head.appendChild(style);
   }
 
@@ -32,25 +55,76 @@
     stage.setAttribute("role", "region");
     stage.setAttribute("aria-label", "图示；放大后可左右滑动，或聚焦后用方向键移动");
     var help = document.createElement("p");
-    help.textContent = "点 ＋ 看细节；放大后可左右滑动。键盘可 Tab 到图示，再用方向键移动。";
-    help.style.cssText = "flex-shrink:0;margin:0 0 12px;font-size:.85em;line-height:1.5;color:var(--muted,#7b6558)";
+    help.className = "diagram-reader-help";
+    help.textContent = "按原图尺寸读细节；点 − 看更大范围。可滑动图示，或 Tab 到图示后用方向键、Home / End 移动。";
     stage.before(help);
+    stage.addEventListener("keydown", function (event) {
+      if (event.target !== stage || event.altKey || event.metaKey || event.ctrlKey) return;
+      var x = stage.scrollLeft, y = stage.scrollTop;
+      var page = Math.max(40, stage.clientHeight * 0.85);
+      switch (event.key) {
+        case "ArrowLeft": x -= 60; break;
+        case "ArrowRight": x += 60; break;
+        case "ArrowUp": y -= 60; break;
+        case "ArrowDown": y += 60; break;
+        case "PageUp": y -= page; break;
+        case "PageDown": y += page; break;
+        case "Home": x = 0; y = 0; break;
+        case "End": x = stage.scrollWidth; y = stage.scrollHeight; break;
+        case " ": y += event.shiftKey ? -page : page; break;
+        default: return;
+      }
+      // Do not let a non-overflowing axis hand keyboard scrolling to the page.
+      event.preventDefault();
+      stage.scrollTo({left: x, top: y, behavior: "instant"});
+    });
+    dialog.addEventListener("close", function () {
+      var saved = dialog._readingPosition;
+      if (!saved) return;
+      dialog._readingPosition = null;
+      document.documentElement.style.overflow = saved.overflow;
+      document.documentElement.style.scrollbarGutter = saved.gutter;
+      if (saved.trigger && saved.trigger.isConnected) saved.trigger.focus({preventScroll: true});
+      window.scrollTo({left: saved.x, top: saved.y, behavior: "instant"});
+    });
     return dialog;
-  }
-
-  function titleFor(figure) {
-    var caption = figure.querySelector("figcaption");
-    return caption ? caption.textContent.trim().slice(0, 70) : (figure.querySelector("svg").getAttribute("aria-label") || "图示放大阅读");
   }
 
   function openDialog(dialog, figure) {
     var stage = dialog.querySelector("#diagram-reader-stage");
-    var clone = figure.querySelector("svg").cloneNode(true);
+    var original = figure.querySelector("svg");
+    var clone = original.cloneNode(true);
     stage.replaceChildren(clone);
+    var caption = figure.querySelector("figcaption");
+    if (caption && caption.textContent.trim()) {
+      var explanation = document.createElement("p");
+      explanation.className = "diagram-reader-caption";
+      explanation.textContent = caption.textContent.trim();
+      stage.appendChild(explanation);
+    }
     stage.style.setProperty("--diagram-zoom", "1");
-    dialog.querySelector("#diagram-reader-title").textContent = titleFor(figure);
+    dialog.querySelector("#diagram-reader-title").textContent = "图示放大阅读";
+    // Cancel a pending smooth anchor scroll before saving the reading position.
+    window.scrollTo({left: window.scrollX, top: window.scrollY, behavior: "instant"});
+    dialog._readingPosition = {
+      x: window.scrollX, y: window.scrollY, trigger: document.activeElement,
+      overflow: document.documentElement.style.overflow,
+      gutter: document.documentElement.style.scrollbarGutter
+    };
+    // Overlay scrollbars take no layout space. Adding a gutter there would
+    // narrow the article on mobile and trigger scroll anchoring while opening.
+    if (window.innerWidth > document.documentElement.clientWidth) {
+      document.documentElement.style.scrollbarGutter = "stable";
+    }
+    document.documentElement.style.overflow = "hidden";
     if (typeof dialog.showModal === "function") dialog.showModal();
     else dialog.setAttribute("open", "");
+    var viewBox = original.viewBox && original.viewBox.baseVal;
+    var natural = viewBox && viewBox.width > 0 ? viewBox.width : parseFloat(original.getAttribute("width")) || 640;
+    var style = window.getComputedStyle(stage);
+    var available = stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    // Keep labels at their authored scale on narrow screens; pan instead of shrinking.
+    stage.style.setProperty("--diagram-base-width", Math.max(natural, available) + "px");
     stage.scrollLeft = 0;
     stage.scrollTop = 0;
   }
@@ -91,7 +165,7 @@
       button.addEventListener("click", function () {
         var stage = dialog.querySelector("#diagram-reader-stage");
         var current = parseFloat(stage.style.getPropertyValue("--diagram-zoom")) || 1;
-        var next = Math.max(0.8, Math.min(3, current + parseFloat(button.dataset.change)));
+        var next = Math.max(0.25, Math.min(3, current + parseFloat(button.dataset.change)));
         stage.style.setProperty("--diagram-zoom", String(next));
       });
     });
