@@ -353,17 +353,14 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>🔑 <strong>这三个合起来叫「致命三要素」（deadly triad）</strong>：
 <strong>函数近似 + 自举（bootstrapping）+ 离策略</strong> ——
 三者同时出现时，<strong>理论上可以发散</strong>。
-⭐ <strong>第 6 章那个"表格 Q-learning 保证收敛"的定理，在这里彻底失效了。</strong></p>
+<strong>第 6 章列出的表格收敛条件不能直接担保神经网络版本。</strong> 这不等于每次训练都会发散；需要分别检查环境、采样、函数逼近和更新方式。</p>
 </blockquote>
 <hr />
 <h2 id="_4">🩹 四、三个救命补丁</h2>
 <h3 id="1experience-replay">补丁 1：经验回放（Experience Replay）</h3>
 <section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">把经历过的 (s, a, r, s&#x27;, done) 存进一个大池子（比如 100 万条）</span></div><div class="vb-flow-row"><span class="vb-flow-step">训练时【随机抽一批】出来，而不是用刚发生的</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 打破了样本相关性</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 一条经验可以被【重复利用】很多次</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">样本效率大幅提升</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 平滑了数据分布的变化</span></div></div></section>
-<blockquote>
-<p>⭐ <strong>注意这一步只有 off-policy 算法能做</strong>
-—— 池子里是<strong>旧策略</strong>采的数据。
-🔗 <strong>这就是<a href="06-Q-learning与SARSA.html">第 6 章</a>说"off-policy 是后面一切基础"的第一次兑现。</strong></p>
-</blockquote>
+<p><strong>DQN 的离策略更新允许复用旧行为策略采到的有效转移。</strong> 仍需同一任务、正确的状态与奖励定义、足够的数据覆盖；随机抽批次能减轻时序相关，不会让有限池中的样本变成无限独立信息。</p>
+<p><strong>不要把它扩大为“任何旧数据都能用”。</strong> 普通同策略更新不能不加区分地代入其他策略样本；带校正的方法另有条件。PPO 在最近一批样本上有限更新，也不等于 DQN 的历史回放。见<a href="06-Q-learning与SARSA.html#off-policy-vs-on-policy">第 6 章</a>。</p>
 <h3 id="2target-network">补丁 2：目标网络（Target Network）</h3>
 <figure class="dia">
 <svg viewBox="0 0 700 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="目标网络：训练网络每步更新，目标网络每隔 C 步才从它拷贝一次参数">
@@ -556,7 +553,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><a href="06-Q-learning与SARSA.html">第 6 章</a> off-policy</td>
-<td><strong>经验回放的前提</strong> ⭐</td>
+<td>DQN 复用旧转移的依据，以及覆盖和任务一致性限制</td>
 </tr>
 <tr>
 <td><a href="02-MDP.html">第 2 章</a>堆叠 4 帧</td>
@@ -578,7 +575,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>换掉表格的两个理由是什么？哪个更根本？</li>
 <li>DQN 的损失函数是什么？它把 RL 变成了什么问题？</li>
 <li>「致命三要素」是哪三个？它意味着什么？</li>
-<li>经验回放解决什么问题？为什么只有 off-policy 能用？</li>
+<li>经验回放缓解什么问题？DQN 复用旧转移仍需要哪些条件？</li>
 <li>目标网络解决什么问题？C 太小太大分别会怎样？</li>
 <li>代码里忘了 <code>torch.no_grad()</code> 会怎样？忘了 <code>*(1-d)</code> 呢？</li>
 <li>Double DQN 的一行改动是什么？解决什么？</li>
@@ -590,7 +587,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>①状态太多存不下（Atari 是 256^(84×84×4)）②<strong>表格没有泛化能力</strong>——"敌人在左30像素"和"左31像素"被当成完全不同的状态。第二个更根本：不只是存不下，是每个状态都要单独学一遍不现实。</li>
 <li><code>L = (r + γ max Q(s',a';θ⁻) − Q(s,a;θ))²</code>。它把 RL <strong>变成了监督学习问题</strong>（拟合一个回归目标），于是能用梯度下降。</li>
 <li><strong>函数近似 + 自举 + 离策略</strong>。三者同时出现时理论上可以发散——第 6 章的表格收敛保证在这里彻底失效。</li>
-<li>解决<strong>样本高度相关</strong>（连续帧几乎一样，梯度方向高度相关）。只有 off-policy 能用因为池子里是旧策略采的数据。</li>
+<li>随机抽批次减轻连续转移的时序相关，并复用已有数据。DQN 的离策略更新允许行为与目标策略不同，但仍需同任务的有效转移和足够覆盖；普通同策略公式不能无校正地使用任意旧策略数据。</li>
 <li>解决<strong>目标在动、追自己尾巴</strong>的问题。C 太小还是在追尾巴；C 太大目标太陈旧学得慢（常用 1000~10000）。</li>
 <li>忘 <code>no_grad()</code> → <strong>梯度回传到目标网络，训练直接乱掉</strong>；忘 <code>*(1-d)</code> → 终止态算进了不存在的未来价值。</li>
 <li>主网络<strong>选</strong>动作、目标网络评估：<code>a2=q(s2).argmax(); tgt=r+γ·q_target(s2).gather(1,a2)</code>。解决最大化偏差（max 系统性挑中被高估的动作）。</li>
