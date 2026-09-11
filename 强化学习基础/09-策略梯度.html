@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading topic-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -297,7 +297,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#_3">🎯 二、目标函数</a></li>
 <li><a href="#_4">⭐ 三、策略梯度定理</a></li>
 <li><a href="#reinforce">🎬 四、REINFORCE：最朴素的实现</a></li>
-<li><a href="#_5">💀 五、致命问题：方差大得离谱</a></li>
+<li><a href="#_5">💀 五、主要困难：采样梯度会波动</a></li>
 <li><a href="#vs">🆚 六、基于价值 vs 基于策略</a></li>
 <li><a href="#_7">🤖 七、和语言模型的关系（提前看一眼）</a></li>
 <li><a href="#_8">🔗 八、和站内其他章的关系</a></li>
@@ -306,258 +306,294 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ul>
 </div>
 </details>
-<h1 id="09">09 · 策略梯度</h1>
-<p>⏱ <strong>24 分钟</strong> ｜ ⭐ <strong>换一条路：不估价值，直接优化策略</strong></p>
-<hr />
+<div class="ov-layout"><article class="ov-body"><h1 id="09">09 · 策略梯度</h1>
+<!-- topic-reading -->
+
+<p><link rel="stylesheet" href="../assets/rl-formula-help.css"><script defer src="../assets/rl-formula-help.js"></script></p>
+<p>⏱ <strong>24 分钟</strong> ｜ ⭐ <strong>直接学习怎么选动作，而不是先把每个动作估价</strong></p>
+<p>时间是起步参考，不是读完期限。先看两个按钮的例子，再按需打开推导或运行代码。</p>
 <h2 id="_1">🎯 一句话</h2>
-<p>前八章都是「先估出 Q，再由 Q 推出策略」。
-这一章直接把策略本身当成一个神经网络，<strong>用梯度下降优化它</strong>。
-<strong>这条路是 PPO、RLHF 的起点。</strong></p>
-<hr />
+<p><strong>策略梯度用实际采到的回报，调整策略选择动作的概率。</strong> 它是 REINFORCE、PPO 等方法的数学起点。</p>
+<p>先想一个只有一步的小游戏：按按钮 0 得 1 分，按按钮 1 得 2 分，然后结束。开始时两个按钮各有 50% 的概率被选中，平均每局得 1.5 分。</p>
+<p>我们希望策略逐渐更常选择按钮 1。注意：<strong>1 分也是正数，却比另一个动作差。</strong> 所以“回报低”不等于“回报是负的”，一次采样也不一定指向更好的按钮。</p>
 <h2 id="_2">🚪 一、为什么要换路（三个理由）</h2>
+<p>第 8 章的 DQN 先估计各离散动作的 Q 值，再选动作。这里改为直接参数化策略；不是说前面所有方法都只学习 Q。</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>理由</th>
-<th>说明</th>
+<th>想解决的问题</th>
+<th>直接学习策略能带来什么</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>动作连续时 max 算不了</strong> ⭐</td>
-<td>「方向盘转 13.7 度」有无穷多个动作，没法遍历取 max</td>
+<td>连续动作不好逐个枚举</td>
+<td>让策略输出动作分布，例如方向盘角度的均值和尺度；不必枚举无穷多个角度</td>
 </tr>
 <tr>
-<td><strong>最优策略可能本身是随机的</strong></td>
-<td>石头剪刀布；基于价值的方法只能输出确定性策略</td>
+<td>希望明确控制随机性</td>
+<td>直接输出可采样的分布，适合探索，也方便表示随机策略</td>
 </tr>
 <tr>
-<td><strong>有时策略比价值简单得多</strong> ⭐</td>
-<td>「看到障碍就绕开」很好描述，但要精确算出每个状态值多少分，难得多</td>
+<td>选择规则可能比完整估价简单</td>
+<td>有些任务中，“看到障碍怎样绕开”比精确估算所有动作的长期价值更容易建模；不是普遍保证</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>💡 <strong>第三点值得多想一秒</strong>：
-<strong>你要的是策略，价值只是达到策略的手段。</strong>
-既然如此 —— <strong>为什么不直接优化你要的那个东西？</strong></p>
-</blockquote>
-<hr />
+<p><strong>两个边界要分清。</strong> 连续动作的最大化不是数学上“算不了”，只是不能用普通 DQN 那样的有限枚举；也有数值优化和确定性策略梯度等办法。</p>
+<p>石头剪刀布说明随机化在对抗场景中可能重要，但它不是普通单智能体 MDP 的通用结论。有限状态、有限动作、折扣型 MDP 可以存在确定性的平稳最优策略；价值方法也能配合随机探索或随机策略改进。</p>
 <h2 id="_3">🎯 二、目标函数</h2>
-<p>把策略参数化成 $\pi_\theta(a|s)$（一个神经网络），目标是最大化期望回报：</p>
-<p>$$J(\theta) = \mathbb{E}_{\tau\sim\pi_\theta}\big[R(\tau)\big]$$</p>
-<p>其中 τ 是一条完整轨迹（trajectory），R(τ) 是它的总回报。</p>
-<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⭐ 难点：τ 的分布【依赖 θ】</span></div><div class="vb-flow-row"><span class="vb-flow-step">你不能像监督学习那样，把数据当成固定的</span></div><div class="vb-flow-row"><span class="vb-flow-step">怎么对&quot;分布本身依赖参数的期望&quot;求导？</span></div></div></section>
-<hr />
+<p><strong>目标看的是反复玩下去的平均成绩，不是某一局是否走运。</strong> 用 θ 表示策略参数，πθ(a|s) 表示在状态 s 选择动作 a 的概率。</p>
+<p>本页主线先用<strong>有限回合、不折扣（γ=1）</strong>：每局最多 T 步，真正结束后的奖励按 0 处理。时间会影响决策时，把剩余时间计入状态。</p>
+<p>$$R(\tau)=\sum_{t=0}^{T-1}r_t$$</p>
+<p>τ 是一局的状态、动作与奖励记录；r_t 是第 t 步动作之后拿到的奖励。</p>
+<p>$$J(\theta)=\mathbb E_{\tau\sim\pi_\theta}[R(\tau)]$$</p>
+<p>按钮例子里，如果选按钮 1 的概率是 p，期望成绩就是 <strong>1×(1−p)+2×p=1+p</strong>。p 从 0.5 增加到 0.6，期望成绩才从 1.5 增加到 1.6；一局的成绩仍只能是 1 或 2。</p>
+<p>难点在于：参数变了，动作概率会变，之后采到的轨迹也会变。不能把一个固定批次上的训练损失直接当成新策略的真实成绩。</p>
 <h2 id="_4">⭐ 三、策略梯度定理</h2>
-<p>$$\nabla_\theta J(\theta) = \mathbb{E}\Big[\sum_t \nabla_\theta\log\pi_\theta(a_t|s_t)\cdot R(\tau)\Big]$$</p>
-<p>💡 <strong>人话翻译</strong>：</p>
-<blockquote>
-<p><strong><em>让「导致高回报的动作」的概率变大，让「导致低回报的动作」的概率变小。</em></strong></p>
-</blockquote>
-<div class="framecard">
-<div class="fh">∇log π(a|s)  ：把这个动作概率【调大】的方向</div>
-<ul><li>×</li><li><b>R(τ)      </b>：这次结果【有多好】</li></ul>
-<div class="fnote">→ 结果好，就朝这个方向多走 → 结果差，R 是负的，就朝反方向走</div>
-</div>
-
+<p><strong>先把更新拆成“往哪调”和“这条经验占多大权重”。</strong> 定义一个简写：</p>
+<p>$$z_t=\nabla_\theta\log\pi_\theta(a_t|s_t)$$</p>
+<p>z_t 是一个参数方向：沿它走一小步，通常会提高当前这个已采样动作的对数概率。它不是动作概率本身，也不是一个分数。</p>
+<p>本页目标对应的梯度为：</p>
+<p>$$\nabla_\theta J=\mathbb E\left[\sum_{t=0}^{T-1}z_t R(\tau)\right]$$</p>
+<ul>
+<li><strong>z_t</strong>：这一步动作提供的调整方向。</li>
+<li><strong>R(τ)</strong>：这局给这个方向的权重，可能为正、零或负。</li>
+<li><strong>求和再求期望</strong>：先汇总一局里的各步，再对当前策略产生的许多局取平均。</li>
+</ul>
+<p>正权重会鼓励该样本中的动作；负权重会抑制它。<strong>如果所有回报都为正，不代表所有动作的概率能同时变大</strong>——同一状态的概率总和仍然是 1，不同样本和共享参数也会相互影响。</p>
 <details>
-<summary>📐 <b>推导（想看再点，核心只有一个小技巧）</b></summary>
-<p>$$\nabla_\theta J = \nabla_\theta\int p_\theta(\tau)R(\tau)d\tau = \int \nabla_\theta p_\theta(\tau)\,R(\tau)d\tau$$</p>
-<p><strong>关键技巧：对数导数技巧（log-derivative trick）</strong> ⭐</p>
-<p>$$\nabla_\theta p_\theta(\tau) = p_\theta(\tau)\,\nabla_\theta\log p_\theta(\tau)$$</p>
-<p>（因为 $\nabla\log p = \nabla p / p$）</p>
-<p>代回去：</p>
-<p>$$\nabla_\theta J = \int p_\theta(\tau)\nabla_\theta\log p_\theta(\tau)R(\tau)d\tau = \mathbb{E}\big[\nabla_\theta\log p_\theta(\tau)R(\tau)\big]$$</p>
-<p>⭐ <strong>这一步把「对分布求导」变回了「在分布下求期望」</strong> —— 于是可以用采样估计了。</p>
-<p>再把轨迹概率展开：</p>
-<p>$$p_\theta(\tau) = p(s_0)\prod_t \pi_\theta(a_t|s_t)\,P(s_{t+1}|s_t,a_t)$$</p>
-<p>取对数后，<strong>所有不含 θ 的项（初始分布、转移概率）求导都变成 0</strong>：</p>
-<p>$$\nabla_\theta\log p_\theta(\tau) = \sum_t \nabla_\theta\log\pi_\theta(a_t|s_t)$$</p>
-<p>⭐ <strong>注意这个结果有多惊人：环境的转移概率 P 被完全消掉了。</strong>
-<strong>这意味着策略梯度完全不需要知道环境模型。</strong></p>
+<summary>📐 想看推导：为什么不用对环境求导？</summary>
+<p>这里假设策略可微，并且可以交换积分与求导；初始状态分布、环境转移和奖励机制都不依赖 θ。若环境本身也由 θ 控制，下面不能直接省略那些导数。</p>
+<p>第一步，把“对轨迹概率求导”改写为对数导数：</p>
+<p>$$\nabla_\theta p_\theta(\tau)=p_\theta(\tau)\nabla_\theta\log p_\theta(\tau)$$</p>
+<p>于是目标的梯度可以写成一个采样期望：</p>
+<p>$$\nabla_\theta J=\mathbb E\left[R(\tau)\nabla_\theta\log p_\theta(\tau)\right]$$</p>
+<p>第二步，展开轨迹概率。先把环境对“下一状态与这一步奖励”的联合概率记成 q_t：</p>
+<p>$$q_t=P(s_{t+1},r_t|s_t,a_t)$$</p>
+<p>τ 包含奖励记录，因此奖励随机时也必须计入轨迹概率，不能只写下一状态的概率。</p>
+<p>$$p_\theta(\tau)=p(s_0)\prod_{t=0}^{T-1}\pi_\theta(a_t|s_t)q_t$$</p>
+<p>取对数会把乘积变成求和。初始分布与转移概率不含 θ，它们的对数导数为 0，只剩：</p>
+<p>$$\nabla_\theta\log p_\theta(\tau)=\sum_{t=0}^{T-1}z_t$$</p>
+<p>代回去，就得到上面的策略梯度公式。<strong>不需要显式知道转移概率 P，也不需要穿过环境反向传播；但仍需要能采到状态、动作和奖励。</strong> 环境不是从真实的数据收集过程中消失了。</p>
+<p>推导路线可对照 <a href="https://spinningup.openai.com/en/latest/spinningup/rl_intro3.html">Spinning Up 的策略优化讲解</a>。</p>
 </details>
-<blockquote>
-<p>🔑 <strong>上面折叠块里最后那句话是这一章的精华</strong>：
-<strong>推导过程中，环境的转移概率 P 自动消失了。</strong>
-这就是策略梯度能用在"完全不懂环境"的场景（比如 RLHF）的原因。</p>
-</blockquote>
-<hr />
 <h2 id="reinforce">🎬 四、REINFORCE：最朴素的实现</h2>
-<section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>用当前策略跑完一整个回合</li><li>算出每一步的回报 G_t</li><li>对每一步做梯度上升：θ ← θ + α·∇log π(a_t|s_t)·G_t</li><li>重复</li></ol></section>
+<p><strong>先采完整回合，再用每一步之后的回报更新策略。</strong> 这个“从现在往后算”的回报叫 reward-to-go；不把已经发生的奖励再归给后来的动作。</p>
+<p>$$G_t=\sum_{k=t}^{T-1}r_k$$</p>
+<p>例如一局奖励是 [2,3]，两步的 G 分别是 [5,3]。这与让两步都乘整局回报 5 的估计式期望一致；理由放在下一节。</p>
+<section class="visual-block visual-block-steps" aria-label="REINFORCE 更新步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>用当前策略采一批完整回合，记录状态、动作和奖励。</li><li>在每个回合内部，从后往前算 G；不能跨回合接着累加。</li><li>每局先对各步的 logprob × G 求和，再对各局取平均。</li><li>最小化上述量的负数，更新后重新采样。</li></ol></section>
 
+<h3 id="pg-code">可以直接运行：两个按钮，一次更新</h3>
+<p>需要安装 PyTorch，使用 CPU 即可。下面每局只有一步；64 局是 64 个独立回合，不是一个 64 步长的回合。先运行整段，再看最后两行的概率和期望成绩。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributions</span><span class="w"> </span><span class="kn">import</span> <span class="n">Categorical</span>
 
-<span class="k">def</span><span class="w"> </span><span class="nf">reinforce_update</span><span class="p">(</span><span class="n">policy</span><span class="p">,</span> <span class="n">opt</span><span class="p">,</span> <span class="n">states</span><span class="p">,</span> <span class="n">actions</span><span class="p">,</span> <span class="n">rewards</span><span class="p">,</span> <span class="n">gamma</span><span class="o">=</span><span class="mf">0.99</span><span class="p">):</span>
-    <span class="c1"># 从后往前算折扣回报</span>
-    <span class="n">G</span><span class="p">,</span> <span class="n">returns</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="p">[]</span>
-    <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="nb">reversed</span><span class="p">(</span><span class="n">rewards</span><span class="p">):</span>
-        <span class="n">G</span> <span class="o">=</span> <span class="n">r</span> <span class="o">+</span> <span class="n">gamma</span> <span class="o">*</span> <span class="n">G</span>
-        <span class="n">returns</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">G</span><span class="p">)</span>
-    <span class="n">returns</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">returns</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
-    <span class="n">returns</span> <span class="o">=</span> <span class="p">(</span><span class="n">returns</span> <span class="o">-</span> <span class="n">returns</span><span class="o">.</span><span class="n">mean</span><span class="p">())</span> <span class="o">/</span> <span class="p">(</span><span class="n">returns</span><span class="o">.</span><span class="n">std</span><span class="p">()</span> <span class="o">+</span> <span class="mf">1e-8</span><span class="p">)</span>   <span class="c1"># ⭐ 标准化，见下</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">7</span><span class="p">)</span>
 
-    <span class="n">logp</span> <span class="o">=</span> <span class="n">policy</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">stack</span><span class="p">(</span><span class="n">states</span><span class="p">))</span><span class="o">.</span><span class="n">log_prob</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">stack</span><span class="p">(</span><span class="n">actions</span><span class="p">))</span>
-    <span class="n">loss</span> <span class="o">=</span> <span class="o">-</span><span class="p">(</span><span class="n">logp</span> <span class="o">*</span> <span class="n">returns</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>          <span class="c1"># ⭐ 负号：优化器做的是最小化</span>
-    <span class="n">opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">();</span> <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">();</span> <span class="n">opt</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ButtonPolicy</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logits</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">states</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">Categorical</span><span class="p">(</span><span class="n">logits</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logits</span><span class="o">.</span><span class="n">expand</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">states</span><span class="p">),</span> <span class="o">-</span><span class="mi">1</span><span class="p">))</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">reward_to_go</span><span class="p">(</span><span class="n">rewards</span><span class="p">):</span>
+    <span class="n">total</span><span class="p">,</span> <span class="n">values</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">reward</span> <span class="ow">in</span> <span class="nb">reversed</span><span class="p">(</span><span class="n">rewards</span><span class="p">):</span>
+        <span class="n">total</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">reward</span><span class="p">)</span> <span class="o">+</span> <span class="n">total</span>  <span class="c1"># 本例 gamma = 1</span>
+        <span class="n">values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">total</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">values</span><span class="p">[::</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">reinforce_update</span><span class="p">(</span><span class="n">policy</span><span class="p">,</span> <span class="n">opt</span><span class="p">,</span> <span class="n">episodes</span><span class="p">):</span>
+    <span class="n">episode_losses</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">states</span><span class="p">,</span> <span class="n">actions</span><span class="p">,</span> <span class="n">rewards</span> <span class="ow">in</span> <span class="n">episodes</span><span class="p">:</span>
+        <span class="n">weights</span> <span class="o">=</span> <span class="n">reward_to_go</span><span class="p">(</span><span class="n">rewards</span><span class="p">)</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span>
+        <span class="n">logp</span> <span class="o">=</span> <span class="n">policy</span><span class="p">(</span><span class="n">states</span><span class="p">)</span><span class="o">.</span><span class="n">log_prob</span><span class="p">(</span><span class="n">actions</span><span class="p">)</span>
+        <span class="n">episode_losses</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="n">logp</span> <span class="o">*</span> <span class="n">weights</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span>
+    <span class="n">loss</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">stack</span><span class="p">(</span><span class="n">episode_losses</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+    <span class="n">opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+    <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="n">opt</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+
+<span class="n">policy</span> <span class="o">=</span> <span class="n">ButtonPolicy</span><span class="p">()</span>
+<span class="n">opt</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">SGD</span><span class="p">(</span><span class="n">policy</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>
+<span class="n">episodes</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">64</span><span class="p">):</span>
+        <span class="n">states</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">0</span><span class="p">])</span>  <span class="c1"># 每局都从同一个状态开始</span>
+        <span class="n">actions</span> <span class="o">=</span> <span class="n">policy</span><span class="p">(</span><span class="n">states</span><span class="p">)</span><span class="o">.</span><span class="n">sample</span><span class="p">()</span>
+        <span class="n">rewards</span> <span class="o">=</span> <span class="p">[</span><span class="mf">1.0</span> <span class="o">+</span> <span class="n">actions</span><span class="o">.</span><span class="n">item</span><span class="p">()]</span>
+        <span class="n">episodes</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">states</span><span class="p">,</span> <span class="n">actions</span><span class="p">,</span> <span class="n">rewards</span><span class="p">))</span>
+    <span class="n">before</span> <span class="o">=</span> <span class="n">policy</span><span class="o">.</span><span class="n">logits</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="mi">0</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+
+<span class="n">reinforce_update</span><span class="p">(</span><span class="n">policy</span><span class="p">,</span> <span class="n">opt</span><span class="p">,</span> <span class="n">episodes</span><span class="p">)</span>
+<span class="n">after</span> <span class="o">=</span> <span class="n">policy</span><span class="o">.</span><span class="n">logits</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="mi">0</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;P(button 1): </span><span class="si">{</span><span class="n">before</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="n">after</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Expected reward: </span><span class="si">{</span><span class="mi">1</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">before</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="mi">1</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">after</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </code></pre></div>
 
-<p>⚠️ <strong>两个新手必踩的坑</strong>：</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>坑</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>忘了负号</strong></td>
-<td>PyTorch 的优化器最小化损失，而我们要<strong>最大化</strong>回报 ⭐</td>
-</tr>
-<tr>
-<td><strong>以为这是监督学习的交叉熵</strong></td>
-<td>形式很像，但<strong>权重 <code>returns</code> 是变量不是常数</strong>，含义完全不同</td>
-</tr>
-</tbody>
+<p><strong>读代码时只抓三处。</strong> <code>reward_to_go</code> 不跨回合；<code>weights</code> 不参与求导；负号把最大化目标转成优化器的最小化损失。</p>
+<p>这次 CPU 实跑，按钮 1 的概率从 <strong>0.5000 → 0.5172</strong>，对应期望成绩从 <strong>1.5000 → 1.5172</strong>。这是指定种子下的一次小实验，不是算法性能排名。</p>
+<p>最后一行的期望成绩直接由这个已知小游戏算出，不是复杂环境的评测办法。一次有限采样可能给出不理想的方向；真实任务需要多批数据、独立评测和多个随机种子，不能凭训练损失下降宣称策略改善。</p>
+<details>
+<summary>实现边界：标准化、旧数据和折扣因子</summary>
+<p><strong>本例故意不按每局标准化回报。</strong> 一步回合减去自己的平均回报，权重会变成 0，完全没有学习信号。若再用默认样本标准差，单个数还可能得到 NaN；换成总体标准差只能避免这个 NaN，不能恢复已被消掉的信号。</p>
+<p><code>returns</code> 会随新采样而变化，但在这一次策略反向传播中，它是固定权重，不是要穿过环境求导的变量。它与监督学习的区别在于权重与数据的来源，不是“一个常数、一个变量”。</p>
+<p>这个普通 REINFORCE 更新用当前策略采样。直接拿很旧的轨迹反复套同一个式子，通常会造成分布不匹配；要复用旧数据，需要相应的校正和算法设计。</p>
+<p>若改成从初始状态出发的折扣目标，先把口径写清：</p>
+<p>$$R_\gamma=\sum_{t=0}^{T-1}\gamma^t r_t$$</p>
+<p>局部折扣回报为 $G_t^\gamma=\sum_{k=t}^{T-1}\gamma^{k-t}r_k$。对应梯度中，每步还带有相对于起点的 γ^t：</p>
+<p>$$\nabla_\theta J_\gamma=\mathbb E\left[\sum_{t=0}^{T-1}\gamma^t z_t G_t^\gamma\right]$$</p>
+<p>不能只给 <code>reward_to_go</code> 加上 γ，却不解释为何外面的 γ^t 不见了。另一种写法会把折扣放进状态采样分布，必须说明采用的是哪一种。<a href="https://proceedings.mlr.press/v202/che23a.html">折扣分布不匹配的研究</a>讨论了这种差别。</p>
+</details>
+<h2 id="_5">💀 五、主要困难：采样梯度会波动</h2>
+<p><strong>一条动作记录不等于可靠的因果评价。</strong> 同样的选择，可能遇到不同的后续状态、队友或环境随机性，最终回报差很多。</p>
+<p>在上述假设下，普通 REINFORCE 是无偏估计：反复重采样后的平均梯度正确。有限的一批仍可能偏离很远；“无偏”不保证每次都走对，也不等于“方差一定大到不能用”。</p>
+<h3 id="_6">三个相连的改进方向</h3>
+<h4 id="1-reward-to-go">① 只用未来回报：reward-to-go</h4>
+<p>第 t 步的动作无法改变 t 之前已经拿到的奖励。给定这一步之前的历史，动作按策略采样，而 z_t 的条件期望是 0。</p>
+<p>因此，过去奖励乘 z_t 的期望为 0，去掉这些项不改变目标梯度。<strong>这通常能去掉无关的采样波动；不是说任何任务、任何分量的方差都必然严格下降。</strong></p>
+<h4 id="2-baseline">② 减去状态基线：baseline</h4>
+<p>先用一个参考分 b(s_t) 评价“这次比平时好多少”，再把差值作为权重：</p>
+<p>$$w_t=G_t-b(s_t)$$</p>
+<p>$$\nabla_\theta J=\mathbb E\left[\sum_{t=0}^{T-1}z_t w_t\right]$$</p>
+<p>考试得 80 分：若班级平均 60 分，差值是 +20；若平均 95 分，差值是 −15。这个比喻只解释“相对参考分”，不表示班均一定是最优基线。</p>
+<p><strong>不改变期望的条件</strong>：给定当前状态或历史，基线不能再依赖本次抽到的动作。对策略梯度分支，它还应作为停止梯度的权重处理。</p>
+<p>把“状态基线”换成一个网络，并不自动满足全部条件。如果用同一条样本现算平均值，得到的基线可能间接依赖该样本的动作；无偏性需要另行核对。</p>
+<h3 id="pg-baseline-counterexample">算一个反例：差的基线会放大波动</h3>
+<p>仍是两个按钮，各有 50% 概率。为方便手算，这里用一个参数 θ 控制按钮 1 的概率 p=σ(θ)，在 θ=0 处求梯度；这与代码的两个 logits 参数化不同。</p>
+<p>按钮 0 的 z 是 −0.5，按钮 1 的 z 是 +0.5。一个样本的梯度估计是 <strong>z×(奖励−b)</strong>。</p>
+<div class="tw"><table data-audit-table="pg-baseline-samples" style="min-width:0;width:100%">
+<thead><tr><th>基线 b</th><th>按钮 0 的样本估计</th><th>按钮 1 的样本估计</th></tr></thead>
+<tbody><tr><td>0</td><td>−0.5</td><td>1</td></tr><tr><td>1.5</td><td>0.25</td><td>0.25</td></tr><tr><td>100</td><td>49.5</td><td>−49</td></tr></tbody>
 </table></div>
-<hr />
-<h2 id="_5">💀 五、致命问题：方差大得离谱</h2>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">REINFORCE 是【无偏】的，但方差大到几乎没法用：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· R(τ) 是整条轨迹的回报</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">一局的运气全算进去了</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 同一个动作，这局赢了给 +100，下局输了给 −100</span></div><div class="vb-flow-row"><span class="vb-flow-step">梯度方向来回摆 💀</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 需要海量样本才能平均掉噪声</span></div></div></section>
-<h3 id="_6">三个降方差的办法（一个比一个重要）</h3>
-<h4 id="1-reward-to-go">① 只用「未来」的回报（reward-to-go）</h4>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>❌ 用整条轨迹的 R(τ)</p><p>✅ 用 G_t = 从 t 时刻【往后】的回报</p><p>⭐ 道理：t 时刻的动作，影响不了 t 之前已经发生的奖励</p><p>把它们算进来纯粹是噪声</p></div></section>
-<h4 id="2-baseline">② 减去基线（baseline）</h4>
-<p>$$\nabla J = \mathbb{E}\big[\nabla\log\pi(a_t|s_t)\cdot(G_t - b(s_t))\big]$$</p>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⭐ 关键性质：只要 b 不依赖动作 a，减去它【不改变期望】，但能大幅降方差</span></div><div class="vb-flow-row"><span class="vb-flow-step">最常用的基线：b(s) = V(s) ← 这个状态的平均水平</span></div><div class="vb-flow-row"><span class="vb-flow-step">直觉：</span></div><div class="vb-flow-row"><span class="vb-flow-step">考试考了 80 分，好不好？</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 班级平均 60</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">好，+20 ✅ 应该鼓励</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 班级平均 95</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">差，−15 ❌ 应该抑制</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 没有基线时，所有正回报的动作都会被鼓励 —— 哪怕它其实比平均差</span></div></div></section>
+
+<p>三个基线下的平均值都为 <strong>0.25</strong>，与这个参数化的真实梯度相同；但波动完全不同：</p>
+<div class="tw"><table data-audit-table="pg-baseline-variance" style="min-width:0;width:100%">
+<thead><tr><th>基线 b</th><th>估计量的方差</th></tr></thead>
+<tbody><tr><td>0</td><td>0.5625</td></tr><tr><td>1.5</td><td>0</td></tr><tr><td>100</td><td>2425.5625</td></tr></tbody>
+</table></div>
+
+<p><strong>看最后一行：不改变平均值，不代表能降低方差。</strong> 用 V(s) 作基线往往有帮助，但是否有效取决于估计质量；V 也不是所有参数化下使梯度方差最小的基线。</p>
 <h4 id="3-asa">③ 优势函数 A(s,a)</h4>
-<p>$$A(s,a) = Q(s,a) - V(s)$$</p>
-<p>💡 <strong>人话</strong>：<em>这个动作</em><em>比该状态的平均水平</em><em>好多少。</em></p>
-<blockquote>
-<p>⭐ <strong>优势函数是从这里通向第 10、11 章的桥</strong>：
-<strong>A 就是「G_t − 基线」的正式版本</strong>，PPO 优化的正是它。</p>
-</blockquote>
-<hr />
+<p>$$A^\pi(s,a)=Q^\pi(s,a)-V^\pi(s)$$</p>
+<p>Qπ 是“现在选这个动作，之后继续按 π 行动”的期望回报；Vπ 是“现在也按 π 选动作”的平均回报。它们的差回答：<strong>这个动作比当前策略的平均水平好多少？</strong></p>
+<p>真实 Aπ 是一个期望量。<code>G_t − V(s_t)</code> 是它的一种采样估计，不应直接说二者逐样本相等；用近似价值网络还可能引入估计误差。</p>
+<p>第 10 章会用 Critic 估计价值，第 11 章的 PPO 会用优势估计安排更新。两章都不是把真实 A 自动算出来。</p>
 <h2 id="vs">🆚 六、基于价值 vs 基于策略</h2>
+<p>下面比较<strong>普通 DQN 与本页 REINFORCE</strong>，不是给两大类算法贴永久标签。</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th></th>
-<th>基于价值（DQN）</th>
-<th>基于策略（PG）</th>
+<th>问题</th>
+<th>普通 DQN</th>
+<th>本页 REINFORCE</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>学什么</strong></td>
-<td>Q 函数</td>
-<td>策略本身</td>
+<td>直接训练什么</td>
+<td>离散动作的 Q 值</td>
+<td>随机策略的动作概率</td>
 </tr>
 <tr>
-<td><strong>连续动作</strong></td>
-<td>❌</td>
-<td>✅ ⭐</td>
+<td>动作怎样选</td>
+<td>常用 ε-greedy 探索，评测时取贪心动作</td>
+<td>从策略分布采样</td>
 </tr>
 <tr>
-<td><strong>随机策略</strong></td>
-<td>❌</td>
-<td>✅</td>
+<td>连续动作</td>
+<td>标准输出层不直接适用</td>
+<td>可改用连续分布；还需选好参数化</td>
 </tr>
 <tr>
-<td><strong>收敛性</strong></td>
-<td>可能震荡</td>
-<td>更稳定（但容易到<strong>局部最优</strong>）</td>
+<td>数据怎样使用</td>
+<td>配合经验回放与离策略学习</td>
+<td>用当前策略采一批，再更新</td>
 </tr>
 <tr>
-<td><strong>样本效率</strong></td>
-<td>高（能经验回放）</td>
-<td><strong>低</strong>（on-policy，用完就丢）⭐</td>
-</tr>
-<tr>
-<td><strong>方差</strong></td>
-<td>低</td>
-<td><strong>高</strong></td>
+<td>常见难点</td>
+<td>自举目标、过估计和函数逼近误差</td>
+<td>采样波动、探索与学习效率</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>🔑 <strong>看最后两行 —— 这正是第 10、11 章要解决的</strong>：
-<strong>Actor-Critic 用价值函数降方差；PPO 让 on-policy 数据能多用几次。</strong>
-<strong>两者合起来，就补上了策略梯度的两个短板。</strong></p>
-</blockquote>
-<hr />
+<p>没有“PG 一定更稳定”“DQN 一定方差更小”的通用排序。策略梯度也有离策略路线，例如<a href="https://proceedings.mlr.press/v32/silver14.html">确定性策略梯度</a>。</p>
+<p>Actor-Critic 可用价值估计降低部分采样波动，PPO 可在受监控的更新中复用一批近期数据。<strong>它们缓解问题，不保证补齐所有短板或每次回报上涨。</strong></p>
 <h2 id="_7">🤖 七、和语言模型的关系（提前看一眼）</h2>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">语言模型就是一个策略：π(下一个token | 已生成的内容)</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 词表 5 万个 token</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">5 万个动作</span></div><div class="vb-flow-row"><span class="vb-flow-step">DQN 要对 5 万个动作取 max，还要估准每一个的 Q —— 不现实</span></div><div class="vb-flow-row"><span class="vb-flow-step">策略梯度只需要 log π(token)，而这【正是语言模型本来就在算的东西】⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">这就是 RLHF 必须走策略梯度这条路的原因</span></div></div></section>
-<blockquote>
-<p>💡 <strong>注意这个巧合有多美妙</strong>：
-<strong><code>log π(a|s)</code> 就是语言模型的对数概率，训练时本来就要算。</strong>
-策略梯度几乎是为语言模型量身定做的。</p>
-</blockquote>
-<hr />
+<p><strong>语言模型本来就输出“接下来选哪个 token”的分布，因此很自然地可以看作策略。</strong> 状态包含提示和已有文本，动作是下一个 token，整份回答可以在结束后获得评价。</p>
+<p>词表有 5 万个 token，表示这一步有约 5 万种动作。模型的输出层通常本来就要计算整份词表 logits；不是策略梯度神奇地绕过了所有大词表计算。</p>
+<p>在 PPO 式 RLHF 中，采样 token 的 <code>log π</code> 与优势估计结合，用来调整策略；还需要奖励、参考策略约束及更新监控，见<a href="12-RLHF全流程.html">第 12 章</a>。</p>
+<p><strong>“RLHF 必须用策略梯度”说得太绝对。</strong> 如果更广义地说“从人类偏好学习”，还可使用<a href="13-DPO与免RL对齐.html">第 13 章的 DPO</a>，不必在线运行 PPO。这些路线的目标与数据要求不同。</p>
 <h2 id="_8">🔗 八、和站内其他章的关系</h2>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>相关的地方</th>
-<th>这里的位置</th>
+<th>想补哪块</th>
+<th>去哪里看</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><a href="02-MDP.html">第 2 章</a>随机策略可微</td>
-<td><strong>这一章兑现了那个伏笔</strong> ⭐</td>
+<td>状态、动作和随机策略的定义</td>
+<td><a href="02-MDP.html">第 2 章 · MDP</a></td>
 </tr>
 <tr>
-<td><a href="08-DQN.html">第 8 章</a> DQN 只能离散动作</td>
-<td>换路的直接原因</td>
+<td>本章拿来对照的离散 Q 网络</td>
+<td><a href="08-DQN.html">第 8 章 · DQN</a></td>
 </tr>
 <tr>
-<td><a href="../机器学习的数学原理/01-最大似然.html">数学原理 01</a> MLE</td>
-<td><code>log π</code> 的形式和它一样，但权重不同</td>
+<td>为什么取对数概率</td>
+<td><a href="../机器学习的数学原理/01-最大似然.html">数学原理 01 · 最大似然</a>，形式相近，但这里的目标和权重不同</td>
 </tr>
 <tr>
-<td><a href="../机器学习与深度学习基础/08-反向传播.html">ML基础 08</a>反向传播</td>
-<td>梯度怎么算</td>
+<td>神经网络怎样计算参数梯度</td>
+<td><a href="../机器学习与深度学习基础/08-反向传播.html">ML 基础 08 · 反向传播</a></td>
 </tr>
 <tr>
-<td>语言模型的 logits</td>
-<td><strong>就是策略网络的输出</strong> ⭐</td>
+<td>语言模型的 logits 在这里是什么</td>
+<td>策略网络输出，用 softmax 得到 token 概率；继续看第 12 章</td>
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_9">✅ 检查点</h2>
 <ol>
-<li>为什么要从「基于价值」换到「基于策略」？（三个理由）</li>
-<li>策略梯度定理用一句人话怎么说？</li>
-<li>推导里的关键技巧是什么？推导结果中最惊人的一点是什么？</li>
-<li>REINFORCE 的两个代码坑是什么？</li>
-<li>REINFORCE 的致命问题是什么？</li>
-<li>reward-to-go 为什么能降方差？</li>
-<li>基线为什么能"降方差但不改变期望"？用考试的例子说明它的作用。</li>
-<li>优势函数是什么？它通向哪一章？</li>
-<li>为什么 RLHF 必须走策略梯度这条路？</li>
+<li>直接学习策略的三个动机是什么？为什么不能说价值方法只能输出确定性策略？</li>
+<li>z_t 和回报权重各起什么作用？1 分的回报为什么未必代表好动作？</li>
+<li>对数导数技巧省去了什么？还需要从环境取得什么？</li>
+<li>代码为什么有负号、为什么停止回报权重的梯度？一步回合按自身均值居中会怎样？</li>
+<li>无偏的采样梯度是否保证每次更新都改善策略？</li>
+<li>奖励 [2,3] 的 reward-to-go 是什么？为什么过去奖励可以移出后续动作的权重？</li>
+<li>基线保持期望不变有什么条件？b=100 的例子反驳了哪句话？</li>
+<li>Aπ=Qπ−Vπ 与 G_t−V(s_t) 是同一种量吗？下一章怎样使用它？</li>
+<li>为什么策略梯度适合接入语言模型，却不是所有偏好学习的唯一方法？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>①<strong>动作连续时没法对所有动作取 max</strong> ②最优策略可能本身是随机的 ③有时策略比价值简单得多——你要的本来就是策略，价值只是手段。</li>
-<li><strong>让「导致高回报的动作」概率变大，让「导致低回报的动作」概率变小。</strong></li>
-<li><strong>对数导数技巧</strong>：∇p = p·∇log p，把"对分布求导"变回"在分布下求期望"。最惊人的是：推导中环境转移概率 P 被完全消掉了 —— 所以策略梯度不需要知道环境模型。</li>
-<li>①<strong>忘了负号</strong>（优化器最小化，我们要最大化）②以为是监督学习的交叉熵——形式像但权重 returns 是变量不是常数。</li>
-<li><strong>方差大到几乎没法用</strong>。R(τ) 把一局的运气全算进去，同一个动作这局 +100 下局 −100，梯度方向来回摆。</li>
-<li>因为 <strong>t 时刻的动作影响不了 t 之前已发生的奖励</strong>，把它们算进来纯粹是噪声。</li>
-<li>因为<strong>基线 b 不依赖动作 a</strong>，在期望里它乘 ∇log π 的和为 0。作用：考 80 分，班均 60 就该鼓励（+20），班均 95 就该抑制（−15）。没有基线时所有正回报动作都被鼓励，哪怕它其实比平均差。</li>
-<li><strong>A(s,a) = Q(s,a) − V(s)</strong>，即这个动作比该状态平均水平好多少。它是"G_t − 基线"的正式版本，通向第 10、11 章 —— PPO 优化的正是它。</li>
-<li>因为词表 5 万个 token，<strong>DQN 要对 5 万个动作取 max 还要估准每个 Q，不现实</strong>；而策略梯度只需要 <code>log π(token)</code>，这正是语言模型本来就在算的东西。</li>
+<li>连续动作不便枚举、希望直接表示随机性、有些任务的策略较容易建模。价值方法可以采用 ε-greedy 等随机探索；不等于只能确定性行动。</li>
+<li>z_t 给出调整已采样动作对数概率的方向，回报或优势给它权重。按钮 0 得 1 分虽为正，却低于按钮 1 的 2 分；概率总和仍为 1。</li>
+<li>用 ∇p=p∇log p 改写梯度。环境机制不依赖 θ 时，不必显式知道 P 或对环境反传；仍需采样状态、动作和奖励。</li>
+<li>负号把最大化转为最小化；回报在这次反传中是固定权重。一条一步回合减去自身均值后权重为 0，默认样本标准差还可能产生 NaN。</li>
+<li>不保证。无偏描述重复重采样后的平均估计，有限批次可能走错方向，步长和参数化也影响结果。</li>
+<li>[5,3]。给定之前的历史，当前动作的 z_t 条件期望为 0；乘已发生的奖励仍平均为 0，删除这些项不改变梯度期望。</li>
+<li>给定状态或历史后，基线不依赖本次抽到的动作，并在策略分支停止梯度。b=100 的平均梯度仍是 0.25，方差却很大，反驳“任意基线都降方差”。</li>
+<li>前者是真实期望量，后者是采样估计；价值网络误差也要考虑。第 10 章用 Critic 的价值估计构造优势信号。</li>
+<li>token 分布和 logprob 已经存在，便于接策略梯度；但 PPO 式 RLHF 仍有额外机制，从偏好学习还可走 DPO 等路线。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_10">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
-<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>策略梯度直接调整动作概率，用回报或优势评价更新方向。</li><li>减去合适的状态基线可以降低方差，但不能把基线任意写成依赖动作的量。</li><li>核对最大化目标与最小化损失的符号，并用小环境观察概率如何变化。</li></ul></section>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>直接调动作概率；一次样本的好坏，不等于策略的真实平均成绩。</li><li>reward-to-go 只算未来；合适的基线有帮助，差的基线也会放大波动。</li><li>真实优势是期望之差，训练中用的是估计；先核对符号、采样和回合边界。</li></ul></section>
 
-<p><strong>下一节</strong> 👉 <a href="10-Actor-Critic.html">10-Actor-Critic.md</a></p>
+<p><strong>下一节</strong> 👉 <a href="10-Actor-Critic.html">10-Actor-Critic.md</a></p></article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
+<button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">🚪 一、为什么要换路（三个理由）</a><a href="#_3">🎯 二、目标函数</a><a href="#_4">⭐ 三、策略梯度定理</a><a href="#reinforce">🎬 四、REINFORCE：最朴素的实现</a><a href="#_5">💀 五、主要困难：采样梯度会波动</a><a href="#vs">🆚 六、基于价值 vs 基于策略</a><a href="#_7">🤖 七、和语言模型的关系（提前看一眼）</a><a href="#_8">🔗 八、和站内其他章的关系</a><a href="#_9">✅ 检查点</a><a href="#_10">🛑 可以停在这里</a></nav>
+<button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
+<a href="index.html">回到本模块目录</a></div></aside></div>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="08-DQN.html"><div class="dir">← 上一节</div>🧠 08 · DQN</a><a class="next" href="10-Actor-Critic.html"><div class="dir">下一节 →</div>🎭 10 · Actor-Critic</a></nav>

@@ -1,9 +1,96 @@
-/* Scoped explanations for RL 11–13. The original MathML/TeX stays untouched. */
+/* Scoped, contextual explanations for audited RL chapters. Original MathML/TeX stays untouched. */
 (function () {
   'use strict';
   const R = s => s.replaceAll('@', String.fromCharCode(92));
   const compact = s => s.replace(/\s+/g, '');
   const catalogs = {
+    '10-Actor-Critic.html': [
+      {
+        "id": "ac-td-continuation",
+        "tex": "\\delta_t=r_t+\\gamma(1-d_t)V_w(s_{t+1})-V_w(s_t)",
+        "part": "\\gamma(1-d_t)V_w(s_{t+1})",
+        "title": "下一状态价值：还会继续，才把预测加回来",
+        "meaning": "下一状态的价值项，是 Critic 对从下一状态开始的后续回报的估计；γ 是折扣，d 表示是否真正终止。",
+        "role": "它提供尚未观察到的未来部分。真正终止 d=1 时此项为0；外部截断但任务可继续时 d=0，使用截断前最后观测，不用重置后的新状态。",
+        "example": "本页 γ=1，奖励1、当前预测2、下一预测3：未终止 δ=1+3−2=2；真正终止 δ=1−2=−1。"
+      },
+      {
+        "id": "ac-true-advantage",
+        "tex": "A^\\pi(s,a)=Q^\\pi(s,a)-V^\\pi(s)",
+        "part": "Q^\\pi(s,a)-V^\\pi(s)",
+        "title": "真优势：这个动作比当前策略平均好多少",
+        "meaning": "真实 Q 是先选该动作再按当前策略继续的期望回报；真实 V 是当前策略在该状态的平均回报，两者相减定义真优势。",
+        "role": "它是相对于当前策略的比较，不表示 Q 的绝对值没有意义。实际网络给出的 TD 或 GAE 只是优势估计，不能无条件当作这条等式中的真 A。",
+        "example": "两个动作各50%，Q为1001与999，V=1000，优势为+1、−1；概率总和为1，两个动作的概率不能同时上涨。"
+      },
+      {
+        "id": "ac-gae-carry",
+        "tex": "\\hat A_t=\\delta_t+\\gamma\\lambda c_t\\hat A_{t+1}",
+        "part": "\\gamma\\lambda c_t\\hat A_{t+1}",
+        "title": "GAE 的后续项：哪些误差可以接回来",
+        "meaning": "把下一时刻已算好的优势按 γλ 缩放；c_t 只在后续误差仍属于同一连续片段时允许接入。",
+        "role": "它控制误差递推，不是 TD 自举开关 d_t。终止、外部截断后不能接新回合；本批末尾没有后续采样项。外部截断可同时 d=0、c=0。",
+        "example": "本页两步 δ=1.5、1，γ=1：第一步估计为1.5+λ；λ=.95时2.45，λ=1时2.5=完整回报3−当前预测.5。"
+      }
+    ],
+    '附录A-速查.html': [
+      {
+        "id": "reference-discount",
+        "tex": "g_t=\\gamma^t\\nabla_\\theta\\log\\pi_\\theta(a_t\\mid s_t)A_t",
+        "part": "\\gamma^t",
+        "title": "γᵗ：从起点目标看这一时刻的权重",
+        "meaning": "这里的目标 Jγ 是从初始状态开始计算的期望折扣回报。第 t 步的策略梯度贡献还带着 γ 的 t 次方。",
+        "role": "Gₜ 自己的折扣是从时刻 t 重新开始数的；γᵗ 把这一步放回从起点计分的目标。γ=1 时它等于 1，采用等价折扣状态采样时也可以把它吸收到采样权重中，不能默默漏掉。",
+        "example": "γ=0.5、t=2 时 γᵗ=0.25。同一份从当前时刻算起的优势，在起点折扣目标中乘上这个权重。"
+      },
+      {
+        "id": "reference-gae-weight",
+        "tex": "\\hat A_t^{\\mathrm{GAE}(\\lambda)}=\\sum_{l=0}^{K-1}(\\gamma\\lambda)^l\\delta_{t+l}",
+        "part": "(\\gamma\\lambda)^l\\delta_{t+l}",
+        "title": "GAE 的一项：未来 TD 误差乘衰减权重",
+        "meaning": "取同一段轨迹中后面第 l 步的 TD 误差，再乘 (γλ) 的 l 次方，最后在有限 K 步内相加。",
+        "role": "γ 来自折扣定义，λ 调节把多远的 TD 误差纳入优势。它们不允许越过 reset 拼接新回合。λ=1 到真正终止时得到 Gₜ−V(sₜ)，并不是 Gₜ。",
+        "example": "γ=0.9、λ=0.5，下一步 δₜ₊₁=2，那么它贡献 0.45×2=0.9；当前 δₜ 的权重为 1。"
+      },
+      {
+        "id": "reference-dpo-margin",
+        "tex": "m=\\beta(d_\\theta-d_{\\rm ref})",
+        "part": "\\beta(d_\\theta-d_{\\rm ref})",
+        "title": "DPO 间隔：相对参考的偏好差",
+        "meaning": "dθ 是当前策略对同一提示下赢家与输家的回答 log-probability 差；dref 是固定参考模型的同一差。相减后再乘 β。",
+        "role": "这个量送入 −log σ(m)，用来鼓励相对偏好变化。它不是赢家回答的生成概率，也不保证实际 KL 随 β 单调变化。",
+        "example": "当前赢家/输家概率比为 5，参考比为 2，β=0.1，则 m=0.1×log(5/2)≈0.0916。"
+      }
+    ],
+    '09-策略梯度.html': [
+      {
+        id: 'pg-score',
+        tex: R('z_t=@nabla_@theta@log@pi_@theta(a_t|s_t)'),
+        part: R('@nabla_@theta@log@pi_@theta(a_t|s_t)'),
+        title: 'z：提高已采样动作对数概率的方向',
+        meaning: '先取当前策略对这个已采样动作的对数概率，再对策略参数 θ 求梯度。结果是参数方向，不是动作概率。',
+        role: '回报或优势会乘在这个方向上：正权重鼓励该样本动作，负权重抑制它。不同样本和共享参数会相互影响，所有动作概率不能同时上涨。',
+        example: '两个按钮等概率时，若用单个参数令 p(按钮1)=sigmoid(θ)，按钮1的 z 为 0.5，按钮0为 −0.5；换参数化后数值也会变。'
+      },
+      {
+        id: 'pg-return',
+        tex: R('G_t=@sum_{k=t}^{T-1}r_k'),
+        part: R('@sum_{k=t}^{T-1}r_k'),
+        title: 'reward-to-go：只加这一步及之后的奖励',
+        meaning: '从当前动作之后得到的 r_t 开始，一直加到本回合最后一步；本页主线 γ=1，没有折扣。',
+        role: '它替换整局回报作为当前动作的权重，去掉动作不可能影响的过去奖励；不同回合不能首尾相接继续累加。',
+        example: '两步的奖励为 [2,3]，第一步的 G 是 5，第二步是 3。第二步不能再把已经拿到的 2 分算进去。'
+      },
+      {
+        id: 'pg-baseline',
+        tex: R('w_t=G_t-b(s_t)'),
+        part: 'G_t-b(s_t)',
+        title: '减基线：评价这次比参考水平好多少',
+        meaning: '这一步的采样未来回报减去状态参考值，得到策略梯度的权重。',
+        role: '给定状态或历史后，基线不能依赖本次抽到的动作；在策略分支停止梯度。保持期望不变，不代表任何基线都能降低方差。',
+        example: '回报为 1 或 2、各占一半时，基线 1.5 让权重成为 −0.5 或 +0.5；正文的单参数例子还展示了基线 100 会把方差放大。'
+      }
+    ],
     '11-PPO.html': [
       {
         id: 'ppo-ratio',
