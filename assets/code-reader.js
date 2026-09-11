@@ -140,7 +140,11 @@
     pre.querySelectorAll('[id]').forEach(node=>node.removeAttribute('id'));
     clone.append(pre); bindCard(clone,record,true);
     dialog.querySelector('.cr-dialog-content').replaceChildren(clone);
-    dialog.showModal(); document.body.classList.add('cr-modal-open'); dialog.querySelector('[data-cr-close]').focus();
+    dialog.showModal(); document.body.classList.add('cr-modal-open');
+    // The dialog is reused, but every newly opened code sample starts at line 1.
+    // Sticky close controls otherwise leave the previous sample's scroll intact.
+    dialog.scrollTo({top:0,left:0,behavior:'instant'});
+    dialog.querySelector('[data-cr-close]').focus({preventScroll:true});
     requestAnimationFrame(()=>updateHint(clone));
   }
 
