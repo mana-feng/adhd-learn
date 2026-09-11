@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading topic-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -294,73 +294,162 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">📝 一、文本先变成一串向量</a></li>
-<li><a href="#_3">🔀 二、交叉注意力：每个位置自己决定听哪个词</a></li>
-<li><a href="#cfg">🎚️ 三、CFG：同一步跑两次</a></li>
-<li><a href="#s">📉 四、s 调大之后坏在哪</a></li>
-<li><a href="#_4">💰 五、代价：每步需要两份预测</a></li>
-<li><a href="#temperature">🌡️ 六、它和 temperature 是同一类旋钮</a></li>
+<li><a href="#_3">🔀 二、交叉注意力：图像位置怎样取文本信息</a></li>
+<li><a href="#cfg">🎚️ 三、CFG：同一状态取两份预测</a></li>
+<li><a href="#s">📉 四、s 调大，先看预测数值会发生什么</a></li>
+<li><a href="#_4">💰 五、代价与例外：先认清是哪一种 guidance</a></li>
+<li><a href="#temperature">🌡️ 六、与 temperature 对照：不是同一根滑块</a></li>
 <li><a href="#_5">🔗 这一章连到哪里</a></li>
 <li><a href="#_6">✅ 检查点</a></li>
 <li><a href="#_7">🛑 可以停在这里</a></li>
 </ul>
 </div>
 </details>
-<h1 id="06-cfg">06 · 条件控制：文本与 CFG</h1>
-<p>⏱ <strong>22 分钟</strong> ｜ ⭐ <strong>你在任何 UI 上拖的那个 guidance scale，这一页讲清它在算什么</strong></p>
+<div class="ov-layout"><article class="ov-body"><h1 id="06-cfg">06 · 条件控制：文本与 CFG</h1>
+<!-- topic-reading -->
+
+<p><link rel="stylesheet" href="../assets/diff-formula-help.css"><script defer src="../assets/diff-formula-help.js"></script></p>
+<p>⏱ <strong>22 分钟</strong> ｜ ⭐ <strong>看懂标准 CFG 的两份预测，再分清哪些 guidance 参数不按这条公式工作</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>提示词不是一次性的「输入」，而是每一步去噪时都在旁边说话的那个人；而 guidance scale 更奇怪 —— 它让模型同一步跑两次，一次听提示词、一次装作没听见，再朝两者的差外推。</strong>
-外推多远，就是那个滑块。</p>
-<p>前面几章的去噪循环里没出现过一个字的提示词，跑完得到的是「训练分布里的某一张图」—— 哪一张，随缘。这一章把提示词接进去。</p>
+<p><strong>文本条件告诉去噪网络“想生成什么”；标准 CFG 再把有条件与无该语义条件的预测作差，在采样时调节这份差。</strong></p>
+<p>这一章以 SD-v1 式文本条件和标准双分支 CFG 为主例。这里的 guidance scale 不是所有模型、所有 UI 中同名参数的统一定义；<a href="#_4">第五节</a>会单独说明蒸馏模型的边界。</p>
+<p>从上一章的潜空间继续：每次去噪都可以读取条件，而不只是把提示词混进初始噪声。想先看滑块怎么算，去<a href="#cfg">第三节</a>；想看一段能运行的数值例子，去<a href="#s">第四节</a>。</p>
 <hr />
 <h2 id="_2">📝 一、文本先变成一串向量</h2>
-<p>第一步和扩散无关：把提示词交给一个<strong>已经训好、并且冻住</strong>的文本编码器（Stable Diffusion 1.x 用 CLIP 的文本塔）。</p>
-<p>⭐ <strong>它吐出来的不是一个向量，是一串。</strong> CLIP ViT-L/14 固定输出 <strong>77 个位置 × 768 维</strong>，不足补齐、超了截断 —— 早期「提示词写太长后面不起作用」的传说，根就在这个 77 上。</p>
-<p>为什么必须是一串？因为下一步要做<strong>对齐</strong>：「戴红帽子的猫」里「红」该影响帽子那片像素、不该影响爪子；压成一个向量这信息就没了。</p>
+<p><strong>在 SD-v1 这个接口里，提示词先经过冻结的 CLIP ViT-L/14 文本塔，得到 token 级隐藏状态。</strong> 它使用 77 个位置、每个位置 768 维的表示；不是一整句话只给一个向量。</p>
+<p>这里的 <strong>77 是位置数，不是 77 个词</strong>：序列还包含特殊标记和填充位置，一个词也可能拆成多个 token。该基础实现把短输入补齐、长输入截断；某些工具另外实现了长提示词处理，不能只凭这个数字判断所有 UI。<a href="https://github.com/CompVis/stable-diffusion/blob/main/ldm/modules/encoders/modules.py#L123">SD-v1 文本编码器</a>、<a href="https://github.com/CompVis/stable-diffusion/blob/main/configs/stable-diffusion/v1-inference.yaml">模型配置</a>、<a href="https://github.com/openai/CLIP/blob/main/clip/clip.py#L205">CLIP 分词入口</a>。</p>
+<p>保留一串向量，下一步就能让不同图像位置取不同的文本信息。例如“戴红帽子的猫”，帽子区域与爪子区域可以使用不同的权重。</p>
+<p>但这不是“文本条件必须是一串”的定理。全局向量、类别标签也能作为条件；把文本汇总成一个向量也不等于语义全丢了。本页选择 token 序列，是因为要解释接下来的交叉注意力。</p>
 <hr />
-<h2 id="_3">🔀 二、交叉注意力：每个位置自己决定听哪个词</h2>
-<p>条件要在<strong>每一层、每一步</strong>都参与，靠的是交叉注意力。</p>
-<figure class="dia"><svg viewBox="0 0 760 238" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="左边一个四乘四的图像特征网格标 Q，中间一列文本向量标 K 与 V，右边是它们相乘得到的打分矩阵"><text class="dia-t" x="380" y="24" font-size="14" text-anchor="middle" fill="var(--fg)" font-weight="700">每个图像位置自己决定听哪个词</text><text class="dia-t" x="112" y="52" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">图像特征（Q）</text><rect x="60" y="66" width="24" height="24" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/><rect x="88" y="66" width="24" height="24" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/><rect x="116" y="66" width="24" height="24" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/><rect x="144" y="66" width="24" height="24" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/><rect x="60" y="94" width="24" height="24" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/><rect x="88" y="94" width="24" height="24" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/><rect x="116" y="94" width="24" height="24" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/><rect x="144" y="94" width="24" height="24" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/><rect x="60" y="122" width="24" height="24" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/><rect x="88" y="122" width="24" height="24" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/><rect x="116" y="122" width="24" height="24" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/><rect x="144" y="122" width="24" height="24" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/><rect x="60" y="150" width="24" height="24" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/><rect x="88" y="150" width="24" height="24" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/><rect x="116" y="150" width="24" height="24" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/><rect x="144" y="150" width="24" height="24" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/><text class="dia-t" x="112" y="196" font-size="11.5" text-anchor="middle" fill="var(--muted)">h × w 个位置</text><text class="dia-t" x="300" y="52" font-size="12.5" text-anchor="middle" fill="var(--link)" font-weight="700">文本（K / V）</text><rect x="272" y="66" width="56" height="18" rx="3" fill="var(--card)" stroke="var(--border)" stroke-width="1.2"/><rect x="272" y="90" width="56" height="18" rx="3" fill="var(--card)" stroke="var(--border)" stroke-width="1.2"/><rect x="272" y="114" width="56" height="18" rx="3" fill="var(--card)" stroke="var(--border)" stroke-width="1.2"/><rect x="272" y="138" width="56" height="18" rx="3" fill="var(--card)" stroke="var(--border)" stroke-width="1.2"/><rect x="272" y="162" width="56" height="18" rx="3" fill="var(--card)" stroke="var(--border)" stroke-width="1.2"/><text class="dia-t" x="300" y="196" font-size="11.5" text-anchor="middle" fill="var(--muted)">77 个 token 位</text><line x1="180" y1="122" x2="253" y2="122" stroke="var(--accent)" stroke-width="2"/><polygon points="262,122 253,117 253,127" fill="var(--accent)"/><line x1="340" y1="122" x2="413" y2="122" stroke="var(--accent)" stroke-width="2"/><polygon points="422,122 413,117 413,127" fill="var(--accent)"/><rect x="426" y="66" width="200" height="112" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"/><text class="dia-t" x="526" y="122" font-size="15" text-anchor="middle" fill="var(--accent)" font-weight="700">打分矩阵</text><text class="dia-t" x="526" y="141" font-size="11.5" text-anchor="middle" fill="var(--muted)">(h·w) × 77</text><text class="dia-t" x="526" y="196" font-size="11.5" text-anchor="middle" fill="var(--muted)">每行一个图像位置，每列一个词</text><text class="dia-t" x="380" y="226" font-size="12.5" text-anchor="middle" fill="var(--done)" font-weight="700">⭐ 每一层都有、每一步都重算 —— 条件不是起点，是全程偏置</text></svg><figcaption>看矩阵的<b>形状</b>：行是图像位置、列是词。⭐ 所以「听哪个词」是<b>每个位置各自算的</b>，不是整张图共用一个答案 —— 这就是提示词能控制局部的机制。</figcaption></figure>
+<h2 id="_3">🔀 二、交叉注意力：图像位置怎样取文本信息</h2>
+<p><strong>交叉注意力放在选定的注意力模块里，不是每一个卷积层都执行一次。</strong> 在 SD-v1 的 U-Net 中，模块位置由分辨率配置等结构设置决定；各次去噪调用都能使用同一份文本条件。<a href="https://github.com/CompVis/stable-diffusion/blob/main/ldm/modules/diffusionmodules/openaimodel.py">U-Net 实现</a>。</p>
+<figure class="dia">
+<svg viewBox="0 0 760 304" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="图像特征投影为查询Q，文本分别投影为K和V；Q与K得到按文本位置归一化的权重，再用权重加权V">
+<defs><marker id="diff06-attn-arrow__f1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="var(--accent)"/></marker></defs>
+<text class="dia-t" x="380" y="25" text-anchor="middle" fill="var(--fg)" font-size="15" font-weight="700">一份文本，两条用途：K 用来匹配，V 用来取回内容</text>
+<rect x="24" y="60" width="212" height="67" rx="8" fill="var(--card)" stroke="var(--muted)"/>
+<text class="dia-t" x="130" y="85" text-anchor="middle" fill="var(--fg)" font-size="15">图像特征 → 投影为 Q</text>
+<text class="dia-t" x="130" y="109" text-anchor="middle" fill="var(--muted)" font-size="14">4×4 特征示例：N=16 个位置</text>
+<rect x="24" y="198" width="212" height="67" rx="8" fill="var(--card)" stroke="var(--muted)"/>
+<text class="dia-t" x="130" y="224" text-anchor="middle" fill="var(--fg)" font-size="15">文本隐藏状态</text>
+<text class="dia-t" x="130" y="247" text-anchor="middle" fill="var(--muted)" font-size="14">SD-v1：77×768</text>
+<rect x="315" y="60" width="196" height="90" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+<text class="dia-t" x="413" y="86" text-anchor="middle" fill="var(--fg)" font-size="15">Q 与 K 打分</text>
+<text class="dia-t" x="413" y="109" text-anchor="middle" fill="var(--muted)" font-size="14">每行沿 77 个位置 softmax</text>
+<text class="dia-t" x="413" y="132" text-anchor="middle" fill="var(--accent)" font-size="15">权重 A：16×77</text>
+<rect x="575" y="60" width="164" height="90" rx="8" fill="var(--card)" stroke="var(--muted)"/>
+<text class="dia-t" x="657" y="90" text-anchor="middle" fill="var(--fg)" font-size="15">用 A 加权 V</text>
+<text class="dia-t" x="657" y="119" text-anchor="middle" fill="var(--muted)" font-size="14">取回：16×d_v</text>
+<path d="M236 94 H315" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#diff06-attn-arrow__f1)"/>
+<path d="M236 219 H282 V137 H315" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#diff06-attn-arrow__f1)"/>
+<text class="dia-t" x="294" y="190" fill="var(--accent)" font-size="14">投影 K</text>
+<path d="M511 105 H575" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#diff06-attn-arrow__f1)"/>
+<path d="M236 246 H657 V150" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#diff06-attn-arrow__f1)"/>
+<text class="dia-t" x="460" y="234" text-anchor="middle" fill="var(--accent)" font-size="14">单独投影 V：77×d_v</text>
+<text class="dia-t" x="380" y="291" text-anchor="middle" fill="var(--muted)" font-size="14">图省略批维和多头；位置数与投影维数不是同一个轴</text>
+</svg>
+<figcaption>先看中间权重矩阵：<b>行对应图像位置，列对应文本 token 位置</b>。每行可以取不同的文本信息；这提供局部关联能力，不保证“红色”绝不会影响到帽子以外。</figcaption>
+</figure>
 
 <div class="tw"><table>
 <thead>
 <tr>
-<th></th>
+<th>投影</th>
 <th>从哪来</th>
-<th>有多少</th>
+<th>单个注意力头里有多少位置</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Q</strong>（我想找什么）</td>
-<td>当前<strong>图像特征</strong>，每个空间位置一个</td>
-<td>h × w 个</td>
+<td><strong>Q</strong>：用什么去匹配</td>
+<td>当前图像特征</td>
+<td>N = h×w</td>
 </tr>
 <tr>
-<td><strong>K / V</strong>（能提供什么）</td>
-<td><strong>文本编码器的输出</strong></td>
-<td>77 个</td>
+<td><strong>K</strong>：按什么被匹配</td>
+<td>文本隐藏状态，经 K 投影</td>
+<td>L = 77（本例）</td>
+</tr>
+<tr>
+<td><strong>V</strong>：取回什么内容</td>
+<td>同一份文本隐藏状态，经另一组 V 投影</td>
+<td>L = 77（本例）</td>
 </tr>
 </tbody>
 </table></div>
-<p>打分矩阵因此是 <strong>(h·w) × 77</strong>：每个图像位置对 77 个文本位置各打一个分，softmax 成权重后把 V 加权取回 —— 所以「帽子」那片特征会大量取走「红」，爪子那片不会。</p>
-<p>⭐ <strong>「提示词塞在哪一层」的答案是：哪一层都塞了</strong>，条件不是起点而是<strong>全程施加的偏置</strong>。⚠️ 时间步 <code>t</code> 不走这条路，它和主干结构一起放在下一章。</p>
+<p>这里的 <code>d_v</code> 是单个注意力头中 V 投影后的维数，不等于文本编码器原来的 768 维。</p>
+<p>每头打分矩阵是 <strong>N×L</strong>；若批内有 B 个样本、每个模块有 heads 个头，写全形状就是 <strong>B×heads×N×L</strong>。沿最后一个轴做 softmax 后，每个图像位置取得一组文本权重，再把 V 加权取回。<a href="https://github.com/CompVis/stable-diffusion/blob/main/ldm/modules/attention.py#L156">交叉注意力实现</a>。</p>
+<p>所以，“提示词塞在哪里”的准确答案是：<strong>文本条件被传入主干，在配置好的条件模块中使用。</strong> 文本编码通常可先算一次并缓存；每次去噪的图像特征会变化，注意力关联也随之变化。时间条件 <code>t</code> 是另一条输入，留到下一章讲。</p>
 <hr />
-<h2 id="cfg">🎚️ 三、CFG：同一步跑两次</h2>
-<p>光靠交叉注意力，<strong>服从度往往不够</strong>。CFG（classifier-free guidance）在<strong>采样时</strong>动手：带提示词跑一次得 <code>ε_cond</code>，带<strong>空提示词</strong>再跑一次得 <code>ε_uncond</code>，然后合成：</p>
-<figure class="dia"><svg viewBox="0 0 760 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="数轴上标出不带条件与带条件两点，箭头沿这个方向继续外推到 s=7.5 和 s=15"><text class="dia-t" x="380" y="24" font-size="14" text-anchor="middle" fill="var(--fg)" font-weight="700">CFG 不是在两者之间插值，是沿着方向外推</text><line x1="60" y1="96" x2="700" y2="96" stroke="var(--border)" stroke-width="2"/><circle cx="140" cy="96" r="7" fill="var(--muted)"/><text class="dia-t" x="140" y="78" font-size="12.5" text-anchor="middle" fill="var(--muted)" font-weight="700">ε_uncond</text><text class="dia-t" x="140" y="122" font-size="11.5" text-anchor="middle" fill="var(--muted)">不带条件</text><circle cx="300" cy="96" r="7" fill="var(--accent)"/><text class="dia-t" x="300" y="78" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">ε_cond</text><text class="dia-t" x="300" y="122" font-size="11.5" text-anchor="middle" fill="var(--muted)">带条件</text><circle cx="620" cy="96" r="7" fill="var(--danger,#e5534b)"/><text class="dia-t" x="620" y="78" font-size="12.5" text-anchor="middle" fill="var(--danger,#e5534b)" font-weight="700">s = 15</text><text class="dia-t" x="620" y="122" font-size="11.5" text-anchor="middle" fill="var(--muted)">过饱和、构图崩</text><circle cx="460" cy="96" r="7" fill="var(--done)"/><text class="dia-t" x="460" y="78" font-size="12.5" text-anchor="middle" fill="var(--done)" font-weight="700">s = 7.5</text><text class="dia-t" x="460" y="122" font-size="11.5" text-anchor="middle" fill="var(--muted)">常用区间</text><line x1="300" y1="152" x2="691" y2="152" stroke="var(--accent)" stroke-width="2.2"/><polygon points="700,152 691,147 691,157" fill="var(--accent)"/><text class="dia-t" x="500" y="144" font-size="12" text-anchor="middle" fill="var(--accent)" font-weight="700">s 越大走得越远</text><text class="dia-t" x="220" y="152" font-size="11.5" text-anchor="middle" fill="var(--muted)">s = 1 停在这里</text><text class="dia-t" x="380" y="186" font-size="12" text-anchor="middle" fill="var(--muted)">随机向量示例：s=1 范数 15.81（参考尺度的 0.99 倍）→ s=15 涨到 91.65（5.73 倍）</text><text class="dia-t" x="380" y="208" font-size="12.5" text-anchor="middle" fill="var(--danger,#e5534b)" font-weight="700">⚠️ 外推可能放大尺度；实际画质需要另做对照</text></svg><figcaption>看 <b>s=1 的位置</b>：它就停在带条件那一点上，不做额外 CFG 外推，但仍使用条件。⭐ 再往右全是<b>外推</b>而不是插值 —— 所以调大 s 不是「更接近条件」，是<b>越过它</b>，图只示意外推方向，不按 s 的数值比例绘制；是否出现不良结果要实测。</figcaption></figure>
-
+<h2 id="cfg">🎚️ 三、CFG：同一状态取两份预测</h2>
+<p><strong>先决条件在训练阶段：模型必须学过缺少这份语义条件时怎样预测。</strong> 标准 CFG 训练会以设定概率把语义条件替换为训练时约定的空语义条件（null）；带噪输入和时间条件仍在。不是推理时随手关闭任意条件模型，也不是随机清零一部分嵌入元素。<a href="https://arxiv.org/html/2207.12598v1">CFG 原论文算法 1</a>。</p>
+<p>例如 SD-v1-3/1-4 的训练说明写了 <strong>10% 文本条件丢弃</strong>；这是具体版本的超参数，不是 CFG 必须使用的常数。“无条件”在这里指<strong>不带指定文本语义条件</strong>，仍然看着 <code>x_t</code> 和 <code>t</code>。<a href="https://github.com/CompVis/stable-diffusion/blob/main/README.md">CompVis 训练说明</a>。</p>
+<p>采样时，对<strong>同一个 <code>x_t</code>、同一个 <code>t</code>、同一种预测参数化</strong>取得两份结果：带文本的 <code>ε_cond</code> 与 null 条件的 <code>ε_uncond</code>。本页沿用 ε 预测记号，再合成：</p>
 <p>$$\tilde{\varepsilon} = \varepsilon_{\text{uncond}} + s \cdot (\varepsilon_{\text{cond}} - \varepsilon_{\text{uncond}})$$</p>
-<p>💡 <strong>人话</strong>：括号里是「有提示词和没提示词，预测差在哪」，也就是<strong>条件把画面往哪拽</strong>；<code>s</code> 决定沿这个方向走多远。</p>
-<p>整理成 <code>(1−s)·ε_uncond + s·ε_cond</code> 更能看出问题：⭐ <strong><code>s = 1</code> 时它就等于 <code>ε_cond</code>，即完全不做引导</strong>；<code>s &gt; 1</code> 时 <code>ε_uncond</code> 的系数变负 —— 这<strong>不是插值，是越过 <code>ε_cond</code> 往外推</strong>。UI 上默认的 7.5，就是沿条件方向走出那么远。</p>
+<p>括号是两份预测的差，<code>s</code> 决定从无条件预测出发沿这份差走多远。它是预测空间的运算，不是把两张最终图片混合。</p>
+<figure class="dia">
+<svg viewBox="0 0 760 216" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="沿条件预测差的仿射坐标：s等于0在无条件点，等于1在条件点，7.5与15位于条件点以外；位置按s的比例绘制">
+<defs><marker id="diff06-cfg-arrow__f2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="var(--accent)"/></marker></defs>
+<text class="dia-t" x="380" y="26" text-anchor="middle" fill="var(--fg)" font-size="15" font-weight="700">s&gt;1 才是越过条件预测的外推</text>
+<path d="M50 95 H713" stroke="var(--accent)" stroke-width="2" marker-end="url(#diff06-cfg-arrow__f2)"/>
+<circle cx="70" cy="95" r="6" fill="var(--muted)"/>
+<circle cx="110" cy="95" r="6" fill="var(--accent)"/>
+<circle cx="370" cy="95" r="6" fill="var(--accent)"/>
+<circle cx="670" cy="95" r="6" fill="var(--accent)"/>
+<text class="dia-t" x="70" y="68" text-anchor="middle" fill="var(--muted)" font-size="15">s=0：ε_uncond</text>
+<path d="M110 102 V134 H175" stroke="var(--muted)" fill="none"/>
+<text class="dia-t" x="181" y="139" fill="var(--fg)" font-size="15">s=1：ε_cond</text>
+<text class="dia-t" x="370" y="68" text-anchor="middle" fill="var(--accent)" font-size="15">s=7.5</text>
+<text class="dia-t" x="670" y="68" text-anchor="middle" fill="var(--accent)" font-size="15">s=15</text>
+<text class="dia-t" x="480" y="134" text-anchor="middle" fill="var(--muted)" font-size="14">沿预测差继续走，不是画质等级</text>
+<text class="dia-t" x="380" y="174" text-anchor="middle" fill="var(--muted)" font-size="14">每增加 1 个 s，图上向右 40 单位；假设两份预测不相同</text>
+<text class="dia-t" x="380" y="198" text-anchor="middle" fill="var(--fg)" font-size="14">本图表示公式坐标，不表示某个 API 在 s≤1 时的执行开关</text>
+</svg>
+<figcaption>看 <b>s=1</b>：仍是带条件预测，只是不做额外 CFG 外推。7.5 与 15 只是公式中的外推位置，不能据此宣布哪一点画质好、哪一点必然崩坏。</figcaption>
+</figure>
+
+<p>把公式整理成 <code>(1−s)·ε_uncond + s·ε_cond</code>，三个边界就清楚了：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>本页公式的 s</th>
+<th>结果</th>
+<th>注意</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>ε_uncond</code></td>
+<td>代数结论；不保证 UI 的 0 会执行无条件分支</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>ε_cond</code></td>
+<td>仍使用条件，没有额外外推</td>
+</tr>
+<tr>
+<td>大于 1</td>
+<td>越过 <code>ε_cond</code>，无条件项系数为负</td>
+<td>假设两份预测不同；若完全相同，改变 s 不起作用</td>
+</tr>
+</tbody>
+</table></div>
+<p>原论文把合成写成 <code>(1+w)·ε_cond − w·ε_uncond</code>，与这里的关系是 <strong>s=1+w</strong>，因此论文的 <code>w=0</code> 对应本页 <code>s=1</code>。看到“guidance 为零”，必须先查采用哪套约定。<a href="https://arxiv.org/html/2207.12598v1">CFG 原论文算法 2</a>。</p>
+<p>CompVis 参考文本生成脚本的默认 scale 是 <strong>7.5</strong>，但这是该脚本的默认值，不是所有 UI 或模型的通用推荐值。<a href="https://github.com/CompVis/stable-diffusion/blob/main/README.md">参考运行参数</a>。</p>
+<h3 id="cfg-null-branch">空条件不等于所有模型都用全零</h3>
+<p>在本页的 SD-v1 路径中，null 分支可用<strong>空字符串经过文本编码器得到的嵌入</strong>，不是直接给全零张量。其他模型会不同：原始 DiT 使用额外类别 ID；当前 SDXL 实现中，<code>negative_prompt=None</code> 且开启 <code>force_zeros_for_empty_prompt</code> 时可以使用零嵌入，显式空字符串又不是这一判定。<a href="https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py#L389">SDXL 条件编码</a>。</p>
+<p>如果把 null 分支换成负面提示词，标准组合成为 <code>ε_neg + s·(ε_pos−ε_neg)</code>。这时负面分支是<strong>另一份有条件预测</strong>，不再是严格的无条件预测。<code>s&gt;1</code> 时其系数 <code>1−s</code> 为负；<code>s=1</code> 时它的系数为零。<a href="https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L417">标准 SD 管线的负面分支</a>。</p>
+<p><strong>负面词不是逻辑 NOT。</strong> 这条差分能改变采样方向，但不保证彻底删除指定概念，也不能概括所有模型的负面词实现。</p>
 <details>
-<summary>👀 名字里的 free 指什么（可跳过）</summary>
-<p>前身 classifier guidance 要另训一个看得懂带噪图的分类器；CFG 改成训练时<strong>以约 10% 的概率把条件丢掉</strong>，同一个网络就兼职学会了无条件预测，<strong>不需要额外分类器</strong>。</p>
-<p>⭐ 另外：「空提示词」<strong>不是全零张量</strong>，是把空字符串真送进文本编码器得到的那串向量。把它换成负面提示词，那一支就成了「往反面推」—— 负面提示词的全部机制就在这里。</p>
+<summary>👀 名字里的 free 指什么</summary>
+<p>classifier guidance 需要额外的分类器提供引导；classifier-free guidance 联合学习条件与 null 预测，不再需要那一个额外分类器。它不是“没有条件”，也不是“引导不花计算”。</p>
 </details>
 <hr />
-<h2 id="s">📉 四、<code>s</code> 调大之后坏在哪</h2>
-<p>用两个假的预测张量，看合成那一行把结果放大成什么样：</p>
+<h2 id="s">📉 四、<code>s</code> 调大，先看预测数值会发生什么</h2>
+<p><strong>这个实验只检查合成公式，不评测图像。</strong> 下面保留两个假预测张量和固定种子，观察向量范数与越过 ±3 的分量数。无需下载模型。</p>
+<p>代码沿用“训练时见过”“训练尺度”的打印标签；在本例里它们只指<strong>标准高斯参考</strong>。真实噪声预测器的输出分布不必等于训练噪声目标的分布，不能从这个标签推出真实模型的合法范围。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># CFG 合成出来的 ε，随 s 被放大成什么样</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
@@ -378,9 +467,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
           <span class="sa">f</span><span class="s2">&quot;  越过 3 的分量 </span><span class="si">{</span><span class="nb">int</span><span class="p">((</span><span class="n">eps</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">3</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span><span class="si">:</span><span class="s2">3d</span><span class="si">}</span><span class="s2"> 个&quot;</span><span class="p">)</span>
 </code></pre></div>
 
-<section aria-label="CFG 外推会放大向量尺度" class="experiment-result" id="experiment-result-9">
-<h3 id="cfg_1">CFG 外推会放大向量尺度</h3>
-<p>这是 256 维随机向量示例，不是真实模型评测。标准高斯向量的典型范数约为 16.0；原稿把它称为“训练尺度”。</p>
+<p>先定位循环中的 <code>eps = ...</code>：只有这一行随 <code>s</code> 合成预测，两份假预测本身不变。<code>norm()</code> 量整体长度，最后一行的比较统计单个分量；二者不是同一个指标。</p>
+<section aria-label="本例 CFG 外推怎样改变向量尺度" class="experiment-result" id="experiment-result-9">
+<h3 id="cfg_1">本例 CFG 外推怎样改变向量尺度</h3>
+<p>256 维标准高斯的范数均方根为 <strong>16</strong>，可作典型尺度，但不是范数期望的精确值。本次独立执行得到：</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -417,52 +507,84 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>参考高斯的单个分量超过 ±3 的概率很低，但不是不可能；不能把 3 当成模型的硬边界。</p>
+<p>看 <strong>s=7.5</strong>：范数是参考尺度的 <strong>2.95 倍</strong>，有 <strong>70 个分量越过 3</strong>。这说明本例的外推显著改变了数值尺度；<strong>3 不是模型的硬边界</strong>，标准高斯本身也可能越过它。</p>
 </section>
-<p><strong>看 s=7.5 这一行</strong>：合成向量范数达到参考尺度的 <strong>2.95 倍</strong>，有 <strong>70 个分量越过 3</strong>；s=15 时为 <strong>5.73 倍</strong>。这说明外推可能显著改变向量尺度，不能把越过 3 当成“模型从未见过”的硬证据。</p>
-<p>真实生成中，过强的引导可能伴随过饱和、结构或纹理伪影，以及样本多样性下降。<strong>这段随机向量代码没有生成图片，不能单独证明这些现象或确定最合适的 s。</strong> 需要在固定提示词、多个种子下另做图像对照。</p>
-<blockquote>
-<p>⭐ <strong>「调大一点更听话」只在一段区间里成立</strong>，过了那段换来的是一张更响亮的坏图。</p>
-</blockquote>
+<p>也不能把表格概括成“所有预测的范数都随 s 增长”。一个简单反例：无条件预测为 <code>(2,0)</code>、条件预测为 <code>(1,0)</code>，则 <code>s=0、1、2、3</code> 的合成范数分别为 <code>2、1、0、1</code>，先减后增。</p>
+<p>真实生成中，过强引导可能伴随过饱和、结构或纹理伪影，以及多样性下降；它们需要图像实验验证，<strong>不是本页随机向量表的观测结果</strong>。也不存在由这张表推导出的通用最佳 s。<a href="https://arxiv.org/html/2207.12598v1">CFG 论文的质量与多样性讨论</a>。</p>
+<p>实际比较时，固定模型、提示词与采样器，对每个 s 使用同一组多个种子；既看条件匹配，也看细节和样本间差异。多样性不能靠一张图判断。</p>
 <hr />
-<h2 id="_4">💰 五、代价：每步需要两份预测</h2>
-<p>常规 CFG 每步需要有条件和无条件两份网络预测，50 步对应 <strong>100 份预测工作</strong>。实现可以分成两次调用，也可以拼成一个较大的 batch；因此不是一定有 100 次函数调用，墙钟时间也不一定恰好翻倍。</p>
-<p>⭐ <strong>比较采样速度前，先对齐计数口径</strong>：一次去噪步、一次函数调用和一份网络预测不是同一单位。看到“20 步出图”，先确认是否启用 CFG、两份预测是否合并到 batch，以及实际用时和运行硬件。</p>
+<h2 id="_4">💰 五、代价与例外：先认清是哪一种 guidance</h2>
+<p><strong>标准双分支 CFG 每个去噪状态需要两份预测。</strong> 若采样器恰好有 50 次这样的去噪评估，就是 <strong>100 份预测工作</strong>。两份可以分别调用，也可以合成一个较大的 batch；不代表一定有 100 次函数调用，墙钟时间也不必恰好翻倍。</p>
+<p>合批可能减少调度和重复访存、改善设备利用率，但没有把第二份输入对应的网络计算抹掉。计时前先对齐：采样器的“步”、模型评估次数、每次 batch 大小、硬件与实际耗时。</p>
+<p><strong>同名参数不一定执行同一算法。</strong> 以下是具体实现的边界，不是未来所有模型的通则：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>模型或实现</th>
+<th>应怎样理解</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>常规 Diffusers StableDiffusionPipeline</td>
+<td>显式 CFG 的开关通常要求 <code>guidance_scale&gt;1</code>，且没有时间条件投影分支；因此 API 中 ≤1 可直接走条件预测，不等于照本页公式返回无条件结果</td>
+</tr>
+<tr>
+<td>SDXL-Turbo 官方使用方式</td>
+<td>示例设 <code>guidance_scale=0</code>，不使用常规 CFG/负面词；正提示词仍是生成条件</td>
+</tr>
+<tr>
+<td>FLUX.1-dev 的官方参考实现</td>
+<td>模型经过 guidance distillation；guidance 数值作为模型条件嵌入，参考循环并不因此每步算一正一负</td>
+</tr>
+<tr>
+<td>当前 Diffusers FluxPipeline</td>
+<td><code>guidance_scale</code> 条件嵌入与 <code>true_cfg_scale</code> 显式组合是两件事；后者在大于 1 且提供负面条件时才需要另一份预测</td>
+</tr>
+</tbody>
+</table></div>
+<p>对应一手入口：<a href="https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L695">SD 的 CFG 开关</a>、<a href="https://huggingface.co/stabilityai/sdxl-turbo#diffusers">SDXL-Turbo 模型卡</a>、<a href="https://huggingface.co/black-forest-labs/FLUX.1-dev#key-features">FLUX.1-dev 模型卡</a>、<a href="https://github.com/black-forest-labs/flux/blob/main/src/flux/model.py#L78">BFL 模型条件</a>与<a href="https://github.com/black-forest-labs/flux/blob/main/src/flux/sampling.py#L281">参考采样循环</a>、<a href="https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/flux/pipeline_flux.py">Diffusers FluxPipeline</a>。实现边界核对于 2026-09-11。</p>
+<p>所以，看到“20 步出图”或一个 guidance 滑块，先查模型版本与管线。<strong>别把“没有显式双分支 CFG”读成“没有文本条件”。</strong></p>
 <hr />
-<h2 id="temperature">🌡️ 六、它和 temperature 是同一类旋钮</h2>
+<h2 id="temperature">🌡️ 六、与 temperature 对照：不是同一根滑块</h2>
 <div class="tw"><table>
 <thead>
 <tr>
 <th></th>
 <th>语言模型的 <code>temperature</code></th>
-<th>扩散的 <code>s</code></th>
+<th>本页标准 CFG 的 <code>s</code></th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>在调什么</td>
-<td>采样分布的尖锐程度</td>
-<td>条件方向被外推多远</td>
+<td>改哪里</td>
+<td>token 采样分布的尖锐程度</td>
+<td>两份去噪预测的线性组合</td>
 </tr>
 <tr>
-<td><strong>更听话</strong>往哪调</td>
-<td>⚠️ 调<strong>小</strong></td>
-<td>⚠️ 调<strong>大</strong>（方向相反，别记混）</td>
+<td>往小／大调的直接含义</td>
+<td>降低正温度通常降低采样随机性</td>
+<td>s&gt;1 时增大 s，加强沿预测差的外推</td>
 </tr>
 <tr>
-<td>走极端</td>
-<td>复读、干瘪</td>
-<td>过饱和、构图崩、多样性塌缩</td>
+<td>不能保证什么</td>
+<td>低温不保证更遵守指令或事实正确</td>
+<td>高 s 不保证更匹配提示词或画质更好</td>
 </tr>
 <tr>
-<td>额外算力代价</td>
-<td>调温度本身不增加模型预测份数</td>
-<td>⚠️ 常规 CFG 每步需两份预测，可合批计算</td>
+<td>走极端时应观察</td>
+<td>输出是否过于单一、反复重复高概率内容</td>
+<td>是否过饱和、结构或纹理异常、样本多样性下降</td>
+</tr>
+<tr>
+<td>计算口径</td>
+<td>温度缩放本身不增加模型预测份数</td>
+<td>标准双分支 CFG 需要两份预测，可合批</td>
 </tr>
 </tbody>
 </table></div>
-<p>共同点才是重点：<strong>都在「多听话」和「多自由」之间取舍，都没有安全默认值，都得按任务调。</strong></p>
-<p>⚠️ <strong>这是类比不是等同</strong>：<code>temperature</code> 改的是分布形状，<code>s</code> 改的是预测向量的方向和长度，可迁移的只有那个权衡结构。但正因结构一样，那边的规矩这边也成立：<strong>别两个旋钮一起动</strong>，出问题先调回默认。</p>
+<p>可保留的类比是：<strong>采样参数会改变结果分布，需要按任务做受控比较。</strong> 但两者的数学操作、方向和实现代价不同；降低语言模型随机性，不等于增加扩散条件差。<a href="https://huggingface.co/docs/transformers/main/en/internal/generation_utils#transformers.TemperatureLogitsWarper">温度缩放说明</a>。</p>
+<p>一次只改一个变量，是为了知道变化由谁造成，不是因为两种旋钮等价。保留一个可复查的基准设置，再逐项试验，比记住一个跨模型“安全默认值”可靠。</p>
 <hr />
 <h2 id="_5">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
@@ -475,48 +597,54 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td><a href="../大模型全景导论/06c-解码参数怎么调.html">大模型全景导论 06c · 解码参数怎么调</a></td>
-<td>⭐⭐ 上一节那个类比的另一半：它把 <code>temperature</code> 的数学摊开了（logits 差 2.0 时 T=0.5 把概率比放大到 54.6 倍），并给了一条这里也适用的规矩 —— <strong>和 <code>top_p</code> 只调一个</strong></td>
+<td>看 temperature 的数学：logits 差为 2.0、T=0.5 时，概率比约为 54.6。它与 top_p 分开试验，是控制变量的方法</td>
 </tr>
 <tr>
 <td><a href="../大模型全景导论/02-Transformer原理.html">大模型全景导论 主线 2 · 模型怎样看懂一句话</a></td>
-<td>交叉注意力的底子：那页把 Q/K/V 讲成三个角色（我想找什么／能被怎样匹配／能提供什么内容），本章只是把它们拆到两个东西上</td>
+<td>补 Q/K/V 的角色；本页把 Q 与 K/V 的来源拆成图像、文本两边</td>
 </tr>
 <tr>
 <td><a href="../大模型全景导论/10d-CLIP与对比学习.html">大模型全景导论 10d · CLIP 与对比学习</a></td>
-<td>那个「已训好并冻住」的文本编码器<strong>是怎么来的</strong>：几亿对（图片，描述）用 InfoNCE 训，一个 batch 的 N 对编成 N×N 相似度矩阵、要求对角线最大</td>
+<td>看冻结文本编码器的训练来历：原始 CLIP 使用 4 亿图文对，采用 InfoNCE 一类对比目标；batch 内 N×N 匹配提高成对项（对角线）的相对得分。别与本页图像位置×文本位置的注意力矩阵混淆</td>
 </tr>
 <tr>
 <td><a href="../大模型全景导论/06-推理优化.html">大模型全景导论 06 · 推理优化：省显存</a></td>
-<td>「计算量翻倍」这类账在语言模型那边怎么算：核心是<strong>瓶颈分两种</strong>（算力密集 vs 访存密集），正是「batch=2 省搬权重、不省乘加」背后的判据</td>
+<td>区分算力密集与访存密集，理解为什么合批可能改善耗时，却没有省掉第二份预测的乘加</td>
 </tr>
 </tbody>
 </table></div>
+<p>图文对规模与训练目标见 <a href="https://arxiv.org/abs/2103.00020">CLIP 原论文</a>；训练数据规模属于文本编码器的来历，不是本页假预测实验的规模。</p>
 <hr />
 <h2 id="_6">✅ 检查点</h2>
 <ol>
-<li>文本编码器输出的是一个向量还是一串？为什么这个区别关键？</li>
-<li>交叉注意力里 Q、K、V 各来自哪边？打分矩阵是什么形状？</li>
-<li>CFG 的合成公式是什么？<code>s = 1</code> 时会发生什么？为什么说 <code>s &gt; 1</code> 是外推不是插值？</li>
-<li><code>s</code> 调得很大会坏成什么样？其中哪一条单看一张图发现不了？</li>
-<li>CFG 的算力代价是多少？拼成 batch=2 之后省掉的是什么、没省掉的是什么？</li>
+<li>本页 SD-v1 文本接口输出一个向量还是一串？77 是否指 77 个词？为什么保留不同位置有用？</li>
+<li>交叉注意力里 Q、K、V 各来自哪边？打分矩阵什么形状？是否每层都有、是否保证属性绝不串到别处？</li>
+<li>标准 CFG 合成公式是什么？<code>s=1</code> 有无文本条件，<code>s&gt;1</code> 为什么叫外推？负面词替换的是哪一份预测？</li>
+<li>大 s 可能伴随哪些问题，哪一类不能看单张图判断？本页随机实验真正测到了什么？</li>
+<li>标准 CFG 需要多少预测工作？合批省不掉什么？为什么不能把所有模型的 guidance 参数都按两份预测计费？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>是<strong>一串</strong>：CLIP ViT-L/14 固定输出 <strong>77 × 768</strong>。因为交叉注意力要做<strong>对齐</strong> —— 「红」要影响帽子那片像素、不影响爪子。</li>
-<li><strong>Q 来自图像特征</strong>（每个空间位置一个，共 h×w 个），<strong>K/V 来自文本编码器输出</strong>（77 个）。打分矩阵是 <strong>(h·w) × 77</strong>。</li>
-<li><code>ε = ε_uncond + s·(ε_cond − ε_uncond)</code>，<strong><code>s = 1</code> 时等于 <code>ε_cond</code>，即不做额外 CFG 外推，仍是条件预测</strong>。整理成 <code>(1−s)·ε_uncond + s·ε_cond</code> 就看得出 <code>s &gt; 1</code> 时前一项系数是<strong>负数</strong>，结果落在 <code>ε_cond</code> <strong>之外</strong>。</li>
-<li><strong>过饱和、构图崩坏、多样性塌缩</strong>，第三条单看一张图发现不了。在本页随机向量实验中，<code>s=7.5</code> 合成出的范数是比较基准 16 的 <strong>2.95 倍</strong>、<strong>70 个分量的绝对值超过 3</strong>；这不是实际模型训练分布的硬边界。</li>
-<li>常规 CFG 每步需要两份预测工作，可以分开调用或合并到一个较大的 batch。计算量通常增加，但函数调用次数、访存收益与墙钟耗时取决于实现，不保证全部恰好翻倍。</li>
+<li>本页使用 <strong>77×768 的 token 级隐藏状态</strong>，77 包括特殊与填充位置，不等于词数。不同图像位置可以取不同文本信息，但这不是所有条件接口必须使用序列的定理。</li>
+<li>Q 来自图像特征投影，K/V 来自文本隐藏状态的分别投影。每头为 <strong>(h·w)×77</strong>，完整为 B×heads×(h·w)×77。在选定模块中使用，不是每层都有，也不保证“红色”只影响帽子。</li>
+<li><code>ε = ε_uncond + s·(ε_cond−ε_uncond)</code>；<strong>s=1 是条件预测，没有额外外推</strong>。s&gt;1 时无条件项系数为负，若两份预测不同便越过条件点。负面词通常替换基线分支，成为 <code>ε_neg+s·(ε_pos−ε_neg)</code>，不再是严格无条件，也不是逻辑 NOT。</li>
+<li>可能有过饱和、结构或纹理伪影、多样性下降；最后一项需要比较多个样本。本页只测假预测的数值：s=7.5 时范数为参考 16 的 <strong>2.95 倍</strong>、<strong>70 个分量绝对值超过 3</strong>。没有生成图片，3 也不是模型硬边界。</li>
+<li>每个需要标准双分支 CFG 的状态有两份预测工作，可分开调用或合批。合批可改善调度、访存和利用率，但不消除第二份网络计算；耗时不保证恰好翻倍。蒸馏 guidance 条件嵌入与显式 CFG 是不同实现，须查模型和管线。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_7">🛑 可以停在这里</h2>
-<p>你已经能解释一张图怎么「听懂」提示词：文本编码器 → 每层每步的交叉注意力 → 采样时的两次前向外推。⚠️ <strong>什么时候回来</strong>：图颜色发死、结构反复、换种子也总是那几张 —— 先把 <code>s</code> 调回默认再查别的。</p>
+<p>现在你可以把三件事分开：<strong>文本怎样进入网络、标准 CFG 怎样组合预测、当前模型是否真的执行这条双分支公式。</strong></p>
+<p>要查提示词长度与局部关联，回看前两节；要查 s 的数值与计时口径，回看第三至五节。出现颜色、纹理或多样性问题时，先在同一组种子下与已记录的基准比较，不把所有问题都归因于一个滑块。</p>
 <p>⚡ <strong>走神救援</strong></p>
-<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>条件通过网络影响每一步去噪，而不是只在初始噪声里出现一次。</li><li>CFG 组合有条件与无条件预测，加强条件方向，同时增加计算与偏离训练分布的风险。</li><li>引导强度不是越大越好，要同时观察匹配程度、细节和多样性。</li></ul></section>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>文本条件在选定模块中影响去噪；不是每层都做交叉注意力。</li><li>标准 CFG 需要训练好的 null 分支，s=1 仍是有条件预测。</li><li>随机向量表只证明本例数值变化，画质与多样性要另做图像对照。</li><li>同名 guidance 不保证同一算法，先核对模型版本与管线。</li></ul></section>
 
-<p><strong>下一节</strong> 👉 <a href="07-去噪主干-UNet与DiT.html">07-去噪主干-UNet与DiT.md</a></p>
+<p><strong>上一节</strong>：<a href="05-Latent-Diffusion.html">05 · Latent Diffusion</a> ｜ <strong>下一节</strong>：<a href="07-去噪主干-UNet与DiT.html">07 · 去噪主干：U-Net 与 DiT</a></p></article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
+<button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">📝 一、文本先变成一串向量</a><a href="#_3">🔀 二、交叉注意力：图像位置怎样取文本信息</a><a href="#cfg">🎚️ 三、CFG：同一状态取两份预测</a><a href="#s">📉 四、s 调大，先看预测数值会发生什么</a><a href="#_4">💰 五、代价与例外：先认清是哪一种 guidance</a><a href="#temperature">🌡️ 六、与 temperature 对照：不是同一根滑块</a><a href="#_5">🔗 这一章连到哪里</a><a href="#_6">✅ 检查点</a><a href="#_7">🛑 可以停在这里</a></nav>
+<button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
+<a href="index.html">回到本模块目录</a></div></aside></div>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="05-Latent-Diffusion.html"><div class="dir">← 上一节</div>🗜️ 05 · Latent Diffusion</a><a class="next" href="07-去噪主干-UNet与DiT.html"><div class="dir">下一节 →</div>🏗️ 07 · 去噪主干：U-Net 与 DiT</a></nav>

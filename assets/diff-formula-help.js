@@ -1,4 +1,4 @@
-/* page-local formula explanations for diffusion chapters 04 and 05.
+/* page-local formula explanations for diffusion chapters 04, 05 and 06.
  * No shared engine is changed. Full original TeX must match exactly (outer
  * whitespace only is trimmed); a lone symbol can never activate a rule.
  */
@@ -6,6 +6,19 @@
   'use strict';
   const T = String.raw;
   const catalogs = {
+    '06-条件控制与CFG.html': {
+      locked: true,
+      rules: [
+        {
+          id: 'cfg-prediction-difference', title: 'CFG：沿两份预测的差走多远',
+          tex: T`\tilde{\varepsilon} = \varepsilon_{\text{uncond}} + s \cdot (\varepsilon_{\text{cond}} - \varepsilon_{\text{uncond}})`,
+          part: T`s \cdot (\varepsilon_{\text{cond}} - \varepsilon_{\text{uncond}})`,
+          meaning: 'ε_cond 是带指定语义条件的预测，ε_uncond 是训练时约定的空语义条件下的预测。两者必须来自同一个带噪状态、同一个时间，并使用相同预测参数化。括号求两份预测的差，s 再缩放这份差。',
+          role: '把这份改变量加到 ε_uncond 上，得到本步使用的合成预测。s=1 正好返回 ε_cond；当两份预测不同，s>1 才会越过条件预测继续外推。这是在预测空间里运算，不是混合两张最终图片。',
+          example: '用一维数值看：若 ε_uncond=1、ε_cond=2，s=3 时结果是 1+3×(2−1)=4；s=1 得 2，s=0 得 1。这里是公式边界，不保证某个 API 的 guidance_scale=0 会执行无条件分支，也不说明数值越大画质越好。原论文另一套记号满足 s=1+w。'
+        }
+      ]
+    },
     '04-DDIM与采样加速.html': {
       locked: true,
       rules: [

@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading topic-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -293,68 +293,129 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
-<li><a href="#_2">🧱 一、先把接口钉死：三进一出</a></li>
+<li><a href="#_2">🔌 一、先约定接口，再比较主干</a></li>
 <li><a href="#u-net">🪜 二、U-Net：先压下去，再抬回来</a></li>
-<li><a href="#_4">✂️ 三、跳跃连接到底救了什么</a></li>
+<li><a href="#_4">✂️ 三、跳跃连接到底在防哪种信息损失</a></li>
 <li><a href="#dit-token">🧩 四、DiT：把潜空间切成 token</a></li>
 <li><a href="#dit">🏁 五、为什么考虑 DiT，以及它的代价</a></li>
-<li><a href="#_6">🚧 六、一个特别容易搞混的点</a></li>
+<li><a href="#_6">🚧 六、Transformer 结构不等于自回归生成</a></li>
 <li><a href="#_7">🔗 这一章连到哪里</a></li>
 <li><a href="#_8">✅ 检查点</a></li>
 <li><a href="#_9">🛑 可以停在这里</a></li>
 </ul>
 </div>
 </details>
-<h1 id="07-u-net-dit">07 · 去噪主干：U-Net 与 DiT</h1>
-<p>⏱ <strong>34 分钟</strong> ｜ ⭐ <strong>前面六章一直在说「让模型预测噪声」，这一章打开那个模型</strong></p>
+<div class="ov-layout"><article class="ov-body"><h1 id="07-u-net-dit">07 · 去噪主干：U-Net 与 DiT</h1>
+<!-- topic-reading -->
+
+<p>⏱ <strong>34 分钟</strong> ｜ ⭐ <strong>读懂去噪网络的接口、跳跃连接和 token 形状，不把“换主干”误当成“随便换接口”</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>去噪网络只是一个接口固定的函数：进 <code>(带噪的图, 第几步, 条件)</code>，出「这里面加了什么噪声」—— 里面用什么结构实现，扩散本身完全不关心。</strong>
-所以主干从 U-Net 换成 Transformer（DiT），当预测目标、时间编码、条件接口和方差约定都保持一致时，CFG 与 DDIM 的数学形式可以复用。</p>
+<p><strong>U-Net 和 DiT 是实现去噪网络的两种结构；采样器能否复用，要看预测目标、时间、条件和方差约定是否匹配。</strong></p>
+<p>前面几章反复调用一个“预测噪声”的函数。这一章打开它：U-Net 用多尺度特征与跳跃连接；DiT 把空间块当作 token，用 Transformer 处理。</p>
+<p>先读<a href="#_2">接口</a>，再按问题跳转：张量拼不上，去 <a href="#u-net">U-Net 的拼接实验</a>；不理解细节丢失，去<a href="#_4">池化实验</a>；要估 token 数，去 <a href="#dit-token">DiT 的切块实验</a>。三段代码各自可独立执行，无需下载模型。</p>
 <hr />
-<h2 id="_2">🧱 一、先把接口钉死：三进一出</h2>
-<p>上一章的 CFG 要跑两次去噪网络，一次带条件一次不带。那两次调用长这样：</p>
-<figure class="dia"><svg viewBox="0 0 760 244" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="三个输入带噪图、时间步、条件汇进一个去噪网络方框，输出一张与输入同形状的预测噪声"><text class="dia-t" x="380" y="24" font-size="14" text-anchor="middle" fill="var(--fg)" font-weight="700">接口是固定的，所以主干可以随便换</text><rect x="30" y="36" width="150" height="44" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="105" y="58" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">带噪图 x_t</text><text class="dia-t" x="105" y="77" font-size="11.5" text-anchor="middle" fill="var(--muted)">要去噪的东西</text><line x1="180" y1="58" x2="259" y2="58" stroke="var(--accent)" stroke-width="2"/><polygon points="268,58 259,53 259,63" fill="var(--accent)"/><rect x="30" y="94" width="150" height="44" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="105" y="116" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">时间步 t</text><text class="dia-t" x="105" y="135" font-size="11.5" text-anchor="middle" fill="var(--muted)">现在噪声有多重</text><line x1="180" y1="116" x2="259" y2="116" stroke="var(--accent)" stroke-width="2"/><polygon points="268,116 259,111 259,121" fill="var(--accent)"/><rect x="30" y="152" width="150" height="44" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="105" y="174" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">条件 c</text><text class="dia-t" x="105" y="193" font-size="11.5" text-anchor="middle" fill="var(--muted)">提示词等</text><line x1="180" y1="174" x2="259" y2="174" stroke="var(--accent)" stroke-width="2"/><polygon points="268,174 259,169 259,179" fill="var(--accent)"/><rect x="272" y="74" width="150" height="96" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"/><text class="dia-t" x="347" y="122" font-size="15" text-anchor="middle" fill="var(--accent)" font-weight="700">去噪网络</text><text class="dia-t" x="347" y="141" font-size="11.5" text-anchor="middle" fill="var(--muted)">U-Net 或 DiT</text><line x1="422" y1="122" x2="503" y2="122" stroke="var(--accent)" stroke-width="2"/><polygon points="512,122 503,117 503,127" fill="var(--accent)"/><rect x="516" y="96" width="160" height="52" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="596" y="122" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">预测的噪声 ε̂</text><text class="dia-t" x="596" y="141" font-size="11.5" text-anchor="middle" fill="var(--muted)">和 x_t 同形状</text><text class="dia-t" x="380" y="210" font-size="12.5" text-anchor="middle" fill="var(--muted)">扩散那套数学（加噪公式、DDIM 跳步、CFG）全在这个方框外面</text><text class="dia-t" x="380" y="232" font-size="12.5" text-anchor="middle" fill="var(--done)" font-weight="700">⭐ 所以换主干不用改任何公式 —— U-Net 换成 DiT，接口一个字没变</text></svg><figcaption>先看方框<b>外面</b>：三进一出，形状固定。⭐ 扩散的全部数学都在框外，框里那个函数只负责「看着这三样，把噪声认出来」—— <b>这就是主干能随便换的原因</b>。</figcaption></figure>
+<h2 id="_2">🔌 一、先约定接口，再比较主干</h2>
+<p><strong>先用只输出噪声预测（ε-only）的教学接口：带噪状态、噪声时刻、条件进去，同形状的噪声预测出来。</strong> “同形”描述的是这一种输出约定，不是所有扩散网络的完整输出。</p>
+<figure class="dia">
+<svg viewBox="0 0 760 322" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="epsilon-only教学接口：带噪状态xt、噪声时刻t、条件c进入去噪网络，输出与xt同形的噪声预测；实际模型还须检查参数化和方差头">
+<defs><marker id="diff07-interface-arrow__f1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="var(--accent)"/></marker></defs>
+<text class="dia-t" x="380" y="26" text-anchor="middle" fill="var(--fg)" font-size="15" font-weight="700">先看 ε-only 教学接口，不代表所有模型的完整输出</text>
+<rect x="24" y="54" width="200" height="62" rx="8" fill="var(--card)" stroke="var(--muted)"/>
+<text class="dia-t" x="124" y="78" text-anchor="middle" fill="var(--fg)" font-size="15">带噪状态 x_t</text>
+<text class="dia-t" x="124" y="102" text-anchor="middle" fill="var(--muted)" font-size="14">示例：(1,4,32,32)</text>
+<rect x="24" y="132" width="200" height="46" rx="8" fill="var(--card)" stroke="var(--muted)"/>
+<text class="dia-t" x="124" y="161" text-anchor="middle" fill="var(--fg)" font-size="15">t：标识当前噪声水平</text>
+<rect x="24" y="194" width="200" height="62" rx="8" fill="var(--card)" stroke="var(--muted)"/>
+<text class="dia-t" x="124" y="218" text-anchor="middle" fill="var(--fg)" font-size="15">c：语义或其他条件</text>
+<text class="dia-t" x="124" y="242" text-anchor="middle" fill="var(--muted)" font-size="14">类型取决于条件适配器</text>
+<rect x="311" y="90" width="160" height="108" rx="10" fill="var(--accent-soft)" stroke="var(--accent)"/>
+<text class="dia-t" x="391" y="135" text-anchor="middle" fill="var(--fg)" font-size="14">去噪网络</text>
+<text class="dia-t" x="391" y="161" text-anchor="middle" fill="var(--muted)" font-size="14">U-Net / DiT 等结构</text>
+<rect x="558" y="111" width="179" height="65" rx="8" fill="var(--card)" stroke="var(--muted)"/>
+<text class="dia-t" x="648" y="136" text-anchor="middle" fill="var(--fg)" font-size="15">噪声预测 ε̂</text>
+<text class="dia-t" x="648" y="159" text-anchor="middle" fill="var(--muted)" font-size="14">本接口：(1,4,32,32)</text>
+<path d="M224 85 H267 V115 H311" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#diff07-interface-arrow__f1)"/>
+<path d="M224 155 H311" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#diff07-interface-arrow__f1)"/>
+<path d="M224 225 H267 V174 H311" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#diff07-interface-arrow__f1)"/>
+<path d="M471 144 H558" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#diff07-interface-arrow__f1)"/>
+<text class="dia-t" x="380" y="282" text-anchor="middle" fill="var(--muted)" font-size="14">框外负责加噪与采样；换框内结构时，必须保持双方约定一致</text>
+<text class="dia-t" x="380" y="308" text-anchor="middle" fill="var(--fg)" font-size="14">完整输出可能另含方差参数：原始 DiT 默认输入 4 通道、输出 8 通道</text>
+</svg>
+<figcaption>先看图的限定词 <b>ε-only</b>：同形噪声分量是采样端需要的一个对象。若实际模型还输出方差参数，或预测的不是 ε，就不能按这张教学图直接接上采样器。</figcaption>
+</figure>
 
 <div class="tw"><table>
 <thead>
 <tr>
-<th>输入</th>
+<th>概念输入</th>
 <th>是什么</th>
-<th>形状</th>
+<th>本页要检查什么</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>x_t</code></td>
-<td>第 t 步的带噪图（潜空间里就是潜变量）</td>
-<td>和输出<strong>同形</strong>，比如 4×64×64</td>
+<td>当前带噪图像或潜变量</td>
+<td>常用形状为 B×C×H×W；ε 分量与它同形</td>
 </tr>
 <tr>
 <td><code>t</code></td>
-<td>走到第几步了</td>
-<td>一个整数，先变成向量再送进去</td>
+<td>当前噪声水平的标记</td>
+<td>常按每个样本给一个值；不是采样循环已运行几次，也不必永远是整数</td>
 </tr>
 <tr>
 <td><code>c</code></td>
-<td>条件：文本嵌入、类别、别的图……</td>
-<td>一串向量</td>
+<td>文本、类别或其他条件</td>
+<td>文本可以是一串向量；类别条件可以先是标签 ID；不能一概写成一串文本向量</td>
 </tr>
 </tbody>
 </table></div>
-<p>输出<strong>只有一个</strong>：一张和 <code>x_t</code> 同形状的预测噪声。</p>
-<blockquote>
-<p>⭐ <strong>这个接口就是「扩散」和「网络」之间的那道缝。</strong>
-加噪是固定公式、采样是固定循环，只有这个函数是学出来的 —— 换主干时先保持这些约定，再检查调用与采样代码。</p>
-</blockquote>
-<p><strong>时间条件怎样传入要看具体结构。</strong> 常见做法是在多个残差块内部注入时间向量，使各层能适应不同噪声水平；这不是“任何网络都必须逐层注入”的定理。</p>
+<p>例如跳步采样第一次评估时，噪声时刻可能接近训练终点，而不是 <code>t=1</code>。网络需要知道当前有多吵，才能选用合适的去噪行为；时间向量常在多个残差块中注入，但具体注入位置由架构决定。</p>
+<h3 id="dit-output-head">为什么原始 DiT 默认不是“4 进 4 出”</h3>
+<p>原始 DiT 的类别条件实现接收形状为 <code>(B,)</code> 的时间标记和类别标签；其时间嵌入允许小数。默认 <code>learn_sigma=True</code> 时，输出通道是输入的两倍：输入 <strong>4 通道</strong>，输出 <strong>8 通道</strong>，分别供噪声与方差参数使用。<a href="https://github.com/facebookresearch/DiT/blob/main/models.py#L131">DiT 官方模型定义</a>、<a href="https://arxiv.org/html/2212.09748v2#S3.SS2">原论文的输出头</a>。</p>
+<p>所以换主干前至少核对四项：<strong>预测 ε、x₀、v 还是其他目标；时间／噪声日程怎样表示；条件怎样编码；是否同时预测方差。</strong> 形状相同只是其中一项，不足以证明与 DDIM、CFG 或其他采样实现兼容。</p>
+<details>
+<summary>👀 对照原始 DiT 的 CFG 代码时，再核一处历史设置</summary>
+<p>原始仓库的 <code>forward_with_cfg</code> 为复现实验，默认只对前三个潜通道做 CFG 外推，其余通道另行保留。原论文附录也记录了这项设置。它不是 CFG 定义要求“只能引导三个通道”，更不应无条件复制到其他模型。<a href="https://github.com/facebookresearch/DiT/blob/main/models.py">官方 forward_with_cfg</a>、<a href="https://arxiv.org/html/2212.09748v2">论文附录</a>。</p>
+</details>
 <hr />
 <h2 id="u-net">🪜 二、U-Net：先压下去，再抬回来</h2>
-<figure class="dia"><svg viewBox="0 0 760 322" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="左臂三级下采样、底部瓶颈、右臂三级上采样，三条绿色虚线把同级左右臂直接连起来"><text class="dia-t" x="380" y="24" font-size="14" text-anchor="middle" fill="var(--fg)" font-weight="700">U-Net：压下去再抬回来，跳跃连接把细节直接送过去</text><rect x="60" y="56" width="96" height="42" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="108" y="77" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">64×64</text><text class="dia-t" x="108" y="94" font-size="11.5" text-anchor="middle" fill="var(--muted)">128 通道</text><rect x="150" y="106" width="96" height="42" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="198" y="127" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">32×32</text><text class="dia-t" x="198" y="144" font-size="11.5" text-anchor="middle" fill="var(--muted)">256</text><rect x="240" y="156" width="96" height="42" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="288" y="177" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">16×16</text><text class="dia-t" x="288" y="194" font-size="11.5" text-anchor="middle" fill="var(--muted)">512</text><line x1="108" y1="98" x2="198" y2="97" stroke="var(--accent)" stroke-width="2"/><polygon points="108,106 103,97 113,97" fill="var(--accent)"/><line x1="198" y1="148" x2="288" y2="147" stroke="var(--accent)" stroke-width="2"/><polygon points="198,156 193,147 203,147" fill="var(--accent)"/><rect x="330" y="206" width="100" height="42" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"/><text class="dia-t" x="380" y="227" font-size="13" text-anchor="middle" fill="var(--accent)" font-weight="700">瓶颈</text><text class="dia-t" x="380" y="244" font-size="11.5" text-anchor="middle" fill="var(--muted)">自注意力</text><line x1="288" y1="198" x2="380" y2="197" stroke="var(--accent)" stroke-width="2"/><polygon points="288,206 283,197 293,197" fill="var(--accent)"/><rect x="464" y="156" width="96" height="42" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="512" y="177" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">16×16</text><text class="dia-t" x="512" y="194" font-size="11.5" text-anchor="middle" fill="var(--muted)">512</text><rect x="554" y="106" width="96" height="42" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="602" y="127" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">32×32</text><text class="dia-t" x="602" y="144" font-size="11.5" text-anchor="middle" fill="var(--muted)">256</text><rect x="644" y="56" width="96" height="42" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="692" y="77" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">64×64</text><text class="dia-t" x="692" y="94" font-size="11.5" text-anchor="middle" fill="var(--muted)">128+64</text><line x1="430" y1="227" x2="464" y2="199" stroke="var(--accent)" stroke-width="2"/><polygon points="430,190 425,199 435,199" fill="var(--accent)"/><line x1="512" y1="156" x2="602" y2="157" stroke="var(--accent)" stroke-width="2"/><polygon points="512,148 507,157 517,157" fill="var(--accent)"/><line x1="602" y1="106" x2="692" y2="107" stroke="var(--accent)" stroke-width="2"/><polygon points="602,98 597,107 607,107" fill="var(--accent)"/><path d="M156 77 L 644 77" fill="none" stroke="var(--done)" stroke-width="2" stroke-dasharray="6 4"/><path d="M246 127 L 554 127" fill="none" stroke="var(--done)" stroke-width="2" stroke-dasharray="6 4"/><path d="M336 177 L 464 177" fill="none" stroke="var(--done)" stroke-width="2" stroke-dasharray="6 4"/><text class="dia-t" x="380" y="288" font-size="12" text-anchor="middle" fill="var(--muted)">绿色虚线就是跳跃连接 —— 它是拼接不是相加，所以右臂入口通道是 128+64=192</text><text class="dia-t" x="380" y="310" font-size="12.5" text-anchor="middle" fill="var(--done)" font-weight="700">实测 8 倍下采样后高频保留 0.0000，一点不剩 —— 跳跃连接救的正是这个</text></svg><figcaption>看那三条绿色虚线：它们<b>绕过了瓶颈</b>。⭐ 下采样会把高频细节压没（实测保留 0.0000），而扩散在 t 小的那几步干的正好是补细节 —— 没有跳跃连接，那些细节根本没有来源。</figcaption></figure>
+<p><strong>U-Net 把不同分辨率的信息接起来。</strong> 编码器用卷积与下采样减小空间分辨率，常同时增加通道；瓶颈的分辨率最低；解码器再逐级上采样。跳跃连接把编码器保存的特征送到解码器同分辨率处。</p>
+<p>下面用一个只有一级下采样的微型例子看拼接。它不包含完整去噪 U-Net 的所有残差块和条件模块，<strong>图中每个尺寸都对应紧接着的代码</strong>。</p>
+<figure class="dia">
+<svg viewBox="0 0 760 318" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="代码对应的一级U形结构：输入4通道得到64通道h1，下采样为128通道h2，上采样后与h1沿通道拼接成192通道">
+<defs><marker id="diff07-unet-arrow__f2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="var(--accent)"/></marker><marker id="diff07-skip-arrow__f2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="var(--done)"/></marker></defs>
+<text class="dia-t" x="380" y="26" text-anchor="middle" fill="var(--fg)" font-size="15" font-weight="700">一级 U 形示例：128 个上采样通道 + 64 个跳连通道</text>
+<rect x="20" y="66" width="135" height="61" rx="8" fill="var(--card)" stroke="var(--muted)"/>
+<text class="dia-t" x="87" y="89" text-anchor="middle" fill="var(--fg)" font-size="15">输入 x</text>
+<text class="dia-t" x="87" y="112" text-anchor="middle" fill="var(--muted)" font-size="14">(1,4,32,32)</text>
+<rect x="230" y="66" width="180" height="61" rx="8" fill="var(--card)" stroke="var(--muted)"/>
+<text class="dia-t" x="320" y="89" text-anchor="middle" fill="var(--fg)" font-size="15">编码器 h₁：存下来</text>
+<text class="dia-t" x="320" y="112" text-anchor="middle" fill="var(--muted)" font-size="14">(1,64,32,32)</text>
+<rect x="230" y="205" width="180" height="61" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+<text class="dia-t" x="320" y="228" text-anchor="middle" fill="var(--fg)" font-size="15">本例瓶颈 h₂</text>
+<text class="dia-t" x="320" y="251" text-anchor="middle" fill="var(--muted)" font-size="14">(1,128,16,16)</text>
+<rect x="549" y="205" width="191" height="61" rx="8" fill="var(--card)" stroke="var(--muted)"/>
+<text class="dia-t" x="644" y="228" text-anchor="middle" fill="var(--fg)" font-size="15">h₂ 上采样 ×2</text>
+<text class="dia-t" x="644" y="251" text-anchor="middle" fill="var(--muted)" font-size="14">(1,128,32,32)</text>
+<rect x="549" y="66" width="191" height="61" rx="8" fill="var(--card)" stroke="var(--done)"/>
+<text class="dia-t" x="644" y="89" text-anchor="middle" fill="var(--fg)" font-size="15">沿通道 cat</text>
+<text class="dia-t" x="644" y="112" text-anchor="middle" fill="var(--muted)" font-size="14">(1,192,32,32)</text>
+<path d="M155 96 H230" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#diff07-unet-arrow__f2)"/>
+<text class="dia-t" x="192" y="82" text-anchor="middle" fill="var(--muted)" font-size="13">卷积</text>
+<path d="M320 127 V205" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#diff07-unet-arrow__f2)"/>
+<text class="dia-t" x="330" y="168" fill="var(--muted)" font-size="14">stride=2</text>
+<path d="M410 236 H549" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#diff07-unet-arrow__f2)"/>
+<path d="M644 205 V127" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#diff07-unet-arrow__f2)"/>
+<text class="dia-t" x="654" y="168" fill="var(--muted)" font-size="14">128 通道</text>
+<path d="M410 96 H549" fill="none" stroke="var(--done)" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#diff07-skip-arrow__f2)"/>
+<text class="dia-t" x="479" y="80" text-anchor="middle" fill="var(--done)" font-size="14">跳连：64 通道</text>
+<text class="dia-t" x="380" y="301" text-anchor="middle" fill="var(--muted)" font-size="14">先对齐 H、W，再拼 C；图到拼接为止，不冒充完整解码器</text>
+</svg>
+<figcaption>看绿色虚线：h₁ 绕过了低分辨率分支。<b>128+64=192</b> 来自两份特征沿通道拼接，不是逐元素相加，也不是把两种示例的通道数拼在一起。</figcaption>
+</figure>
 
-<p><strong>编码器</strong>通过卷积和下采样减小分辨率、增加通道；<strong>瓶颈</strong>分辨率最低；<strong>解码器</strong>再逐级上采样。</p>
-<p>注意力可放在若干分辨率层，并非只能放在瓶颈。文本条件常通过交叉注意力进入：Query 来自图像特征，Key/Value 来自文本嵌入；具体配置随模型变化。</p>
-<p>跳跃连接把左臂每一级送到右臂同分辨率那一级。⭐ <strong>它用的是拼接，不是残差那种相加</strong>：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 跳跃连接把通道数变成了多少</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -368,9 +429,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
       <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">拼接后   &quot;</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">cat</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span> <span class="s2">&quot;← 128 + 64 = 192&quot;</span><span class="p">)</span>
 </code></pre></div>
 
+<p>先找 <code>torch.cat(..., 1)</code>：这里的 <code>1</code> 是通道轴。上采样先把 h₂ 的高、宽变回 32，再拼接；如果空间尺寸不一致，沿通道拼接也会失败。</p>
 <section aria-label="拼接时，先对齐分辨率" class="experiment-result" id="experiment-result-10">
 <h3 id="_3">拼接时，先对齐分辨率</h3>
-<p>这里的形状顺序是（批大小 B，通道 C，高 H，宽 W）。h₂ 先上采样到 32×32，再与 h₁ 沿通道拼接。</p>
+<p>形状顺序是（批大小 B，通道 C，高 H，宽 W）。独立执行得到：</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -407,10 +469,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </table></div>
 <p>通道相加：<strong>128 + 64 = 192</strong>。这不是把两个张量逐元素相加。</p>
 </section>
-<p>所以解码器每一级的输入通道是「上采样上来的 + 编码器同级存下的」。写代码时最容易在这里对不上。</p>
+<p>完整 U-Net 可以重复多级上下采样与同分辨率连接。在这类拼接式 U-Net 中，解码器接收的通道数就是“上采样来的 + 跳连保存的”；写配置时要逐级核对，不能只看最终输出通道。</p>
+<p>注意力可以放在若干分辨率层，<strong>不只在瓶颈，也不是每层都有</strong>。SD-v1 式文本交叉注意力仍是图像特征给 Q、文本给 K/V；它与 U 形的空间尺度变化是两件不同的设计。<a href="https://github.com/CompVis/stable-diffusion/blob/main/ldm/modules/diffusionmodules/openaimodel.py">CompVis U-Net 实现</a>。</p>
 <hr />
-<h2 id="_4">✂️ 三、跳跃连接到底救了什么</h2>
-<p>标准答案是「保留细节」。这句话可以量出来 —— 下面这段几秒钟跑完：</p>
+<h2 id="_4">✂️ 三、跳跃连接到底在防哪种信息损失</h2>
+<p><strong>先量一个明确操作，不把“保留细节”当作万能解释。</strong> 下面把大圆和交替细条纹叠加，经过 8 倍平均池化再双线性放大，比较输出沿两种信号方向的投影。</p>
+<p>代码中“大圆是低频”是相对细条纹的直觉标签；有硬边界的大圆并非纯低频信号。这不影响下面的定义与实测。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 下采样到底压掉了什么：把细纹和粗块一起送进 8 倍下采样再还原</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
@@ -432,34 +496,35 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;高频（细条纹）保留 </span><span class="si">{</span><span class="n">keep</span><span class="p">(</span><span class="n">fine</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span><span class="n">H</span><span class="p">,</span><span class="n">H</span><span class="p">))</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </code></pre></div>
 
+<p><code>avg_pool2d(img, 8)</code> 决定了本次丢失方式。<code>keep(sig)</code> 的分子是输出与原信号的内积，分母是原信号的平方和：它是<strong>投影系数</strong>，不是通用信息保留率，也不是能量百分比。</p>
 <section aria-label="这次下采样留下了什么" class="experiment-result" id="experiment-result-11">
 <h3 id="_5">这次下采样留下了什么</h3>
-<p>代码的 keep 计算输出在原信号方向上的投影系数，不是通用的信息保留率，也不是能量百分比。</p>
-<div class="tw"><table>
+<div class="tw"><table aria-label="池化后两种输入分量的投影系数" style="min-width: 0; width: 100%;">
 <thead>
 <tr>
-<th>输入分量</th>
-<th style="text-align: right;">投影系数 keep</th>
+<th scope="col">输入分量</th>
+<th scope="col">投影系数 keep</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>低频示例：大圆</td>
-<td style="text-align: right;">0.830</td>
+<th scope="row">低频示例：大圆</th>
+<td>0.830</td>
 </tr>
 <tr>
-<td>高频示例：细条纹</td>
-<td style="text-align: right;">0.0000</td>
+<th scope="row">高频示例：细条纹</th>
+<td>0.0000</td>
 </tr>
 </tbody>
 </table></div>
-<p>这组交替条纹在 8×8 平均池化时被抵消。结论限定于这里的输入和池化操作。</p>
+<p>看第二行：本例条纹在每个 8×8 区域里正负抵消。结论限定于这里的输入、池化和还原操作。</p>
 </section>
-<p><strong>这组条纹恰好被平均池化抵消了。</strong> 仅凭池化结果，不能唯一恢复原来的细条纹；解码器可以依据学到的规律生成细节，但不等于找回已丢失的原始值。</p>
-<p>U-Net 的跳跃连接提供了绕过低分辨率瓶颈的路径，有助于保留细节。小噪声阶段常需要细致修正，但<strong>不是所有去噪网络都必须有 U-Net 式跳跃连接</strong>；下面的 DiT 就采用不同结构。</p>
+<p>仅凭这个池化结果，不能唯一恢复原来的细条纹：把条纹整体反号，也会在平均池化时抵消。解码器可以依据学到的规律生成细节，但“生成合理细节”不等于“找回被丢掉的原始值”。</p>
+<p>U-Net 跳连提供了绕过低分辨率瓶颈的路径，有助于传递细节；小噪声阶段常需要细致修正。<strong>这不是所有高频都会消失的证明，也不是所有去噪网络都必须有 U-Net 式跳连的证明。</strong> 下一节的 DiT 就采用另一种结构。</p>
 <hr />
 <h2 id="dit-token">🧩 四、DiT：把潜空间切成 token</h2>
-<p>DiT 把整个 U 形扔掉，换成一摞完全一样的 Transformer 块。关键是开头和结尾那两步转换：</p>
+<p><strong>DiT 可以用 Transformer 处理一整组空间 token，再输出当前状态的去噪预测。</strong> 先只看切块与拼回这两个形状转换。</p>
+<p>下面是<strong>形状演示，不是完整 DiT</strong>：它用普通 TransformerEncoderLayer，没有位置编码、时间／类别条件、adaLN-Zero 或方差头。它能验证维度计算，不能直接当作训练完整扩散模型的代码。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># DiT 的第一步和最后一步：把潜空间切成 token，过完 Transformer 再拼回去</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -480,9 +545,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;拼回去  &quot;</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span> <span class="s2">&quot; 和输入同形 =&quot;</span><span class="p">,</span> <span class="n">out</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
 </code></pre></div>
 
+<p><code>Conv2d(C,D,P,stride=P)</code> 把每个 P×P 块投影到 D 维，<code>flatten</code> 与 <code>transpose</code> 整理成（B，token 数，D）。最后的线性层生成每块的输出值，再通过 <code>permute</code> 把块内、块间的空间轴接回去。</p>
 <section aria-label="从图像张量到 token，再拼回" class="experiment-result" id="experiment-result-12">
 <h3 id="token">从图像张量到 token，再拼回</h3>
-<p>先看中间两行：Transformer 保持 token 数与每个 token 的维数。输出同形不代表数值还原了输入。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -514,63 +579,75 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>token 数：<strong>N = (32//2) × (32//2) = 256</strong>。形状检查 <strong>True</strong> 只说明维度一致。</p>
+<p>token 数：<strong>N = (32//2) × (32//2) = 256</strong>。形状检查 <strong>True</strong> 只说明维度一致；随机投影、Transformer 与随机输出头没有把输入数值还原回来。</p>
 </section>
-<p>保持输入分辨率不变，patch 边长从 2 减到 1，token 数从 <strong>256 变成 1024（×4）</strong>。标准稠密注意力的 N×N 关系规模变为 <strong>×16</strong>；这不等于整个网络的耗时或显存一定 ×16。<code>DiT-XL/2</code> 的 <code>/2</code> 指 patch 边长。</p>
-<p><strong>原始 DiT 的 adaLN-Zero 方案里，<code>t</code> 和 <code>c</code> 怎么进</strong>：不是通过交叉注意力，而是把两者合成一个向量，去生成每一层 LayerNorm 的缩放平移、以及每个残差分支上的门控系数（adaLN-Zero）。
-⭐ 那个门控是<strong>零初始化</strong>的，训练刚开始时每个块都是恒等映射 —— <strong>下一章 ControlNet 的零初始化卷积是同一个想法</strong>。</p>
+<p>保持输入分辨率不变，patch 边长从 2 减到 1，token 数从 <strong>256 变成 1024（×4）</strong>。标准稠密注意力的 N×N 关系规模变成 <strong>×16</strong>；不是整个网络的耗时或显存必然 ×16。<code>DiT-XL/2</code> 的 <code>/2</code> 指 patch 边长。</p>
+<h3 id="dit-conditioning">原始 DiT 的时间和类别怎样进入</h3>
+<p>原论文比较了多种条件注入方式；在其 <strong>adaLN-Zero</strong> 方案中，时间与类别嵌入相加，再生成各块的归一化缩放／平移及残差门控。它不靠上一章介绍的文本交叉注意力来注入这两个条件。<a href="https://arxiv.org/abs/2212.09748">DiT 原论文</a>。</p>
+<p>门控零初始化，使各残差块在初始时为恒等映射；<strong>但整个 DiT 不是恒等网络</strong>，官方实现的最终输出层也置零，初始预测输出为零。<a href="https://github.com/facebookresearch/DiT/blob/main/models.py#L161">官方初始化</a>。</p>
+<p>下一章 ControlNet 也会用零初始化，让新增分支起初不扰动既有路径。相似点是“初始贡献为零”，不代表 adaLN 门控与零卷积是同一个模块。</p>
 <hr />
 <h2 id="dit">🏁 五、为什么考虑 DiT，以及它的代价</h2>
-<p>不是因为「Transformer 比卷积聪明」。三条都很具体：</p>
+<p>不是因为“Transformer 比卷积聪明”。要比较的是具体模型、数据和预算。</p>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>理由</th>
-<th>具体是什么</th>
+<th>能获得什么</th>
+<th>边界</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>scaling 更可预测</strong> ⭐</td>
-<td>加宽、加深、加数据能换回多少收益，Transformer 这条线上有大量现成曲线；是否优于 U-Net 仍要在相近训练预算下比较</td>
+<td>规模化规律便于研究</td>
+<td>原始 DiT 实验比较模型规模与 token 数对结果的影响</td>
+<td>不能从一组曲线推成任意数据、任意预算都优于 U-Net</td>
 </tr>
 <tr>
-<td><strong>工程栈白捡</strong> ⭐</td>
-<td>FlashAttention、序列并行、混合精度配方、各种融合 kernel —— 可以复用部分 Transformer 工程优化，但并非无需适配</td>
+<td>可以复用部分工程栈</td>
+<td>注意力、混合精度、序列并行、融合 kernel 等优化经验</td>
+<td>条件调制、布局与并行方式仍需适配，不是工程“白捡”</td>
 </tr>
 <tr>
-<td><strong>归纳偏置更少</strong></td>
-<td>局部卷积先验较少，适合探索规模化训练；变分辨率还需核对位置编码、patch 与训练分布</td>
+<td>局部卷积先验较少</td>
+<td>提供不同的结构选择，适合研究规模化训练</td>
+<td>变分辨率仍须核对 patch、位置编码和训练分布</td>
 </tr>
 </tbody>
 </table></div>
-<p><strong>先算 token 数，再判断是否负担得起。</strong> 512×512 像素按 2×2 patch 切分是 <strong>65536 个 token</strong>，按 16×16 切分则是 <strong>1024 个</strong>，不能笼统说都是六位数。</p>
-<p>原始 DiT 采用潜空间以降低计算量；这是设计选择，不是“没有潜空间就不能做扩散 Transformer”。依据：<a href="https://arxiv.org/abs/2212.09748">DiT 原论文</a>。</p>
+<p><strong>先算 token 数，再判断是否负担得起。</strong> 512×512 像素按 2×2 patch 切分是 <strong>65536 个 token</strong>；按 16×16 切分是 <strong>1024 个</strong>。因此不能笼统说像素空间一定有六位数 token。</p>
+<p>原始 DiT 采用潜空间来降低空间分辨率和计算量；这是一项设计选择，不是“没有潜空间就不能做扩散 Transformer”。效果与开销必须结合实际结构、训练和硬件比较。<a href="https://arxiv.org/abs/2212.09748">DiT 原论文</a>。</p>
 <hr />
-<h2 id="_6">🚧 六、一个特别容易搞混的点</h2>
-<p><strong>DiT 确实用 Transformer 生成图像，但它不是自回归生成。</strong> 自回归图像生成也用 Transformer —— 把图切成 token 一个接一个地吐 —— 但那是<strong>另一种范式</strong>：</p>
+<h2 id="_6">🚧 六、Transformer 结构不等于自回归生成</h2>
+<p><strong>DiT 用 Transformer 实现去噪，但不是逐 token 地生成完一张图。</strong> 网络结构与生成过程是两个问题。</p>
 <div class="tw"><table>
 <thead>
 <tr>
 <th></th>
 <th>自回归图像生成</th>
-<th>DiT</th>
+<th>原始 DiT 这一类扩散模型</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>训练目标</td>
-<td>预测下一个 token</td>
-<td><strong>预测噪声</strong>（和前面几章一模一样）</td>
+<td>训练在学什么</td>
+<td>给定已有 token，预测后续 token</td>
+<td>给定带噪状态和条件，学习噪声及相应方差参数</td>
 </tr>
 <tr>
-<td>怎么出图</td>
+<td>生成时怎样推进</td>
 <td>逐 token 解码</td>
-<td><strong>扩散去噪循环；参数化与采样器必须匹配</strong></td>
+<td>反复更新整组空间位置的带噪状态</td>
+</tr>
+<tr>
+<td>替换网络时要查什么</td>
+<td>token 化、概率分解与解码约定</td>
+<td>预测参数化、时间日程、条件与采样器的接口约定</td>
 </tr>
 </tbody>
 </table></div>
-<p><strong>区分两个问题：网络用什么结构，生成时走什么过程。</strong> DiT 替换的是去噪网络的实现；若训练目标、方差预测或条件接口也改变，调用方与采样端仍需同步适配。</p>
+<p>ε 预测也不是“网络知道每个样本当时加的那一份真实噪声”：平方误差训练下，理想预测器是给定可见输入与条件的条件均值。网络没看到干净样本时，不能靠一句“认出噪声”消除这种不确定性。</p>
+<p>因此，“换 U-Net 为 DiT”描述的是结构选择。若同时改变训练目标、方差头或条件接口，调用方与采样端也要改；只有双方约定匹配时，原有采样公式才可能直接复用。</p>
 <hr />
 <h2 id="_7">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
@@ -583,47 +660,51 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td><a href="../机器学习与深度学习基础/12-CNN.html">机器学习与深度学习基础 12 · CNN 处理图像</a></td>
-<td>U-Net 的左臂就是那一章的零件堆起来的。⭐ 尤其去看它「感受野」那一节：<strong>加一次 stride=2 的下采样，之后每层的感受野翻倍增长</strong> —— 这既是 U-Net 敢把分辨率一路压小的理由，也是本章第三节那个 <code>0.0000</code> 的代价来源</td>
+<td>补卷积、下采样与感受野。下采样增大后续特征在原图上的间距，让后续卷积更快扩展感受野；不是完整感受野每层都乘 2，也不是本页条纹抵消的同义解释</td>
 </tr>
 <tr>
 <td><a href="../大模型全景导论/02-Transformer原理.html">大模型全景导论 主线 2 · 模型怎样看懂一句话</a></td>
-<td>DiT 的每一块就是那一章那张图：<strong>注意力 → 残差 → FFN</strong>，结构一层没改，差别只在序列里装的不是词而是图像 patch。它讲的 Q/K/V 各自的角色，本章的交叉注意力（Query 来自图像、Key/Value 来自文本）直接用得上</td>
+<td>补注意力、残差、FFN 与 Q/K/V。DiT 复用这些基础组件，但条件调制和输出头不同；序列里装的是空间 patch</td>
 </tr>
 <tr>
 <td><a href="../大模型全景导论/10b-图像生成.html">大模型全景导论 10b · 图像生成</a></td>
-<td>14 分钟的索引版。它的组件表里「U-Net / DiT」只占一行、写着「DiT = 用 Transformer 做去噪，现在的主流」—— 本章是那一行的展开，也是对它最容易被误读成「Transformer 生成图像」的纠偏</td>
+<td>回到图像生成组件总览，把“主干结构”和“生成范式”放回整条链路，不把 Transformer 一词当作自回归的同义词</td>
 </tr>
 </tbody>
 </table></div>
 <hr />
 <h2 id="_8">✅ 检查点</h2>
 <ol>
-<li>去噪网络的输入有哪三样？输出的形状和谁一样？</li>
-<li>为什么常在多个网络块中注入时间条件？</li>
-<li>U-Net 的跳跃连接用的是拼接还是相加？这对解码器的通道数有什么影响？</li>
-<li>第三节那段代码里，8 倍下采样之后高频信号保留了多少？这个数说明跳跃连接在防什么？</li>
-<li>DiT 里 patch 边长从 2 减到 1，token 数和注意力代价各变成几倍？</li>
-<li>DiT 与自回归图像生成有什么不同？潜空间能降低什么开销？</li>
+<li>ε-only 教学接口的三个概念输入是什么？输出与谁同形？原始 DiT 默认 4 通道输入是否也是总共 4 通道输出？</li>
+<li>为什么常在多个网络块中注入时间条件？它是采样循环已执行几次吗？</li>
+<li>本页 U-Net 跳连用拼接还是相加？对解码器的通道数有什么影响？</li>
+<li>本页 8 倍平均池化后，条纹和大圆的投影系数是多少？这个数能否证明所有高频都丢失？</li>
+<li>DiT 中 patch 边长从 2 减到 1，token 数与稠密注意力关系规模各变几倍？形状演示是否完整实现了 DiT？</li>
+<li>DiT 与自回归图像生成有什么不同？潜空间能减少什么开销？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><code>x_t</code>（带噪图）、<code>t</code>（第几步）、<code>c</code>（条件）。输出和 <code>x_t</code> <strong>同形</strong>，比如 4×64×64 进、4×64×64 出。</li>
-<li>不同噪声水平要求不同的去噪行为。在多个块中注入时间向量是方便各层使用条件的常见设计，但不是所有架构必须遵守的唯一方式。</li>
-<li><strong>拼接</strong>（<code>torch.cat</code>，通道维）。所以解码器每一级的输入通道 = 上采样上来的 + 编码器同级存下的；代码里是 <code>128 + 64 = 192</code>。</li>
-<li>条纹的投影系数为 <strong>0.0000</strong>，大圆为 <strong>0.830</strong>。这组条纹被平均池化抵消，说明下采样可能损失细节；不能推广成所有高频都消失，也不能说所有扩散网络必须有 U-Net 式跳连。</li>
-<li>token 数 <strong>256→1024（×4）</strong>；标准稠密注意力的 N×N 部分为 <strong>×16</strong>，不等于整网成本必定 ×16。<code>/2</code> 是 patch 边长。</li>
-<li>DiT 用 Transformer 实现扩散去噪，自回归模型则逐 token 生成。潜空间减少 token 数和注意力开销；像素空间是否可行还取决于 patch 大小、结构和预算。</li>
+<li><code>x_t</code>（带噪状态）、<code>t</code>（噪声水平标记）、<code>c</code>（条件）；ε-only 输出与 <code>x_t</code> 同形。但原始 DiT 默认 <code>learn_sigma=True</code>，输入 4 通道、输出 <strong>8 通道</strong>，分别供噪声与方差参数使用。还要核对参数化与条件类型。</li>
+<li>不同噪声水平需要不同去噪行为；多个块注入时间向量是方便各层使用条件的常见设计，不是唯一方式。t 标识噪声状态，不是循环计数，也不必总是整数。</li>
+<li><strong>拼接</strong>：<code>torch.cat(...,1)</code> 沿通道轴操作。先对齐空间尺寸，再加通道数；代码是 <strong>128+64=192</strong>，不是张量逐元素相加。</li>
+<li>条纹为 <strong>0.0000</strong>，大圆为 <strong>0.830</strong>。它们是输出在原信号方向上的投影系数。这组条纹被平均池化抵消，不能推成所有高频都消失，也不能说所有扩散网络必须有 U-Net 式跳连。</li>
+<li>token 数 <strong>256→1024（×4）</strong>；标准稠密注意力 N×N 部分为 <strong>×16</strong>，不等于整网成本 ×16。<code>/2</code> 是 patch 边长；本页代码仅演示形状，缺少位置、时间／类别条件、adaLN-Zero 与方差头。</li>
+<li>DiT 通过扩散去噪循环更新一组空间位置，自回归模型逐 token 生成。潜空间降低 token 数和相应注意力开销；像素空间可行性还取决于 patch、结构和预算。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_9">🛑 可以停在这里</h2>
-<p>读到这里，你已经能看懂一份扩散模型配置在说什么：<code>unet</code> 那串通道数是左臂的每一级，<code>attention_resolutions</code> 是注意力插在哪几级，DiT 那边的 <code>patch_size</code> 和 <code>hidden_size</code> 各自在换什么代价。</p>
-<p><strong>什么时候回来</strong>：生成图<strong>大结构对、细节糊</strong>时回看第三节（跳跃连接是可检查的因素之一，还要排查数据、训练和采样设置）；要<strong>换分辨率</strong>或<strong>估显存</strong>时回看第四节的 token 数和第五节那条平方复杂度。</p>
+<p>现在你可以读配置中的三类信息：U-Net 的多级通道与 <code>attention_resolutions</code> 等注意力位置设置；DiT 的 <code>patch_size</code>、<code>hidden_size</code>；以及容易漏掉的条件和输出头约定。</p>
+<p>张量拼接报错时回看第二节；讨论细节损失时回看第三节的具体池化操作；改变分辨率或估显存时回看第四、五节。生成结果细节模糊还要排查数据、训练与采样，不能只凭症状判定“缺跳连”。</p>
 <p>⚡ <strong>走神救援</strong></p>
-<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>U-Net 和 DiT 都实现去噪网络；改变主干不等于改变整个扩散训练目标。</li><li>U-Net 用多尺度与跳跃连接保留信息，DiT 把空间块作为 token 处理。</li><li>核对时间和条件怎样进入各层，再比较形状、计算量与细节保留。</li></ul></section>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>先核对参数化、时间、条件与方差头；同形不等于接口兼容。</li><li>U-Net 跳连为特征提供旁路，本例拼接通道是 128+64=192。</li><li>0.0000 是本例条纹被平均池化抵消，不是所有高频的统一结论。</li><li>DiT 处理空间 token；Transformer 结构不等于自回归生成。</li></ul></section>
 
-<p><strong>下一节</strong> 👉 <a href="08-ControlNet与风格LoRA.html">08-ControlNet与风格LoRA.md</a></p>
+<p><strong>上一节</strong>：<a href="06-条件控制与CFG.html">06 · 条件控制与 CFG</a> ｜ <strong>下一节</strong>：<a href="08-ControlNet与风格LoRA.html">08 · ControlNet 与风格 LoRA</a></p></article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
+<button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">🔌 一、先约定接口，再比较主干</a><a href="#u-net">🪜 二、U-Net：先压下去，再抬回来</a><a href="#_4">✂️ 三、跳跃连接到底在防哪种信息损失</a><a href="#dit-token">🧩 四、DiT：把潜空间切成 token</a><a href="#dit">🏁 五、为什么考虑 DiT，以及它的代价</a><a href="#_6">🚧 六、Transformer 结构不等于自回归生成</a><a href="#_7">🔗 这一章连到哪里</a><a href="#_8">✅ 检查点</a><a href="#_9">🛑 可以停在这里</a></nav>
+<button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
+<a href="index.html">回到本模块目录</a></div></aside></div>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="06-条件控制与CFG.html"><div class="dir">← 上一节</div>🎚️ 06 · 条件控制与 CFG</a><a class="next" href="08-ControlNet与风格LoRA.html"><div class="dir">下一节 →</div>🎛️ 08 · ControlNet 与风格 LoRA</a></nav>
