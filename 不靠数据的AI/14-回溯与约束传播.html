@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading topic-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -303,307 +303,301 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ul>
 </div>
 </details>
-<h1 id="14">14 · 回溯与约束传播</h1>
-<p>⏱ <strong>34 分钟</strong> ｜ ⭐ <strong>同一个死局，三种方法分别在第 5、第 4、第 3 步发现它</strong></p>
+<div class="ov-layout"><article class="ov-body"><h1 id="14">14 · 回溯与约束传播</h1>
+<!-- topic-reading -->
+
+<p>⏱ <strong>34 分钟</strong> ｜ 阅读与手算参考，可分次完成 ｜ <strong>先看一个死局，再比较三种检查范围</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>回溯是「撞了墙才知道有墙」，前向检查是「看一步就知道前面有墙」，弧相容是「把删值的后果一路传下去，还没走就知道整片区域都是墙」。</strong></p>
-<p>三者用的是同一张澳大利亚地图，差别只在<strong>发现失败的时刻</strong> —— 而早一层，剪掉的子树就小一个数量级。</p>
+<p><strong>传播不是替你猜答案，而是在继续搜索前，删掉已经不可能的候选值。</strong></p>
+<p>先看一个能直接判断的小局面：Q 和 SA 相邻，却都只剩蓝色。两边的候选都不为空，但它们不可能同时满足“相邻不同色”。</p>
+<p>这一页比较：裸回溯什么时候发现它，前向检查能提前多少，AC-3 为什么还能多看一层关系。<strong>“检查通过”不等于“已经有解”，检查更强也不等于运行一定更快。</strong></p>
+<ul>
+<li>想跟着算：从<a href="#_3">地图的试色顺序</a>开始。</li>
+<li>已经懂回溯：直接看<a href="#_5">前向检查的盲区</a>。</li>
+<li>想复现数字：去<a href="#_9">完整求解器</a>，它只用 Python 标准库。</li>
+</ul>
 <hr />
 <h2 id="_2">🌲 一、回溯搜索：每层赋一个变量的深度优先</h2>
-<p>上一章说过 CSP 的赋值可交换。把这个性质用足就得到<strong>回溯搜索</strong>：<strong>初始状态</strong> ＝ 空赋值；
-后继函数 ＝ 挑一个未赋值变量、给它一个和已赋值变量不冲突的值；目标测试 ＝ 全部赋值且零违反；
-失败时退回最近那个赋值的变量换值，值也用完了就继续往回退。</p>
-<p>⭐ 这就是深度优先搜索，只是状态空间被「每层固定一个变量」压过一遍：
-没这个压缩叶子有 $n! \cdot d^n$ 个，压缩后是 $d^n$ —— <strong>7 变量 3 色是 $2187$，而不是 $\approx 1.1 \times 10^7$。</strong></p>
-<h3 id="_3">手算：在澳大利亚地图上跑一遍</h3>
-<p>变量按 <strong>WA → NT → NSW → Q → SA → V → T</strong> 赋值，颜色按 <strong>红 → 绿 → 蓝</strong> 试。</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>步</th>
-<th>赋值</th>
-<th>为什么是这个值</th>
-</tr>
-</thead>
+<p>回溯搜索每次给一个未赋值变量选值；选完立即检查它与<strong>已经赋值的变量</strong>是否冲突。冲突就换值，不冲突才继续下一层。</p>
+<div class="tw"><table data-audit-table="csp-14-0" style="min-width:0;width:100%">
+<thead><tr><th>搜索要素</th><th>在地图着色里是什么</th></tr></thead>
 <tbody>
-<tr>
-<td>①</td>
-<td><strong>WA = 红</strong></td>
-<td>没有已赋值的邻居，取第一个</td>
-</tr>
-<tr>
-<td>②</td>
-<td><strong>NT = 绿</strong></td>
-<td>红被邻居 WA 占了</td>
-</tr>
-<tr>
-<td>③</td>
-<td><strong>NSW = 红</strong></td>
-<td>它的邻居 Q、SA、V <strong>都还没赋值</strong>，所以取第一个</td>
-</tr>
-<tr>
-<td>④</td>
-<td><strong>Q = 蓝</strong></td>
-<td>绿被 NT 排除、红被 NSW 排除，只剩蓝</td>
-</tr>
-<tr>
-<td>⑤</td>
-<td><strong>SA = ？</strong></td>
-<td>邻居是 WA 红、NT 绿、Q 蓝、NSW 红 —— <strong>三色全被占，无值可赋</strong> 💥</td>
-</tr>
+<tr><td>初始状态</td><td>没有地区被赋值</td></tr>
+<tr><td>后继</td><td>选一个未赋值地区，试一个不违反已有赋值的颜色</td></tr>
+<tr><td>目标测试</td><td>7 个地区都已赋值，9 条相邻约束全部满足</td></tr>
+<tr><td>失败返回</td><td>当前变量的所有候选都试完了，退回上一层换值</td></tr>
 </tbody>
 </table></div>
-<p>回溯：退回 Q，它只剩蓝可试（红被 NSW 占、绿被 NT 占），<strong>没有备选</strong> → 继续退回 NSW。
-NSW 改成<strong>绿</strong>，于是 Q = 红、SA = 蓝、V = 红、T = 红 —— 解出来了。</p>
-<p>⚠️⚠️ <strong>注意第 ⑤ 步的浪费</strong>：SA 其实在第 ④ 步 Q 取蓝的那一刻就已经无路可走，
-可回溯要<strong>等到轮到 SA、真的去找值</strong>才发现。</p>
-<blockquote>
-<p>⭐ <strong>回溯只在「撞墙」时得到信息。</strong> 墙一直在那儿，它只是没往那边看。</p>
-</blockquote>
-<p>⚠️ 讲义给的经验值：<strong>朴素回溯大约能解到 25 皇后</strong>，再大就趴窝。本章和下一章就是把这个数往上推。</p>
-<blockquote>
-<p>⚠️ <strong>这是个经验值，别当成硬边界</strong>：实测（本机、<a href="15-CSP的启发式.html">下一章第四节</a>那套口径）静态序 20 皇后要 3,992,510 次试值、24 皇后 9,878,316 次，
-而 <strong>25 皇后反而只要 1,216,775 次</strong> —— ⭐ <strong>N 皇后的难度随 n 起伏，不是单调上升的</strong>，
-所以「能解到几皇后」取决于你撞上哪个实例。真正稳定的差别是<strong>增长曲线</strong>，下一章那张表会看得很清楚。</p>
-</blockquote>
+
+<h3 id="bt-order-duplicates">为什么不用枚举所有“赋值先后顺序”？</h3>
+<p>先给 WA 红、再给 NT 绿，与反过来赋这两个值，得到的是同一个部分赋值。求的是最终着色，不是赋值动作的排列。</p>
+<p>如果无视这种重复，在<strong>还没考虑约束剪枝的完整搜索树</strong>里，任意挑变量再挑颜色有 $n!d^n$ 条叶端路径。每层只选定一个变量，再分支尝试它的值，候选完整赋值至多有 $d^n$ 个。</p>
+<p>7 个变量、每个 3 色时，这两个数分别是 <strong>11,022,480 条路径</strong>和 <strong>2,187 个候选赋值</strong>。它们不是合法解数，也不是实际运行时必然访问的节点数；中途约束检查还会剪枝。</p>
+<h3 id="_3">手算：在澳大利亚地图上跑一遍</h3>
+<p>沿用<a href="13-CSP是什么.html">上一章的地图和 9 条边</a>。本页固定两种顺序，后面的代码也一样：</p>
+<ul>
+<li>变量：<strong>WA、NT、NSW、Q、SA、V、T</strong>。</li>
+<li>颜色：<strong>红、绿、蓝</strong>。</li>
+</ul>
+<div class="tw"><table data-audit-table="csp-14-1" style="min-width:0;width:100%">
+<thead><tr><th>层</th><th>当前尝试</th><th>为什么能走到这里</th></tr></thead>
+<tbody>
+<tr><td>①</td><td>WA = 红</td><td>没有已赋值邻居，取第一个颜色</td></tr>
+<tr><td>②</td><td>NT = 绿</td><td>红与 WA 冲突，改试绿</td></tr>
+<tr><td>③</td><td>NSW = 红</td><td>Q、SA、V 尚未赋值，当前没有直接冲突</td></tr>
+<tr><td>④</td><td>Q = 蓝</td><td>红与 NSW 冲突，绿与 NT 冲突，只剩蓝</td></tr>
+<tr><td>⑤</td><td>SA 无值可选</td><td>WA 红、NT 绿、Q 蓝，已把三色全部排除</td></tr>
+</tbody>
+</table></div>
+
+<p>SA 失败后退回 Q。Q 的红、绿、蓝已经试完，因此 Q 也返回失败；再退回 NSW，把红改成绿。</p>
+<p>此后找到的完整解是 <strong>WA 红、NT 绿、NSW 绿、Q 红、SA 蓝、V 红、T 红</strong>。T 在这份模型中没有相邻边，所以第一个颜色就能用。</p>
+<p><strong>这里“第 ⑤ 层发现失败”不是“失败到第 ⑤ 层才产生”。</strong> 第 ③ 层之后，Q 已只能蓝、SA 也已只能蓝，而两者相邻；这个前缀其实已经无法补成解。裸回溯没有检查未赋值变量之间的这条关系。</p>
+<h3 id="bt-counting">17 次试值、2 次回溯是怎样数的？</h3>
+<p>本页把<strong>试值</strong>定义为进入一次候选值循环：即使马上与已赋值邻居冲突，也计一次。不是只数成功写入的颜色，更不是数所有约束比较。</p>
+<p>把<strong>回溯次数</strong>定义为：一个非终点的递归调用把当前变量的候选全部试完，仍没找到解，返回失败一次。本例是 SA 和 Q 两个失败调用，合计 2 次。</p>
+<div class="tw"><table data-audit-table="csp-14-2" style="min-width:0;width:100%">
+<thead><tr><th>搜索部分</th><th>各变量实际试的颜色</th><th>试值小计</th></tr></thead>
+<tbody>
+<tr><td>走入死局</td><td>WA：红；NT：红、绿；NSW：红；Q：红、绿、蓝；SA：红、绿、蓝</td><td>10</td></tr>
+<tr><td>换路找到解</td><td>NSW：绿；Q：红；SA：红、绿、蓝；V：红；T：红</td><td>7</td></tr>
+</tbody>
+</table></div>
+
+<p>因此总数是 <strong>17 次试值、2 次回溯</strong>。换变量顺序、颜色顺序，或者换“回溯”的计数定义，数字都会变；比较算法前必须先对齐口径。</p>
+<p>“朴素回溯能解到 25 皇后”不是能力上限。固定顺序寻找第一个解时，规模更大的实例也可能更早撞到解。</p>
+<p>保留原来的一个对照：同样按列顺序选皇后、按行号从小到大试，关闭 FC 时，20 皇后要 <strong>3,992,510</strong> 次试值，24 皇后要 <strong>9,878,316</strong> 次，25 皇后却降为 <strong>1,216,775</strong> 次。前两项见<a href="15-CSP的启发式.html">下一章的完整实验表</a>；25 皇后的数字也已用本页算法独立复跑。</p>
+<p>这说明“找第一个解”的难度不随规模单调变化，不能从这几个规模推断普遍增长曲线。这里对比的是试值，不是硬件耗时。</p>
 <hr />
 <h2 id="_4">🔦 二、前向检查：赋完值立刻去删邻居的值域</h2>
-<p>想法：给每个未赋值变量维护一份<strong>还剩哪些合法值</strong>的清单。每次赋值 $X = v$ 之后，
-立刻把所有与之冲突的值从 $X$ 每个未赋值邻居的值域里删掉；<strong>任一值域被删空，就地回溯</strong>。</p>
-<p>同一条路径，值域的变化是这样的：</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>步</th>
-<th>赋值</th>
-<th>NT</th>
-<th>NSW</th>
-<th>Q</th>
-<th>SA</th>
-<th>V</th>
-</tr>
-</thead>
+<p><strong>前向检查（Forward Checking，FC）维护每个未赋值变量的候选清单。</strong> 给 $X$ 赋值后，从它每个未赋值邻居的值域中，删掉与本次赋值冲突的值。</p>
+<p>发现任何一个邻居的值域为空，就立刻放弃这次尝试，不再递归。撤销尝试时，<strong>也要撤销这次删值</strong>；否则其他分支会丢掉本来合法的选择。</p>
+<p>下面只追踪死局里最关键的 Q 和 SA，其余变化放在表下说明。这里的“层”仍是原来的变量顺序。</p>
+<div class="tw"><table data-audit-table="csp-14-3" style="min-width:0;width:100%">
+<thead><tr><th>刚完成的赋值</th><th>Q 剩余颜色</th><th>SA 剩余颜色</th></tr></thead>
 <tbody>
-<tr>
-<td>起</td>
-<td>——</td>
-<td>红绿蓝</td>
-<td>红绿蓝</td>
-<td>红绿蓝</td>
-<td>红绿蓝</td>
-<td>红绿蓝</td>
-</tr>
-<tr>
-<td>①</td>
-<td>WA = 红</td>
-<td><strong>绿蓝</strong></td>
-<td>红绿蓝</td>
-<td>红绿蓝</td>
-<td><strong>绿蓝</strong></td>
-<td>红绿蓝</td>
-</tr>
-<tr>
-<td>②</td>
-<td>NT = 绿</td>
-<td>——</td>
-<td>红绿蓝</td>
-<td><strong>红蓝</strong></td>
-<td><strong>蓝</strong></td>
-<td>红绿蓝</td>
-</tr>
-<tr>
-<td>③</td>
-<td>NSW = 红</td>
-<td>——</td>
-<td>——</td>
-<td><strong>蓝</strong></td>
-<td>蓝</td>
-<td><strong>绿蓝</strong></td>
-</tr>
-<tr>
-<td>④</td>
-<td>Q = 蓝</td>
-<td>——</td>
-<td>——</td>
-<td>——</td>
-<td><strong>（空）</strong> 💥</td>
-<td>绿蓝</td>
-</tr>
+<tr><td>尚未赋值</td><td>红、绿、蓝</td><td>红、绿、蓝</td></tr>
+<tr><td>① WA = 红</td><td>红、绿、蓝</td><td>绿、蓝</td></tr>
+<tr><td>② NT = 绿</td><td>红、蓝</td><td>蓝</td></tr>
+<tr><td>③ NSW = 红</td><td>蓝</td><td>蓝</td></tr>
+<tr><td>④ Q = 蓝</td><td>已赋值</td><td><strong>空：立即失败</strong></td></tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>失败在第 ④ 步就暴露了，比裸回溯早整整一层。</strong>
-实测这张地图上裸回溯要试 <strong>17</strong> 次取值，加前向检查只要 9 次；8 皇后差得更狠：876 次 vs 88 次。</p>
+
+<p>其他删值也要保留：WA 红后，NT 剩绿、蓝；NSW 红后，V 剩绿、蓝。T 没有邻居，不受影响。“已赋值”不表示值域被删空。</p>
+<p><strong>在这条路径上，FC 在第 ④ 层发现失败，比裸回溯早一层。</strong> 这是本例的结果，不是每个问题都恰好早一层。</p>
+<p>按本页代码的同一口径，地图从 17 次试值变为 <strong>9 次</strong>，8 皇后从 876 次变为 <strong>88 次</strong>。被提前删除的候选不再进入试值循环，但删值本身仍要做约束检查；这些数字不能直接解释成耗时加速比。</p>
 <h3 id="_5">⚠️ 但它有个明确的盲区</h3>
-<p>前向检查只做一件事：<strong>从「刚赋值的变量」推到「它的未赋值邻居」，一步，就停。</strong>
-它从不检查<strong>两个都还没赋值的变量之间</strong>的关系。</p>
-<p>看讲义给的这个局面 —— 搜索走到了 <strong>WA = 红、Q = 绿</strong>，此时 NT 只剩蓝（红被 WA 排除、绿被 Q 排除），
-SA 也只剩蓝（同样两条）。每个值域都非空，前向检查报「一切正常」。可是 <strong>NT 和 SA 是相邻的</strong> ——</p>
+<p>现在换一个<strong>单独的部分赋值</strong>：WA = 红、Q = 绿。不要把它接在上面 NT = 绿的路径后面，否则 NT 与 Q 已经直接冲突。</p>
+<div class="tw"><table data-audit-table="csp-14-4" style="min-width:0;width:100%">
+<thead><tr><th>未赋值地区</th><th>为什么只剩蓝</th></tr></thead>
+<tbody>
+<tr><td>NT</td><td>与 WA 相邻，不能红；与 Q 相邻，不能绿</td></tr>
+<tr><td>SA</td><td>同样与 WA、Q 相邻，不能红或绿</td></tr>
+</tbody>
+</table></div>
+
+<p>每个值域都非空，所以 FC 没有报告失败。可是 <strong>NT 与 SA 也相邻，不能同时是蓝色</strong>。</p>
+<p>盲区就在这里：FC 检查的是“刚赋值变量与未赋值邻居”；某个邻居的值域缩小后，<strong>不会继续检查它与其他未赋值变量之间的约束</strong>。</p>
 <blockquote>
-<p>⚠️⚠️ <strong>NT 和 SA 不可能都是蓝。这个局面已经死了，前向检查看不见。</strong></p>
+<p>读到这里可以停：你已经能区分“每人都有候选”和“候选之间能同时配合”。下一节解释怎样把这层关系继续检查下去。</p>
 </blockquote>
-<p>原因很简单：NT 和 SA 之间那条约束两端<strong>都还没赋值</strong>，而前向检查只从已赋值的一端往外推。</p>
 <hr />
 <h2 id="ac-3">🔁 三、弧相容与 AC-3</h2>
-<p>修补方法：<strong>别只从已赋值的变量推，把每一条约束都拿来反复过筛</strong>。</p>
-<blockquote>
-<p>⭐ <strong>弧相容</strong>：弧 $(X,Y)$ 相容 ⟺ <strong>$X$ 值域里每一个值 $x$，都能在 $Y$ 的值域里找到至少一个 $y$ 使约束成立</strong>。
-找不到这样的 $y$，就把 $x$ 从 $X$ 的值域里删掉 —— 它<strong>永远不可能是解的一部分</strong>。</p>
-</blockquote>
-<p>⚠️ <strong>弧是有向的</strong>：$(X,Y)$ 相容不代表 $(Y,X)$ 相容。一条无向边要当成<strong>两条弧</strong>处理。</p>
+<p><strong>一个候选值有“支持”，是指它在另一端至少有一个能配对的值。</strong> 例如相邻不同色时，Q 的蓝可以由 SA 的红支持，却不能由 SA 的蓝支持。</p>
+<p>对二元约束，弧 $(X,Y)$ 相容表示：$X$ 当前值域里的<strong>每个</strong>值，都能在 $Y$ 当前值域中找到至少一个满足两者约束的值。找不到支持的 $X$ 值就可以删除。</p>
+<p>删除是相对于<strong>当前分支的值域和赋值</strong>而言的。搜索退回去改变前提后，必须恢复相应删值；不能把它说成这个值在原问题中永远无效。</p>
+<h3 id="ac-direction">为什么一条边要查两个方向？</h3>
+<p>考虑约束“不同色”：$X$ 只有红，$Y$ 有红和绿。检查 $(X,Y)$ 时，X 的红有 Y 的绿支持，能通过；检查 $(Y,X)$ 时，Y 的红却找不到支持，必须删掉。</p>
+<p>所以即使约束“不同色”本身对称，<strong>检查方向仍不同</strong>：$(X,Y)$ 负责删 X，$(Y,X)$ 负责删 Y。一条无向边对应两条待检查的弧。</p>
 <h3 id="ac-3_1">AC-3 算法</h3>
+<p>以下讨论有限值域的二元 CSP，约束检查一次视为常数时间。已赋值变量的值域收为单元素集；同一对变量的多个条件合并检查。</p>
 <ol>
-<li>把<strong>所有弧</strong>放进一个队列</li>
-<li>取出一条弧 $(X,Y)$，执行 <strong>REVISE</strong>：删掉 $X$ 值域里所有「在 $Y$ 里没有支持」的值</li>
-<li>$X$ 的值域<strong>被删空</strong> → 当前赋值下无解，失败</li>
-<li>$X$ 的值域<strong>被删过</strong>（哪怕只少一个值）→ 把所有 $(Z, X)$ 重新入队（$Z$ 是 $X$ 的邻居且 $Z \ne Y$）
-   —— ⭐ <strong>这一步就是「传播」</strong>：$X$ 少了一个值，本来相容的邻居可能就不相容了</li>
-<li>队列空 ＝ 每条弧都相容</li>
+<li>初次处理时，把<strong>所有有向弧</strong>放入待检查队列。若输入已有空值域，直接报告失败。</li>
+<li>取出 $(X,Y)$，执行 <strong>REVISE</strong>：从 X 删除在 Y 中没有支持的值。</li>
+<li>X 被删空，说明当前分支不可能有完整解，可以立即返回失败。</li>
+<li>X 有删值但仍非空，就把其他邻居指向 X 的弧 $(Z,X)$ 放回队列，$Z\ne Y$。已经在队列中的弧可以去重。</li>
+<li>队列处理完且没有空值域，表示每条弧都相容，<strong>不是宣布找到了完整解</strong>。</li>
 </ol>
-<p>⭐ <strong>复杂度 $O(c\,d^3)$</strong>（$c$ ＝ 弧数，$d$ ＝ 值域大小）：每条弧最多重新入队 $d$ 次（每次都因为对面少了一个值，而值总共只有 $d$ 个），单次 REVISE 是 $O(d^2)$。</p>
+<p>第 4 步是传播的关键：X 少了一个候选，原来靠这个候选获得支持的 Z 值，现在可能失去支持。初始弧尚未处理时会留在队列里；已经处理过的弧，也可能因此需要重查。</p>
+<details>
+<summary>想看计算代价：为什么是 O(c d³)</summary>
+<p>这里 $c$ 是有向弧数，$d$ 是初始最大值域大小。若用无向边数记 $c$，只是相差常数 2，不改变渐进阶。</p>
+<ul>
+<li>一次 REVISE 最坏对 X 的每个值遍历 Y 的值，代价为 $O(d^2)$。</li>
+<li>一条弧除初次检查外，只有它依赖的另一端发生删值才需要重查；该端至多有 $d$ 次删值事件。</li>
+<li>因此经典 AC-3 的一次完整传播，最坏时间为 <strong>$O(c d^3)$</strong>。这是传播一次的界，不是整个回溯搜索的时间界。</li>
+</ul>
+<p>FC 面对刚赋值的单个值，只需检查未赋值邻居的候选。在约束测试为常数时间的前提下，一次 FC 扫描为 $O(kd)$，其中 $k$ 是这次要检查的邻居数；具体容器的复制、删除和恢复还可能有额外开销。</p>
+</details>
+<p>上述删值、重查和复杂度口径可对照 <a href="https://artint.info/3e/html/ArtInt3e.Ch4.S3.html">Poole 与 Mackworth 教材的相容性算法</a>。它同时讨论多元约束；本页先限定在二元关系，避免把两种模型混用。</p>
 <h3 id="ac-3_2">⭐ 手算：AC-3 怎么看穿前向检查的盲区</h3>
-<p>还是 <strong>WA = 红、Q = 绿</strong> 那个局面，其余值域全满。逐弧处理：</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>处理的弧</th>
-<th>删了什么</th>
-<th>结果</th>
-</tr>
-</thead>
+<p>重新从 <strong>WA = 红、Q = 绿，其余值域全为三色</strong>开始。下面是一种合法的弧处理顺序；真实队列顺序不同，最先发现失败的弧也可以不同。</p>
+<div class="tw"><table data-audit-table="csp-14-5" style="min-width:0;width:100%">
+<thead><tr><th>处理的弧</th><th>本次删值</th><th>新值域</th></tr></thead>
 <tbody>
-<tr>
-<td>$(NT, WA)$</td>
-<td>NT 的<strong>红</strong>（WA 只剩红，没支持）</td>
-<td>NT = 绿蓝</td>
-</tr>
-<tr>
-<td>$(SA, WA)$</td>
-<td>SA 的<strong>红</strong></td>
-<td>SA = 绿蓝</td>
-</tr>
-<tr>
-<td>$(NT, Q)$</td>
-<td>NT 的<strong>绿</strong>（Q 只剩绿）</td>
-<td>NT = <strong>蓝</strong></td>
-</tr>
-<tr>
-<td>$(SA, Q)$</td>
-<td>SA 的<strong>绿</strong></td>
-<td>SA = <strong>蓝</strong></td>
-</tr>
-<tr>
-<td>$(NSW, Q)$</td>
-<td>NSW 的<strong>绿</strong></td>
-<td>NSW = 红蓝</td>
-</tr>
-<tr>
-<td>⭐ $(SA, NT)$</td>
-<td>SA 只剩蓝、NT 也只剩蓝 —— <strong>蓝没有支持</strong></td>
-<td>SA = <strong>（空）</strong> 💥</td>
-</tr>
+<tr><td>$(NT,WA)$</td><td>NT 的红没有支持</td><td>NT：绿、蓝</td></tr>
+<tr><td>$(SA,WA)$</td><td>SA 的红没有支持</td><td>SA：绿、蓝</td></tr>
+<tr><td>$(NT,Q)$</td><td>NT 的绿没有支持</td><td>NT：蓝</td></tr>
+<tr><td>$(SA,Q)$</td><td>SA 的绿没有支持</td><td>SA：蓝</td></tr>
+<tr><td>$(NSW,Q)$</td><td>NSW 的绿没有支持</td><td>NSW：红、蓝</td></tr>
+<tr><td>$(SA,NT)$</td><td>SA 的蓝在 NT 中没有支持</td><td><strong>SA：空，失败</strong></td></tr>
 </tbody>
 </table></div>
-<p><strong>失败，而且是在一个变量都没有新赋值的情况下推出来的。</strong></p>
-<p>⚠️ 关键在最后一行：$(SA, NT)$ 会被处理，是因为第 3 行删掉 NT 的绿之后算法<strong>把它重新扔回了队列</strong> —— 这就是第 4 步那条规则的价值。</p>
+
+<p>看最后一行：这次检查的两端都没有被搜索主动赋值，仍然可以推导出冲突。NT 删值时，指向 NT 的弧需要保持待检查；因此 SA 与 NT 之间的关系不会被遗漏。</p>
+<h3 id="ac-prefix-comparison">回到原来的路径：第 3、4、5 层到底比较什么？</h3>
+<p>原路径在 WA 红、NT 绿、NSW 红之后已经无解。<strong>如果给这份固定前缀补做一次 AC-3</strong>，它可以当场发现 Q 和 SA 都只剩蓝；FC 则要先试 Q 蓝，裸回溯还要走到 SA。</p>
 <figure class="dia">
-<svg viewBox="0 0 560 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="同一条搜索路径上三种方法发现失败的时刻：AC-3在第三步、前向检查在第四步、裸回溯要到第五步才发现">
-<text x="280" y="20" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">同一条路径，三个不同的「发现时刻」</text>
-<rect x="24" y="40" width="132" height="30" rx="6" fill="var(--card)" stroke="var(--border)" stroke-width="2"/>
-<rect x="24" y="80" width="132" height="30" rx="6" fill="var(--card)" stroke="var(--border)" stroke-width="2"/>
-<rect x="24" y="120" width="132" height="30" rx="6" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2.5"/>
-<rect x="24" y="160" width="132" height="30" rx="6" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2.5"/>
-<rect x="24" y="200" width="132" height="30" rx="6" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2.5"/>
-<text x="90" y="60" font-size="12.5" text-anchor="middle" fill="var(--fg)">① WA = 红</text>
-<text x="90" y="100" font-size="12.5" text-anchor="middle" fill="var(--fg)">② NT = 绿</text>
-<text x="90" y="140" font-size="12.5" text-anchor="middle" fill="var(--fg)">③ NSW = 红</text>
-<text x="90" y="180" font-size="12.5" text-anchor="middle" fill="var(--fg)">④ Q = 蓝</text>
-<text x="90" y="220" font-size="12.5" text-anchor="middle" fill="var(--fg)">⑤ 轮到 SA</text>
-<polygon points="156,135 176,135 176,130 190,140 176,150 176,145 156,145" fill="var(--accent)"/>
-<polygon points="156,175 176,175 176,170 190,180 176,190 176,185 156,185" fill="var(--accent)"/>
-<polygon points="156,215 176,215 176,210 190,220 176,230 176,225 156,225" fill="var(--accent)"/>
-<text x="196" y="136" font-size="11.5" text-anchor="start" fill="var(--fg)" font-weight="700">AC-3：Q 和 SA 都只剩蓝，</text>
-<text x="196" y="152" font-size="11.5" text-anchor="start" fill="var(--muted)">查一条弧就判死 —— 最早</text>
-<text x="196" y="176" font-size="11.5" text-anchor="start" fill="var(--fg)" font-weight="700">前向检查：SA 的值域被删空</text>
-<text x="196" y="192" font-size="11.5" text-anchor="start" fill="var(--muted)">早一层，但要先赋了 Q 才知道</text>
-<text x="196" y="216" font-size="11.5" text-anchor="start" fill="var(--fg)" font-weight="700">裸回溯：轮到 SA 才找不到值</text>
-<text x="196" y="232" font-size="11.5" text-anchor="start" fill="var(--muted)">最晚 —— 撞了墙才知道有墙</text>
-<text x="24" y="268" font-size="11.5" text-anchor="start" fill="var(--muted)">墙从第 ③ 步起就在那里了。三种方法的差别，只在于「什么时候往那边看一眼」。</text>
-<text x="24" y="288" font-size="11.5" text-anchor="start" fill="var(--muted)">早发现一层，剪掉的子树就小一个数量级。</text>
+<svg viewBox="0 0 560 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="对同一个坏前缀比较检查范围：Q和SA都只剩蓝却相邻。现在补做AC3即可发现失败；前向检查在给Q赋蓝时发现；裸回溯到SA无值时发现。这不是MAC实际搜索轨迹。">
+<text x="280" y="24" font-size="15" text-anchor="middle" fill="var(--fg)" font-weight="700">给定坏前缀：WA 红、NT 绿、NSW 红</text>
+<rect x="85" y="48" width="130" height="54" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+<rect x="345" y="48" width="130" height="54" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+<line x1="215" y1="75" x2="345" y2="75" stroke="var(--accent)" stroke-width="2"/>
+<text x="150" y="81" font-size="15" text-anchor="middle" fill="var(--fg)">Q 只剩蓝</text>
+<text x="410" y="81" font-size="15" text-anchor="middle" fill="var(--fg)">SA 只剩蓝</text>
+<text x="280" y="64" font-size="12" text-anchor="middle" fill="var(--muted)">相邻，必须不同色</text>
+<rect x="24" y="124" width="512" height="52" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<rect x="24" y="190" width="512" height="52" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<rect x="24" y="256" width="512" height="52" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<text x="40" y="145" font-size="14" fill="var(--fg)" font-weight="700">第 ③ 层后补做 AC-3</text>
+<text x="40" y="165" font-size="13" fill="var(--muted)">检查 Q 与 SA 的弧，删空一个值域，立即发现失败。</text>
+<text x="40" y="211" font-size="14" fill="var(--fg)" font-weight="700">前向检查：试到第 ④ 层 Q = 蓝</text>
+<text x="40" y="231" font-size="13" fill="var(--muted)">从刚赋值的 Q 删邻居候选，发现 SA 已没有颜色。</text>
+<text x="40" y="277" font-size="14" fill="var(--fg)" font-weight="700">裸回溯：进入第 ⑤ 层，尝试给 SA 选色</text>
+<text x="40" y="297" font-size="13" fill="var(--muted)">把 SA 的三色逐一试完，才返回失败。</text>
+<text x="24" y="331" font-size="12" fill="var(--muted)">比较的是同一坏前缀上的检查范围，不是三条完整运行轨迹。</text>
 </svg>
-<figcaption>同一条赋值路径上的三个发现时刻。AC-3 甚至不需要给 Q 赋值：第 ③ 步之后 Q 和 SA 的值域都只剩「蓝」，而它们相邻，查弧 $(Q, SA)$ 就把 Q 删空了。</figcaption>
+<figcaption>先看中间这条邻接线：两端的“蓝”不能配成合法的一对。下面三行说明各自何时检查到这层冲突；第 3／4／5 层是本例，不是通用差距。</figcaption>
 </figure>
 
+<p><strong>如果每次赋值后都维持弧相容（MAC），实际会更早避开这个前缀。</strong> WA 红、NT 绿之后，传播已经能推出 SA 蓝、Q 红、NSW 绿；随后搜索不会再把 NSW 红当成剩余候选。</p>
+<p>所以不能把上图读成“MAC 真的走到第 ③ 层 NSW 红才发现”。传播会改变候选，也会改变后续搜索轨迹。</p>
 <h3 id="_6">⭐ 本章的核心洞察</h3>
-<blockquote>
-<p><strong>前向检查只看一步；AC-3 把删值的后果一路传播下去。</strong>
-有时候还没开始搜，解就已经被推出来了。</p>
-</blockquote>
-<p><strong>数独就是最好的例子</strong>：把每行、每列、每宫的 AllDiff 拆成两两不等再跑 AC-3 ——
-<strong>很多标着「简单」的题在传播结束时就已经填满了，一次分支都没有。</strong>
-难题则会卡住，传播停下来时每格还剩两三个候选，这时才需要真正开始搜。
-⭐ 你用铅笔做的「这一格只能是 7」，干的就是 REVISE 这件事。</p>
-<h3 id="_7">⚠️ 弧相容不完备</h3>
-<p><strong>每条弧都相容 ≠ 有解。</strong> 最小的反例只要三个变量：$X, Y, Z \in \{红, 绿\}$ 且两两不等 ——
-三个变量抢两种颜色显然无解，可每条弧都相容（$X$ 取红则 $Y$ 能取绿，反之亦然，<strong>每个值都有支持</strong>），
-AC-3 一个值都删不掉，队列空了还报告「一切正常」。</p>
-<p>⭐ 所以<strong>传播不能取代搜索，只能给搜索减负</strong>。（更强的路径相容、$k$-相容代价更高，通常不划算。）</p>
+<p><strong>FC 只做本次赋值的一步删值，AC-3 会继续检查删值带来的连锁影响。</strong> 同一份二元模型、同一当前分支上，完整弧相容传播不会比 FC 留下更多无支持候选；但更多检查有自己的成本。</p>
+<p>数独能帮助理解这件事：某格只剩 7，就能从同行、同列、同宫的其他格删除 7，再继续传播。如果这个过程最终让所有格都只剩一个值且所有约束满足，就不必再猜。</p>
+<p>但把 AllDiff 拆成两两不等再运行 AC-3，主要能传播这些单值信息，<strong>不等于实现了所有数独技巧</strong>。例如三格候选都为 {1,2}，两两仍有支持，整体却无法互不相同；直接对 AllDiff 使用更强的传播器可以看出这一点。</p>
+<p>因此不凭“简单／困难”的题目标签保证能否解完。传播停住时，候选可能仍有很多，既不保证都只剩两三个，也不保证已有解。</p>
+<h3 id="_7">⚠️ 弧相容不等于解存在</h3>
+<p>最小反例：三个两两相邻的变量 X、Y、Z，每个只能红或绿，要求两两不同。</p>
+<ul>
+<li>检查任意一条边：一端红总能找到另一端绿，反过来也一样，每个值都有支持。</li>
+<li>检查整个三角形：三个变量必须用三个不同颜色，只有两色当然不够。</li>
+<li>结果：<strong>AC-3 不删值，不报告空域；这个问题却无解。</strong></li>
+</ul>
+<p>准确地说，AC-3 可以把网络处理到弧相容，但弧相容本身<strong>不能完整判定一般 CSP 是否可满足</strong>。完整搜索配合正确的传播和恢复，仍能找出一个解，或在穷尽有限候选后证明无解。</p>
+<p>更强的路径相容、$k$-相容会联合检查更多变量，能发现部分弧相容漏掉的冲突，也要付出更高代价。是否值得用，要由模型与测量决定，不是一律“通常没用”。</p>
 <hr />
 <h2 id="_8">🧰 四、把两者接进回溯，和它们的代价</h2>
-<p><strong>回溯 + 前向检查</strong>是默认组合，开销极小；<strong>回溯 + AC-3</strong>（叫 MAC，维持弧相容）每次赋值后再跑一遍传播。</p>
-<p>⚠️ <strong>传播不是白来的。</strong> 讲义写得很直白：<strong>对某些问题弧相容能极大加速搜索，对另一些反而因为计算开销拖慢它。</strong>
-经验：约束稠密、值域小、死局藏得深（数独、排班）→ 传播赚翻；约束稀疏（这张地图才 9 条边）→ 开销可能比省下的搜索还多。
-⭐ 工业求解器通常默认开前向检查，把完整 AC-3 留成可调选项。</p>
+<p>把“选变量、试值、传播、失败后恢复”接起来，就能得到不同求解器。搜索次序与传播强度是两件独立的事。</p>
+<div class="tw"><table data-audit-table="csp-14-6" style="min-width:0;width:100%">
+<thead><tr><th>组合</th><th>每次赋值后额外做什么</th></tr></thead>
+<tbody>
+<tr><td>裸回溯</td><td>只检查与已有赋值是否冲突</td></tr>
+<tr><td>回溯 + FC</td><td>删未赋值邻居中不兼容的值；空域立即失败</td></tr>
+<tr><td>MAC</td><td>继续传播，直到当前网络重新弧相容，或某个值域变空</td></tr>
+</tbody>
+</table></div>
+
+<p>MAC 是“维持弧相容”的搜索策略；AC-3 是实现这种传播的一种算法，也能单独用作搜索前的预处理。若上一步已保证所有弧相容，本步可以从受到赋值影响的弧启动；不能在未经检查的网络上只放几条弧，却宣称全图都已相容。<a href="https://www.cs.cmu.edu/~15281/coursenotes/constraints/">CMU 的 CSP 讲义</a>给出了 FC 与 AC-3 的范围对照。</p>
+<p><strong>不存在“稠密就必选 MAC，稀疏就必选 FC”的定律。</strong> 约束的紧度、表达方式、值域大小、搜索顺序和实现成本都会影响收益。稀疏的两色奇环也可能藏着冲突；稠密约束也可能很宽松，什么都删不掉。</p>
+<p>本页用 FC 作为容易看懂的实现起点，不替所有工业求解器宣布默认设置。真实求解器还可能组合专用全局传播器、冲突学习等机制；选型应同时记录搜索量、约束检查或传播量、总耗时。</p>
 <h3 id="_9">一份能跑的求解器（回溯 + 前向检查）</h3>
+<p><strong>用途：同一个求解器，分别打开和关闭 FC，复现地图与 8 皇后的差别。</strong> 整段复制到一个空 <code>.py</code> 文件执行；只依赖 Python 3 标准库，不需要前面章节的变量。</p>
+<p>适用范围是<strong>有限值域、二元硬约束</strong>：<code>nb</code> 要双向列出受约束的邻居，<code>ok(a,x,b,y)</code> 判断这两个赋值是否兼容；一元限制应先体现在 <code>base</code> 中。多元 AllDiff 不能不经处理就直接塞进这个二元接口。</p>
+<p>本实现的 <code>order</code> 要把每个变量列出且只列一次。域值使用字符串或整数等可哈希值，且不要重复，因为恢复候选时会用集合去重；本页两个实例都满足这些输入约定。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">defaultdict</span>
 
-<span class="n">AU</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;WA&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;NT&quot;</span><span class="p">,</span> <span class="s2">&quot;SA&quot;</span><span class="p">],</span> <span class="s2">&quot;NT&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;WA&quot;</span><span class="p">,</span> <span class="s2">&quot;SA&quot;</span><span class="p">,</span> <span class="s2">&quot;Q&quot;</span><span class="p">],</span> <span class="s2">&quot;SA&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;WA&quot;</span><span class="p">,</span> <span class="s2">&quot;NT&quot;</span><span class="p">,</span> <span class="s2">&quot;Q&quot;</span><span class="p">,</span> <span class="s2">&quot;NSW&quot;</span><span class="p">,</span> <span class="s2">&quot;V&quot;</span><span class="p">],</span>
-      <span class="s2">&quot;Q&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;NT&quot;</span><span class="p">,</span> <span class="s2">&quot;SA&quot;</span><span class="p">,</span> <span class="s2">&quot;NSW&quot;</span><span class="p">],</span> <span class="s2">&quot;NSW&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;Q&quot;</span><span class="p">,</span> <span class="s2">&quot;SA&quot;</span><span class="p">,</span> <span class="s2">&quot;V&quot;</span><span class="p">],</span> <span class="s2">&quot;V&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;SA&quot;</span><span class="p">,</span> <span class="s2">&quot;NSW&quot;</span><span class="p">],</span> <span class="s2">&quot;T&quot;</span><span class="p">:</span> <span class="p">[]}</span>
-<span class="n">ORDER</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;WA&quot;</span><span class="p">,</span> <span class="s2">&quot;NT&quot;</span><span class="p">,</span> <span class="s2">&quot;NSW&quot;</span><span class="p">,</span> <span class="s2">&quot;Q&quot;</span><span class="p">,</span> <span class="s2">&quot;SA&quot;</span><span class="p">,</span> <span class="s2">&quot;V&quot;</span><span class="p">,</span> <span class="s2">&quot;T&quot;</span><span class="p">]</span>          <span class="c1"># 正文手算用的那个顺序</span>
+<span class="n">AU</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;WA&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;NT&quot;</span><span class="p">,</span> <span class="s2">&quot;SA&quot;</span><span class="p">],</span> <span class="s2">&quot;NT&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;WA&quot;</span><span class="p">,</span> <span class="s2">&quot;SA&quot;</span><span class="p">,</span> <span class="s2">&quot;Q&quot;</span><span class="p">],</span>
+    <span class="s2">&quot;SA&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;WA&quot;</span><span class="p">,</span> <span class="s2">&quot;NT&quot;</span><span class="p">,</span> <span class="s2">&quot;Q&quot;</span><span class="p">,</span> <span class="s2">&quot;NSW&quot;</span><span class="p">,</span> <span class="s2">&quot;V&quot;</span><span class="p">],</span> <span class="s2">&quot;Q&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;NT&quot;</span><span class="p">,</span> <span class="s2">&quot;SA&quot;</span><span class="p">,</span> <span class="s2">&quot;NSW&quot;</span><span class="p">],</span>
+    <span class="s2">&quot;NSW&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;Q&quot;</span><span class="p">,</span> <span class="s2">&quot;SA&quot;</span><span class="p">,</span> <span class="s2">&quot;V&quot;</span><span class="p">],</span> <span class="s2">&quot;V&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;SA&quot;</span><span class="p">,</span> <span class="s2">&quot;NSW&quot;</span><span class="p">],</span> <span class="s2">&quot;T&quot;</span><span class="p">:</span> <span class="p">[],</span>
+<span class="p">}</span>
+<span class="n">ORDER</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;WA&quot;</span><span class="p">,</span> <span class="s2">&quot;NT&quot;</span><span class="p">,</span> <span class="s2">&quot;NSW&quot;</span><span class="p">,</span> <span class="s2">&quot;Q&quot;</span><span class="p">,</span> <span class="s2">&quot;SA&quot;</span><span class="p">,</span> <span class="s2">&quot;V&quot;</span><span class="p">,</span> <span class="s2">&quot;T&quot;</span><span class="p">]</span>
+<span class="n">COLORS</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;红&quot;</span><span class="p">,</span> <span class="s2">&quot;绿&quot;</span><span class="p">,</span> <span class="s2">&quot;蓝&quot;</span><span class="p">]</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">solve</span><span class="p">(</span><span class="n">order</span><span class="p">,</span> <span class="n">base</span><span class="p">,</span> <span class="n">nb</span><span class="p">,</span> <span class="n">ok</span><span class="p">,</span> <span class="n">fc</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
-    <span class="n">dom</span> <span class="o">=</span> <span class="p">{</span><span class="n">v</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">d</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span><span class="p">,</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">base</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
-    <span class="n">assign</span><span class="p">,</span> <span class="n">st</span> <span class="o">=</span> <span class="p">{},</span> <span class="p">{</span><span class="s2">&quot;试值&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">}</span>
+    <span class="n">dom</span> <span class="o">=</span> <span class="p">{</span><span class="n">v</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span><span class="p">,</span> <span class="n">values</span> <span class="ow">in</span> <span class="n">base</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+    <span class="n">assign</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">stats</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;试值&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;回溯&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">}</span>
+
     <span class="k">def</span><span class="w"> </span><span class="nf">bt</span><span class="p">():</span>
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">assign</span><span class="p">)</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">order</span><span class="p">):</span>
             <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span><span class="n">assign</span><span class="p">)</span>
-        <span class="n">var</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">v</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">order</span> <span class="k">if</span> <span class="n">v</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">assign</span><span class="p">)</span>   <span class="c1"># ⭐ 静态顺序，下一章换成 MRV</span>
+        <span class="n">var</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">v</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">order</span> <span class="k">if</span> <span class="n">v</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">assign</span><span class="p">)</span>
         <span class="k">for</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">dom</span><span class="p">[</span><span class="n">var</span><span class="p">]:</span>
-            <span class="n">st</span><span class="p">[</span><span class="s2">&quot;试值&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
-            <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="ow">not</span> <span class="n">ok</span><span class="p">(</span><span class="n">var</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">assign</span><span class="p">[</span><span class="n">n</span><span class="p">])</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">nb</span><span class="p">[</span><span class="n">var</span><span class="p">]</span> <span class="k">if</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">assign</span><span class="p">):</span>
+            <span class="n">stats</span><span class="p">[</span><span class="s2">&quot;试值&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>       <span class="c1"># ⭐ 每次候选检查计一次，不是每次比较计一次</span>
+            <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="ow">not</span> <span class="n">ok</span><span class="p">(</span><span class="n">var</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">assign</span><span class="p">[</span><span class="n">n</span><span class="p">])</span>
+                   <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">nb</span><span class="p">[</span><span class="n">var</span><span class="p">]</span> <span class="k">if</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">assign</span><span class="p">):</span>
                 <span class="k">continue</span>
-            <span class="n">assign</span><span class="p">[</span><span class="n">var</span><span class="p">],</span> <span class="n">cut</span><span class="p">,</span> <span class="n">alive</span> <span class="o">=</span> <span class="n">val</span><span class="p">,</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">),</span> <span class="kc">True</span>
-            <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="p">(</span><span class="n">nb</span><span class="p">[</span><span class="n">var</span><span class="p">]</span> <span class="k">if</span> <span class="n">fc</span> <span class="k">else</span> <span class="p">[]):</span>              <span class="c1"># ⭐ 前向检查：删邻居的值域</span>
+            <span class="n">assign</span><span class="p">[</span><span class="n">var</span><span class="p">]</span> <span class="o">=</span> <span class="n">val</span>
+            <span class="n">cut</span><span class="p">,</span> <span class="n">alive</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">),</span> <span class="kc">True</span>
+            <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="p">(</span><span class="n">nb</span><span class="p">[</span><span class="n">var</span><span class="p">]</span> <span class="k">if</span> <span class="n">fc</span> <span class="k">else</span> <span class="p">[]):</span>
                 <span class="k">if</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">assign</span><span class="p">:</span>
                     <span class="k">continue</span>
-                <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="p">[</span><span class="n">x</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">dom</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">ok</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">var</span><span class="p">,</span> <span class="n">val</span><span class="p">)]:</span>
-                    <span class="n">dom</span><span class="p">[</span><span class="n">n</span><span class="p">]</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">x</span><span class="p">);</span> <span class="n">cut</span><span class="p">[</span><span class="n">n</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
-                <span class="k">if</span> <span class="ow">not</span> <span class="n">dom</span><span class="p">[</span><span class="n">n</span><span class="p">]:</span>                             <span class="c1"># ⭐ 值域空了，不用往下走</span>
-                    <span class="n">alive</span> <span class="o">=</span> <span class="kc">False</span><span class="p">;</span> <span class="k">break</span>
+                <span class="n">removed</span> <span class="o">=</span> <span class="p">[</span><span class="n">x</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">dom</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">ok</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">var</span><span class="p">,</span> <span class="n">val</span><span class="p">)]</span>
+                <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">removed</span><span class="p">:</span>
+                    <span class="n">dom</span><span class="p">[</span><span class="n">n</span><span class="p">]</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+                    <span class="n">cut</span><span class="p">[</span><span class="n">n</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">dom</span><span class="p">[</span><span class="n">n</span><span class="p">]:</span>     <span class="c1"># ⭐ 空域直接停，不再进入下一层</span>
+                    <span class="n">alive</span> <span class="o">=</span> <span class="kc">False</span>
+                    <span class="k">break</span>
             <span class="k">if</span> <span class="n">alive</span><span class="p">:</span>
-                <span class="n">r</span> <span class="o">=</span> <span class="n">bt</span><span class="p">()</span>
-                <span class="k">if</span> <span class="n">r</span><span class="p">:</span>
-                    <span class="k">return</span> <span class="n">r</span>
-            <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">xs</span> <span class="ow">in</span> <span class="n">cut</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>                      <span class="c1"># 撤销时按原顺序还原值域</span>
-                <span class="n">dom</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">x</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">base</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="k">if</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">set</span><span class="p">(</span><span class="n">dom</span><span class="p">[</span><span class="n">n</span><span class="p">])</span> <span class="o">|</span> <span class="nb">set</span><span class="p">(</span><span class="n">xs</span><span class="p">)]</span>
-            <span class="k">del</span> <span class="n">assign</span><span class="p">[</span><span class="n">var</span><span class="p">]</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="n">bt</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">result</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="n">result</span>
+            <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">values</span> <span class="ow">in</span> <span class="n">cut</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="n">restored</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">dom</span><span class="p">[</span><span class="n">n</span><span class="p">])</span> <span class="o">|</span> <span class="nb">set</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
+                <span class="n">dom</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">x</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">base</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="k">if</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">restored</span><span class="p">]</span>
+            <span class="k">del</span> <span class="n">assign</span><span class="p">[</span><span class="n">var</span><span class="p">]</span>        <span class="c1"># ⭐ 恢复本次删值和赋值，其他分支才能公平尝试</span>
+        <span class="n">stats</span><span class="p">[</span><span class="s2">&quot;回溯&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>           <span class="c1"># 当前变量穷尽候选，返回失败的调用次数</span>
         <span class="k">return</span> <span class="kc">None</span>
-    <span class="k">return</span> <span class="n">bt</span><span class="p">(),</span> <span class="n">st</span>
+
+    <span class="k">return</span> <span class="n">bt</span><span class="p">(),</span> <span class="n">stats</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">valid</span><span class="p">(</span><span class="n">answer</span><span class="p">,</span> <span class="n">base</span><span class="p">,</span> <span class="n">nb</span><span class="p">,</span> <span class="n">ok</span><span class="p">):</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">answer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">set</span><span class="p">(</span><span class="n">answer</span><span class="p">)</span> <span class="o">==</span> <span class="nb">set</span><span class="p">(</span><span class="n">base</span><span class="p">)</span>
+            <span class="ow">and</span> <span class="nb">all</span><span class="p">(</span><span class="n">answer</span><span class="p">[</span><span class="n">v</span><span class="p">]</span> <span class="ow">in</span> <span class="n">base</span><span class="p">[</span><span class="n">v</span><span class="p">]</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">base</span><span class="p">)</span>
+            <span class="ow">and</span> <span class="nb">all</span><span class="p">(</span><span class="n">ok</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">answer</span><span class="p">[</span><span class="n">v</span><span class="p">],</span> <span class="n">n</span><span class="p">,</span> <span class="n">answer</span><span class="p">[</span><span class="n">n</span><span class="p">])</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">nb</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">nb</span><span class="p">[</span><span class="n">v</span><span class="p">]))</span>
 
 <span class="n">ne</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">a</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="n">x</span> <span class="o">!=</span> <span class="n">y</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;地图着色：&quot;</span><span class="p">,</span> <span class="o">*</span><span class="n">solve</span><span class="p">(</span><span class="n">ORDER</span><span class="p">,</span> <span class="p">{</span><span class="n">v</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;红&quot;</span><span class="p">,</span> <span class="s2">&quot;绿&quot;</span><span class="p">,</span> <span class="s2">&quot;蓝&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">AU</span><span class="p">},</span> <span class="n">AU</span><span class="p">,</span> <span class="n">ne</span><span class="p">))</span>
+<span class="n">map_domains</span> <span class="o">=</span> <span class="p">{</span><span class="n">v</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">COLORS</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">AU</span><span class="p">}</span>
+<span class="k">for</span> <span class="n">fc</span> <span class="ow">in</span> <span class="p">(</span><span class="kc">False</span><span class="p">,</span> <span class="kc">True</span><span class="p">):</span>
+    <span class="n">answer</span><span class="p">,</span> <span class="n">stats</span> <span class="o">=</span> <span class="n">solve</span><span class="p">(</span><span class="n">ORDER</span><span class="p">,</span> <span class="n">map_domains</span><span class="p">,</span> <span class="n">AU</span><span class="p">,</span> <span class="n">ne</span><span class="p">,</span> <span class="n">fc</span><span class="o">=</span><span class="n">fc</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">valid</span><span class="p">(</span><span class="n">answer</span><span class="p">,</span> <span class="n">map_domains</span><span class="p">,</span> <span class="n">AU</span><span class="p">,</span> <span class="n">ne</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;地图 FC=&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">fc</span><span class="p">),</span> <span class="n">stats</span><span class="p">,</span> <span class="n">answer</span><span class="p">)</span>
 
-<span class="n">qs</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;Q</span><span class="si">%d</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">i</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">9</span><span class="p">)]</span>                      <span class="c1"># ⭐ 换个问题只换三样：</span>
-<span class="n">qok</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">a</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="n">x</span> <span class="o">!=</span> <span class="n">y</span> <span class="ow">and</span> <span class="nb">abs</span><span class="p">(</span><span class="n">x</span><span class="o">-</span><span class="n">y</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">abs</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="mi">1</span><span class="p">:])</span><span class="o">-</span><span class="nb">int</span><span class="p">(</span><span class="n">b</span><span class="p">[</span><span class="mi">1</span><span class="p">:]))</span>  <span class="c1"># 变量、值域、ok</span>
-<span class="n">A</span><span class="p">,</span> <span class="n">D</span> <span class="o">=</span> <span class="p">{</span><span class="n">a</span><span class="p">:</span> <span class="p">[</span><span class="n">b</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">qs</span> <span class="k">if</span> <span class="n">b</span> <span class="o">!=</span> <span class="n">a</span><span class="p">]</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">qs</span><span class="p">},</span> <span class="p">{</span><span class="n">a</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">9</span><span class="p">))</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">qs</span><span class="p">}</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;8 皇后 FC:&quot;</span><span class="p">,</span> <span class="n">solve</span><span class="p">(</span><span class="n">qs</span><span class="p">,</span> <span class="n">D</span><span class="p">,</span> <span class="n">A</span><span class="p">,</span> <span class="n">qok</span><span class="p">)[</span><span class="mi">1</span><span class="p">],</span> <span class="s2">&quot; 关掉:&quot;</span><span class="p">,</span> <span class="n">solve</span><span class="p">(</span><span class="n">qs</span><span class="p">,</span> <span class="n">D</span><span class="p">,</span> <span class="n">A</span><span class="p">,</span> <span class="n">qok</span><span class="p">,</span> <span class="n">fc</span><span class="o">=</span><span class="kc">False</span><span class="p">)[</span><span class="mi">1</span><span class="p">])</span>
+<span class="n">queens</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;Q&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">9</span><span class="p">)]</span>
+<span class="n">neighbors</span> <span class="o">=</span> <span class="p">{</span><span class="n">q</span><span class="p">:</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">queens</span> <span class="k">if</span> <span class="n">r</span> <span class="o">!=</span> <span class="n">q</span><span class="p">]</span> <span class="k">for</span> <span class="n">q</span> <span class="ow">in</span> <span class="n">queens</span><span class="p">}</span>
+<span class="n">domains</span> <span class="o">=</span> <span class="p">{</span><span class="n">q</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">9</span><span class="p">))</span> <span class="k">for</span> <span class="n">q</span> <span class="ow">in</span> <span class="n">queens</span><span class="p">}</span>
+<span class="n">qok</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">a</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="n">x</span> <span class="o">!=</span> <span class="n">y</span> <span class="ow">and</span> <span class="nb">abs</span><span class="p">(</span><span class="n">x</span><span class="o">-</span><span class="n">y</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">abs</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="mi">1</span><span class="p">:])</span><span class="o">-</span><span class="nb">int</span><span class="p">(</span><span class="n">b</span><span class="p">[</span><span class="mi">1</span><span class="p">:]))</span>
+<span class="k">for</span> <span class="n">fc</span> <span class="ow">in</span> <span class="p">(</span><span class="kc">False</span><span class="p">,</span> <span class="kc">True</span><span class="p">):</span>
+    <span class="n">answer</span><span class="p">,</span> <span class="n">stats</span> <span class="o">=</span> <span class="n">solve</span><span class="p">(</span><span class="n">queens</span><span class="p">,</span> <span class="n">domains</span><span class="p">,</span> <span class="n">neighbors</span><span class="p">,</span> <span class="n">qok</span><span class="p">,</span> <span class="n">fc</span><span class="o">=</span><span class="n">fc</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">valid</span><span class="p">(</span><span class="n">answer</span><span class="p">,</span> <span class="n">domains</span><span class="p">,</span> <span class="n">neighbors</span><span class="p">,</span> <span class="n">qok</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;8 皇后 FC=&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">fc</span><span class="p">),</span> <span class="n">stats</span><span class="p">)</span>
 </code></pre></div>
 
-<p>在 Python 3.13 上实跑，输出
-<code>{'WA': '红', 'NT': '绿', 'NSW': '绿', 'Q': '红', 'SA': '蓝', 'V': '红', 'T': '红'} {'试值': 9}</code>
-和 <code>8 皇后 FC: {'试值': 88}  关掉: {'试值': 876}</code>。</p>
-<p>⭐ 地图的解和上面手算的<strong>完全一致</strong>，9 次试值也和前向检查那张表对得上。
-⭐ <code>solve</code> 完全不知道自己在解什么 —— <strong>变量、值域、一个 <code>ok</code> 函数，三样一换就是另一个问题</strong>。</p>
+<p><strong>先看这三个位置：</strong></p>
+<ul>
+<li><code>var = next(...)</code> 按固定顺序选变量；下一章才改这项，不改问题的约束。</li>
+<li><code>cut</code> 只记本次尝试删掉的值。失败后按 <code>base</code> 的原顺序恢复，保证“红、绿、蓝”的试色顺序不会偷偷改变。</li>
+<li><code>result is not None</code> 区分“找到了赋值”和“失败”；空问题的合法解是空字典，不应因为它是假值就被当成无解。</li>
+</ul>
+<p>本次独立执行得到以下计数。两种地图设置都返回本章手算的那个完整解，断言逐项检查了值域与相邻约束。</p>
+<div class="tw"><table data-audit-table="csp-14-7" style="min-width:0;width:100%">
+<thead><tr><th>本次运行</th><th>试值次数</th><th>失败调用次数（回溯）</th></tr></thead>
+<tbody>
+<tr><td>地图，裸回溯</td><td>17</td><td>2</td></tr>
+<tr><td>地图，FC</td><td>9</td><td>1</td></tr>
+<tr><td>8 皇后，裸回溯</td><td>876</td><td>105</td></tr>
+<tr><td>8 皇后，FC</td><td>88</td><td>45</td></tr>
+</tbody>
+</table></div>
+
+<p>地图 FC 的 9 次试值是：走到 Q 蓝时已经试了 4 次，空域使 Q 那次调用失败；改 NSW 绿后依次试 Q 红、SA 蓝、V 红、T 红，再花 5 次。<strong>FC 没有进入失败的 SA 调用，所以它的失败调用少一次。</strong></p>
+<p>换成 8 皇后时，每个 <code>Qi</code> 表示第 i 列的皇后，值是所在行。<code>qok</code> 同时排除同行和同对角线；一列一个变量已经保证每列恰有一个皇后。</p>
+<p>这些是<strong>固定顺序、寻找第一个解</strong>的结果，不是算法平均性能。代码返回 <code>None</code> 才是该次完整搜索证明无解；只看到传播没删空，不能作相同判断。</p>
 <hr />
 <h2 id="_10">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
@@ -615,60 +609,59 @@ AC-3 一个值都删不掉，队列空了还报告「一切正常」。</p>
 </thead>
 <tbody>
 <tr>
-<td><a href="13-CSP是什么.html">13-CSP是什么.html</a></td>
-<td>澳大利亚那 7 个变量、9 条约束和约束图都在那里定义。本章手算全程要对着那张图看邻居</td>
+<td><a href="13-CSP是什么.html">13 · CSP 是什么</a></td>
+<td>回看本页沿用的 7 个变量、9 条相邻约束和地图；也区分二元约束与 AllDiff</td>
 </tr>
 <tr>
-<td><a href="15-CSP的启发式.html">15-CSP的启发式.html</a></td>
-<td>本章的变量顺序是<strong>写死的</strong>，而正是它制造了第 ⑤ 步那个死局。下一章换成 <strong>MRV</strong>：同一张地图一次回溯都不用，16 皇后从 160712 次试值降到 584 次</td>
+<td><a href="15-CSP的启发式.html">15 · CSP 的启发式</a></td>
+<td>保持约束不变，比较先选哪个变量、先试哪个值；核对地图和皇后在同一计数口径下的结果</td>
 </tr>
 <tr>
 <td><a href="../博弈论与集体决策/05-推理与分辨率.html">博弈论与集体决策 05 · 推理与分辨率</a></td>
-<td>⭐ 那一章的<strong>分辨率</strong>和本章的<strong>约束传播</strong>是同一个动作的两个版本。SAT 里的「单元传播」——子句只剩一个文字，那个文字必须为真 —— 正是 AC-3 在值域 $\{真,假\}$ 上的特例</td>
+<td>对照 SAT 的单元传播：子句在当前赋值下只剩一个未定文字时，它必须为真。两者都由约束推导必然结论，但一般 CNF 的单元传播不能不说明编码就称为“二元 AC-3 的特例”</td>
 </tr>
 <tr>
 <td><a href="../代码题拆解/06-回溯与矩阵-试完一条路怎么干净回来.html">代码题拆解 06 · 回溯与矩阵</a></td>
-<td>⭐ <strong>不加任何约束传播的裸回溯</strong>长什么样：矩阵路径、机器人运动范围、字符串排列。看完再回来看前向检查和弧相容各自省掉了什么</td>
+<td>看矩阵路径、机器人运动范围和排列中的搜索与恢复；其中访问标记的用途各不相同，不都等同于本页这种有限变量 CSP 求解器</td>
 </tr>
 </tbody>
 </table></div>
 <hr />
 <h2 id="_11">✅ 检查点</h2>
 <ol>
-<li>回溯搜索的初始状态、后继函数、目标测试各是什么？「每层固定一个变量」把 7 变量 3 色的叶子数从多少降到多少？</li>
-<li>手算那条路径：死局在第几步、为什么？要退到哪个变量才有备选值？</li>
-<li>⚠️ 那个死局<strong>实际上</strong>在第几步就注定了？为什么裸回溯更晚才发现？</li>
-<li>前向检查具体做什么？早几层发现失败？地图和 8 皇后的试值次数各是多少对多少？</li>
-<li>⚠️ 前向检查的盲区是什么？用 WA = 红、Q = 绿 这个局面说清楚。</li>
-<li>弧 $(X,Y)$ 相容的定义是什么？为什么说弧是有向的？AC-3 哪一步是「传播」？$d^3$ 从哪来？</li>
-<li>在 WA = 红、Q = 绿 上手跑 AC-3，写出删值顺序，说明哪条弧最终判死、它为什么会被处理。</li>
-<li>⚠️ 举一个「每条弧都相容但无解」的例子。这说明了什么？什么时候用完整 AC-3、什么时候只用前向检查？</li>
+<li>回溯的初始状态、后继和目标测试是什么？7 变量 3 色的 11,022,480 与 2,187 各自在数什么，为什么不是合法解数？</li>
+<li>原手算中裸回溯在哪一层发现失败？要退到哪个变量才能换出活路？17 次试值和 2 次回溯分别怎样计数？</li>
+<li>那个前缀在第几层之后已经注定失败？如果每一步都运行 MAC，会真的走到 NSW 红吗？</li>
+<li>FC 具体做什么，撤销时还必须恢复什么？本例在哪层发现失败？地图与 8 皇后的试值对照，能否直接当耗时加速比？</li>
+<li>WA 红、Q 绿这个独立局面中，为什么各值域非空仍然无解？FC 漏掉了哪条关系？</li>
+<li>弧 $(X,Y)$ 相容是什么意思？为什么必须检查两个方向？AC-3 哪一步负责传播，一次传播的 $O(cd^3)$ 需要什么假设？</li>
+<li>在 WA 红、Q 绿的局面中，写出一条能删空 SA 的弧检查顺序；为什么最后的弧不会被忽略，换队列顺序是否必须先删空 SA？</li>
+<li>举出弧相容却无解的三变量例子。完整搜索加正确传播是否仍然完备？能否只凭约束图稠密或稀疏决定用 FC 还是 MAC？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>初始 ＝ <strong>空赋值</strong>；后继 ＝ 给未赋值变量挑一个和已赋值变量不冲突的值；目标 ＝ 全部赋值且零违反。叶子数从 $7! \times 3^7 \approx 1.1\times10^7$ 降到 $3^7 = \mathbf{2187}$。</li>
-<li>死局在第 <strong>⑤</strong> 步：SA 的邻居是 WA 红、NT 绿、Q 蓝、NSW 红，三色全被占。退回 Q 没有备选，要退到 NSW 改绿才活。</li>
-<li>⚠️ 第 <strong>④</strong> 步 Q 取蓝的那一刻 SA 就已无路可走。裸回溯只在真的去给 SA 找值时才看那一眼 —— 它只在撞墙时得到信息。</li>
-<li>赋值后把冲突值从每个<strong>未赋值邻居</strong>的值域里删掉，任一值域空就地回溯。早 1 层。实测地图 17 次 vs 9 次、8 皇后 876 次 vs 88 次。</li>
-<li>⚠️ 它只从<strong>已赋值</strong>的一端往外推一步，从不看两个都未赋值的变量之间。WA=红、Q=绿 后 NT 和 SA 都只剩蓝，值域非空所以它报正常 —— 可两者相邻，不可能都是蓝。</li>
-<li>相容 ⟺ <strong>$X$ 的每个值都能在 $Y$ 里找到至少一个支持</strong>，找不到就删。⚠️ 有向，一条边算两条弧。传播 ＝「删过值就把所有 $(Z,X)$ 重新入队」。$d^3$：每条弧最多重入队 $d$ 次 × 单次 REVISE $O(d^2)$。</li>
-<li>$(NT,WA)$ 删红 → $(SA,WA)$ 删红 → $(NT,Q)$ 删绿（<strong>NT 只剩蓝</strong>）→ $(SA,Q)$ 删绿（SA 只剩蓝）→ $(NSW,Q)$ 删绿 → $(SA,NT)$ 把 SA 删空判死。最后那条弧会被处理，是因为删掉 NT 的绿之后算法把它重新扔回了队列。全程没有新赋任何值。</li>
-<li>$X,Y,Z \in \{红,绿\}$ 两两不等 —— 抢两色<strong>显然无解</strong>，但每条弧都相容，AC-3 一个值都删不掉。⚠️ 弧相容不完备，传播不能取代搜索，只能减负。稠密/值域小/死局深（数独、排班）→ MAC；稀疏 → 只用前向检查。</li>
+<li>初始为空赋值；后继给一个未赋值变量试不违反已有赋值的值；目标是所有变量已赋值且约束满足。未剪枝时，任意赋值先后顺序产生 $7!3^7=11,022,480$ 条叶端路径，固定每层选择的变量后至多有 $3^7=2,187$ 个候选完整赋值；两者都尚未剔除违反约束的赋值。</li>
+<li>第 ⑤ 层尝试 SA 时，红、绿、蓝都与已有邻居冲突。Q 也已试尽候选，必须退到 NSW，把红改绿。试值包括每个进入候选循环的颜色，共 17；回溯数的是穷尽候选后返回失败的调用，SA 和 Q 共 2 次。</li>
+<li>第 ③ 层之后，Q 和 SA 都只能蓝且彼此相邻，已无法补成解。MAC 在 WA 红、NT 绿之后就能推出 SA 蓝、Q 红、NSW 绿，不会继续把 NSW 红列为候选。图中的“第 ③ 层 AC-3”是在给定坏前缀上补做检查，不是 MAC 的真实轨迹。</li>
+<li>FC 从未赋值邻居中删除与本次赋值不兼容的值，任一空域就放弃本次尝试；退出分支时恢复本次删值和赋值。原路径在第 ④ 层 Q 蓝后发现失败。地图裸回溯／FC 为 17／9，8 皇后为 876／88；没有计入传播与恢复的成本，不能直接当耗时比。</li>
+<li>NT 和 SA 都因 WA 红、Q 绿只剩蓝，但两者还必须不同色。FC 没有继续检查这两个未赋值变量之间的边。</li>
+<li>X 的每个当前值在 Y 中至少有一个支持。检查 $(X,Y)$ 删的是 X，反向检查删的是 Y；即使约束对称，删值方向仍不同。X 删值后，其他指向 X 的弧要保持待检查或重新入队。有限二元值域、常数时间的约束测试下，一次 REVISE 最坏 $O(d^2)$，每条弧初次及重查共 $O(d)$ 次，得到一次完整传播的 $O(cd^3)$。</li>
+<li>一种顺序为 $(NT,WA)$、$(SA,WA)$、$(NT,Q)$、$(SA,Q)$、$(NSW,Q)$、$(SA,NT)$。前面让 NT 与 SA 都只剩蓝，最后一条弧删空 SA。NT 改域会使指向 NT 的弧留在或回到待检查队列；不同合法队列顺序也可能先删空另一个值域，不能把这张手算表当作唯一运行轨迹。</li>
+<li>X、Y、Z 均取红／绿且两两不等：每条边都有支持，三者却无法同时满足。弧相容不能完整判定有解；有限问题上，穷尽分支、只做正确删值且退出分支时恢复的搜索仍然完备。FC／MAC 的选择还取决于约束紧度、值域、顺序和传播成本，应看实际搜索量与总耗时，不按稠密／稀疏直接下结论。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_12">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
-<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>回溯逐个给变量赋值，遇到冲突就退回去试别的值。</li><li>前向检查提前删去邻居的冲突值；任一值域为空就能及时发现失败。</li><li>AC-3 会继续传播删值的后果，但弧相容不能保证整个问题有解。</li><li>传播帮助搜索减负；下一章再看变量和值的选择顺序怎样减少回溯。</li></ul></section>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>回溯选值，FC 删掉邻居的冲突候选；失败离开分支时必须恢复删值。</li><li>AC-3 继续检查删值的连锁影响；MAC 是在搜索过程中维持弧相容。</li><li>每条边都有支持，不代表所有变量能同时满足约束。</li><li>更少试值不等于更短耗时；比较前要对齐模型、顺序与计数口径。</li></ul></section>
 
-<p><strong>下一节</strong> 👉 <a href="15-CSP的启发式.html">15-CSP的启发式.md</a></p>
-<blockquote>
-<p>去那里的理由：本章的变量顺序是<strong>写死的</strong> —— 而正是那个顺序亲手制造了第 ⑤ 步的死局。
-下一章只改「先赋值谁、先试哪个值」这两件事，一行约束都不动：
-同一张地图<strong>零回溯</strong>（本章这个顺序要回溯 2 次），16 皇后从 <strong>160712</strong> 次试值掉到 <strong>584</strong> 次。
-⚠️ 而且这两件事的挑选方向<strong>正好相反</strong> —— 那是全章最容易搞反的一点。</p>
-</blockquote>
+<p><strong>下一节</strong> 👉 <a href="15-CSP的启发式.html">15 · CSP 的启发式</a></p>
+<p>已经看懂“什么时候提前放弃”就可以停。下次从下一章的 MRV 开始：同样的约束，改为先处理剩余选择少的变量；再看试值顺序和问题结构还能提供什么帮助。</p></article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
+<button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">🌲 一、回溯搜索：每层赋一个变量的深度优先</a><a href="#_4">🔦 二、前向检查：赋完值立刻去删邻居的值域</a><a href="#ac-3">🔁 三、弧相容与 AC-3</a><a href="#_8">🧰 四、把两者接进回溯，和它们的代价</a><a href="#_10">🔗 这一章连到哪里</a><a href="#_11">✅ 检查点</a><a href="#_12">🛑 可以停在这里</a></nav>
+<button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
+<a href="index.html">回到本模块目录</a></div></aside></div>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="13-CSP是什么.html"><div class="dir">← 上一节</div>🧩 13 · CSP 是什么</a><a class="next" href="15-CSP的启发式.html"><div class="dir">下一节 →</div>🎛️ 15 · CSP 的启发式</a></nav>
