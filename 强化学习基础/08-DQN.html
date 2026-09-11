@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading topic-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -293,115 +293,149 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
-<li><a href="#_2">💥 一、为什么必须换掉表格</a></li>
+<li><a href="#_2">💥 一、为什么要换掉表格</a></li>
 <li><a href="#dqn-q">🧠 二、DQN 的想法：用网络逼近 Q</a></li>
-<li><a href="#_3">💀 三、直接这么做会崩：三个致命问题</a></li>
-<li><a href="#_4">🩹 四、三个救命补丁</a></li>
-<li><a href="#_5">🔨 五、核心代码</a></li>
-<li><a href="#_6">🚀 六、后续改进（知道名字和一句话就够）</a></li>
-<li><a href="#dqn">🧱 七、DQN 的天花板</a></li>
+<li><a href="#_3">⚠️ 三、直接换成网络：三种不稳定风险</a></li>
+<li><a href="#_4">🩹 四、两项稳定化措施与一组 Atari 处理</a></li>
+<li><a href="#_5">🔨 五、核心代码：先在两步环境跑通</a></li>
+<li><a href="#_6">🚀 六、后续改进：每项解决不同问题</a></li>
+<li><a href="#dqn">🧱 七、DQN 的适用边界</a></li>
 <li><a href="#_7">🔗 八、和站内其他章的关系</a></li>
 <li><a href="#_8">✅ 检查点</a></li>
 <li><a href="#_9">🛑 可以停在这里</a></li>
 </ul>
 </div>
 </details>
-<h1 id="08-dqn">08 · DQN：状态存不下了怎么办</h1>
+<div class="ov-layout"><article class="ov-body"><h1 id="08-dqn">08 · DQN：状态存不下了怎么办</h1>
+<!-- topic-reading -->
+
 <p>⏱ <strong>30 分钟</strong> ｜ ⭐ <strong>深度强化学习的起点</strong></p>
-<hr />
+<p>时间仅作起步参考，不是读完的期限。先理解一次更新，再按需看完整实现。</p>
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>把 Q 表换成神经网络。</strong>
-听起来只是个小改动，<strong>但它会让前面所有的收敛保证全部失效</strong> ——
-这一章讲那三个救命的补丁。</p>
-<hr />
-<h2 id="_2">💥 一、为什么必须换掉表格</h2>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>Q 表的大小 = 状态数 × 动作数</p><p>格子迷宫 10×10： 100 × 4 = 400 个格子 ✅ 存得下</p><p>Atari 一帧画面： 256^(84×84×4) 个状态 💀 宇宙里没这么多原子</p></div></section>
-<p><strong>而且表格还有一个更根本的问题</strong>：</p>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⭐ 表格法没有【泛化】能力</span></div><div class="vb-flow-row"><span class="vb-flow-step">学会了「敌人在左边 30 像素时该往右躲」</span></div><div class="vb-flow-row"><span class="vb-flow-step">遇到「敌人在左边 31 像素」，表格认为这是【完全不同】的状态</span></div><div class="vb-flow-row"><span class="vb-flow-step">之前学的一点用都没有 💀</span></div><div class="vb-flow-row"><span class="vb-flow-step">神经网络天然会泛化：相似的输入</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">相似的输出 ✅</span></div></div></section>
-<blockquote>
-<p>🔑 <strong>这才是用神经网络的真正理由</strong>。
-<strong>不只是"存不下"，是"每个状态都要单独学一遍"根本不现实。</strong></p>
-</blockquote>
-<hr />
+<p><strong>DQN 用一个神经网络估计各个动作的长期回报，再通过反复交互修正它。</strong></p>
+<p>先看一个输出：同一状态下，网络给“左、右”分别估 2 分、5 分。关闭探索时选右；这只是当前估计，不代表右边真的最优。</p>
+<p>这页先解决三个问题：为什么换掉 Q 表、一次更新在拟合什么、经验回放与目标网络怎样帮助训练。</p>
+<h2 id="_2">💥 一、为什么要换掉表格</h2>
+<p><strong>状态太多时，既存不下，也来不及逐格学习。</strong></p>
+<ul>
+<li><strong>小迷宫</strong>：100 个状态、每个状态 4 个动作，只需 400 个 Q 值。</li>
+<li><strong>图像输入</strong>：若用四张 84×84 的 8 位灰度图表示一次观测，所有可能像素组合有 <code>256^(84×84×4)</code> 种。这是编码组合数上界，不是某款游戏实际可达状态数，也不是“一帧”的大小。</li>
+<li><strong>连续观测</strong>：位置、速度是实数时，直接枚举每种状态也不现实。可以离散化，但分得越细，表越大。</li>
+</ul>
+<p><strong>表格本身不会把两个不同的键自动联系起来。</strong> 学过“敌人在左边 30 像素”，不等于已经更新“左边 31 像素”的那一格。</p>
+<p>网络让不同输入共享参数，因而有机会迁移经验；这不是“相似输入一定给出正确、相似输出”的保证。它也可能把不该混淆的状态混在一起。</p>
 <h2 id="dqn-q">🧠 二、DQN 的想法：用网络逼近 Q</h2>
-<p>$$Q(s,a;\theta) \approx Q^*(s,a)$$</p>
+<p><strong>输入状态，一次输出所有离散动作的估值。</strong> Atari 图像通常用 CNN；CartPole 的 4 个数可以用小型全连接网络，不必先转成图片。</p>
 <div class="flowchain">
-<div class="fstep"><b>输入：状态 s</b><span>比如 4 帧游戏画面</span></div>
+<div class="fstep"><b>输入观测 s</b><span>图像，或位置、速度等数值</span></div>
 <div class="farrow">→</div>
-<div class="fstep"><b>CNN</b><span>参数 θ 的 Q 值近似器</span></div>
+<div class="fstep"><b>Q 网络</b><span>θ 是它的可训练参数</span></div>
 <div class="farrow">→</div>
-<div class="fstep"><b>输出：每个动作的 Q 值</b><span>Q(s,←)、Q(s,→)、Q(s,↑)、Q(s,↓) 一次全出来 ⭐</span></div>
+<div class="fstep"><b>输出每个动作的 Q 值</b><span>挑最大值对应的动作；探索时可以随机选</span></div>
 </div>
 
-<p>💡 <strong>一个小设计但很重要</strong>：<strong>输出所有动作的 Q，而不是把 (s,a) 一起输入</strong>。
-这样选动作只需要一次前向传播，而不是每个动作跑一遍。</p>
-<p><strong>损失函数</strong>（直接来自<a href="06-Q-learning与SARSA.html">第 6 章</a>的 Q-learning）：</p>
-<p>$$L(\theta) = \Big(\underbrace{r + \gamma\max_{a'}Q(s',a';\theta^-)}_{\text{目标}} - Q(s,a;\theta)\Big)^2$$</p>
-<blockquote>
-<p>⭐ <strong>看这个式子</strong>：它就是<strong>把 Q-learning 的更新式写成了均方误差</strong>。
-于是强化学习问题变成了一个<strong>监督学习问题</strong> —— 可以用梯度下降了。</p>
-</blockquote>
-<hr />
-<h2 id="_3">💀 三、直接这么做会崩：三个致命问题</h2>
+<p>$$Q_\theta(s,a)\approx Q^*(s,a)$$</p>
+<p>左边是当前网络估计，右边是希望逼近的最优动作价值。近似号是学习目标，不是训练后自动成立的结论。</p>
+<h3 id="dqn-one-update">先把一次更新算出来</h3>
+<p>假设当前选中动作的估值是 2；收到奖励 1，折扣 γ=0.9，下一状态的目标网络最大估值是 5。</p>
+<div class="table-scroll"><div class="tw"><table data-audit-table="dqn-target" style="min-width:0;width:100%"><thead><tr><th>这一步是否真正终止</th><th>目标 y</th><th>平方误差</th></tr></thead><tbody>
+<tr><td>没有终止</td><td>1 + 0.9×5 = 5.5</td><td>(5.5−2)² = 12.25</td></tr>
+<tr><td>已经终止</td><td>1</td><td>(1−2)² = 1</td></tr>
+</tbody></table></div></div>
+
+<p><strong>目标 y 是这次拿来拟合的数。</strong> 一次梯度更新只是朝减少误差的方向走，不会把网络输出直接改成 y。</p>
+<details>
+<summary>把手算对应到损失公式</summary>
+<p>先为一条转移定义目标，再把一个批次的误差取平均：</p>
+<p>$$y=r+\gamma(1-d)\max_b Q_{\theta^-}(s',b)$$</p>
+<p>$$L(\theta)=\frac{1}{B}\sum_{i=1}^{B}
+\big(y_i-Q_\theta(s_i,a_i)\big)^2$$</p>
+<ul>
+<li>θ⁻ 是目标网络参数；求梯度时，y 当作固定目标，不沿这条支路反传。</li>
+<li>d=1 表示任务真正终止，否则为 0。B 是批次样本数。</li>
+<li>这一步像监督回归，但整件事仍是强化学习：目标由估值构造，数据随交互而来，不是外部提供的固定正确标签。</li>
+</ul>
+<p>下面代码使用 Smooth L1（默认阈值 1 时与 Huber 对应），而不是这个教学用平方误差；两者拟合同一个 y，损失数值不同。</p>
+</details>
+<p><strong>任务终止与采样暂停要分开。</strong> Gymnasium 中，<code>terminated</code> 决定是否去掉后续价值；<code>terminated or truncated</code> 决定是否重置环境。对持续任务的外部时间截断仍要自举。</p>
+<p>若任务本来只持续有限步，剩余时间需进入状态，耗尽预算属于任务终止。自动重置的向量环境还要取真实的最后观测，不能把新回合第一帧当成 s′。见<a href="https://gymnasium.farama.org/v0.26.3/tutorials/handling_time_limits/">时间限制说明</a>。</p>
+<p><a href="05-蒙特卡洛与时序差分.html">第 5 章的 TD 更新</a>也需要同样的结束类型判断；换成网络不会消除这个边界。</p>
+<h2 id="_3">⚠️ 三、直接换成网络：三种不稳定风险</h2>
+<p><strong>风险不等于必然失败。</strong> 简单任务里，朴素版本也可能学会；不能用“它没崩”判定代码写错。</p>
 <h3 id="1">问题 1：样本高度相关</h3>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">监督学习假设：样本独立同分布（i.i.d.）</span></div><div class="vb-flow-row"><span class="vb-flow-step">强化学习现实：连续的帧几乎一模一样 💀</span></div><div class="vb-flow-row"><span class="vb-flow-step">梯度方向高度相关</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">训练极不稳定</span></div><div class="vb-flow-row"><span class="vb-flow-step">相当于拿同一个样本连着更新一百次</span></div></div></section>
-<h3 id="2">问题 2：目标在动（追自己的尾巴）</h3>
-<section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">L = (r + γ max Q(s&#x27;,a&#x27;;θ) − Q(s,a;θ))²</span></div><div class="vb-flow-row"><span class="vb-flow-step">↑ ↑</span></div><div class="vb-flow-row"><span class="vb-flow-step">目标用 θ 预测也用 θ</span></div><div class="vb-flow-row"><span class="vb-flow-step">你更新 θ 去逼近目标</span></div><div class="vb-flow-row"><span class="vb-flow-step">目标因为 θ 变了，也跟着动了 💀</span></div><div class="vb-flow-row"><span class="vb-flow-step">像追自己的尾巴，可能永远追不上，甚至发散</span></div></div></section>
+<p>连续游戏画面往往很接近，只拿刚发生的一步更新，批次可能长期缺少其他状态。网络会反复适应局部片段。</p>
+<p>随机抽批次能缓解这种时序相关。相关数据并非完全不能学习，监督学习也不是一遇到非 i.i.d. 数据就失效；关键是采样与估计是否合适。</p>
+<h3 id="2">问题 2：目标在动</h3>
+<p>若当前预测和目标都由同一组 θ 生成，更新一次参数后，两边可能一起改变。</p>
+<p>例如你正把 Q(s,a) 从 2 往 5.5 调，下一轮目标又被新的估值推远。自举反馈可能放大误差，不代表每次都会发散。</p>
 <h3 id="3">问题 3：数据分布随策略改变</h3>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">策略变好</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">去的状态变了</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">训练数据分布变了</span></div><div class="vb-flow-row"><span class="vb-flow-step">之前学的可能失效（灾难性遗忘）</span></div></div></section>
-<blockquote>
-<p>🔑 <strong>这三个合起来叫「致命三要素」（deadly triad）</strong>：
-<strong>函数近似 + 自举（bootstrapping）+ 离策略</strong> ——
-三者同时出现时，<strong>理论上可以发散</strong>。
-<strong>第 6 章列出的表格收敛条件不能直接担保神经网络版本。</strong> 这不等于每次训练都会发散；需要分别检查环境、采样、函数逼近和更新方式。</p>
-</blockquote>
-<hr />
-<h2 id="_4">🩹 四、三个救命补丁</h2>
+<p>策略变了，会去到不同状态。新数据可能覆盖以前少见的情况，也可能让旧经验被遗忘；“换了分布”本身不等于任务规则已变。</p>
+<p><strong>上面三种训练现象，不是“致命三要素”的三个定义。</strong> 后者是：函数近似、自举、离策略更新。它们组合时存在发散反例；<a href="06-Q-learning与SARSA.html">第 6 章</a>的表格收敛条件不能直接担保神经网络版本。</p>
+<h2 id="_4">🩹 四、两项稳定化措施与一组 Atari 处理</h2>
 <h3 id="1experience-replay">补丁 1：经验回放（Experience Replay）</h3>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">把经历过的 (s, a, r, s&#x27;, done) 存进一个大池子（比如 100 万条）</span></div><div class="vb-flow-row"><span class="vb-flow-step">训练时【随机抽一批】出来，而不是用刚发生的</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 打破了样本相关性</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 一条经验可以被【重复利用】很多次</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">样本效率大幅提升</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 平滑了数据分布的变化</span></div></div></section>
-<p><strong>DQN 的离策略更新允许复用旧行为策略采到的有效转移。</strong> 仍需同一任务、正确的状态与奖励定义、足够的数据覆盖；随机抽批次能减轻时序相关，不会让有限池中的样本变成无限独立信息。</p>
-<p><strong>不要把它扩大为“任何旧数据都能用”。</strong> 普通同策略更新不能不加区分地代入其他策略样本；带校正的方法另有条件。PPO 在最近一批样本上有限更新，也不等于 DQN 的历史回放。见<a href="06-Q-learning与SARSA.html#off-policy-vs-on-policy">第 6 章</a>。</p>
+<p><strong>先存转移，再随机抽批次学习。</strong></p>
+<ol>
+<li>把一次交互的 s、a、r、s′、是否终止存入有限容量的回放池。</li>
+<li>池中数据够一个批次后，随机抽取，例如 32 条。</li>
+<li>更新网络；旧转移以后仍可再抽到，容量用满后淘汰较早数据。</li>
+</ol>
+<p>原始 Atari 研究使用大回放池；100 万条是那类配置的量级，不是所有任务的必需值。</p>
+<p>DQN 的离策略目标允许复用旧行为策略的有效转移，仍需同一任务、正确状态与奖励定义、足够覆盖。随机抽样减轻相关性，不会创造无限独立信息，也不能保证罕见关键状态一定被抽到。</p>
+<p>普通同策略更新不能无校正地使用任意旧策略数据。PPO 在最近一批轨迹上有限更新，不等于 DQN 的历史回放。见<a href="06-Q-learning与SARSA.html#off-policy-vs-on-policy">同策略与离策略</a>。</p>
 <h3 id="2target-network">补丁 2：目标网络（Target Network）</h3>
+<p><strong>训练网络不断更新，目标网络隔一段时间才复制一次参数。</strong></p>
 <figure class="dia">
-<svg viewBox="0 0 700 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="目标网络：训练网络每步更新，目标网络每隔 C 步才从它拷贝一次参数">
-  <text class="dia-t" x="350" y="24" font-size="13" font-weight="600" text-anchor="middle" fill="var(--fg)">再复制一份网络 θ⁻ 专门用来算目标，【每隔 C 步才同步一次】</text>
-  <rect x="40" y="48" width="230" height="78" rx="8" fill="var(--card)" stroke="var(--accent)" stroke-width="1.8"/>
-  <text class="dia-t" x="155" y="76" font-size="13" font-weight="700" text-anchor="middle" fill="var(--accent)">训练网络 θ</text>
-  <text class="dia-t" x="155" y="98" font-size="11.5" text-anchor="middle" fill="var(--fg)">Q(s,a; θ)</text>
-  <text class="dia-t" x="155" y="117" font-size="11" text-anchor="middle" fill="var(--muted)">每一步都被梯度更新</text>
-  <rect x="430" y="48" width="230" height="78" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6" stroke-dasharray="6 4"/>
-  <text class="dia-t" x="545" y="76" font-size="13" font-weight="700" text-anchor="middle" fill="var(--fg)">目标网络 θ⁻</text>
-  <text class="dia-t" x="545" y="98" font-size="11.5" text-anchor="middle" fill="var(--fg)">Q(s',a'; θ⁻)</text>
-  <text class="dia-t" x="545" y="117" font-size="11" text-anchor="middle" fill="var(--muted)">参数冻住不动</text>
-  <text class="dia-t" x="350" y="80" font-size="11.5" text-anchor="middle" fill="var(--muted)">每隔 C 步拷贝参数</text>
-  <line x1="274" y1="94" x2="420" y2="94" stroke="var(--accent)" stroke-width="1.8" stroke-dasharray="6 4"/>
-  <polygon points="428,94 417,89 417,99" fill="var(--accent)"/>
-  <rect x="24" y="146" width="652" height="66" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.4"/>
-  <text class="dia-t" x="374" y="174" font-size="13.5" text-anchor="end" fill="var(--fg)">L = (r + γ max Q(s',a';</text>
-  <text class="dia-t" x="386" y="174" font-size="13.5" font-weight="700" text-anchor="middle" fill="var(--accent)">θ⁻</text>
-  <text class="dia-t" x="400" y="174" font-size="13.5" text-anchor="start" fill="var(--fg)">) − Q(s,a; θ))²</text>
-  <line x1="386" y1="180" x2="386" y2="192" stroke="var(--accent)" stroke-width="1.4"/>
-  <text class="dia-t" x="386" y="205" font-size="11.5" text-anchor="middle" fill="var(--accent)">冻结的那份</text>
-  <text class="dia-t" x="350" y="240" font-size="12.5" text-anchor="middle" fill="var(--done)">✅ 目标在 C 步内是【固定】的 → 变回了标准的监督学习</text>
-  <text class="dia-t" x="350" y="264" font-size="12.5" text-anchor="middle" fill="var(--done)">✅ 打破了“追自己尾巴”的循环</text>
+<svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="在线网络接收梯度，目标网络只经参数复制更新；同一条转移的目标在两次复制之间保持不变">
+<rect x="20" y="30" width="250" height="100" rx="12" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/>
+<text x="145" y="63" text-anchor="middle" font-size="22" fill="var(--fg)">在线网络 θ</text>
+<text x="145" y="100" text-anchor="middle" font-size="18" fill="var(--muted)">预测当前动作的 Q</text>
+<rect x="450" y="30" width="250" height="100" rx="12" fill="var(--card)" stroke="var(--border)" stroke-width="2"/>
+<text x="575" y="63" text-anchor="middle" font-size="22" fill="var(--fg)">目标网络 θ⁻</text>
+<text x="575" y="100" text-anchor="middle" font-size="18" fill="var(--muted)">估计下一状态的 Q</text>
+<path d="M270 77 H438" fill="none" stroke="var(--accent)" stroke-width="2"/>
+<polygon points="443,77 431,71 431,83" fill="var(--accent)"/>
+<text x="360" y="53" text-anchor="middle" font-size="16" fill="var(--muted)">每 C 次更新复制</text>
+<path d="M145 130 V180 H275 M575 130 V180 H445" fill="none" stroke="var(--border)" stroke-width="2"/>
+<rect x="275" y="153" width="170" height="58" rx="10" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/>
+<text x="360" y="190" text-anchor="middle" font-size="22" fill="var(--fg)">计算拟合误差</text>
+<path d="M360 211 V267 H80 V139" fill="none" stroke="var(--accent)" stroke-width="2"/>
+<polygon points="80,134 74,146 86,146" fill="var(--accent)"/>
+<text x="245" y="256" text-anchor="middle" font-size="17" fill="var(--accent)">梯度只更新在线网络</text>
+<text x="565" y="235" text-anchor="middle" font-size="17" fill="var(--muted)">目标支路不反传</text>
 </svg>
-<figcaption>两条线：训练网络每一步都在动，目标网络每隔 C 步才拷一次参数 —— 被冻住的那个 θ⁻ 就是「追自己尾巴」这个循环被切断的地方</figcaption>
+<figcaption>看底部回路：梯度只回到左边；右边靠顶部的参数复制更新。</figcaption>
 </figure>
 
-<p>💡 <strong>C 怎么设</strong>：常用 1000~10000 步。
-<strong>太小 → 还是在追尾巴；太大 → 目标太陈旧，学得慢。</strong></p>
+<p>“目标固定”指<strong>同一条转移</strong>在目标网络冻结期间算出的 y 固定；不同样本的奖励、下一状态不同，y 当然可以不同。它缓解反馈，不会把整个 RL 过程变成固定数据的监督学习。</p>
+<p>硬同步的 C 必须说明按环境步还是按梯度更新计数。1000–10000 这类量级只作配置参考；下面小环境每 20 次梯度更新同步，不能直接搬到 Atari。也有每次少量混合参数的软更新，机制不同。</p>
 <h3 id="3_1">补丁 3：奖励裁剪与预处理</h3>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">· 奖励裁剪到 [-1, 1]</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">不同游戏的分数量级差异巨大，不裁剪没法用同一套超参</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 画面转灰度、缩到 84×84、堆叠 4 帧</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">降维 + 恢复马尔可夫性（第 2 章）</span></div></div></section>
-<hr />
-<h2 id="_5">🔨 五、核心代码</h2>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span><span class="o">,</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span><span class="o">,</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span><span class="o">,</span><span class="w"> </span><span class="nn">random</span>
+<p><strong>这组做法来自 Atari 配置，不是所有 DQN 任务的必修开关。</strong></p>
+<ul>
+<li><strong>奖励尺度</strong>：原始研究把正奖励变成 +1、负奖励变成 −1、0 保持不变，方便跨游戏用相近优化设置。正负号裁剪与一般的区间 clip 不完全相同。</li>
+<li><strong>代价</strong>：原奖励 1 和 100 都变成 1，可能改变策略排序。不能拿裁剪奖励训练的 Q 值直接对比原始游戏分数。</li>
+<li><strong>画面处理</strong>：取灰度、缩到 84×84、堆叠 4 帧。多帧能提供运动方向线索，不能保证任意部分可观测任务因此满足马尔可夫性。</li>
+</ul>
+<p>具体 Atari 实验还包含帧跳过等约定。复现时应对齐完整环境包装，而不是只记住四个数字。参见<a href="https://deepmind-media.storage.googleapis.com/dqn/DQNNaturePaper.pdf">原始 DQN 论文</a>。</p>
+<h2 id="_5">🔨 五、核心代码：先在两步环境跑通</h2>
+<p><strong>这段能独立运行，验证“网络学到把未来奖励传回起点”。</strong> 需要 NumPy、PyTorch；仅用 CPU、小型全连接网络，不是 Atari 或 CartPole 完整训练器。</p>
+<p>沿用<a href="06-Q-learning与SARSA.html">第 6 章</a>的小例子：起点选 0 立即结束、奖励 0；选 1 到中间站，再走一步得 1 并结束。γ=0.9，所以起点最优动作是 1，最优 Q 值为 0.9。</p>
+<p>先看运行后的“起点 Q 值、贪心动作”。代码不用一次读完；阅读顺序是 <code>learn</code> 的目标计算、目标同步，最后看底部交互循环。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">random</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">deque</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
+
 
 <span class="k">class</span><span class="w"> </span><span class="nc">DQN</span><span class="p">:</span>
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">net</span><span class="p">,</span> <span class="n">n_actions</span><span class="p">,</span> <span class="n">gamma</span><span class="o">=</span><span class="mf">0.99</span><span class="p">,</span> <span class="n">lr</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">,</span> <span class="n">buf</span><span class="o">=</span><span class="mi">100_000</span><span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">q</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">q_target</span> <span class="o">=</span> <span class="n">net</span><span class="p">,</span> <span class="nb">__import__</span><span class="p">(</span><span class="s1">&#39;copy&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">net</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">q</span> <span class="o">=</span> <span class="n">net</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">q_target</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">q</span><span class="p">)</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">q_target</span><span class="o">.</span><span class="n">requires_grad_</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">opt</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">Adam</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">q</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="n">lr</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">buffer</span> <span class="o">=</span> <span class="n">deque</span><span class="p">(</span><span class="n">maxlen</span><span class="o">=</span><span class="n">buf</span><span class="p">)</span>          <span class="c1"># ⭐ 补丁1：经验回放池</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">buffer</span> <span class="o">=</span> <span class="n">deque</span><span class="p">(</span><span class="n">maxlen</span><span class="o">=</span><span class="n">buf</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">gamma</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_actions</span> <span class="o">=</span> <span class="n">gamma</span><span class="p">,</span> <span class="n">n_actions</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">step_count</span> <span class="o">=</span> <span class="mi">0</span>
 
@@ -409,197 +443,178 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
         <span class="k">if</span> <span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">()</span> <span class="o">&lt;</span> <span class="n">eps</span><span class="p">:</span>
             <span class="k">return</span> <span class="n">random</span><span class="o">.</span><span class="n">randrange</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">n_actions</span><span class="p">)</span>
         <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
-            <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">q</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">as_tensor</span><span class="p">(</span><span class="n">s</span><span class="p">)</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span><span class="o">.</span><span class="n">argmax</span><span class="p">())</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">as_tensor</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+            <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">q</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">item</span><span class="p">())</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">learn</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">sync_every</span><span class="o">=</span><span class="mi">1000</span><span class="p">):</span>
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">buffer</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">batch_size</span><span class="p">:</span>
-            <span class="k">return</span>
-        <span class="n">s</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">s2</span><span class="p">,</span> <span class="n">d</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">,</span> <span class="nb">zip</span><span class="p">(</span><span class="o">*</span><span class="n">random</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">buffer</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">)))</span>
-        <span class="n">s</span><span class="p">,</span> <span class="n">s2</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">as_tensor</span><span class="p">(</span><span class="n">s</span><span class="p">)</span><span class="o">.</span><span class="n">float</span><span class="p">(),</span> <span class="n">torch</span><span class="o">.</span><span class="n">as_tensor</span><span class="p">(</span><span class="n">s2</span><span class="p">)</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
-        <span class="n">a</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">d</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">as_tensor</span><span class="p">(</span><span class="n">a</span><span class="p">),</span> <span class="n">torch</span><span class="o">.</span><span class="n">as_tensor</span><span class="p">(</span><span class="n">r</span><span class="p">)</span><span class="o">.</span><span class="n">float</span><span class="p">(),</span> <span class="n">torch</span><span class="o">.</span><span class="n">as_tensor</span><span class="p">(</span><span class="n">d</span><span class="p">)</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="n">batch</span> <span class="o">=</span> <span class="n">random</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">buffer</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">)</span>
+        <span class="n">s</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">s2</span><span class="p">,</span> <span class="n">terminated</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">,</span> <span class="nb">zip</span><span class="p">(</span><span class="o">*</span><span class="n">batch</span><span class="p">))</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">as_tensor</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+        <span class="n">s2</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">as_tensor</span><span class="p">(</span><span class="n">s2</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">as_tensor</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">long</span><span class="p">)</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">as_tensor</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+        <span class="n">terminal</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">as_tensor</span><span class="p">(</span><span class="n">terminated</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bool</span><span class="p">)</span>
 
         <span class="n">q</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">q</span><span class="p">(</span><span class="n">s</span><span class="p">)</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">a</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>                     <span class="c1"># ⭐ 补丁2：目标网络，且不回传梯度</span>
-            <span class="n">tgt</span> <span class="o">=</span> <span class="n">r</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">gamma</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">q_target</span><span class="p">(</span><span class="n">s2</span><span class="p">)</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="mi">1</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">d</span><span class="p">)</span>
+        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+            <span class="n">next_value</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">r</span><span class="p">)</span>
+            <span class="n">live</span> <span class="o">=</span> <span class="o">~</span><span class="n">terminal</span>
+            <span class="k">if</span> <span class="n">live</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>  <span class="c1"># 全批次都终止时，不调用空批次网络</span>
+                <span class="n">next_value</span><span class="p">[</span><span class="n">live</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">q_target</span><span class="p">(</span><span class="n">s2</span><span class="p">[</span><span class="n">live</span><span class="p">])</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">values</span>
+            <span class="n">target</span> <span class="o">=</span> <span class="n">r</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">gamma</span> <span class="o">*</span> <span class="n">next_value</span>
 
-        <span class="n">loss</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">smooth_l1_loss</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">tgt</span><span class="p">)</span>   <span class="c1"># ⭐ Huber，比 MSE 抗离群</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">();</span> <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
-        <span class="n">nn</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">clip_grad_norm_</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">q</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="mi">10</span><span class="p">)</span>   <span class="c1"># ⭐ 梯度裁剪</span>
+        <span class="n">loss</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">smooth_l1_loss</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+        <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+        <span class="n">nn</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">clip_grad_norm_</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">q</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="mi">10</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">opt</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">step_count</span> <span class="o">+=</span> <span class="mi">1</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">step_count</span> <span class="o">%</span> <span class="n">sync_every</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">q_target</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">q</span><span class="o">.</span><span class="n">state_dict</span><span class="p">())</span>
+        <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">loss</span><span class="o">.</span><span class="n">item</span><span class="p">())</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">TwoStepEnv</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;教学环境：动作 0/1；不是 Gymnasium 接口。&quot;&quot;&quot;</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)[</span><span class="bp">self</span><span class="o">.</span><span class="n">state</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">step</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">action</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;已经终止，请先 reset&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">action</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;动作只能是 0 或 1&quot;</span><span class="p">)</span>
+        <span class="n">reward</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">==</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">=</span> <span class="mi">1</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">action</span> <span class="o">==</span> <span class="mi">1</span> <span class="k">else</span> <span class="mi">2</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)[</span><span class="bp">self</span><span class="o">.</span><span class="n">state</span><span class="p">],</span> <span class="n">reward</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">==</span> <span class="mi">2</span>
+
+
+<span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">7</span><span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">7</span><span class="p">)</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">7</span><span class="p">)</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">set_num_threads</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">net</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">16</span><span class="p">),</span> <span class="n">nn</span><span class="o">.</span><span class="n">ReLU</span><span class="p">(),</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">2</span><span class="p">))</span>
+<span class="n">agent</span> <span class="o">=</span> <span class="n">DQN</span><span class="p">(</span><span class="n">net</span><span class="p">,</span> <span class="n">n_actions</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">gamma</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span> <span class="n">lr</span><span class="o">=</span><span class="mf">0.005</span><span class="p">)</span>
+<span class="n">env</span> <span class="o">=</span> <span class="n">TwoStepEnv</span><span class="p">()</span>
+
+<span class="k">for</span> <span class="n">episode</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">500</span><span class="p">):</span>
+    <span class="n">state</span> <span class="o">=</span> <span class="n">env</span><span class="o">.</span><span class="n">reset</span><span class="p">()</span>
+    <span class="n">terminal</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="k">while</span> <span class="ow">not</span> <span class="n">terminal</span><span class="p">:</span>
+        <span class="n">action</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">act</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="mf">0.2</span><span class="p">)</span>
+        <span class="n">next_state</span><span class="p">,</span> <span class="n">reward</span><span class="p">,</span> <span class="n">terminal</span> <span class="o">=</span> <span class="n">env</span><span class="o">.</span><span class="n">step</span><span class="p">(</span><span class="n">action</span><span class="p">)</span>
+        <span class="n">agent</span><span class="o">.</span><span class="n">buffer</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">state</span><span class="o">.</span><span class="n">copy</span><span class="p">(),</span> <span class="n">action</span><span class="p">,</span> <span class="n">reward</span><span class="p">,</span> <span class="n">next_state</span><span class="o">.</span><span class="n">copy</span><span class="p">(),</span> <span class="n">terminal</span><span class="p">))</span>
+        <span class="n">agent</span><span class="o">.</span><span class="n">learn</span><span class="p">(</span><span class="n">batch_size</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">sync_every</span><span class="o">=</span><span class="mi">20</span><span class="p">)</span>
+        <span class="n">state</span> <span class="o">=</span> <span class="n">next_state</span>
+
+<span class="n">start</span> <span class="o">=</span> <span class="n">env</span><span class="o">.</span><span class="n">reset</span><span class="p">()</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="n">start_q</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">q</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">as_tensor</span><span class="p">(</span><span class="n">start</span><span class="p">)</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">0</span><span class="p">))[</span><span class="mi">0</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;起点 Q 值：&quot;</span><span class="p">,</span> <span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">start_q</span><span class="o">.</span><span class="n">tolist</span><span class="p">()])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;贪心动作：&quot;</span><span class="p">,</span> <span class="n">agent</span><span class="o">.</span><span class="n">act</span><span class="p">(</span><span class="n">start</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="mi">0</span><span class="p">))</span>
+<span class="k">assert</span> <span class="n">agent</span><span class="o">.</span><span class="n">act</span><span class="p">(</span><span class="n">start</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>
+<span class="k">assert</span> <span class="nb">abs</span><span class="p">(</span><span class="n">start_q</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">()</span> <span class="o">-</span> <span class="mf">0.9</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mf">0.1</span>
+<span class="k">assert</span> <span class="nb">all</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">grad</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">agent</span><span class="o">.</span><span class="n">q_target</span><span class="o">.</span><span class="n">parameters</span><span class="p">())</span>
 </code></pre></div>
 
-<p>⚠️ <strong>四个最容易写错的地方</strong>：</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>坑</th>
-<th>后果</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>目标里忘了 <code>torch.no_grad()</code></strong></td>
-<td>梯度回传到目标网络，训练直接乱掉 ⭐</td>
-</tr>
-<tr>
-<td><strong>忘了 <code>* (1 - d)</code></strong></td>
-<td>终止态算上了不存在的未来价值（和<a href="05-蒙特卡洛与时序差分.html">第 5 章</a>同一个坑）</td>
-</tr>
-<tr>
-<td><strong>用 MSE 而不是 Huber</strong></td>
-<td>TD 误差偶尔很大时梯度爆炸</td>
-</tr>
-<tr>
-<td><strong>目标网络忘了同步 / 同步太频繁</strong></td>
-<td>前者目标永远陈旧，后者等于没加这个补丁</td>
-</tr>
-</tbody>
-</table></div>
-<hr />
-<h2 id="_6">🚀 六、后续改进（知道名字和一句话就够）</h2>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>改进</th>
-<th>解决什么</th>
-<th>一句话</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Double DQN</strong> ⭐</td>
-<td>最大化偏差（<a href="06-Q-learning与SARSA.html">第 6 章</a>）</td>
-<td>用主网络<strong>选</strong>动作、目标网络<strong>评估</strong></td>
-</tr>
-<tr>
-<td><strong>Dueling DQN</strong></td>
-<td>有些状态下动作无所谓</td>
-<td>拆成 V(s) + 优势 A(s,a)</td>
-</tr>
-<tr>
-<td><strong>优先经验回放 PER</strong> ⭐</td>
-<td>均匀采样浪费</td>
-<td><strong>TD 误差大的样本多抽</strong> —— 错得多的地方多学</td>
-</tr>
-<tr>
-<td><strong>Noisy Nets</strong></td>
-<td>ε-贪心探索太笨</td>
-<td>给权重加噪声（<a href="07-探索与利用.html">第 7 章</a>）</td>
-</tr>
-<tr>
-<td><strong>Rainbow</strong></td>
-<td>——</td>
-<td>把上面全部组合起来，效果最好</td>
-</tr>
-</tbody>
-</table></div>
-<p>💡 <strong>Double DQN 的一行改动</strong>（值得记住）：</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：这里只对照两种写法的差别，r / gamma / d / s2 来自你的训练循环</span>
-<span class="c1"># 原始 DQN：  用目标网络【既选又评】→ 高估</span>
-<span class="n">tgt</span> <span class="o">=</span> <span class="n">r</span> <span class="o">+</span> <span class="n">gamma</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">q_target</span><span class="p">(</span><span class="n">s2</span><span class="p">)</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="mi">1</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">d</span><span class="p">)</span>
+<p><strong>结果看哪里：</strong>第二个 Q 值应接近 0.9，贪心动作应为 1；末尾断言检查这两项和目标网络无梯度。小数末位可能受版本影响，不把训练损失每一步下降作为要求。</p>
+<p><strong>实现边界：</strong>这段只处理固定长度数值向量和有限离散动作，终止后仍返回形状一致的观测。没有 Dropout/BatchNorm、GPU、图像归一化或自动重置包装。迁移到 Gymnasium 时按上文区分终止与截断。</p>
+<h3 id="dqn-implementation-checks">四处必须分开检查</h3>
+<ul>
+<li><strong>目标支路</strong>：它应停止梯度。若独立目标网络没放进优化器，漏写 <code>no_grad</code> 不一定立刻改变其参数，但会建立无用计算图并可能积累梯度；不能把后果一概写成“直接乱掉”。</li>
+<li><strong>终止处理</strong>：真正终止时目标只剩 r；外部时间截断不要误清零。回放池应保存这个区别。</li>
+<li><strong>损失与梯度裁剪</strong>：MSE 对大误差更敏感，但不是一用就爆炸。Huber 和梯度裁剪处理的是不同环节，都不保证绝不发散。</li>
+<li><strong>目标同步</strong>：检查复制前后参数；“优化器只改在线网络”和“目标网络定期复制”是两件事。</li>
+</ul>
+<p><code>gather</code> 这一行只取批次中每条转移实际执行动作的 Q 值。例如一行输出 [2,5]、动作是 0，就取 2；不是先对当前状态也取最大值。</p>
+<h2 id="_6">🚀 六、后续改进：每项解决不同问题</h2>
+<p>先把上述实现跑通，再按遇到的问题选择扩展。</p>
+<ul>
+<li><strong>Double DQN</strong>：在线网络选下一动作，目标网络评估该动作，减轻最大化偏差；不保证每个状态都无偏。</li>
+<li><strong>Dueling DQN</strong>：把共享的状态分量和动作差异分开建模，组合时需去掉优势分量的平均值等以固定分解；不是只写 V+A 就唯一确定。</li>
+<li><strong>优先经验回放 PER</strong>：按 TD 误差等指标提高抽样概率。要保留非零覆盖，并考虑重要性权重修正采样偏差；大误差也可能来自噪声。</li>
+<li><strong>Noisy Nets</strong>：学习带参数噪声的探索机制，不是随便给所有权重加一次噪声。</li>
+<li><strong>Rainbow</strong>：组合 Double、Dueling、PER、Noisy Nets、多步回报、回报分布学习六项扩展。最后一项学习回报的概率分布，而不只估计均值；不是多机训练。论文在特定 Atari 基准上取得改进，不代表所有任务最好。见<a href="https://arxiv.org/abs/1710.02298">Rainbow 原论文</a>。</li>
+</ul>
+<h3 id="dqn-double-example">Double DQN：看清“选”和“评”</h3>
+<p>下面是独立可运行的<strong>目标计算对照</strong>。给定两组网络输出，不训练网络；不是省略变量的训练循环骨架。</p>
+<p>第一条转移：在线网络输出 [4,3]，选动作 0；目标网络输出 [2,5]。普通 DQN 取 5，Double DQN 评估动作 0 得 2。</p>
+<p>第二条转移已经终止，两种目标都必须只等于奖励 2。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
-<span class="c1"># Double DQN：主网络【选】，目标网络【评】⭐</span>
-<span class="n">a2</span>  <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">q</span><span class="p">(</span><span class="n">s2</span><span class="p">)</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="n">tgt</span> <span class="o">=</span> <span class="n">r</span> <span class="o">+</span> <span class="n">gamma</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">q_target</span><span class="p">(</span><span class="n">s2</span><span class="p">)</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">a2</span><span class="p">)</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">d</span><span class="p">)</span>
+<span class="n">online_next</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mf">4.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">],</span> <span class="p">[</span><span class="mf">99.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">5.0</span><span class="p">]])</span>
+<span class="n">target_next</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mf">2.0</span><span class="p">,</span> <span class="mf">5.0</span><span class="p">],</span> <span class="p">[</span><span class="mf">7.0</span><span class="p">,</span> <span class="mf">8.0</span><span class="p">]])</span>
+<span class="n">rewards</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">])</span>
+<span class="n">terminated</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="kc">False</span><span class="p">,</span> <span class="kc">True</span><span class="p">])</span>
+<span class="n">gamma</span> <span class="o">=</span> <span class="mf">0.9</span>
+
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="n">dqn_next</span> <span class="o">=</span> <span class="n">target_next</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">values</span>
+    <span class="n">selected</span> <span class="o">=</span> <span class="n">online_next</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">double_next</span> <span class="o">=</span> <span class="n">target_next</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">selected</span><span class="p">)</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">dqn_target</span> <span class="o">=</span> <span class="n">rewards</span> <span class="o">+</span> <span class="n">gamma</span> <span class="o">*</span> <span class="n">torch</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">terminated</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="n">dqn_next</span><span class="p">)</span>
+    <span class="n">double_target</span> <span class="o">=</span> <span class="n">rewards</span> <span class="o">+</span> <span class="n">gamma</span> <span class="o">*</span> <span class="n">torch</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">terminated</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="n">double_next</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;DQN 目标：&quot;</span><span class="p">,</span> <span class="n">dqn_target</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Double DQN 目标：&quot;</span><span class="p">,</span> <span class="n">double_target</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_close</span><span class="p">(</span><span class="n">dqn_target</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">5.5</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">]))</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_close</span><span class="p">(</span><span class="n">double_target</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">2.8</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">]))</span>
 </code></pre></div>
 
-<hr />
-<h2 id="dqn">🧱 七、DQN 的天花板</h2>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>限制</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>只能处理离散动作</strong> ⭐</td>
-<td><code>max_a</code> 要遍历所有动作。<strong>动作连续就完蛋</strong></td>
-</tr>
-<tr>
-<td>样本效率仍然低</td>
-<td>Atari 要几千万帧</td>
-</tr>
-<tr>
-<td>对超参数敏感</td>
-<td>学习率、C、buffer 大小都很关键</td>
-</tr>
-</tbody>
-</table></div>
-<blockquote>
-<p>⭐ <strong>第一条就是第 9 章存在的理由</strong>：
-「方向盘转多少度」「机器人关节用多大力」「生成哪个 token（词表 5 万）」——
-<strong>这些都没法对所有动作取 max。</strong>
-<strong>→ 换一条路：不估价值了，直接优化策略。</strong></p>
-</blockquote>
-<hr />
+<p><strong>第一条分别得到 5.5 和约 2.8；第二条都是 2。</strong> 这证明选评方式和终止处理不同，不证明真实价值一定是 2.8。真实回报没有在这组输入里给出。机制见<a href="https://arxiv.org/abs/1509.06461">Double DQN 论文</a>。</p>
+<h2 id="dqn">🧱 七、DQN 的适用边界</h2>
+<p><strong>标准 DQN 最直接适用于可枚举的离散动作。</strong> 动作很多会增加输出和取最大值的成本；连续动作不能直接套有限输出头，需要离散化、额外优化或别的算法设计。</p>
+<ul>
+<li><strong>方向盘角度、关节力矩</strong>是连续量，策略梯度或 Actor-Critic 是常见选择。</li>
+<li><strong>5 万个 token</strong>仍是有限离散动作，数学上可以取 max；问题在大动作空间、长序列和训练方法，不是“没法取最大值”。</li>
+<li><strong>样本成本与超参</strong>仍要考虑。Atari 常需大量交互帧，但帧、动作决策、梯度更新不是同一个计数单位。</li>
+</ul>
+<p><a href="09-策略梯度.html">第 9 章</a>改为直接优化策略，不意味着必须放弃价值估计；<a href="10-Actor-Critic.html">Actor-Critic</a>正是两者配合。</p>
 <h2 id="_7">🔗 八、和站内其他章的关系</h2>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>相关的地方</th>
-<th>这里的位置</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><a href="06-Q-learning与SARSA.html">第 6 章</a> Q-learning</td>
-<td>DQN = 它 + 神经网络 + 三个补丁</td>
-</tr>
-<tr>
-<td><a href="06-Q-learning与SARSA.html">第 6 章</a> off-policy</td>
-<td>DQN 复用旧转移的依据，以及覆盖和任务一致性限制</td>
-</tr>
-<tr>
-<td><a href="02-MDP.html">第 2 章</a>堆叠 4 帧</td>
-<td>补丁 3 里的预处理</td>
-</tr>
-<tr>
-<td><a href="../机器学习与深度学习基础/12-CNN.html">ML基础 12</a> CNN</td>
-<td>DQN 的网络主体</td>
-</tr>
-<tr>
-<td><a href="../机器学习与深度学习基础/13-RNN与序列建模.html">ML基础 13</a> 梯度裁剪</td>
-<td>⭐ 同一个技巧：那里讲了<strong>梯度为什么会爆</strong>（连乘次数长、乘的还是同一个矩阵）和 <strong>max_norm 该取多少</strong>——DQN 里裁的是同一个东西</td>
-</tr>
-</tbody>
-</table></div>
-<hr />
+<ul>
+<li><a href="06-Q-learning与SARSA.html">第 6 章</a>：Q-learning 目标、行为/目标策略与 Double Q。</li>
+<li><a href="02-MDP.html">第 2 章</a>：状态应包含什么，多帧观测的边界。</li>
+<li><a href="../机器学习与深度学习基础/12-CNN.html">ML 基础 12</a>：处理图像时才需要的 CNN 路线。</li>
+<li><a href="../机器学习与深度学习基础/13-RNN与序列建模.html">ML 基础 13</a>：梯度范数和裁剪；不能据此把 DQN 的问题都归因于 RNN 式时间连乘。</li>
+<li><a href="15-实战与挑战项目.html#dqn-cartpole12">第 15 章项目二</a>：把组件逐项加入 CartPole，记录真实结果。</li>
+<li><a href="https://docs.pytorch.org/tutorials/intermediate/reinforcement_q_learning.html">PyTorch 官方 DQN 教程</a>：完整 CartPole 交互训练参考；其软同步配置与本页硬同步示例不同。</li>
+</ul>
 <h2 id="_8">✅ 检查点</h2>
 <ol>
-<li>换掉表格的两个理由是什么？哪个更根本？</li>
-<li>DQN 的损失函数是什么？它把 RL 变成了什么问题？</li>
-<li>「致命三要素」是哪三个？它意味着什么？</li>
-<li>经验回放缓解什么问题？DQN 复用旧转移仍需要哪些条件？</li>
-<li>目标网络解决什么问题？C 太小太大分别会怎样？</li>
-<li>代码里忘了 <code>torch.no_grad()</code> 会怎样？忘了 <code>*(1-d)</code> 呢？</li>
-<li>Double DQN 的一行改动是什么？解决什么？</li>
-<li>DQN 的最大天花板是什么？为什么它逼出了第 9 章？</li>
+<li>表格有哪两个扩展困难？网络共享参数是否保证正确泛化？</li>
+<li>奖励 1、γ=0.9、下一状态最大估值 5 时，非终止与终止目标分别是多少？</li>
+<li>三种训练风险和“致命三要素”是同一套定义吗？</li>
+<li>回放能缓解什么？为什么不是任意旧数据都能使用？</li>
+<li>目标网络固定时，是同一条转移的目标固定，还是所有样本目标相同？</li>
+<li>停止梯度、结束类型、Huber 和同步各需要检查什么？</li>
+<li>Double DQN 两条转移的目标是什么？能由此认定真实价值吗？</li>
+<li>连续动作和 5 万 token 有何区别？策略梯度是否排斥 Critic？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>①状态太多存不下（Atari 是 256^(84×84×4)）②<strong>表格没有泛化能力</strong>——"敌人在左30像素"和"左31像素"被当成完全不同的状态。第二个更根本：不只是存不下，是每个状态都要单独学一遍不现实。</li>
-<li><code>L = (r + γ max Q(s',a';θ⁻) − Q(s,a;θ))²</code>。它把 RL <strong>变成了监督学习问题</strong>（拟合一个回归目标），于是能用梯度下降。</li>
-<li><strong>函数近似 + 自举 + 离策略</strong>。三者同时出现时理论上可以发散——第 6 章的表格收敛保证在这里彻底失效。</li>
-<li>随机抽批次减轻连续转移的时序相关，并复用已有数据。DQN 的离策略更新允许行为与目标策略不同，但仍需同任务的有效转移和足够覆盖；普通同策略公式不能无校正地使用任意旧策略数据。</li>
-<li>解决<strong>目标在动、追自己尾巴</strong>的问题。C 太小还是在追尾巴；C 太大目标太陈旧学得慢（常用 1000~10000）。</li>
-<li>忘 <code>no_grad()</code> → <strong>梯度回传到目标网络，训练直接乱掉</strong>；忘 <code>*(1-d)</code> → 终止态算进了不存在的未来价值。</li>
-<li>主网络<strong>选</strong>动作、目标网络评估：<code>a2=q(s2).argmax(); tgt=r+γ·q_target(s2).gather(1,a2)</code>。解决最大化偏差（max 系统性挑中被高估的动作）。</li>
-<li><strong>只能处理离散动作</strong>——<code>max_a</code> 要遍历所有动作，动作连续就没法算。所以第 9 章换路：不估价值，直接优化策略。</li>
+<li>状态动作组合太多，以及表格键之间不自动共享学习；网络有泛化机会，也可能错误泛化。</li>
+<li>5.5 与 1。真正终止没有未来奖励。</li>
+<li>不同。致命三要素是函数近似、自举、离策略；有发散风险，不是每次必崩。</li>
+<li>减轻时序相关、复用已有转移；仍要同任务、有效状态奖励定义和覆盖。</li>
+<li>同一条转移在两次同步之间的目标固定。不同转移通常不同。</li>
+<li>目标支路不反传；终止才去掉后续值；Huber 减弱大误差影响但非万能；明确同步的计数单位与参数是否真的复制。</li>
+<li>约 [2.8,2.0]，普通 DQN 是 [5.5,2.0]。未给真实回报，不能判定谁恰好无偏。</li>
+<li>前者不能直接枚举，后者有限但可能昂贵。Actor-Critic 同时学习策略和价值。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_9">🛑 可以停在这里</h2>
-<p>⚡ <strong>走神救援</strong></p>
-<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>DQN 用神经网络近似 Q 值，让相似状态之间能够共享信息。</li><li>经验回放和目标网络缓解相关样本、移动目标造成的不稳定。</li><li>目标计算、终止掩码和目标网络同步要分别验证，再尝试 Double DQN 等改动。</li></ul></section>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这三件事</p><ul><li>DQN 用共享参数估计 Q，泛化和稳定性都需要验证。</li><li>回放重用转移，目标网络放慢自举目标变化；二者不是收敛保证。</li><li>先核对目标、终止和同步，再用公平实验比较扩展。</li></ul></section>
 
-<p><strong>下一节</strong> 👉 <a href="09-策略梯度.html">09-策略梯度.md</a> ⭐</p>
+<p><strong>下一节</strong> 👉 <a href="09-策略梯度.html">09-策略梯度.md</a></p></article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
+<button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">💥 一、为什么要换掉表格</a><a href="#dqn-q">🧠 二、DQN 的想法：用网络逼近 Q</a><a href="#_3">⚠️ 三、直接换成网络：三种不稳定风险</a><a href="#_4">🩹 四、两项稳定化措施与一组 Atari 处理</a><a href="#_5">🔨 五、核心代码：先在两步环境跑通</a><a href="#_6">🚀 六、后续改进：每项解决不同问题</a><a href="#dqn">🧱 七、DQN 的适用边界</a><a href="#_7">🔗 八、和站内其他章的关系</a><a href="#_8">✅ 检查点</a><a href="#_9">🛑 可以停在这里</a></nav>
+<button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
+<a href="index.html">回到本模块目录</a></div></aside></div>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="07-探索与利用.html"><div class="dir">← 上一节</div>🎰 07 · 探索与利用</a><a class="next" href="09-策略梯度.html"><div class="dir">下一节 →</div>📈 09 · 策略梯度</a></nav>

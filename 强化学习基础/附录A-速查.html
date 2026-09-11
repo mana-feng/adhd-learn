@@ -339,7 +339,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><strong>Q-learning</strong></td>
-<td><strong>off-policy</strong> 控制（学最优策略）⭐</td>
+<td>离策略控制，以当前贪心目标更新；最优收敛另需条件</td>
 <td><a href="06-Q-learning与SARSA.html">06</a></td>
 </tr>
 <tr>
@@ -359,7 +359,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><strong>PPO</strong></td>
-<td><strong>限制更新幅度，防止策略崩溃</strong> ⭐</td>
+<td>用代理目标约束更新激励，缓解不稳定；不保证硬 KL 上限</td>
 <td><a href="11-PPO.html">11</a></td>
 </tr>
 <tr>
@@ -382,11 +382,20 @@ $$V^\pi(s) = \mathbb{E}_\pi[G_t \mid s_t = s],\qquad Q^\pi(s,a) = \mathbb{E}_\pi
 <p>💡 <strong>人话</strong>：<em>这个状态的价值 = 眼前的奖励 + 下一个状态的价值（打个折）。</em>
 <strong>后面所有算法都是在用不同办法解这个方程。</strong></p>
 <h3 id="td">TD 更新</h3>
-<p>$$V(s) \leftarrow V(s) + \alpha\underbrace{\big[r + \gamma V(s') - V(s)\big]}_{\text{TD 误差 }\delta}$$</p>
+<p><strong>下列 TD / Q-learning / SARSA 式先写非终止转移。</strong> 真正终止时，目标中的后续价值取 0；持续任务的外部时间截断仍可自举。不要把重置环境的条件和停止自举的条件合成一个 done。见<a href="06-Q-learning与SARSA.html">第 6 章</a>与<a href="08-DQN.html#dqn-one-update">第 8 章</a>。</p>
+<p>先定义这次要拟合的目标，再写更新：</p>
+<p>$$y_V=r+\gamma V(s')$$</p>
+<p>$$V(s)\leftarrow V(s)+\alpha[y_V-V(s)]$$</p>
+<p>y_V−V(s) 是 TD 误差，α 是学习率。真正终止时 y_V=r。</p>
 <h3 id="q-learning-vs-sarsa-max">Q-learning vs SARSA（一个 max 的区别）</h3>
-<p>$$\text{Q-learning: } Q(s,a)\leftarrow Q(s,a)+\alpha[r+\gamma\underbrace{\max_{a'}Q(s',a')}_{\text{最优动作}}-Q(s,a)]$$</p>
-<p>$$\text{SARSA: } Q(s,a)\leftarrow Q(s,a)+\alpha[r+\gamma\underbrace{Q(s',a')}_{\text{实际会走的}}-Q(s,a)]$$</p>
-<p>💡 <strong>就差一个 max</strong> —— 但这决定了 off-policy 还是 on-policy</p>
+<p><strong>先选目标。</strong> Q-learning 用下一状态的当前最大估值，不等于已知真正最优动作：</p>
+<p>$$y_Q=r+\gamma\max_b Q(s',b)$$</p>
+<p>SARSA 用策略实际选出、接着要执行的下一动作 a′：</p>
+<p>$$y_S=r+\gamma Q(s',a')$$</p>
+<p><strong>再共用一次更新。</strong> 把 y 换成相应目标；真正终止时，两种目标都取 r：</p>
+<p>$$\delta=y-Q(s,a)$$</p>
+<p>$$Q(s,a)\leftarrow Q(s,a)+\alpha\delta$$</p>
+<p>💡 差别在目标如何选下一动作；它对应本例中 off-policy 和 on-policy 的区别。</p>
 <h3 id="_5">策略梯度</h3>
 <p>$$\nabla J(\theta) = \mathbb{E}\big[\nabla\log\pi_\theta(a|s)\cdot A(s,a)\big]$$</p>
 <p>💡 <strong>好动作提高概率、坏动作降低概率，幅度按"有多好"</strong></p>
@@ -394,8 +403,13 @@ $$V^\pi(s) = \mathbb{E}_\pi[G_t \mid s_t = s],\qquad Q^\pi(s,a) = \mathbb{E}_\pi
 <p>$$A^{GAE(\lambda)}_t = \sum_{l\ge0}(\gamma\lambda)^l\delta_{t+l}$$</p>
 <p>💡 λ=0 → 单步 TD（偏差大）；λ=1 → 蒙特卡洛（方差大）；<strong>常用 0.95</strong></p>
 <h3 id="ppo">⭐ PPO 裁剪目标</h3>
-<p>$$L = \mathbb{E}\Big[\min\big(r_tA_t,\ \text{clip}(r_t,1-\epsilon,1+\epsilon)A_t\big)\Big],\quad r_t=\frac{\pi_\theta}{\pi_{old}}$$</p>
-<p>💡 <strong>迈大步没有额外奖励</strong> —— 所以不会迈大步</p>
+<p>先定义同一状态动作上的新旧概率比 ρ_t，避免与环境奖励 r 混淆：</p>
+<p>$$\rho_t=\frac{\pi_\theta(a_t\mid s_t)}{\pi_{\rm old}(a_t\mid s_t)}$$</p>
+<p>再定义裁剪后的比值 c_t：</p>
+<p>$$c_t=\operatorname{clip}(\rho_t,1-\epsilon,1+\epsilon)$$</p>
+<p>最后最大化下面的代理目标；A_t 是用旧策略样本估计并在本批更新中固定的优势：</p>
+<p>$$L=\mathbb{E}[\min(\rho_tA_t,c_tA_t)]$$</p>
+<p>💡 <strong>裁剪目标移除特定方向上的额外优化激励，不等于把概率比或 KL 硬性锁住。</strong> 新策略仍可能偏离较大；KL 监测、学习率和更新轮数要单独检查。见<a href="15-实战与挑战项目.html#ppo-clip-kl">项目 A 的 clip 对照</a>。</p>
 <h3 id="dpo">奖励模型 / DPO</h3>
 <p>$$L_{RM} = -\log\sigma\big(r_{win}-r_{lose}\big)$$</p>
 <p>$$L_{DPO} = -\log\sigma\Big(\beta\log\tfrac{\pi_\theta(y_w)}{\pi_{ref}(y_w)} - \beta\log\tfrac{\pi_\theta(y_l)}{\pi_{ref}(y_l)}\Big)$$</p>
@@ -449,7 +463,7 @@ $$V^\pi(s) = \mathbb{E}_\pi[G_t \mid s_t = s],\qquad Q^\pi(s,a) = \mathbb{E}_\pi
 <tr>
 <td>梯度裁剪</td>
 <td>0.5</td>
-<td><strong>必加</strong> ⭐</td>
+<td>一种参考配置；记录梯度范数和消融，不是普遍必需值</td>
 </tr>
 <tr>
 <td>回放缓冲</td>
@@ -459,7 +473,7 @@ $$V^\pi(s) = \mathbb{E}_\pi[G_t \mid s_t = s],\qquad Q^\pi(s,a) = \mathbb{E}_\pi
 <tr>
 <td>目标网络更新</td>
 <td>每 1000 步</td>
-<td>DQN</td>
+<td>DQN 硬同步参考；需说明环境步还是梯度更新步，勿与软更新混用</td>
 </tr>
 <tr>
 <td><strong>DPO 的 β</strong></td>
@@ -488,7 +502,7 @@ $$V^\pi(s) = \mathbb{E}_\pi[G_t \mid s_t = s],\qquad Q^\pi(s,a) = \mathbb{E}_\pi
 </tr>
 <tr>
 <td><strong>SARSA vs Q-learning</strong></td>
-<td><strong>一个 max</strong>：SARSA 用实际会走的动作，Q-learning 用最优动作</td>
+<td><strong>一个 max</strong>：SARSA 用实际下一动作，Q-learning 用当前估值最大的动作，不等于已知真正最优动作</td>
 </tr>
 <tr>
 <td><strong>回报 vs 奖励</strong></td>
@@ -539,8 +553,8 @@ $$V^\pi(s) = \mathbb{E}_\pi[G_t \mid s_t = s],\qquad Q^\pi(s,a) = \mathbb{E}_\pi
 <td>学习率太大 / 没有梯度裁剪 / <strong>K_EPOCHS 太多</strong> ⭐</td>
 </tr>
 <tr>
-<td><strong>Q 值爆炸到很大</strong></td>
-<td>忘了 <code>(1-done)</code> ⭐ / γ 太接近 1 / 没有目标网络</td>
+<td><strong>Q 值过大或不稳定</strong></td>
+<td>检查终止目标、奖励尺度、自举反馈与同步；外部截断不能直接按 done 清零</td>
 </tr>
 <tr>
 <td><strong>策略过早收敛</strong></td>
@@ -552,11 +566,11 @@ $$V^\pi(s) = \mathbb{E}_\pi[G_t \mid s_t = s],\qquad Q^\pi(s,a) = \mathbb{E}_\pi
 </tr>
 <tr>
 <td><strong>训练分数高但评估低</strong></td>
-<td>评估时忘了关掉探索（ε 应设 0）⭐</td>
+<td>核对探索/采样策略、归一化、环境及奖励口径；DQN 可单列 ε=0 的测试，其他算法不能照搬</td>
 </tr>
 <tr>
 <td><strong>RLHF 奖励涨但输出变差</strong></td>
-<td><strong>奖励攻击</strong> —— 盯 KL 散度，早停 ⭐</td>
+<td>核对独立质量、输出样本和分布变化；KL 不是质量分，不能单靠它认定奖励攻击或决定早停</td>
 </tr>
 </tbody>
 </table></div>
