@@ -26,6 +26,8 @@
       ".diagram-reader-stage svg{display:block;width:calc(var(--diagram-base-width,760px) * var(--diagram-zoom,1));min-width:0;max-width:none;height:auto;margin:0}",
       ".diagram-reader-stage svg text{paint-order:stroke;stroke:var(--card,#fff);stroke-width:.7px;stroke-linejoin:round}",
       ".diagram-reader-caption{max-width:65ch;margin:20px 0 0;font-size:.9em;line-height:1.8;overflow-wrap:anywhere}",
+      ".diagram-reader-caption>p{margin:0;font:inherit;line-height:inherit;color:inherit}",
+      ".diagram-reader-caption>p+p{margin-top:20px}",
       "@media(max-width:640px){.diagram-reader-sheet{padding:12px}.diagram-reader-stage{padding:10px}.diagram-reader-title{font-size:1em}.diagram-reader-head{align-items:flex-start;flex-wrap:wrap;gap:8px}.diagram-reader-actions{margin-left:auto}}"
     ].join("");
     document.head.appendChild(style);
@@ -93,6 +95,45 @@
     return dialog;
   }
 
+  // Rebuild only readable text and explicit line breaks; never clone caption HTML.
+  function captionParagraphs(caption) {
+    var paragraphs = [];
+    var current = document.createElement("p");
+    function finishParagraph() {
+      if (current.textContent.trim()) {
+        current.normalize();
+        if (current.firstChild.nodeType === 3) current.firstChild.nodeValue = current.firstChild.nodeValue.trimStart();
+        if (current.lastChild.nodeType === 3) current.lastChild.nodeValue = current.lastChild.nodeValue.trimEnd();
+        paragraphs.push(current);
+      }
+      current = document.createElement("p");
+    }
+    function read(node) {
+      if (node.nodeType === 3) {
+        current.appendChild(document.createTextNode(node.nodeValue));
+        return;
+      }
+      if (node.nodeType !== 1) return;
+      var name = node.tagName;
+      // Glossary buttons wrap authored words; keep their text, never their controls.
+      if (name === "BUTTON" && node.classList.contains("glossary-term") && node.hasAttribute("data-glossary-id")) {
+        Array.prototype.forEach.call(node.childNodes, read);
+        return;
+      }
+      if (/^(SCRIPT|STYLE|TEMPLATE|NOSCRIPT|BUTTON|INPUT|SELECT|TEXTAREA|IFRAME|OBJECT)$/.test(name)) return;
+      if (name === "BR") {
+        current.appendChild(document.createElement("br"));
+        return;
+      }
+      if (name === "P") finishParagraph();
+      Array.prototype.forEach.call(node.childNodes, read);
+      if (name === "P") finishParagraph();
+    }
+    read(caption);
+    finishParagraph();
+    return paragraphs;
+  }
+
   function openDialog(dialog, figure) {
     if (dialog.open) return;
     var stage = dialog.querySelector("#diagram-reader-stage");
@@ -100,10 +141,12 @@
     var clone = original.cloneNode(true);
     stage.replaceChildren(clone);
     var caption = figure.querySelector("figcaption");
-    if (caption && caption.textContent.trim()) {
-      var explanation = document.createElement("p");
+    var paragraphs = caption ? captionParagraphs(caption) : [];
+    if (paragraphs.length) {
+      // Keep one caption container; old single-paragraph captions keep their p.
+      var explanation = paragraphs.length === 1 ? paragraphs[0] : document.createElement("div");
       explanation.className = "diagram-reader-caption";
-      explanation.textContent = caption.textContent.trim();
+      if (paragraphs.length > 1) paragraphs.forEach(function (paragraph) { explanation.appendChild(paragraph); });
       stage.appendChild(explanation);
     }
     stage.style.setProperty("--diagram-zoom", "1");
