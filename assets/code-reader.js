@@ -57,16 +57,83 @@
     return lines.map((line,i) => `<span class="cr-line" data-line="${i+1}"><span class="cr-line-content">${line}</span></span>` + (i < lines.length - 1 || raw.endsWith('\n') ? '\n' : '')).join('');
   }
 
+  let stopStatusTracking = () => {};
+  function hideStatus(status) {
+    clearTimeout(statusTimer);
+    stopStatusTracking(); stopStatusTracking = () => {};
+    status.classList.remove('cr-visible');
+  }
+
+  function trackStatus(status) {
+    stopStatusTracking();
+    status.style.removeProperty('--cr-feedback-offset');
+    // Background reading controls are outside the modal top layer.
+    if (status.closest('dialog[open]')) { stopStatusTracking = () => {}; return; }
+    let frame = 0, stopped = false;
+    const watched = new Set();
+    const resize = typeof ResizeObserver === 'function' ? new ResizeObserver(schedule) : null;
+    const changes = new MutationObserver(schedule);
+    const viewport = window.visualViewport;
+    function watchControls() {
+      document.querySelectorAll('.ov-save-floating,.ov-save-feedback').forEach(control => {
+        if (watched.has(control)) return;
+        watched.add(control);
+        changes.observe(control, {attributes:true, attributeFilter:['class','style','hidden']});
+        resize?.observe(control);
+      });
+    }
+    function position() {
+      frame = 0;
+      if (stopped) return;
+      if (!status.isConnected || !status.classList.contains('cr-visible')) { stop(); return; }
+      watchControls();
+      // Measure the normal safe-area position, not the previous adjustment.
+      status.style.removeProperty('--cr-feedback-offset');
+      const baseline = status.getBoundingClientRect();
+      let offset = Math.max(0, innerHeight - (viewport ? viewport.offsetTop + viewport.height : innerHeight));
+      const obstacles = [...watched].filter(control => {
+        const style = getComputedStyle(control), r = control.getBoundingClientRect();
+        return control.isConnected && style.display !== 'none' && style.visibility !== 'hidden' &&
+          Number(style.opacity) > 0 && r.width > 0 && r.height > 0 &&
+          r.bottom > 0 && r.top < innerHeight && r.left < baseline.right && r.right > baseline.left;
+      }).map(control => control.getBoundingClientRect()).sort((a,b) => b.top - a.top);
+      // Only lift above actual intersecting controls, with a small visual gap.
+      for (const obstacle of obstacles) {
+        if (baseline.bottom - offset > obstacle.top - 12 && baseline.top - offset < obstacle.bottom + 12)
+          offset = Math.max(offset, baseline.bottom - obstacle.top + 12);
+      }
+      if (offset > 0) status.style.setProperty('--cr-feedback-offset', Math.ceil(offset) + 'px');
+    }
+    function schedule() { if (!stopped && !frame) frame = requestAnimationFrame(position); }
+    function stop() {
+      stopped = true; cancelAnimationFrame(frame); frame = 0;
+      changes.disconnect(); resize?.disconnect();
+      removeEventListener('resize', schedule);
+      viewport?.removeEventListener('resize', schedule);
+      viewport?.removeEventListener('scroll', schedule);
+      status.style.removeProperty('--cr-feedback-offset');
+    }
+    stopStatusTracking = stop;
+    changes.observe(document.body, {childList:true});
+    resize?.observe(status);
+    addEventListener('resize', schedule);
+    viewport?.addEventListener('resize', schedule);
+    viewport?.addEventListener('scroll', schedule);
+    position();
+  }
+
   function announce(message) {
     let status = document.querySelector('#code-reader-status');
     if (!status) {
       status = document.createElement('div'); status.id = 'code-reader-status'; status.className = 'cr-status';
       status.setAttribute('role','status'); status.setAttribute('aria-live','polite'); document.body.append(status);
     }
+    stopStatusTracking();
     // Keep feedback inside the modal top layer while it is open.
     (dialog?.open ? dialog : document.body).append(status);
     clearTimeout(statusTimer); status.textContent = message; status.classList.add('cr-visible');
-    statusTimer = setTimeout(() => status.classList.remove('cr-visible'), 2800);
+    trackStatus(status);
+    statusTimer = setTimeout(() => hideStatus(status), 2800);
   }
 
   async function copyText(raw) {
@@ -128,7 +195,7 @@
       });
       dialog.addEventListener('close',()=>{
         document.body.classList.remove('cr-modal-open');
-        const status = dialog.querySelector('.cr-status'); if (status) { status.classList.remove('cr-visible'); document.body.append(status); }
+        const status = dialog.querySelector('.cr-status'); if (status) { hideStatus(status); document.body.append(status); }
         opener?.focus({preventScroll:true});
       });
     }
@@ -140,6 +207,7 @@
     pre.querySelectorAll('[id]').forEach(node=>node.removeAttribute('id'));
     clone.append(pre); bindCard(clone,record,true);
     dialog.querySelector('.cr-dialog-content').replaceChildren(clone);
+    const status = document.getElementById('code-reader-status'); if (status) hideStatus(status);
     dialog.showModal(); document.body.classList.add('cr-modal-open');
     // The dialog is reused, but every newly opened code sample starts at line 1.
     // Sticky close controls otherwise leave the previous sample's scroll intact.
