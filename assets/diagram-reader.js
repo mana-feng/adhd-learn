@@ -9,7 +9,7 @@
       ".diagram-tools{position:absolute;z-index:2;width:44px;height:44px;display:grid;place-items:center}",
       ".diagram-expand{position:relative;isolation:isolate;width:44px;height:44px;border:0;padding:0;display:grid;place-items:center;background:transparent;color:var(--muted,#7b6558);font:inherit;cursor:pointer;transition:color 180ms ease}",
       ".diagram-expand::before{content:\"\";position:absolute;z-index:0;width:30px;height:30px;border:1px solid rgba(128,100,82,.22);border-radius:50%;background:rgba(255,253,249,.88);box-shadow:0 2px 9px rgba(75,54,38,.09);transition:background 180ms ease,border-color 180ms ease,box-shadow 180ms ease}",
-      ".diagram-expand svg{position:relative;z-index:1;width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}",
+      "figure.dia .diagram-expand svg{position:relative;z-index:1;width:18px;min-width:18px;max-width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}",
       ".diagram-expand:hover{color:#b95e3c}.diagram-expand:hover::before{background:#fff9f5;border-color:rgba(194,98,62,.42);box-shadow:0 4px 12px rgba(125,70,43,.14)}",
       ".diagram-zoom,.diagram-close{min-height:44px;border:1px solid var(--border,#d9e0ea);background:var(--card,#fff);color:var(--fg,#172033);font:inherit;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(25,38,60,.16)}",
       ".diagram-zoom:hover,.diagram-close:hover{background:var(--quote-bg,#f2f5f8)}",
@@ -79,6 +79,9 @@
       stage.scrollTo({left: x, top: y, behavior: "instant"});
     });
     dialog.addEventListener("close", function () {
+      // A queued close event may belong to an earlier opening of this dialog.
+      // Never release the current opening's scroll lock or reading position.
+      if (dialog.open) return;
       var saved = dialog._readingPosition;
       if (!saved) return;
       dialog._readingPosition = null;
@@ -91,6 +94,7 @@
   }
 
   function openDialog(dialog, figure) {
+    if (dialog.open) return;
     var stage = dialog.querySelector("#diagram-reader-stage");
     var original = figure.querySelector("svg");
     var clone = original.cloneNode(true);
@@ -106,10 +110,13 @@
     dialog.querySelector("#diagram-reader-title").textContent = "图示放大阅读";
     // Cancel a pending smooth anchor scroll before saving the reading position.
     window.scrollTo({left: window.scrollX, top: window.scrollY, behavior: "instant"});
+    // Native close restores focus before its queued close event is dispatched.
+    // A rapid reopen must keep the original styles, not save our own lock.
+    var pendingClose = dialog._readingPosition;
     dialog._readingPosition = {
       x: window.scrollX, y: window.scrollY, trigger: document.activeElement,
-      overflow: document.documentElement.style.overflow,
-      gutter: document.documentElement.style.scrollbarGutter
+      overflow: pendingClose ? pendingClose.overflow : document.documentElement.style.overflow,
+      gutter: pendingClose ? pendingClose.gutter : document.documentElement.style.scrollbarGutter
     };
     // Overlay scrollbars take no layout space. Adding a gutter there would
     // narrow the article on mobile and trigger scroll anchoring while opening.
