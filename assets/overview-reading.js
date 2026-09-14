@@ -11,7 +11,27 @@
   let current=0,queued=false;
   function update(){current=0;targets.forEach((t,i)=>{if(t&&t.getBoundingClientRect().top<=innerHeight*.35)current=i;});links.forEach((a,i)=>i===current?a.setAttribute('aria-current','location'):a.removeAttribute('aria-current'));queued=false;}
   addEventListener('scroll',()=>{if(!queued){queued=true;requestAnimationFrame(update);}},{passive:true});update();
-  route.addEventListener('click',e=>{if(e.target.closest('nav a')&&narrow.matches)setRoute(false);});
+  route.addEventListener('click', e => {
+    const link = e.target.closest('nav a');
+    if (!link || !narrow.matches || e.defaultPrevented || e.button !== 0 ||
+        e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || link.hasAttribute('download') ||
+        (link.target && link.target.toLowerCase() !== '_self') ||
+        link.origin !== location.origin || link.pathname !== location.pathname ||
+        link.search !== location.search || !link.hash) return;
+    let target;
+    try { target = document.getElementById(decodeURIComponent(link.hash.slice(1))); }
+    catch (_) { return; }
+    if (!target) return;
+    const requestedHash = link.hash;
+    setRoute(false);
+    // Keep native fragment history and focus. After the menu changes layout,
+    // finish positioning only if another action has not chosen a different hash.
+    requestAnimationFrame(() => {
+      if (e.defaultPrevented || !narrow.matches || location.hash !== requestedHash) return;
+      target.scrollIntoView({block: 'start', behavior:
+        matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'});
+    });
+  });
   const key='overview-reading:v1:'+decodeURI(location.pathname),status=route.querySelector('.ov-save-status');
   function resume(id){const target=targets.find(t=>t?.id===id);if(!target)return;const a=document.createElement('a');a.href='#'+id;a.textContent='回到上次记下的位置';status.append(' ',a);}
   try{resume(localStorage.getItem(key));}catch(_){status.textContent='无法读取保存位置；可用章节链接作书签。';}
