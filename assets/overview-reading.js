@@ -12,7 +12,7 @@
   function update(){current=0;targets.forEach((t,i)=>{if(t&&t.getBoundingClientRect().top<=innerHeight*.35)current=i;});links.forEach((a,i)=>i===current?a.setAttribute('aria-current','location'):a.removeAttribute('aria-current'));queued=false;}
   addEventListener('scroll',()=>{if(!queued){queued=true;requestAnimationFrame(update);}},{passive:true});update();
   route.addEventListener('click', e => {
-    const link = e.target.closest('nav a');
+    const link = e.target.closest('nav a, .ov-save-status a');
     if (!link || !narrow.matches || e.defaultPrevented || e.button !== 0 ||
         e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || link.hasAttribute('download') ||
         (link.target && link.target.toLowerCase() !== '_self') ||
