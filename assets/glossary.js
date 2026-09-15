@@ -203,6 +203,9 @@
       var local = JSON.parse(source.textContent);
       Object.keys(local).forEach(function (id) {
         if (!byId[id] || !local[id] || typeof local[id] !== "object") return;
+        ["title", "group"].forEach(function (key) {
+          if (typeof local[id][key] === "string" && local[id][key].trim()) byId[id][key] = local[id][key];
+        });
         ["meaning", "role", "example"].forEach(function (key) {
           if (typeof local[id][key] === "string") byId[id][key] = local[id][key];
         });
@@ -234,7 +237,7 @@
 
   function showTerm(dialog, term) {
     dialog.querySelector("#glossary-group").textContent = term.group;
-    dialog.querySelector("#glossary-title").textContent = term.names[0];
+    dialog.querySelector("#glossary-title").textContent = term.title || term.names[0];
     dialog.querySelector("#glossary-meaning").textContent = term.meaning;
     dialog.querySelector("#glossary-role").textContent = term.role;
     var code = dialog.querySelector("#glossary-code");
