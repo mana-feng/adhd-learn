@@ -88,7 +88,7 @@
 
 | 板块 | 章数 | 时长 | 讲什么 |
 |---|---:|---:|---|
-| [Mendix低代码开发](https://adhd-learn.manafeng.com/Mendix低代码开发/index.html) | 8 | 约 2 h | 从员工管理小应用出发：数据、页面、逻辑、权限、集成与交付；没有编程基础也能跟上 |
+| [Mendix低代码开发](https://adhd-learn.manafeng.com/Mendix低代码开发/index.html) | 23 章 + 3 附录 | 阅读约 4 h，动手另计 | Studio Pro 11.12 LTS：工单主线、Domain Model、Workflow、REST、交付与六个进阶专题 |
 
 ### 📚 一手资料
 
