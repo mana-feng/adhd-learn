@@ -8,7 +8,8 @@
     { id: "tokenizer", names: ["Tokenizer", "tokenizer", "分词器"], group: "文本表示", meaning: "把原始文字拆成 token，再把 token 映射为数字编号的工具。", role: "它是文字进入语言模型前的第一道门。", code: "tokens = tokenizer.tokenize(\"机器学习很有趣\")" },
     { id: "embedding", names: ["Embedding", "embedding", "词嵌入", "嵌入向量"], group: "文本表示", meaning: "用一串浮点数表示词、句子或图片的方式；含义相近的内容通常更接近。", role: "让模型能用数字表达语义，并能计算相似度。", code: "vector = model.get_input_embeddings()(ids)" },
     { id: "attention", names: ["自注意力", "多头注意力", "注意力机制", "Attention", "attention"], group: "模型结构", meaning: "让当前位置根据任务需要，为其他位置分配不同关注程度的计算。", role: "帮助模型把相关词的信息聚在一起，例如把代词和它指代的名词关联。", code: "score = softmax(Q @ K.transpose(-1, -2))\nout = score @ V" },
-    { id: "qkv", names: ["Query", "Key", "Value", "Q、K、V", "Q/K/V"], group: "注意力", meaning: "注意力中的三组数字：Q 表示“我在找什么”，K 表示“我能匹配什么”，V 是实际要传递的信息。", role: "Q 和 K 决定关注多少，权重再拿来混合 V。", code: "weights = softmax(Q @ K.T)\nout = weights @ V" },
+    { id: "qkv", names: ["Q、K、V", "Q/K/V", "Query / Key / Value", "查询向量", "键向量", "值向量"], group: "注意力", meaning: "注意力计算中的三组向量：Q 与 K 用来算匹配分数，V 是按权重合并的内容。", role: "归一化后的匹配分数决定每个 V 对输出贡献多少。这些名称描述计算角色，不表示模型有主动寻找的意图。", example: "若两个位置得到的权重是 0.8 和 0.2，输出就是 0.8 × 第一个 V + 0.2 × 第二个 V。单独的 Key 也可能指密钥或字典键，因此不自动套用此解释。" },
+    { id: "api-key", names: ["API Key", "API密钥", "API 密钥"], group: "接口凭证", meaning: "服务商发给程序的访问凭证，用来识别调用者并检查权限或计费。它不是注意力里的 Key 向量。", role: "调用真实服务时通常需要；本地模拟响应可以不需要。不要把真实凭证写进教程、前端代码或版本库。", example: "ANTHROPIC_API_KEY 是环境变量的名字，不是密钥本身。程序从本机或服务端的配置读取真实值；变量未设置时，教程可以选择运行模拟响应。" },
     { id: "residual", names: ["残差连接", "残差"], group: "模型结构", meaning: "把一层的输入直接加回它的输出，形成一条保底通路。", role: "即使新计算不理想，原信息仍能往后传；深层网络更容易训练。", code: "y = x + block(x)" },
     { id: "layernorm", names: ["LayerNorm", "层归一化"], group: "训练稳定性", meaning: "按单个样本的特征维度整理数字的均值和大小。", role: "避免数字在网络中越传越大或太小。", code: "norm = nn.LayerNorm(hidden_size)\ny = norm(x)" },
     { id: "rmsnorm", names: ["RMSNorm"], group: "训练稳定性", meaning: "一种更简单的归一化：主要按数字整体大小缩放，不额外强制减去均值。", role: "常用于 LLaMA 一类模型，让数值稳定且计算更省一些。", code: "x = x / x.pow(2).mean(-1, keepdim=True).sqrt()" },
@@ -16,7 +17,7 @@
     { id: "swiglu", names: ["SwiGLU"], group: "模型结构", meaning: "带门控的前馈网络；一条支路提供内容，另一条支路决定内容通过多少。", role: "比简单 ReLU 更细地筛选特征，现代大模型常用。", code: "y = W2(silu(W1(x)) * W3(x))" },
     { id: "relu", names: ["ReLU"], group: "激活函数", meaning: "一种简单激活函数：负数变成 0，正数保留。", role: "给神经网络加入非线性，否则多层线性层仍近似一层线性层。", code: "y = torch.relu(x)" },
     { id: "rope", names: ["RoPE", "旋转位置编码"], group: "位置信息", meaning: "在注意力内部按位置旋转 Q、K 的数字，使比较结果带上相对距离和顺序。", role: "让模型区分“猫咬狗”和“狗咬猫”这类词相同、顺序不同的句子。", code: "Q, K = apply_rotary_pos_emb(Q, K, position_ids)" },
-    { id: "backprop", names: ["反向传播", "反向传递"], group: "训练", meaning: "从损失开始，倒着计算每个参数该往哪个方向改、改多少的过程。", role: "训练神经网络时用来获得梯度。", code: "loss.backward()" },
+    { id: "backprop", names: ["反向传播", "反向传递"], group: "训练", meaning: "从损失出发，按链式法则反向计算各个变量梯度的过程。", role: "它负责计算梯度，不负责决定最终更新量；学习率和优化器随后决定如何更新参数。", example: "loss.backward() 通常把梯度累积到参数的 grad；只有再执行优化器的更新步骤，参数值才会改变。" },
     { id: "gradient", names: ["梯度下降", "梯度"], group: "训练", meaning: "梯度告诉参数：稍微增大或减小会让错误变好还是变坏。", role: "优化器利用梯度更新模型参数。", code: "param.data -= learning_rate * param.grad" },
     { id: "loss", names: ["损失函数", "损失", "loss"], group: "训练", meaning: "用一个数字衡量模型答案离正确答案有多远；一般越小越好。", role: "它把“哪里答错了”变成可供训练优化的目标。", code: "loss = F.cross_entropy(logits, labels)" },
     { id: "learning-rate", names: ["学习率", "learning rate"], group: "训练", meaning: "每次更新参数时迈多大一步。", role: "太大可能越走越乱，太小则学习很慢。", code: "optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)" },
@@ -120,11 +121,11 @@
     { id: "d-bias-variance", names: ["偏差方差分解"], group: "数学原理", meaning: "把预测误差拆成三块：偏差（模型太简单系统性地偏）、方差（换批数据结果就抖）、噪声（谁也消不掉）。", role: "它解释了为什么复杂度和误差是 U 形关系，也说明该往哪个方向救：偏差高就加复杂度，方差高就加数据或正则。", code: "误差 = 偏差² + 方差 + 噪声" },
     { id: "d-cv", names: ["交叉验证"], group: "评估", meaning: "把数据切成 k 份，轮流拿一份当验证集、其余训练，最后把 k 次结果平均。", role: "数据不多时它比单次留出更稳；但切分方式错了（时间序列、分组数据）它会给出虚高的分数。", code: "scores = cross_val_score(model, X, y, cv=5)" },
     { id: "d-pca", names: ["PCA"], group: "数学原理", meaning: "找出数据里方差最大的那几个方向，把点投影上去，用更少的维度保留大部分信息。", role: "降维、去相关、可视化都用它；但它只认线性方向，也不管这些方向对任务有没有用。", code: "X2 = PCA(n_components=2).fit_transform(X)" },
-    { id: "d-svm", names: ["SVM"], group: "模型", meaning: "找一条离两类样本都尽量远的分界线，只有最靠近边界的那几个点（支持向量）说了算。", role: "小数据上很强，配合核技巧还能画弯的边界；代价是样本一多就吃不消。", code: "clf = SVC(kernel=\"rbf\", C=1.0).fit(X, y)" },
+    { id: "d-svm", names: ["SVM"], group: "模型", meaning: "硬间隔 SVM 在可分数据上最大化几何间隔；软间隔允许违规并付出代价。对偶预测式使用非零系数的支持向量，它们不一定很少，也不只在间隔边界上。", role: "可用线性或核方法建模。应验证特征尺度、C 与核参数；训练成本取决于样本、核和求解器，不能统一断言大数据都跑不了。", code: "clf = SVC(kernel=\"rbf\", C=1.0).fit(X, y)" },
     { id: "d-cross-entropy", names: ["交叉熵"], group: "训练", meaning: "衡量模型给出的概率分布和真实答案差多远：正确类别的概率越低，损失越大。", role: "分类任务的默认损失；它和 softmax 合起来算，梯度形式极其简洁也更稳定。", code: "loss = F.cross_entropy(logits, labels)" },
     { id: "d-vanishing-gradient", names: ["梯度消失"], group: "训练", meaning: "反向传播要连乘很多层的导数，每层都小于 1 的话，传到前面几层就几乎变成 0。", role: "前面的层学不动，网络白深；残差连接、ReLU、归一化这一整套都是在治它。", code: "# 连乘 0.5 走 20 层：0.5**20 ≈ 1e-6" },
     { id: "d-gradient-explosion", names: ["梯度爆炸"], group: "训练", meaning: "和梯度消失相反：连乘的因子大于 1，梯度指数级放大，一步就把权重冲飞。", role: "表现是 loss 突然变成 NaN；标准解法是梯度裁剪。", code: "torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)" },
-    { id: "d-decision-tree", names: ["决策树"], group: "模型", meaning: "一层层问「这个特征大于某个值吗」，顺着答案往下走，最后落到一个叶子给出预测。", role: "天然能处理类别特征和缺失，不用做归一化，而且能画出来给人看。", code: "clf = DecisionTreeClassifier(max_depth=4).fit(X, y)" },
+    { id: "d-decision-tree", names: ["决策树"], group: "模型", meaning: "一层层问「这个特征大于某个值吗」，顺着答案往下走，最后落到一个叶子给出预测。", role: "适合用分层条件描述表格数据。能力取决于具体实现：sklearn 1.7 的决策树不能直接输入字符串类别，需先编码；数值 NaN 是否可用还要看 splitter、criterion 等设置。通常不依赖特征标准化。", code: "from sklearn.tree import DecisionTreeClassifier\n\nX = [[0.2], [0.4], [1.5], [1.8]]\ny = [0, 0, 1, 1]\nclf = DecisionTreeClassifier(max_depth=4, random_state=0).fit(X, y)\nprint(clf.predict([[0.3], [1.6]]))" },
     { id: "d-random-forest", names: ["随机森林"], group: "模型", meaning: "训很多棵互相不太一样的树（各看一部分样本和一部分特征），最后投票。", role: "单棵树方差大，多棵一平均就稳了；它是表格数据上最省心的基线。", code: "clf = RandomForestClassifier(n_estimators=300).fit(X, y)" },
     { id: "d-xgboost", names: ["XGBoost"], group: "模型", meaning: "一棵接一棵地训树，每棵都专门去补前面所有树加起来还差的那部分。", role: "表格数据上长期的冠军方案；和随机森林的区别是它串行纠错，不是并行投票。", code: "model = xgboost.XGBClassifier(n_estimators=500).fit(X, y)" },
     { id: "d-ensemble", names: ["集成学习"], group: "模型", meaning: "把多个模型的结果合起来用，靠的是它们犯的错不一样，平均之后互相抵消。", role: "提升效果最稳的一招；前提是成员之间要足够不同，全一样的模型融了也白融。", code: "pred = (m1.predict(X) + m2.predict(X)) / 2" },
@@ -193,6 +194,25 @@
   var byId = Object.create(null);
   TERMS.forEach(function (term) { byId[term.id] = term; });
 
+  // An opted-in lesson can explain existing terms using its own worked example.
+  // Keep names/IDs stable; other pages retain the existing dictionary unchanged.
+  function readLessonTerms() {
+    var source = document.querySelector('main script.lesson-glossary[type="application/json"]');
+    if (!source) return;
+    try {
+      var local = JSON.parse(source.textContent);
+      Object.keys(local).forEach(function (id) {
+        if (!byId[id] || !local[id] || typeof local[id] !== "object") return;
+        ["title", "group"].forEach(function (key) {
+          if (typeof local[id][key] === "string" && local[id][key].trim()) byId[id][key] = local[id][key];
+        });
+        ["meaning", "role", "example"].forEach(function (key) {
+          if (typeof local[id][key] === "string") byId[id][key] = local[id][key];
+        });
+      });
+    } catch (_) { /* Invalid lesson data must not break the shared glossary. */ }
+  }
+
   function insertStyles() {
     var style = document.createElement("style");
     style.textContent = ".glossary-term{appearance:none;border:0;border-bottom:2px dotted var(--accent,#b65310);background:transparent;color:inherit;font:inherit;line-height:inherit;padding:0;cursor:pointer;text-decoration:none}.glossary-term:hover{color:var(--accent,#b65310);border-bottom-style:solid}.glossary-term:focus-visible{outline:3px solid #ffb000;outline-offset:3px;border-radius:2px}#site-glossary{width:min(560px,calc(100% - 26px));max-height:min(720px,calc(100% - 26px));border:1px solid var(--border,#d8dce4);border-radius:16px;padding:0;color:var(--fg,#172033);background:var(--card,#fff);box-shadow:0 20px 65px rgba(0,0,0,.28)}#site-glossary::backdrop{background:rgba(20,28,42,.48)}.glossary-sheet{padding:22px}.glossary-top{display:flex;gap:14px;align-items:flex-start;justify-content:space-between}.glossary-group{margin:0 0 3px;color:var(--accent,#b65310);font-size:.85em;font-weight:700}.glossary-title{margin:0;font-size:1.45em;line-height:1.3}.glossary-close{width:44px;height:44px;flex:0 0 44px;border:1px solid var(--border,#d8dce4);border-radius:10px;background:transparent;color:inherit;font:inherit;font-size:1.4em;cursor:pointer}.glossary-close:hover{background:var(--quote-bg,#f2f5f8)}.glossary-close:focus-visible{outline:3px solid #ffb000;outline-offset:2px}.glossary-section{margin:19px 0 0}.glossary-label{margin:0 0 5px;font-weight:750}.glossary-copy{margin:0;line-height:1.75}.glossary-code{margin:8px 0 0;padding:12px;border-radius:9px;overflow:auto;background:#202b3b;color:#f8fafc;font:13px/1.6 \"CodeCJK\",Consolas,monospace;white-space:pre-wrap}.glossary-hint{margin:18px 0 0;padding-top:12px;border-top:1px dashed var(--border,#d8dce4);color:var(--muted,#596579);font-size:.88em}@media(max-width:640px){.glossary-sheet{padding:18px}.glossary-code{font-size:12px}}";
@@ -207,15 +227,27 @@
     dialog.querySelector(".glossary-close").addEventListener("click", function () { dialog.close(); });
     dialog.addEventListener("click", function (event) { if (event.target === dialog) dialog.close(); });
     document.body.appendChild(dialog);
+    var example = document.createElement("p");
+    example.id = "glossary-example";
+    example.className = "glossary-copy";
+    example.hidden = true;
+    dialog.querySelector("#glossary-code").after(example);
     return dialog;
   }
 
   function showTerm(dialog, term) {
     dialog.querySelector("#glossary-group").textContent = term.group;
-    dialog.querySelector("#glossary-title").textContent = term.names[0];
+    dialog.querySelector("#glossary-title").textContent = term.title || term.names[0];
     dialog.querySelector("#glossary-meaning").textContent = term.meaning;
     dialog.querySelector("#glossary-role").textContent = term.role;
-    dialog.querySelector("#glossary-code").textContent = term.code;
+    var code = dialog.querySelector("#glossary-code");
+    var example = dialog.querySelector("#glossary-example");
+    var localExample = typeof term.example === "string";
+    code.textContent = localExample ? "" : term.code;
+    code.hidden = localExample;
+    example.hidden = !localExample;
+    example.textContent = localExample ? term.example : "";
+    code.parentElement.querySelector(".glossary-label").textContent = localExample ? "放回本页看" : "最小示例";
     if (typeof dialog.showModal === "function") dialog.showModal();
     else dialog.setAttribute("open", "");
   }
@@ -284,6 +316,7 @@
   }
 
   function run() {
+    readLessonTerms();
     insertStyles();
     var dialog = createDialog();
     annotate(document.querySelector("main") || document.body);

@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading topic-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -292,304 +292,284 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div></header>
 <main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
-<li><a href="#_1">🎯 一句话</a></li>
-<li><a href="#svd">🧮 一、和 SVD 的关系：为什么实践中没人真去分解协方差矩阵</a></li>
-<li><a href="#_4">🔍 二、主成分留几个</a></li>
-<li><a href="#pca">⚠️ 三、PCA 的前提与失效场景</a></li>
+<li><a href="#_1">🎯 先带走这句话</a></li>
+<li><a href="#svd">🧮 一、SVD 与 PCA：同一目标的两条计算路线</a></li>
+<li><a href="#_4">🔍 二、主成分留几个：先问为了什么</a></li>
+<li><a href="#pca">⚠️ 三、PCA 的六项排查</a></li>
 <li><a href="#_7">🔗 这一章连到哪里</a></li>
 <li><a href="#_8">✅ 检查点</a></li>
 <li><a href="#_9">🛑 可以停在这里</a></li>
 </ul>
 </div>
 </details>
-<h1 id="05c-svd-pca">05c · SVD 与 PCA 的实践</h1>
-<p>⏱ <strong>38 分钟</strong> ｜ ⭐⭐ <strong>推导是对的，但没人照着算</strong></p>
+<div class="ov-layout"><article class="ov-body"><h1 id="05c-svd-pca">05c · SVD 与 PCA 的实践</h1>
+<!-- topic-reading -->
+
+<p>⏱ <strong>38 分钟</strong> ｜ ⭐⭐ <strong>先选目标，再选求解方法</strong></p>
 <hr />
-<h2 id="_1">🎯 一句话</h2>
-<p><strong><a href="05b-PCA的推导.html">上一章</a>证明了「主成分 = 协方差矩阵的特征向量」—— 而没有一个正经实现会照着这句话去算。</strong></p>
-<p>真实的 PCA 走的是 <strong>SVD</strong>：更稳、更省，还能直接处理稀疏矩阵。
-这一章讲三件事：<strong>SVD 和特征分解是什么关系、主成分该留几个、PCA 什么时候会翻车。</strong></p>
-<blockquote>
-<p>📌 <strong>上一章的三个结论，本章会一直用到</strong>（忘了也不用回头，用到时都会重述一遍）：
-① 协方差矩阵 <strong>Σ = (1/n)·Xcᵀ Xc</strong>（Xc = 中心化后的数据），<strong>迹 = 总方差 = 特征值之和</strong>
-② <strong>Σw = λw</strong> —— 主成分只能是 Σ 的特征向量，⭐ <strong>λ 就是那个方向上的方差</strong>
-③ 手算例子：5 个点 → <strong>Σ = [[2, 1.8], [1.8, 2]]</strong>，<strong>λ = 3.8 / 0.2</strong>，解释方差比 <strong>95% / 5%</strong></p>
-</blockquote>
-<hr />
-<h2 id="svd">🧮 一、和 SVD 的关系：为什么实践中没人真去分解协方差矩阵</h2>
-<p><a href="05b-PCA的推导.html">上一章</a>那两条推导是<strong>对的</strong> —— 但<strong>没有一个正经实现会照着算</strong>。真实的 PCA 走的是 SVD。</p>
-<h3 id="_2">两者的关系：一行代数</h3>
-<p>对<strong>中心化后的数据矩阵</strong> $X_c$（n×d）做奇异值分解：</p>
-<p>$$X_c = U S V^\top$$</p>
-<p>其中 U（n×k）和 V（d×k）的列都是单位正交向量，S 是对角矩阵，对角元 $s_1\ge s_2\ge\dots\ge 0$ 叫<strong>奇异值</strong>。代进去：</p>
-<p>$$\Sigma = \frac1n X_c^\top X_c = \frac1n (USV^\top)^\top(USV^\top) = \frac1n V S^\top U^\top U S V^\top = V\Big(\frac{S^2}{n}\Big)V^\top$$</p>
-<p>（中间用了 $U^\top U = I$。）而特征分解写出来是 $\Sigma = W\Lambda W^\top$。两式一对照：</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>特征分解的东西</th>
-<th>就是 SVD 的什么</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>主成分方向 W</strong></td>
-<td>⭐ <strong>右奇异向量 V</strong></td>
-</tr>
-<tr>
-<td><strong>特征值 λᵢ</strong>（第 i 个主成分的方差）</td>
-<td>⭐ $s_i^2 / n$</td>
-</tr>
-<tr>
-<td><strong>主成分得分 Z = Xc·W</strong></td>
-<td>⭐ $U S$（连乘法都省了）</td>
-</tr>
-</tbody>
-</table></div>
-<p>用<a href="05b-PCA的推导.html">上一章那个手算例子</a>对一下（5 个点，Σ=[[2, 1.8], [1.8, 2]]，λ=3.8 / 0.2）：$s = [4.359,\ 1.0]$，
-则 $s_1^2/n = 19/5 = 3.8$、$s_2^2/n = 1/5 = 0.2$ —— <strong>和特征分解一模一样</strong>。</p>
-<h3 id="svd_1">⭐ 四个理由：为什么必须走 SVD</h3>
-<h4 id="1">理由 ① 数值稳定（最硬的一条）</h4>
-<p><strong>算 $X_c^\top X_c$ 这一步会把条件数平方</strong>：$\kappa(X^\top X) = \kappa(X)^2$。
-条件数平方，意味着<strong>你的有效精度直接砍掉一半</strong>。</p>
+<h2 id="_1">🎯 先带走这句话</h2>
+<p><strong>SVD 是计算 PCA 的常用方法，不是唯一方法。保留多少主成分，要看你想压缩数据，还是改善预测。</strong></p>
+<p><a href="05b-PCA的推导.html">上一章</a>解释了主成分方向与协方差特征向量的关系。本页把它接到实际计算：</p>
+<ul>
+<li>想看库为什么这样算：读 <a href="#svd">SVD 与 PCA 的对应</a>。</li>
+<li>想决定保留几维：到<a href="#_4">选主成分个数</a>。</li>
+<li>模型降维后变差：按<a href="#pca">六项排查</a>检查。</li>
+</ul>
+<p>上一章的五点例子仍会用到：总方差为 4，两根主轴分别解释 3.8 和 0.2，也就是 95% / 5%。忘了推导不影响继续。</p>
+<h2 id="svd">🧮 一、SVD 与 PCA：同一目标的两条计算路线</h2>
+<p>PCA 找中心化数据中方差最大的正交方向。可以先算协方差再做特征分解，也可以直接对数据做 SVD。</p>
+<p><strong>两条路线在精确数学中相容，在内存、速度与浮点误差上各有取舍。</strong> scikit-learn 自 1.5 起明确提供 <code>covariance_eigh</code>；它确实会分解协方差矩阵，不是“不正规的实现”。<a href="https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.PCA.html">求解器说明</a></p>
+<h3 id="_2">从分解里读出方向、尺度和得分</h3>
+<p>设 <code>Xc</code> 有 $n$ 行样本、$d$ 列特征，每一列已经减去训练均值。先写约化 SVD：</p>
+<p>$$X_c=USV^\top$$</p>
+<p>令 $q=\min(n,d)$。这里的 $q$ 是约化分解的尺寸，<strong>不是最后选出的主成分个数 $k$</strong>。</p>
+<ul>
+<li><strong>$U$ · 形状 $n\times q$</strong>：按样本组织的左奇异向量。</li>
+<li><strong>$S$ · 形状 $q\times q$</strong>：对角线上放奇异值，按从大到小排列。</li>
+<li><strong>$V$ · 形状 $d\times q$</strong>：列向量是特征空间中的主方向。</li>
+</ul>
+<p>$U$、$V$ 的列各自单位正交。NumPy 返回的是 <code>Vh</code>，实数情况下它是 $V^\top$，所以方向矩阵要读 <code>Vh.T</code>。<a href="https://numpy.org/doc/stable/reference/generated/numpy.linalg.svd.html">NumPy SVD 返回值</a></p>
+<p><strong>对应关系只需要两步。</strong> 第一，计算二阶乘积：</p>
+<p>$$X_c^\top X_c=VS^2V^\top$$</p>
+<p>第二，除以本页采用的样本数 $n$：</p>
+<p>$$\Sigma=V\left(\frac{S^2}{n}\right)V^\top$$</p>
+<p>中间用到了 $U^\top U=I$。因此，右奇异向量给出主方向，奇异值平方再除以 $n$ 给出方向方差。</p>
+<p>如果 $q&lt;d$，上式仍成立；$V$ 没列出的正交补空间对应零特征值。保留前 $k$ 列时：</p>
+<p>$$Z_k=X_cV_k=U_kS_k$$</p>
+<p>$Z_k$ 是每个样本的新坐标，不是主方向本身。</p>
+<p><strong>核对五点例子：</strong>奇异值是 $\sqrt{19}$ 和 1，约为 4.359、1.000。平方除以 5，仍得到 3.8 和 0.2。</p>
+<h3 id="svd_1">四项取舍：为什么常用直接 SVD</h3>
+<h4 id="1">① 数值稳定：小方向更容易受舍入影响</h4>
+<p>对满列秩矩阵、采用二范数条件数时：</p>
+<p>$$\kappa_2(X_c^\top X_c)=\kappa_2(X_c)^2$$</p>
+<p>条件数可以粗略理解为“输入有一点误差，结果可能多敏感”。先形成二阶乘积，会让很小的方向更难准确计算。</p>
+<p><strong>不是所有计算都会“有效精度直接砍半”。</strong> 实际损失取决于谱、浮点精度和算法；秩亏时通常条件数已是无穷，不能照这个口号估位数。</p>
+<p>下面保留原实验：用 NumPy 构造奇异值跨度很大的数据，然后分别计算最小方差。代码只需要 NumPy。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">RandomState</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
 <span class="n">Q</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">qr</span><span class="p">(</span><span class="n">rng</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
 <span class="n">V</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">qr</span><span class="p">(</span><span class="n">rng</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
-<span class="n">X</span> <span class="o">=</span> <span class="n">Q</span> <span class="o">@</span> <span class="n">np</span><span class="o">.</span><span class="n">diag</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1e-2</span><span class="p">,</span> <span class="mf">1e-4</span><span class="p">,</span> <span class="mf">1e-6</span><span class="p">,</span> <span class="mf">1e-8</span><span class="p">])</span> <span class="o">@</span> <span class="n">V</span><span class="o">.</span><span class="n">T</span>   <span class="c1"># ⭐ 人造一个病态数据</span>
+<span class="n">X</span> <span class="o">=</span> <span class="n">Q</span> <span class="o">@</span> <span class="n">np</span><span class="o">.</span><span class="n">diag</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1e-2</span><span class="p">,</span> <span class="mf">1e-4</span><span class="p">,</span> <span class="mf">1e-6</span><span class="p">,</span> <span class="mf">1e-8</span><span class="p">])</span> <span class="o">@</span> <span class="n">V</span><span class="o">.</span><span class="n">T</span>
 <span class="n">Xc</span> <span class="o">=</span> <span class="n">X</span> <span class="o">-</span> <span class="n">X</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
 
-<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;cond(X)      = </span><span class="si">%.2e</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">cond</span><span class="p">(</span><span class="n">Xc</span><span class="p">))</span>          <span class="c1"># 9.96e+07</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;cond(X.T@X)  = </span><span class="si">%.2e</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">cond</span><span class="p">(</span><span class="n">Xc</span><span class="o">.</span><span class="n">T</span> <span class="o">@</span> <span class="n">Xc</span><span class="p">))</span>   <span class="c1"># 6.79e+15  ⭐ 平方了</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;cond(Xc)     = </span><span class="si">%.2e</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">cond</span><span class="p">(</span><span class="n">Xc</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;cond(Xc.T@Xc)= </span><span class="si">%.2e</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">cond</span><span class="p">(</span><span class="n">Xc</span><span class="o">.</span><span class="n">T</span> <span class="o">@</span> <span class="n">Xc</span><span class="p">))</span>
 
-<span class="n">lam_eig</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">eigvalsh</span><span class="p">(</span><span class="n">Xc</span><span class="o">.</span><span class="n">T</span> <span class="o">@</span> <span class="n">Xc</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">X</span><span class="p">))[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>     <span class="c1"># 走协方差特征分解</span>
-<span class="n">lam_svd</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">svd</span><span class="p">(</span><span class="n">Xc</span><span class="p">,</span> <span class="n">compute_uv</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">X</span><span class="p">)</span>  <span class="c1"># ⭐ 走 SVD</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;最小主成分方差 · 特征分解 =&quot;</span><span class="p">,</span> <span class="n">lam_eig</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>           <span class="c1"># 2.82e-19</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;最小主成分方差 · SVD      =&quot;</span><span class="p">,</span> <span class="n">lam_svd</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>           <span class="c1"># 4.99e-19  ← 这个才对</span>
+<span class="n">lam_eig</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">eigvalsh</span><span class="p">(</span><span class="n">Xc</span><span class="o">.</span><span class="n">T</span> <span class="o">@</span> <span class="n">Xc</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">X</span><span class="p">))[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+<span class="n">lam_svd</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">svd</span><span class="p">(</span><span class="n">Xc</span><span class="p">,</span> <span class="n">compute_uv</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">X</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;最小主成分方差 · 特征分解 =&quot;</span><span class="p">,</span> <span class="n">lam_eig</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;最小主成分方差 · SVD      =&quot;</span><span class="p">,</span> <span class="n">lam_svd</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
 </code></pre></div>
 
-<p>真值是 $(10^{-8})^2/200 = 5\times10^{-19}$。
-<strong>SVD 给出 4.99e−19（对），协方差特征分解给出 2.82e−19 —— 错了 44%。</strong>
-病态再严重一点，特征分解甚至会吐出<strong>负的方差</strong>（数学上不可能，是浮点误差）。</p>
-<h4 id="2-dd">理由 ② 不用把 d×d 那个矩阵造出来</h4>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>d = 50,000 个特征（文本 TF-IDF 很常见）</p><p>→ Σ 是 50000 × 50000 = 25 亿个数，float64 下 20 GB，存都存不下</p><p>→ 而 SVD 直接吃 Xc，从来不构造 Σ</p></div></section>
-<h4 id="3-n-d">理由 ③ n &lt; d 时协方差矩阵一定是奇异的</h4>
-<p>100 个样本、5000 个特征（组学数据、小样本图像的典型形态）：$\Sigma$ 的秩最多是 99，
-剩下 4901 个特征值理论上是 0、<strong>实际算出来是一堆 ±1e−15 的噪声</strong>。
-SVD 只会给出 99 个非零奇异值，干干净净。</p>
-<h4 id="4-k">理由 ④ 只想要前 k 个的时候，有专门的算法</h4>
+<p>本机 NumPy 2.2.6 的一次输出如下；临近浮点精度极限的数字会随底层线性代数库变化，不要要求逐位一致。</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>方法</th>
-<th>干什么 / 什么时候用</th>
+<th>观察量</th>
+<th>本次结果</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>截断 SVD</strong></td>
-<td>只求前 k 个奇异值与向量，k 远小于 d 时用</td>
+<td><code>cond(Xc)</code></td>
+<td>约 $9.96\times10^7$</td>
 </tr>
 <tr>
-<td><strong>随机化 SVD</strong></td>
-<td>先随机投影再分解，约 O(n·d·k)。⭐ sklearn 在 d 大时的默认（<code>svd_solver="randomized"</code>）</td>
+<td><code>cond(Xc.T @ Xc)</code></td>
+<td>约 $6.79\times10^{15}$</td>
 </tr>
 <tr>
-<td><code>TruncatedSVD</code></td>
-<td><strong>不做中心化</strong>，所以能直接吃稀疏矩阵。⭐ 文本 TF-IDF 必用（中心化会把稀疏矩阵变稠密，直接爆内存）—— 这就是 LSA</td>
+<td>协方差特征分解的最小方差</td>
+<td>约 $2.82\times10^{-19}$</td>
+</tr>
+<tr>
+<td>直接 SVD 的最小方差</td>
+<td>约 $4.99\times10^{-19}$</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>🔑 <strong>所以 <code>sklearn.decomposition.PCA</code> 内部就是 SVD</strong>，<code>svd_solver</code> 参数在选具体走哪种。
-你以为你在做"特征分解"，实际上一次都没做过。</p>
-</blockquote>
-<h3 id="_3">⚠️ 两个会让你对不上数的小坑</h3>
+<p><strong>先看最后两行：同一份输入的微小方向已经明显不一致。</strong> 这说明病态数据值得检查求解路线，不是在规定每台机器应错多少。</p>
+<p>原始构造在中心化前的理想最小平方奇异值除以 200 是 $5\times10^{-19}$。但代码随后减去了均值，改变了矩阵，因此不能把它直接当作 <code>Xc</code> 的精确真值，也不能据此声称固定“错 44%”。</p>
+<p>协方差矩阵在数学上半正定；若数值结果出现极小负特征值，应检查舍入误差与尺度，而不是把“负方差”当成新的统计含义。</p>
+<h4 id="2-dd">② 内存：先看要不要造出特征方阵</h4>
+<p>$d=50{,}000$ 时，协方差矩阵有 25 亿个元素。每个 float64 占 8 字节，仅这一个数组就约 <strong>20 GB（18.6 GiB）</strong>，还没算工作空间。</p>
+<p>直接 SVD 可以避免显式构造这个 $d\times d$ 方阵；但输入、奇异向量及工作空间也占内存，<strong>不是自动省到能放下</strong>。</p>
+<p>反过来，特征数很小、样本远多于特征时，协方差分解可能很合适。先看形状，不先给算法贴“过时”标签。</p>
+<h4 id="3-n-d">③ 少样本多特征：区分矩阵尺寸与有效秩</h4>
+<p>中心化会让样本行之间至少有一个线性约束：</p>
+<p>$$\operatorname{rank}(X_c)\le\min(n-1,d)$$</p>
+<p>100 个样本、5000 个特征时，协方差最多有 99 个非零特征值，至少 4901 个为零。</p>
+<p>约化 SVD 返回 100 个奇异值，不是“自动只返回 99 个非零值”。有限精度下，两条路线都可能出现接近零的小数；有效秩要结合容差判断，噪声量级也不是固定的 $10^{-15}$。</p>
+<h4 id="4-k">④ 只要前几个：完整、截断与随机化不是一回事</h4>
+<ul>
+<li><strong>完整 SVD 后截取</strong>：先算完整约化分解，再取前 $k$ 个。简单可靠，但后面的成分也算过了。</li>
+<li><strong>截断求解</strong>：直接求一部分奇异三元组，例如 ARPACK。需检查成分数约束与收敛情况。</li>
+<li><strong>随机化 SVD</strong>：先近似主要子空间，再分解较小矩阵。稠密输入的主成本常写成约 $O(ndk)$，还受超采样、幂迭代等设置影响。</li>
+</ul>
+<p><code>PCA(svd_solver="auto")</code> 的选择取决于矩阵形状、成分数和版本；它不是“高维一律 randomized”。需要复现时记录版本，并明确需要的求解器。</p>
+<p><strong>稀疏文本要单独看中心化。</strong> <code>TruncatedSVD</code> 不减均值，常用于计数 / TF-IDF 的潜在语义分析（LSA），所以它不等于中心化 PCA。<a href="https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.TruncatedSVD.html">TruncatedSVD 官方说明</a></p>
+<p>显式减均值通常会破坏稀疏性；某些 PCA 求解器支持稀疏输入，也不代表任何方法都适合任意规模。文本还可以直接用稀疏模型，不是“必须先做 LSA”。</p>
+<h3 id="_3">对不上数时，先检查这两项</h3>
+<p><strong>方向符号。</strong> $w$ 和 $-w$ 表示同一根轴，得分也会一起反号。不能把一次输出的正负号当成永久业务语义。若特征值并列，连该子空间里的基向量也可能改变。</p>
+<p><strong>方差分母。</strong> 本页除以 $n$，scikit-learn 的 <code>explained_variance_</code> 除以 $n-1$。五点例子会得到 4.75 和 0.25，但方差比仍是 95% / 5%。</p>
+<h2 id="_4">🔍 二、主成分留几个：先问为了什么</h2>
+<h3 id="_5">解释方差比：衡量保留了多少变化</h3>
+<p>对总方差大于零的数据：</p>
+<p>$$r_i=\frac{\lambda_i}{\sum_j\lambda_j}$$</p>
+<p>$\lambda_i$ 是第 $i$ 根主轴的方差，分母等于协方差的迹（对角线元素之和）。所有特征都恒定时，分母为零，不能解释这个比值。</p>
+<p>若前 $k$ 项累计达到 95%，意味着只丢掉了 5% 的<strong>总方差</strong>；在同一训练数据的正交重构目标下，也对应剩余平方重构误差的比例。它不意味着保住了 95% 的标签信息。</p>
+<h3 id="_6">五种选法：按目标选，不排万能名次</h3>
+<p><strong>压缩与重构：累计阈值。</strong> 80%、90%、95% 都是可选预算，不是普适正确值；阈值与可接受的重构损失相联系，是有明确数学含义的。</p>
+<p><strong>探索结构：碎石图。</strong> 看各特征值的下降是否有明显转折。没有肘部也正常，不要硬画一处。</p>
+<p><strong>标准化后的粗筛：Kaiser 准则。</strong> 对角线为 1 的相关矩阵，平均特征值为 1，于是尝试保留 $\lambda&gt;1$。这只是启发式；若标准化与协方差采用不同分母，不能机械套同一个数值门槛。</p>
+<p><strong>与无结构基线比较：平行分析。</strong> 重复生成合适的随机参照数据，比较对应序号的特征值。需交代参照分布、重复次数和比较分位数，不能只说“随机一次比大小”。</p>
+<p><strong>为了预测：折内交叉验证。</strong> 把 $k$ 当超参数，比较最终任务指标；同时保留“不做 PCA”的基线。只在训练数据上估计候选范围，最终测试集留到最后。</p>
+<p>可以先看累计曲线建立量级感，再试几组候选。<strong>这只是缩小搜索范围，不保证最优 $k$ 就在 90% 或 95% 附近。</strong></p>
+<p>现在可以停：你已经能区分“压缩得够不够”和“预测变好没有”。遇到异常结果再读下面的排查。</p>
+<h2 id="pca">⚠️ 三、PCA 的六项排查</h2>
+<h3 id="1_1">① 线性投影能否表达你要保留的关系？</h3>
+<p>PCA 只能找平的线性子空间。瑞士卷的内在结构像一张卷起的二维纸，投到平面不等于把纸展开，原本沿纸面很远的点可能挤到一起。</p>
+<p>下面用更容易看清的圆周说明同一问题：上下两点投到横轴后重合。</p>
+<figure class="dia" id="svd-curved-projection"><svg viewBox="0 0 680 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="圆周上的上下两点经横向投影后落到同一个坐标，说明线性投影可能丢失曲面关系"><g fill="var(--fg)" font-size="18" text-anchor="middle"><text x="165" y="30">原始弯曲结构：圆周</text><text x="505" y="30">只保留横向坐标</text></g><circle cx="165" cy="132" r="70" fill="none" stroke="var(--muted)" stroke-width="2"/><line x1="65" y1="132" x2="265" y2="132" stroke="var(--border)" stroke-width="2"/><line x1="410" y1="132" x2="610" y2="132" stroke="var(--accent)" stroke-width="3"/><line x1="165" y1="62" x2="505" y2="132" stroke="var(--accent)" stroke-width="2" stroke-dasharray="5 5"/><line x1="165" y1="202" x2="505" y2="132" stroke="var(--danger)" stroke-width="2" stroke-dasharray="5 5"/><circle cx="165" cy="62" r="6" fill="var(--accent)"/><circle cx="165" cy="202" r="6" fill="var(--danger)"/><circle cx="505" cy="132" r="7" fill="var(--fg)"/><g fill="var(--fg)" font-size="16"><text x="180" y="59">A (0, 1)</text><text x="180" y="221">B (0, −1)</text><text x="455" y="170">两点都变成 0</text></g><text x="340" y="248" text-anchor="middle" fill="var(--muted)" font-size="16">示意的是信息重合，不是“所有弯曲数据都不能用 PCA”。</text></svg><figcaption>看两条虚线的终点：不同的点变成同一个坐标。</figcaption></figure>
+
+<p>这不代表数据稍有弯曲，PCA 就一定没用；要看当前任务是否需要保留被压掉的关系。</p>
+<p>可考虑核 PCA、自编码器或流形方法。<strong>核 PCA 还要在特征空间中心化核矩阵</strong>，不是只替换一个内积就完成所有步骤；背景见<a href="06-核技巧.html">核技巧</a>。</p>
+<p>t-SNE 常用于可视化，标准 scikit-learn 实现没有通用的 <code>transform</code> 新样本接口。<a href="https://scikit-learn.org/stable/modules/generated/sklearn.manifold.TSNE.html">TSNE 官方接口</a></p>
+<p>UMAP 支持拟合后变换新数据，也能作为下游模型的特征变换；是否有益需验证，不能一概写成“只能看图”。<a href="https://umap-learn.readthedocs.io/en/latest/transform.html">UMAP 新数据变换</a></p>
+<h3 id="2">② 单位与缩放是否符合你的目标？</h3>
+<p>PCA 按方差选方向，而方差会随单位的平方变化。沿用收入与年龄的例子，并<strong>假设二者不相关</strong>：</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>坑</th>
-<th>说明</th>
+<th>特征</th>
+<th>标准差</th>
+<th>方差</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>主成分的符号是任意的</strong> ⭐</td>
-<td>w 和 −w 都满足 $\Sigma w=\lambda w$，都合法。不同库、不同版本都可能给出相反的符号 —— <strong>别把符号当成稳定语义</strong>（"PC1 高 = 更富有"换台机器可能就反了）</td>
+<td>收入，以元计</td>
+<td>50,000</td>
+<td>$2.5\times10^9$</td>
 </tr>
 <tr>
-<td><strong>除以 n 还是 n−1</strong></td>
-<td>手算除以 n；sklearn 的 <code>explained_variance_</code> 除以 n−1。<strong>绝对值差 n/(n−1) 倍，但 <code>explained_variance_ratio_</code> 完全一样</strong></td>
+<td>同一收入，以万元计</td>
+<td>5</td>
+<td>25</td>
+</tr>
+<tr>
+<td>年龄，以岁计</td>
+<td>10</td>
+<td>100</td>
 </tr>
 </tbody>
 </table></div>
-<hr />
-<h2 id="_4">🔍 二、主成分留几个</h2>
-<h3 id="_5">主力工具：解释方差比</h3>
-<p>$$\text{第 }i\text{ 个主成分的解释方差比} = \frac{\lambda_i}{\sum_j \lambda_j} = \frac{\lambda_i}{\mathrm{tr}(\Sigma)}$$</p>
-<p>分母就是<a href="05b-PCA的推导.html">上一章</a>那条「<strong>迹 = 总方差 = 特征值之和</strong>」。上一章的手算例子里是 <strong>95% / 5%</strong>。</p>
-<h3 id="_6">五种选法，按靠谱程度排</h3>
+<p>收入用元时方差是年龄的 2500 万倍；用万元时方差小于年龄。在这个不相关例子里，第一主轴就从收入轴换成年龄轴。</p>
+<p><strong>标准化是在重新定义“什么变化值得同等重视”。</strong> 混合单位时通常值得比较标准化方案，但不是数学上的强制步骤。</p>
+<p>像素都在 0～255 也不自动证明“不该标准化”。有时边缘的小方差意味着可忽略，有时它包含微弱但有用的信号；结合领域目标与验证结果决定。</p>
+<h3 id="3">③ 小方差里是否有判别信号？</h3>
+<p>PCA 不看标签。<strong>低方差不等于低预测价值。</strong></p>
+<p>看一个可完整验算的四点例子：</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>方法</th>
-<th>怎么做</th>
-<th>评价</th>
+<th>样本</th>
+<th>特征 1</th>
+<th>特征 2</th>
+<th>类别</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>累计阈值</strong></td>
-<td>取到累计解释方差 ≥ 90%（或 95%、80%）为止</td>
-<td>最常用，但 <strong>90% 这个数字是拍脑袋的</strong>，没有理论依据</td>
+<td>A</td>
+<td>−2</td>
+<td>−0.001</td>
+<td>0</td>
 </tr>
 <tr>
-<td><strong>肘部法（碎石图）</strong></td>
-<td>画 λ 随 i 下降的曲线，找"拐弯"处</td>
-<td>直观，但<strong>很多真实数据根本没有明显的肘</strong>，全靠人眼</td>
+<td>B</td>
+<td>−2</td>
+<td>+0.001</td>
+<td>1</td>
 </tr>
 <tr>
-<td>Kaiser 准则</td>
-<td>留 λ &gt; 1 的</td>
-<td>⚠️ <strong>只在用相关矩阵（即先标准化）时有意义</strong>——那时平均特征值恰好是 1。用协方差矩阵时这条毫无道理</td>
+<td>C</td>
+<td>+2</td>
+<td>−0.001</td>
+<td>0</td>
 </tr>
 <tr>
-<td>平行分析</td>
-<td>同形状的随机数据也跑一遍 PCA，只留 λ 超过随机基线的</td>
-<td>比 Kaiser 严谨，但要多跑几十次</td>
-</tr>
-<tr>
-<td>⭐ <strong>下游任务交叉验证</strong></td>
-<td><strong>把 k 当成一个普通超参数</strong>，在验证集上按最终指标选</td>
-<td><strong>最靠谱的一条。</strong> 你降维不是为了降维，是为了下游模型 —— 那就让下游指标说话</td>
+<td>D</td>
+<td>+2</td>
+<td>+0.001</td>
+<td>1</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>🔑 <strong>实践建议</strong>：先画一次累计解释方差曲线<strong>建立量级感</strong>（5 个成分就够，还是要 200 个？），
-再<strong>在那个量级附近拿 3～4 个候选值做交叉验证</strong>。别在"90% 还是 95%"上纠结。</p>
-</blockquote>
-<hr />
-<h2 id="pca">⚠️ 三、PCA 的前提与失效场景</h2>
-<p><strong>六条，前三条是真会翻车的。</strong></p>
-<h3 id="1_1">① 它只能找线性子空间</h3>
-<p>PCA 找的是一个<strong>平的</strong>子空间。数据要是弯的，它就废了。</p>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">经典反例：瑞士卷（Swiss roll）</span></div><div class="vb-flow-row"><span class="vb-flow-step">数据本质上是一张【卷起来的二维纸】，内在维度就是 2</span></div><div class="vb-flow-row"><span class="vb-flow-step">但 PCA 只能拿平面去切它</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">两端卷在一起的点被投到同一个位置</span></div></div></section>
-<blockquote>
-<p>🔗 出路是<strong>非线性降维</strong>：核 PCA（<a href="06-核技巧.html">第 6 章 · 核技巧</a>那套把戏原样搬过来，
-把内积换成核函数就行）、t-SNE / UMAP（<a href="../机器学习与深度学习基础/06-无监督-聚类与降维.html">基础教程第 6 章</a>，
-<strong>只能用来看一眼，不能拿去当特征</strong>）、自编码器。</p>
-</blockquote>
-<h3 id="2">② ⭐ 必须先标准化（除非所有特征本来就同量纲）</h3>
-<p>⭐ <strong>一句话结论</strong>：<strong>同一批数据，把收入的单位从"元"换成"万元"，第一主成分就从收入变成了年龄。</strong></p>
-<section class="reading-information"><p class="reading-information-title">关键信息</p><ul><li><span>年收入（元）标准差 ≈ 50000 → 方差 2.5 × 10⁹</span></li><li><span>年龄（岁） 标准差 ≈ 10 → 方差 100</span></li><li><span>→ 差 2500 万倍，第一主成分基本就是"年收入"本身</span></li><li><span>→ 把收入换成【万元】（方差 25），现在年龄反而占主导</span></li><li><span>为什么：PCA 追的是【方差】，而方差的量纲是"单位的平方"</span></li><li><span>⭐ 判据不是"要不要标准化"，而是"这些特征的方差可不可比"</span></li><li><span>收入(元) + 年龄(岁) + 点击数(次) → 必须标准化</span></li><li><span>同一张图的 784 个像素（都是 0~255）→ 不标准化反而对</span></li><li><span>（方差差异此时是【真信息】：边缘像素方差小，本来就该被降权）</span></li></ul></section>
-<h3 id="3">③ 💀 方差 ≠ 信息（最容易忽略的一条）</h3>
-<p><strong>PCA 是无监督的，它压根不看 y。</strong></p>
-<section class="visual-block visual-block-flow" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">💀 一个真实会发生的事故形态：</span></div><div class="vb-flow-row"><span class="vb-flow-step">二分类任务，特征里有一个方差极小、但和标签几乎完美相关的变量</span></div><div class="vb-flow-row"><span class="vb-flow-step">（比如某个传感器的微小读数偏移，量级 0.001，却正好区分两类）</span></div><div class="vb-flow-row"><span class="vb-flow-step">PCA 保留 95% 方差</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">这个方向排在最后，被当成噪声丢掉</span></div><div class="vb-flow-row"><span class="vb-flow-step">降维后模型 AUC 从 0.94 掉到 0.71</span></div><div class="vb-flow-row"><span class="vb-flow-step">排查时看不出来：解释方差比 95%，&quot;信息只丢了 5%&quot;，报表上一切正常 ⚠️</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 症结：那被丢掉的 5% 方差里，装着 100% 的判别信息</span></div></div></section>
-<blockquote>
-<p>🔑 <strong>该补什么</strong>：① 降维前后<strong>都在验证集上跑一次下游指标</strong>，别只看解释方差比；
-② 需要"对分类有用的方向"就用 <strong>LDA</strong>（有监督，最大化类间/类内方差比），
-而不是 PCA（<a href="../机器学习与深度学习基础/06-无监督-聚类与降维.html">基础教程第 6 章</a>有两者的对照）。</p>
-</blockquote>
-<h3 id="4">④ 对离群点敏感</h3>
-<p>方差是平方量，一个离得很远的点对协方差矩阵的贡献是平方级的，
-<strong>足以把 PC1 整个拽过去</strong>。这和<a href="01-最大似然.html">第 1 章</a>里「一个离群点拽歪最小二乘」是同一个机理 ——
-<strong>它们背后都是高斯假设那条薄尾巴</strong>。缓解：先做稳健的离群点处理，或用 Robust PCA。</p>
-<h3 id="5">⑤ 主成分不可解释</h3>
-<p>PC1 是「0.31×年龄 − 0.52×收入 + 0.44×点击数 + …」这种<strong>所有原始特征的线性组合</strong>。
-要向业务解释"哪个特征重要"时 PCA 帮不上忙 —— 那种场景该做<strong>特征选择</strong>而不是特征压缩
-（<a href="05-维度灾难.html">第 5 章</a>出路②：「大多数维度是噪声，删掉它们比压缩更好」）。</p>
-<h3 id="6-pca-fit">⑥ 💀 泄漏：PCA 必须 fit 在训练集上</h3>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">❌ pca.fit_transform(全部数据) 再切分训练/测试</span></div><div class="vb-flow-row"><span class="vb-flow-step">测试集参与了均值和主成分方向的计算</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">离线分数虚高，上线暴跌</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ pca.fit(X_train)</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">分别 transform；最省事是塞进 Pipeline，</span></div><div class="vb-flow-row"><span class="vb-flow-step">让交叉验证自动只在折内 fit</span></div></div></section>
-<blockquote>
-<p>🔗 <a href="../机器学习与深度学习基础/06-无监督-聚类与降维.html">基础教程第 6 章</a>的原话就是
-「<strong>PCA 是最容易泄漏的预处理之一</strong>」；五类泄漏的完整清单在<a href="../机器学习与深度学习基础/05-评估与过拟合.html">基础教程第 5 章</a>。</p>
-</blockquote>
-<h3 id="whitening">💡 顺带：白化（whitening）</h3>
-<p>把每个主成分得分再除以 $\sqrt{\lambda_i}$，让所有方向的方差都变成 1。</p>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">PCA</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">去掉相关性（各主成分之间协方差为 0）</span></div><div class="vb-flow-row"><span class="vb-flow-step">PCA + 白化</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">去掉相关性【并且】拉平尺度</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 代价：最小的那几个主成分被放大了 1/√λ 倍</span></div><div class="vb-flow-row"><span class="vb-flow-step">—— 而它们往往正是噪声。白化会把噪声一起放大 ⭐</span></div></div></section>
-<hr />
-<!--XREF-->
+<p>两列均值为 0、协方差为 0，方差分别是 4 和 $10^{-6}$。只留 PC1，保留方差超过 99.9999%，却把 A/B、C/D 各压到同一点。</p>
+<p>原本只看特征 2 的正负即可分开两类。压缩后，在等概率抽取这四点的设定中，每个得分都对应两种标签，<strong>只用该得分无法完全区分类别</strong>。</p>
+<p><strong>这个反例证明的是“方差比例不能保证分类效果”。</strong> 真实任务会掉多少分，仍需在明确的数据、划分和评估指标上测量，不能从这个例子直接外推。</p>
+<p>应对方式：比较降维前后的验证指标；必要时尝试有监督的 LDA、特征选择或不降维。LDA 利用类间与类内变化，仍不是所有分类任务的保证解。<a href="../机器学习与深度学习基础/06-无监督-聚类与降维.html">工程对照</a></p>
+<h3 id="4">④ 离群点是否主导了平方误差？</h3>
+<p>协方差与重构误差含平方项，远点可能大幅改变主方向。这与最小二乘对离群点敏感有相似的几何原因，<strong>不需要假设所有数据服从高斯分布</strong>。</p>
+<p>先核实异常是录入错误还是有意义的少数样本。稳健协方差、适当预处理或 Robust PCA 可用于不同污染模型；“低秩 + 稀疏异常”的 Robust PCA 也不是对任意异常都有效的按钮。<a href="https://arxiv.org/abs/0912.3599">Robust PCA 原论文</a> / <a href="01-最大似然.html">与最小二乘对照</a></p>
+<h3 id="5">⑤ 需要原始特征含义，还是只需要压缩坐标？</h3>
+<p>PC1 常是年龄、收入、点击数等特征的线性组合，所以比原始变量更难解释，但不是“绝对不可解释”。</p>
+<p>可结合单位、缩放、载荷与领域知识说明某根轴。载荷不是因果效应，也不是监督模型里的特征重要性。若交付必须保留原始字段含义，比较<a href="05-维度灾难.html">特征选择</a>与压缩两种方案。</p>
+<h3 id="6-pca-fit">⑥ 训练、验证、测试有没有分清？</h3>
+<p>先对全部数据拟合 PCA，再切分测试集，会让测试集参与均值与方向的估计。<strong>这破坏了独立评估，不保证每次都涨分，也不能凭涨跌反推是否泄漏。</strong></p>
+<p>正确顺序：</p>
+<ol>
+<li>先确定训练 / 测试划分。</li>
+<li>交叉验证时，将缩放、PCA、模型一起放进 <code>Pipeline</code>，只在每个训练折拟合。</li>
+<li>对该折验证数据只做变换和预测；最终测试集也不参与选 $k$。</li>
+</ol>
+<p>详见<a href="../机器学习与深度学习基础/05-评估与过拟合.html">评估与过拟合</a>与<a href="../数据这一关/14-数据泄漏的七种来源.html">数据泄漏的来源</a>。先检查拟合步骤用过哪些数据，再解读分数变化。</p>
+<h3 id="whitening">白化：在去相关之后，再拉平尺度</h3>
+<p>对方差严格为正的已保留方向，把得分除以对应标准差：</p>
+<p>$$z_i^{\mathrm{white}}=\frac{z_i}{\sqrt{\lambda_i}}$$</p>
+<p>用同一个方差分母计算，白化后的各方向方差为 1。用 $n$ 定义 $\lambda$，就按 $n$ 核对；用 $n-1$ 则按 $n-1$ 核对。</p>
+<p>它去掉相对方差尺度，<strong>不等于让各方向统计独立</strong>。零方差不能直接除，小方差中的噪声也可能被放大，所以白化同样要看下游目标。</p>
 <h2 id="_7">🔗 这一章连到哪里</h2>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>去哪</th>
-<th>为什么</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><a href="05b-PCA的推导.html">05b · PCA 的推导</a></td>
-<td>本章一直在用的 <strong>Σ = (1/n)XcᵀXc</strong>、<strong>Σw = λw</strong>、λ = 那个方向上的方差，全都是在那里推出来的</td>
-</tr>
-<tr>
-<td><a href="../机器学习与深度学习基础/06-无监督-聚类与降维.html">ML基础 06 · 无监督：聚类与降维</a></td>
-<td>⭐ <strong>对面是工程视角</strong>：<code>TruncatedSVD</code> 什么时候用、PCA 与 LDA 怎么选、泄漏怎么防。<strong>本章第三节那六条失效场景，正是那些告诫的来历</strong></td>
-</tr>
-<tr>
-<td><a href="06-核技巧.html">第 6 章 · 核技巧</a></td>
-<td>第三节 ① 说 PCA 只能找线性子空间；<strong>核 PCA 就是把推导里的内积换成核函数</strong>，一步升级成非线性降维</td>
-</tr>
-<tr>
-<td><a href="01-最大似然.html">第 1 章 · 最大似然</a></td>
-<td>⭐ 第三节 ④「PCA 对离群点敏感」和那一章「一个离群点拽歪最小二乘」<strong>是同一条高斯薄尾巴</strong></td>
-</tr>
-<tr>
-<td><a href="../机器学习与深度学习基础/05-评估与过拟合.html">ML基础 05 · 评估与过拟合</a> · <a href="../数据这一关/14-数据泄漏的七种来源.html">数据这一关 14</a></td>
-<td>第三节 ⑥ 那条泄漏事故：前者给五类泄漏的完整清单，后者给实测数字（预处理先于切分，0.984 → 0.849）</td>
-</tr>
-<tr>
-<td><a href="../推荐算法/05-矩阵分解.html">推荐算法 05 · 矩阵分解</a></td>
-<td>⭐ 同一套 SVD 换个场景：那里分解的是<strong>用户 × 物品交互矩阵</strong>，拿到的"隐因子"就是这里的主成分</td>
-</tr>
-<tr>
-<td><a href="../AI基础设施/18c-剪枝与稀疏化.html">AI基础设施 18c · 剪枝与稀疏化</a></td>
-<td>低秩近似的工程版：<strong>把权重矩阵做截断 SVD 来压模型</strong>，靠的正是「前 k 个奇异值装了大部分能量」这条</td>
-</tr>
-</tbody>
-</table></div>
-<hr />
+<ul>
+<li><a href="05b-PCA的推导.html">05b · PCA 的推导</a>：重看单位方向、方差与正交重构。</li>
+<li><a href="../机器学习与深度学习基础/06-无监督-聚类与降维.html">ML 基础 06 · 无监督</a>：比较 PCA、LDA、稀疏文本和可视化用途。</li>
+<li><a href="06-核技巧.html">06 · 核技巧</a>：理解特征空间内积，再继续核 PCA 的中心化。</li>
+<li><a href="01-最大似然.html">01 · 最大似然</a>：比较平方误差的几何目标与概率建模假设。</li>
+<li><a href="../机器学习与深度学习基础/05-评估与过拟合.html">ML 基础 05 · 评估与过拟合</a> / <a href="../数据这一关/14-数据泄漏的七种来源.html">数据这一关 14</a>：把所有拟合步骤限制在训练侧。</li>
+<li><a href="../推荐算法/05-矩阵分解.html">推荐算法 05 · 矩阵分解</a>：比较用户–物品低秩因子；带缺失观测、偏置与正则的推荐模型不等于直接中心化 PCA，隐因子也不必是主成分。</li>
+<li><a href="../AI基础设施/18c-剪枝与稀疏化.html">AI 基础设施 18c · 剪枝与稀疏化</a>：低秩权重近似减少存储与计算，但矩阵近似误差小不保证模型任务损失小。</li>
+</ul>
 <h2 id="_8">✅ 检查点</h2>
 <ol>
-<li>SVD 的 V、S 分别对应特征分解里的什么？主成分得分怎么直接从 SVD 里拿？</li>
-<li>为什么实践中不直接对协方差矩阵做特征分解？（说出至少三个理由）</li>
-<li>主成分留几个，最靠谱的选法是哪个？为什么不是"累计 95%"？</li>
-<li>有一个方差极小、但和标签几乎完美相关的特征，PCA 会怎么对待它？该怎么避免？</li>
-<li>什么时候必须标准化，什么时候反而不该？</li>
-<li>白化在做什么？代价是什么？</li>
+<li>$V$、$S$ 分别给出什么？怎样从 SVD 取前 $k$ 维得分？</li>
+<li>为什么直接 SVD 常有优势？什么情况下协方差分解仍然合理？</li>
+<li>选 $k$ 时，重构预算与预测目标有什么区别？</li>
+<li>四点反例中，为什么保留超过 99.9999% 方差仍丢掉分类信号？</li>
+<li>什么时候值得缩放？“同量纲”为什么不是唯一判据？</li>
+<li>白化改变了什么？零方差与很小的方差要注意什么？</li>
 </ol>
 <details>
-<summary>👀 答案</summary>
+<summary>核对六个答案</summary>
 <ol>
-<li><strong>V 的列 = 主成分方向 W</strong>；λᵢ = sᵢ²/n；得分 Z = Xc·W = U·S（连那次矩阵乘法都省了）。用上一章的例子验证：s = [4.359, 1.0] → 19/5 = 3.8、1/5 = 0.2 ✅</li>
-<li>①<strong>数值</strong>：算 XᵀX 会把条件数平方（κ(XᵀX)=κ(X)²），有效精度砍半——实测最小主成分方差，特征分解算成 2.82e−19、SVD 给 4.99e−19，真值 5e−19，特征分解错 44%；更病态时甚至会吐出负方差。②不用构造 d×d（d=50000 → 25 亿个数、20 GB）。③n &lt; d 时 Σ 必然奇异，多出来的特征值全是浮点噪声。④只要前 k 个时有截断 / 随机化 SVD，且 <code>TruncatedSVD</code> 不中心化，能直接吃稀疏矩阵。sklearn 的 PCA 内部就是 SVD。</li>
-<li><strong>把 k 当成普通超参数，用下游任务在验证集上的指标来选</strong>。"95%"那个数字是拍脑袋的，没有理论依据；而且方差多少和下游有没有用是两回事（见下一题）。</li>
-<li><strong>PCA 会把它排在最后、当噪声丢掉</strong>——因为 PCA 无监督，压根不看 y。事故形态：保留 95% 方差，AUC 从 0.94 掉到 0.71，而报表上"只丢了 5% 信息"完全看不出问题——那 5% 方差里装着 100% 的判别信息。避免：①降维前后都跑一次下游指标 ②要判别方向就用 LDA（有监督）。</li>
-<li><strong>方差不可比时必须标准化</strong>：收入(元)+年龄(岁) 方差差 2500 万倍，第一主成分基本就是收入；把收入换成万元，第一主成分立刻变成年龄——同一批数据换个单位答案就反了。本来同量纲时不该标准化：同图的 784 个像素都是 0~255，此时方差差异是真信息（边缘像素方差小，本来就该被降权）。</li>
-<li><strong>把每个主成分得分再除以 √λᵢ</strong>，让所有方向的方差都变成 1 —— PCA 去掉相关性，白化在此之上再拉平尺度。⚠️ 代价：最小的那几个主成分被放大了 1/√λ 倍，而它们往往正是噪声。</li>
+<li>$V$ 的列给方向，$S$ 的对角线给奇异值；方差为 $s_i^2/n$，得分为 $U_kS_k$。</li>
+<li>直接 SVD 可避免形成二阶乘积与大协方差方阵，也有截断算法。特征少、样本多时，协方差求解器仍可高效；不是所有实现都必须走同一条路。</li>
+<li>压缩可按允许的重构损失选阈值；预测则在折内验证 $k$，并与不降维比较。95% 有方差含义，没有预测保证。</li>
+<li>第一列方差很大但与标签无关；第二列虽小却决定标签。只保留第一列会把异类点合并。</li>
+<li>缩放决定各特征的相对权重。单位、信号意义与任务共同决定是否缩放，不能一律标准化或一律不标准化。</li>
+<li>正方差得分除以对应标准差，使尺度相同但未必独立。零方差不能直接除，微小方向的噪声可能被放大。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_9">🛑 可以停在这里</h2>
-<p>⚡ <strong>走神救援</strong></p>
-<blockquote>
-<p>⭐ <strong>PCA 和 SVD 的关系</strong>：对中心化后的数据做 SVD，右奇异向量就是主成分方向、奇异值的平方按样本数缩一下就是特征值、左边乘上奇异值就是得分——<strong>两条路给出同一件东西。</strong></p>
-<p>⭐⭐ <strong>为什么实践里全走 SVD</strong>，四条理由里第一条最硬：<strong>先算协方差矩阵会把条件数平方，有效精度直接砍半</strong>——实测最小那个主成分的方差，特征分解错了将近一半，而 SVD 基本准确。另外三条：<strong>不用构造那个高维方阵</strong>（维度一大就是几十 GB）、<strong>样本数小于维度时协方差必然奇异</strong>、以及截断和随机化版本只求前几个、还能吃稀疏矩阵。</p>
-<p>⚠️ 两个小坑：<strong>主成分的符号是任意的</strong>（别把符号当语义）；除以样本数还是自由度只影响绝对值、不影响比值。</p>
-<p>⭐ <strong>k 怎么选：把它当超参数，让下游指标说话</strong>——⚠️ <strong>「保留 95% 方差」没有理论依据。</strong></p>
-<p>六条失效场景里最该记的三条：⭐ <strong>必须标准化，判据是「方差可不可比」</strong>——单位一换，第一主成分就换了人；而同一张图的像素之间方差本来就可比，<strong>那就不该标准化</strong>。
-💀 ⭐ <strong>方差不等于信息</strong>：PCA 根本不看标签，<strong>一个方差极小却和标签几乎完美相关的特征会被当噪声丢掉</strong>——⚠️ <strong>而报表上只写着「丢了 5% 的方差」，完全看不出来指标已经塌了</strong>。要用标签就该换有监督的方法。
-💀 <strong>必须只在训练集上拟合</strong>：在全量数据上拟合再切分就是泄漏。</p>
-<p>💡 <strong>白化</strong>是再按尺度拉平，⚠️ <strong>代价是把最小的那几个主成分（往往正是噪声）成倍放大。</strong></p>
-</blockquote>
-<p><strong>下一节</strong> 👉 <a href="06-核技巧.html">06-核技巧.md</a></p>
-<blockquote>
-<p>去那里的理由：本章第三节 ① 说 PCA 只能找<strong>平的</strong>子空间，数据要是弯的它就废了。
-第 6 章那套「不去高维空间、却拿到在那里计算的结果」的把戏，
-原样套到 PCA 的推导上就是<strong>核 PCA</strong> —— 之所以能这么套，是因为那两条推导<strong>全程只用到内积</strong>。</p>
-</blockquote>
+<section class="reading-recap" aria-label="走神救援"><p>记住四件事就能继续</p><ul><li>SVD 常用于计算 PCA，协方差特征分解也有适用场景。</li><li>保留方差比例不是保留标签信息比例。</li><li>缩放、成分数和白化都要匹配当前目标。</li><li>所有拟合与选参留在训练侧，再独立评估。</li></ul></section>
+
+<p><strong>下一节</strong> 👉 <a href="06-核技巧.html">06 · 核技巧</a></p>
+<p>如果你关心弯曲结构，下一页先解释如何计算隐式特征空间的内积。核 PCA 在此基础上还需要核矩阵中心化与正确的投影步骤。</p></article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
+<button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 先带走这句话</a><a href="#svd">🧮 一、SVD 与 PCA：同一目标的两条计算路线</a><a href="#_4">🔍 二、主成分留几个：先问为了什么</a><a href="#pca">⚠️ 三、PCA 的六项排查</a><a href="#_7">🔗 这一章连到哪里</a><a href="#_8">✅ 检查点</a><a href="#_9">🛑 可以停在这里</a></nav>
+<button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
+<a href="index.html">回到本模块目录</a></div></aside></div>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="05b-PCA的推导.html"><div class="dir">← 上一节</div>📉 05b · PCA 的推导</a><a class="next" href="06-核技巧.html"><div class="dir">下一节 →</div>🎩 06 · 核技巧</a></nav>

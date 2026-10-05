@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading prose-tables">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -304,26 +304,28 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ul>
 </div>
 </details>
-<h1 id="06d">06d · 降延迟，以及三个指标怎么权衡</h1>
+<div class="ov-layout"><article class="ov-body"><h1 id="06d">06d · 降延迟，以及三个指标怎么权衡</h1>
+<!-- bounded-prose-tables -->
+
 <p>⏱ <strong>26 分钟</strong> ｜ ⭐ <strong>显存和吞吐都够了，用户还是觉得慢的时候看这页</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p>上一页把模型压小、把卡榨满，解决的是「装不装得下、够不够多」。
-这一页解决<strong>「够不够快」</strong> —— 投机解码和几种缓存怎么降延迟，以及为什么
-<strong>TTFT、TPOT、吞吐这三个指标不可能同时最优</strong>，你必须先挑一个。</p>
+<p><strong>先弄清用户在等哪一段，再决定怎么优化。</strong> 本页比较投机解码、前缀缓存和调度；TTFT、TPOT、吞吐常有取舍，但不是永远只能改善一个。</p>
 <hr />
 <h2 id="_2">⚡ 武器三：投机解码（降低延迟）</h2>
-<section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">常规：大模型一次吐 1 个 token，每次都要搬 140GB 权重</span></div><div class="vb-flow-row"><span class="vb-flow-step">投机解码：</span></div><div class="vb-flow-row"><span class="vb-flow-step">① 让一个小模型（草稿模型）快速猜 5 个 token</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 大模型一次性并行验证这 5 个 ← 关键：验证和生成 1 个的成本差不多！</span></div><div class="vb-flow-row"><span class="vb-flow-step">（因为瓶颈是搬权重，不是算力）</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 猜对的部分直接采纳，第一个猜错的地方开始重来</span></div><div class="vb-flow-row"><span class="vb-flow-step">猜中率高时，延迟降低 2–3 倍，且输出分布严格等价 ✅</span></div></div></section>
-<p>💡 <strong>为什么能白赚</strong>：正因为 decode 是访存密集的，GPU 算力本来就在空转——<strong>并行验证 5 个 token 几乎不额外花时间</strong>。</p>
-<p>变体：Medusa（多头并行预测）、EAGLE、n-gram 查表（无需额外模型）。</p>
+<p>有时目标模型一次验证多个候选，比逐个生成更省总时间。它利用的是特定负载下尚有余量的计算能力，<strong>不是无条件“白赚”</strong>。</p>
+<ol>
+<li><strong>提草稿</strong>：小模型或其他提议器先给出若干候选，例如 5 个 token。</li>
+<li><strong>做验证</strong>：目标模型在一次前向中计算这些位置的条件概率。</li>
+<li><strong>接受与修正</strong>：按接受—拒绝规则保留前缀；拒绝时用修正后的分布采样，再继续。不是简单判断“小模型的词是否与大模型猜的一样”。</li>
+</ol>
+<p><strong>看一笔假想时间账</strong>：常规平均每个 token 用 10 ms；一次投机轮含草稿和验证共 20 ms，平均接受 3 个草稿 token，再产生 1 个额外 token，相当于 5 ms/token。若同样 20 ms 平均只前进 1 个 token，就反而更慢。</p>
+<p>旧稿中的“每步搬 140 GB”对应特定 70B、每参数 2 字节的权重规模，不是所有模型的每步固定搬运量。批处理、精度、KV 访问与硬件都会改变时间账。</p>
+<p><a href="https://arxiv.org/abs/2211.17192">投机解码原论文</a> 给出保持目标采样分布的接受规则。正确算法下的分布等价，不等于浮点实现或每次输出逐位相同；实现边界见 <a href="https://docs.vllm.ai/en/latest/features/speculative_decoding/">vLLM 说明</a>。</p>
+<p><strong>变体仍保留</strong>：Medusa 多预测头、EAGLE 特征草稿、n-gram 查表。它们的草稿成本与验证方式不同，不能把其中一种的无损或加速结论自动套给全部变体。</p>
 <blockquote>
-<p>🎲 <strong>三大武器管的都是「这一步跑得多快」——但还有一半不在这一章。</strong>
-Decode 每一步吐出来的其实是一个<strong>概率分布</strong>，「从分布里挑哪个词」是完全另一套东西：
-<code>temperature</code>、<code>top_p</code>、那几个 penalty 全住在那里，和速度优化<strong>正交</strong>。</p>
-<p><strong>两章的分工看现象就能分清</strong>：慢、贵、显存不够 → 留在这一章；
-<strong>输出飘、复读、每次结果不一样、JSON 间歇性打不开 → 去 <a href="06b-解码策略.html">06b · 解码策略</a>。</strong></p>
-<p>⚠️ 顺带说，两章有一个真实的交集：<strong>T=0 也不保证逐位复现</strong>——归约顺序会随 batch 组成变化，
-而动态 batch 正是上面<strong>武器二连续批处理</strong>造成的。<strong>吞吐优化和逐位复现是一对天然矛盾</strong>，那条在 06b 讲透。</p>
+<p><strong>与 06b 的分工</strong>：速度、显存、服务容量先看本页；输出随机性、复读和采样参数看 <a href="06b-解码策略.html">06b · 解码策略</a>。</p>
+<p>两者会相互影响：解码策略可能改变投机接受率；动态 batch 与数值归约也会影响复现。T=0 本身不构成逐位一致保证。</p>
 </blockquote>
 <hr />
 <h2 id="_3">🧰 其他常用手段</h2>
@@ -331,72 +333,124 @@ Decode 每一步吐出来的其实是一个<strong>概率分布</strong>，「�
 <thead>
 <tr>
 <th>手段</th>
-<th>作用</th>
+<th>想改善什么</th>
+<th>需要核对</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>GQA/MQA</strong></td>
-<td>多个 Q 头共享 K/V 头 → KV Cache 省好几倍（原理见<a href="02-Transformer原理.html">主线 2 · 模型怎样看懂一句话</a>，完整展开见<a href="../AI基础设施/16-KV-Cache.html">AI基础设施 16</a>）</td>
+<td>GQA/MQA</td>
+<td>共享 K/V 头，减少 KV 占用</td>
+<td>模型的 Q/KV 头配置；见 <a href="02-Transformer原理.html">Transformer</a> 与 <a href="../AI基础设施/16-KV-Cache.html">基础设施 16</a></td>
 </tr>
 <tr>
-<td><strong>Prefix Caching</strong></td>
-<td>相同的系统提示词只算一次，多请求复用 ⭐ 省钱利器</td>
+<td>Prefix Caching</td>
+<td>复用相同前缀的计算</td>
+<td>共享长度、缓存是否仍在、隔离与计费规则</td>
 </tr>
 <tr>
-<td><strong>FlashAttention</strong></td>
-<td>减少显存读写，长上下文提速明显</td>
+<td>FlashAttention</td>
+<td>减少注意力的显存读写</td>
+<td>序列长度、后端、硬件与当前瓶颈</td>
 </tr>
 <tr>
-<td><strong>张量并行</strong></td>
-<td>一个模型切到多张卡上（放不下时的必选）</td>
+<td>张量并行</td>
+<td>跨卡分摊权重和计算</td>
+<td>通信开销；放不下也可考虑量化、其他并行或卸载，不是只有这一种方案</td>
 </tr>
 <tr>
-<td><strong>算子融合 / CUDA Graph</strong></td>
-<td>减少 kernel 启动开销</td>
+<td>算子融合 / CUDA Graph</td>
+<td>减少部分执行与启动开销</td>
+<td>算子支持、形状变化和实现条件</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>💰 <strong>Prefix Caching 对做 Agent 的人特别重要</strong>：Agent 每轮都重发完整历史（智能体教程第 1 章），
-前缀完全相同——缓存后能省掉绝大部分 prefill 成本。这也是为什么「稳定内容放前面、动态内容放后面」是条金规则。</p>
-</blockquote>
-<h3 id="prefix-caching">🚨 Prefix Caching 的杀手：三个会让命中率归零的写法</h3>
-<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">❌ 系统提示词开头放当前时间</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">每次前缀都不同，命中率 0%</span></div><div class="vb-flow-row"><span class="vb-flow-step">❌ 每次动态排序工具列表</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">顺序一变前缀就变</span></div><div class="vb-flow-row"><span class="vb-flow-step">❌ 把用户 ID / 会话 ID 放最前面</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">每个用户各自一份缓存，等于没缓存</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 正确布局：</span></div><div class="vb-flow-row"><span class="vb-flow-step">[固定的系统提示词]</span></div><div class="vb-flow-row"><span class="vb-flow-step">[固定的工具定义]</span></div><div class="vb-flow-row"><span class="vb-flow-step">[很少变的背景资料]</span></div><div class="vb-flow-row"><span class="vb-flow-step">缓存边界大致在这里</span></div><div class="vb-flow-row"><span class="vb-flow-step">[会话历史]</span></div><div class="vb-flow-row"><span class="vb-flow-step">[当前时间、用户信息等动态内容]</span></div><div class="vb-flow-row"><span class="vb-flow-step">[用户问题]</span></div></div></section>
-<blockquote>
-<p>🔑 <strong>一句话</strong>：<strong>前缀一个字符变了，从那里往后的缓存全部失效。</strong>
-这是最容易犯、代价最大、也最容易修的一个错——<strong>改一下顺序就能省掉大半账单。</strong></p>
-</blockquote>
-<hr />
-<h2 id="_4">🎯 三个指标，别只盯一个</h2>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">TTFT（首字延迟） ← 用户感知&quot;它反应快不快&quot;</span></div><div class="vb-flow-row"><span class="vb-flow-step">TPOT（每字延迟） ← 用户感知&quot;它打字快不快&quot;</span></div><div class="vb-flow-row"><span class="vb-flow-step">吞吐（总 token/秒） ← 你感知&quot;这张卡能服务多少人&quot;</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 它们互相冲突：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 加大 batch</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">吞吐↑ 但 TTFT 和 TPOT</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">（要排队）</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 减小 batch</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">延迟</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">但吞吐</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">（卡在空转）</span></div></div></section>
+<h3 id="prefix-caching">🚨 Prefix Caching：三种容易损失共享前缀的写法</h3>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>你的场景</th>
-<th>该优先什么</th>
+<th>写法</th>
+<th>为什么可能少命中</th>
+<th>可以怎样调整</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>对话产品</strong>（有人在等）</td>
-<td><strong>TTFT</strong> ⭐ ——首字出来得快，用户就觉得快</td>
+<td>开头插入当前时间</td>
+<td>每次变化点太靠前</td>
+<td>在语义允许时把动态信息后移</td>
 </tr>
 <tr>
-<td><strong>Agent / 批处理任务</strong></td>
-<td><strong>吞吐</strong> ——没人盯着，把卡榨满</td>
+<td>每次重排工具定义</td>
+<td>相同工具变成不同 token 序列</td>
+<td>使用稳定且符合权限的顺序</td>
 </tr>
 <tr>
-<td><strong>代码补全</strong></td>
-<td><strong>TPOT</strong> ——要跟得上打字速度</td>
+<td>最前面写用户或会话 ID</td>
+<td>不同用户能共享的前缀变短</td>
+<td>区分公共前缀与私有上下文；同一用户仍可能命中</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>💡 <strong>一个便宜的心理学优化</strong>：<strong>开流式输出</strong>。
-总时长没变，但用户看到字在动，<strong>感知延迟大幅下降</strong>——
-这往往比任何推理优化都划算。</p>
-</blockquote>
+<p><strong>可尝试的顺序</strong>：固定系统规则、稳定工具定义、较少变化的资料，然后是会话相关内容、动态信息和当前问题。不要为了缓存把权限信息丢掉或打乱必要的时间关系。</p>
+<p>相同前缀按实现中的 token/块匹配，不是“任意一个字符变化就让全部缓存失效”。变化之前的块仍可能复用，用户私有缓存也并不等于“没缓存”。</p>
+<p><a href="https://docs.vllm.ai/en/latest/features/automatic_prefix_caching/">前缀缓存说明</a> 指出，它主要节约共享前缀的 prefill，不直接缩短后续每个 token 的生成。Agent 保留共同历史时有机会获益；裁剪、摘要、工具变更会改变这个机会。</p>
+<hr />
+<h2 id="_4">🎯 三个指标，别只盯一个</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>读者可以观察什么</th>
+<th>不能代替什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TTFT，首 token 延迟</td>
+<td>提交后多久看到第一个 token</td>
+<td>整个答案或工具动作的完成时间</td>
+</tr>
+<tr>
+<td>TPOT，每输出 token 的时间</td>
+<td>后续生成是否流畅</td>
+<td>不是每个汉字的固定时间，也不覆盖首 token 前等待</td>
+</tr>
+<tr>
+<td>吞吐</td>
+<td>单位时间完成的 token 或请求量</td>
+<td>必须声明计数口径，不能直接等同于能服务多少用户</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>批量变大可能提高吞吐，也可能增加排队和生成延迟。</strong> 是否发生、发生多少取决于调度、负载与硬件；先测延迟—吞吐曲线，不把它当成永不改变的三角定律。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>优先看什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>对话产品</td>
+<td>TTFT、流式速度和整个答案的尾延迟一起看</td>
+</tr>
+<tr>
+<td>有人在等待的 Agent</td>
+<td>工具链与端到端任务延迟，不应因叫 Agent 就只追吞吐</td>
+</tr>
+<tr>
+<td>无人等待的离线批处理</td>
+<td>截止时间、完成量、成本与质量</td>
+</tr>
+<tr>
+<td>代码补全</td>
+<td>建议何时完整可用，不能只看 TPOT</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>流式输出能更早展示部分结果</strong>，但不自动降低总生成时长。还要核对答案是否完整、用户是否受打断、审核是否在敏感内容展示前完成。</p>
 <hr />
 <h2 id="_5">🔗 想再深一层，去哪一套</h2>
 <div class="tw"><table>
@@ -409,7 +463,7 @@ Decode 每一步吐出来的其实是一个<strong>概率分布</strong>，「�
 <tbody>
 <tr>
 <td><a href="../AI基础设施/19-投机解码.html">AI基础设施 19 · 投机解码</a></td>
-<td>⭐ 武器三的完整展开：接受-拒绝规则、加速比公式、什么场景是白赚</td>
+<td>⭐ 武器三的完整展开：接受-拒绝规则、加速比公式、哪些负载可能获益</td>
 </tr>
 <tr>
 <td><a href="../模型上线之后/18-成本与容量.html">模型上线之后 18 · 成本与容量</a></td>
@@ -417,40 +471,60 @@ Decode 每一步吐出来的其实是一个<strong>概率分布</strong>，「�
 </tr>
 <tr>
 <td><a href="../智能体工程教程/04-上下文工程.html">智能体工程教程 04 · 上下文工程</a></td>
-<td>Prefix Caching 为什么对 Agent 特别值钱 —— 那一章的原话是「Agent 每轮都重发完整历史，前缀完全相同 → 可以被缓存复用」，并给了「稳定内容在前、动态在后」的写法</td>
+<td>Prefix Caching 为什么对 Agent 特别值钱 —— 理解稳定内容与会话变化怎样影响前缀复用</td>
 </tr>
 <tr>
 <td><a href="../AI全栈/05-流式输出.html">AI全栈 05 · 流式输出</a></td>
-<td>「最便宜的延迟优化是开流式」那一条，工程上怎么真的接起来</td>
+<td>如何接起流式链路，同时处理取消、结束与错误</td>
 </tr>
 </tbody>
 </table></div>
 <hr />
 <h2 id="_6">📦 深挖的话要学什么</h2>
-<blockquote>
-<p>📍 <strong>每条后面标了它在哪</strong>：
-📗 <strong>本库有</strong> = 站内已经讲透，点进去就行；📙 <strong>半有</strong> = 站内讲了一半，另一半得外找；
-📕 <strong>要外找</strong> = 站内没有，得去论文或别处。
-（这份清单以前只列词不说去哪，指到的坑有些站内根本没挖过，按图索骥会扑空。）
-⭐ <strong>这一章是全导论「本库有」比例最高的一章</strong>——《AI基础设施》基本是它的完整展开版。</p>
-</blockquote>
+<p>先选一个正在遇到的瓶颈，不必把下面七条当作必修顺序。每条都保留原来的学习主题，并给出可进入的下一站。</p>
+<h3 id="deep-06d-roofline">判断瓶颈：Roofline 与算术强度</h3>
 <ul>
-<li><strong>原理</strong>：Roofline 模型（算力 vs 带宽瓶颈分析）、算术强度
-  → 📗 <strong>本库有</strong>：<a href="../AI基础设施/04-Roofline与MFU.html">AI基础设施 04 · Roofline与MFU</a> + <a href="../AI基础设施/03-显存与带宽墙.html">03 · 显存与带宽墙</a>。<strong>本章开头"Prefill 受算力限制、Decode 受带宽限制"是结论，Roofline 是那个能让你自己算出来的工具</strong>——知道算术强度怎么算，你就能在买卡之前判断某个负载到底卡在哪一边</li>
-<li><strong>量化</strong>：对称/非对称、per-tensor/per-channel/per-group、GPTQ 与 AWQ 的算法差异、KV Cache 量化、量化感知训练
-  → 📗 <strong>本库有，整条都有</strong>：<a href="../AI基础设施/18-量化.html">AI基础设施 18 · 量化</a>——离群值为什么是 LLM 量化的核心难题、<strong>per-group（每 128 个权重一组）为什么成了主流</strong>、AWQ 的"只有 1% 的权重重要"、GPTQ、KV Cache 量化，以及 PTQ vs QAT（⭐ 结论是 LLM 时代 PTQ 一边倒，因为 QAT 要重训，70B 重训一遍的成本和"掉的那 1 分"完全不成比例——所以这一项你多半不会用到，但值得知道为什么不用）</li>
-<li><strong>服务框架</strong>：vLLM / SGLang / TensorRT-LLM / TGI 的架构与选型
-  → 📗 <strong>本库有</strong>：<a href="../AI基础设施/20-推理服务化.html">AI基础设施 20 · 推理服务化</a> 的<strong>七引擎横评 + 四问决策树</strong>，TGI 也在里面（它属于"生态贴合"型选择——不是更快，是你已经在 HF 那套里了）。⚠️ 去之前先记住那一章最反直觉的一条：引擎之间通常只差 20–50%，而配置有没有调对差的是几倍——大部分"快 3 倍"的评测拆开看都是一边开了连续批处理一边没开。先调配置，再换引擎</li>
-<li><strong>调度</strong>：连续批处理、PagedAttention、分块预填充（chunked prefill）、prefill/decode 分离部署
-  → 📗 <strong>本库有</strong>：<a href="../AI基础设施/17-连续批处理与PagedAttention.html">AI基础设施 17 · 连续批处理与PagedAttention</a> 四项全覆盖，还多给了一笔本章没有的账——<strong>P/D 分离不是免费午餐：分开之后 KV 要跨机搬，而 InfiniBand 带宽只有 HBM 的约 1/60</strong></li>
-<li><strong>投机解码</strong>：草稿模型选择、接受率优化、Medusa/EAGLE
-  → 📗 <strong>本库有</strong>：<a href="../AI基础设施/19-投机解码.html">AI基础设施 19 · 投机解码</a>。<strong>本章「武器三」讲了它为什么有效，那一章讲的是怎么让它真的有效</strong>：加速比由接受率 α 和草稿成本 c 两个变量决定（c 通常要 ≤1/10 才划算；代码任务因为模式可预测，α 能到 0.85 以上），Medusa（加预测头，草稿成本近零但猜得糙）和 EAGLE（把自回归挪到特征层换接受率）各自的位置</li>
-<li><strong>性能工程</strong>：压测方法、TTFT/TPOT/吞吐三角权衡、成本建模
-  → 📗 <strong>本库有</strong>：<a href="../AI基础设施/20-推理服务化.html">AI基础设施 20 · 推理服务化</a> 的「先定 SLO 再谈优化」和「压测：画出你的延迟-吞吐曲线」，成本那一侧在 <a href="../AI基础设施/23-可观测性与成本.html">AI基础设施 23 · 可观测性与成本</a>。<strong>本章的"三个指标别只盯一个"到这里变成可执行的流程</strong></li>
-<li><strong>实操</strong>：用 vLLM 部署一个模型，做一次完整压测
-  → 📙 <strong>半有</strong>：该开哪些参数、压测该画什么曲线、上线检查清单，<a href="../AI基础设施/17-连续批处理与PagedAttention.html">AI基础设施 17</a> 和 <a href="../AI基础设施/20-推理服务化.html">20</a> 都给了（含 <code>enable_chunked_prefill</code> / <code>enable_prefix_caching</code> / <code>kv_cache_dtype</code> 这几个具体开关）；<a href="../AI基础设施/24-实战与挑战项目.html">AI基础设施 24 · 实战与挑战项目</a> 有对应的动手项目。<strong>但"从零装一台机器跑起来"这段环境搭建站内没有，要外找</strong>（vLLM 官方 quickstart）</li>
+<li><strong>下一站</strong>：<a href="../AI基础设施/04-Roofline与MFU.html">AI 基础设施 04 · Roofline 与 MFU</a>，配合 <a href="../AI基础设施/03-显存与带宽墙.html">03 · 显存与带宽墙</a>。</li>
+<li><strong>看什么</strong>：计算量与搬运量的比例，以及硬件的算力、带宽上限。</li>
+<li><strong>带走什么</strong>：对当前负载提出瓶颈假设，再用测量验证；不能仅凭“prefill / decode”两个名字断定瓶颈。</li>
 </ul>
-<p>需要的前置：第 2 章 Transformer + Linux/GPU 基础。<strong>不需要</strong>深厚数学。</p>
+<h3 id="deep-06d-quant">降低存储与计算代价：量化</h3>
+<ul>
+<li><strong>下一站</strong>：<a href="../AI基础设施/18-量化.html">AI 基础设施 18 · 量化</a>。</li>
+<li><strong>看什么</strong>：对称/非对称、per-tensor/per-channel/per-group、离群值、GPTQ 与 AWQ、KV Cache 量化，以及 PTQ 和 QAT。</li>
+<li><strong>验收</strong>：同时比较业务质量、显存、延迟和吞吐。分组大小、重要权重比例和是否值得 QAT 都不是脱离模型的固定答案。</li>
+</ul>
+<h3 id="deep-06d-engine">选择服务引擎</h3>
+<ul>
+<li><strong>下一站</strong>：<a href="../AI基础设施/20-推理服务化.html">AI 基础设施 20 · 推理服务化</a>。</li>
+<li><strong>看什么</strong>：vLLM、SGLang、TensorRT-LLM、TGI 等方案的支持范围与部署条件。</li>
+<li><strong>验收</strong>：在相同模型、精度、请求长度和并发下比较。不要沿用“引擎固定差 20–50%”这样的通用比例。</li>
+</ul>
+<h3 id="deep-06d-schedule">调度与显存管理</h3>
+<ul>
+<li><strong>下一站</strong>：<a href="../AI基础设施/17-连续批处理与PagedAttention.html">AI 基础设施 17 · 连续批处理与 PagedAttention</a>。</li>
+<li><strong>看什么</strong>：连续批处理、分页管理、分块预填充、prefill/decode 分离。</li>
+<li><strong>额外代价</strong>：分离部署会增加 KV 传输；对照实际网络与显存带宽，不把“约 1/60”当成所有机器的常数。</li>
+</ul>
+<h3 id="deep-06d-spec">让投机解码真正获益</h3>
+<ul>
+<li><strong>下一站</strong>：<a href="../AI基础设施/19-投机解码.html">AI 基础设施 19 · 投机解码</a>。</li>
+<li><strong>看什么</strong>：接受率、草稿成本、验证开销和草稿长度；再比较 Medusa、EAGLE 与 n-gram 路线。</li>
+<li><strong>验收</strong>：测同一负载下的总耗时与输出质量。草稿成本低、接受率高是有利因素，不是固定的 1/10 或 0.85 准入线。</li>
+</ul>
+<h3 id="deep-06d-measure">把优化换算成产品指标</h3>
+<ul>
+<li><strong>下一站</strong>：<a href="../AI基础设施/20-推理服务化.html">服务化 20</a> 的压测部分，与 <a href="../AI基础设施/23-可观测性与成本.html">23 · 可观测性与成本</a>。</li>
+<li><strong>看什么</strong>：TTFT、TPOT、吞吐与尾延迟；先定服务目标，再画延迟—吞吐曲线。</li>
+<li><strong>产出</strong>：一张注明模型、硬件、流量与价格口径的压测记录，而不是只有一个“快几倍”。</li>
+</ul>
+<h3 id="deep-06d-practice">完成一次部署与压测</h3>
+<ul>
+<li><strong>下一站</strong>：<a href="../AI基础设施/24-实战与挑战项目.html">实战项目 24</a>，参数背景见 <a href="../AI基础设施/17-连续批处理与PagedAttention.html">17</a> 和 <a href="../AI基础设施/20-推理服务化.html">20</a>。</li>
+<li><strong>操作范围</strong>：按当前版本核对分块预填充、前缀缓存与 KV 精度开关；一次只改一个变量。</li>
+<li><strong>补环境</strong>：容器入门已有 <a href="../AI全栈/14-容器化与部署.html">AI 全栈 14</a>；具体引擎仍要对照它的官方安装与兼容性说明。</li>
+</ul>
+<p><strong>前置按需补</strong>：理解第 2 章的注意力和 KV；部署时再补 Linux/GPU。只看延迟指标，不必先会全部工程工具。</p>
 <hr />
 <h2 id="_7">⚖️ 要不要深挖</h2>
 <div class="tw"><table>
@@ -486,23 +560,23 @@ Decode 每一步吐出来的其实是一个<strong>概率分布</strong>，「�
 <blockquote>
 <p>🔑 <strong>我的判断</strong>：这块<strong>工程性极强、几乎不涉及数学</strong>，对有后端背景的人上手很快。
 价值判断很简单：<strong>看你的账单</strong>。如果每月 API 花费还不够租一张 GPU，就别折腾自建。
-但「Prefix Caching + 提示词结构优化」是<strong>所有人现在就该做的</strong>，本章内容已经够。</p>
+有明显共享前缀时，可以先小规模试缓存；仍要测质量、命中与实际费用，不能承诺所有场景都值得。</p>
 </blockquote>
 <hr />
 <h2 id="_8">✅ 检查点</h2>
 <ol>
-<li>投机解码为什么能「白赚」速度？</li>
-<li>Prefix Caching 对 Agent 场景为什么特别有价值？哪三个写法会让命中率归零？</li>
-<li>TTFT / TPOT / 吞吐三个指标怎么互相冲突？对话产品该优先哪个？</li>
-<li>最便宜的「延迟优化」是什么？为什么它有效？</li>
+<li>投机解码什么时候能加速，什么时候可能更慢？</li>
+<li>三种前缀写法怎样影响共享？为什么不能笼统说命中率归零？</li>
+<li>TTFT、TPOT、吞吐分别观察什么？有人等待的 Agent 应看什么？</li>
+<li>流式输出改变了哪段等待，又没有保证什么？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>因为 <strong>decode 是访存密集的，GPU 算力本来就在空转</strong> —— 大模型并行验证 5 个 token 和生成 1 个 token 的耗时几乎一样，所以只要小模型猜中率够高就是净赚，而且输出分布和原模型完全一致。</li>
-<li>Agent 每轮都重发完整历史，<strong>前缀完全相同</strong>，缓存后能省掉绝大部分 prefill 成本。三个会让命中率归零的写法见正文那一节 —— 共同点都是<strong>把会变的东西放到了前面</strong>。</li>
-<li><strong>加大 batch → 吞吐↑ 但 TTFT 和 TPOT 变差</strong>（要排队）；<strong>减小 batch → 延迟↓ 但吞吐↓</strong>（卡在空转）。对话产品该优先 <strong>TTFT</strong>：首字出来得快，用户就觉得快。</li>
-<li><strong>开流式输出</strong>。总时长一点没变，但用户看到字在动，<strong>感知延迟大幅下降</strong> —— 这往往比任何推理优化都划算。</li>
+<li>只有草稿与验证开销小于省掉的逐 token 工作时才获益；接受率低或原来已充分利用算力时可能更慢。保持目标分布依赖正确的接受与修正规则。</li>
+<li>变化点越靠前，可共享前缀往往越短；工具顺序、时间和身份字段会影响它。变化前的完整块、同一用户的私有缓存仍可能命中。</li>
+<li>TTFT 看第一个 token，TPOT 看后续 token 速度，吞吐看单位时间工作量。交互式 Agent 还要看工具与整个任务完成的延迟。</li>
+<li>用户可能更早看到部分结果；它不保证总时长更短，也不自动解决内容审核和最终答案质量。</li>
 </ol>
 </details>
 <hr />
@@ -511,7 +585,11 @@ Decode 每一步吐出来的其实是一个<strong>概率分布</strong>，「�
 <p>⚡ <strong>走神救援</strong></p>
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>TTFT 看多久出现首个结果，TPOT 看后续生成速度，吞吐看单位时间完成多少工作。</li><li>投机解码与前缀缓存利用可复用的计算，是否有效要结合命中率和负载测量。</li><li>先明确产品最在乎哪个指标，再比较优化后的代价与收益。</li></ul></section>
 
-<p><strong>下一节</strong> 👉 <a href="06b-解码策略.html">06b-解码策略.md</a></p>
+<p><strong>下一节</strong> 👉 <a href="06b-解码策略.html">06b-解码策略.md</a></p></article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
+<button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">⚡ 武器三：投机解码（降低延迟）</a><a href="#_3">🧰 其他常用手段</a><a href="#_4">🎯 三个指标，别只盯一个</a><a href="#_5">🔗 想再深一层，去哪一套</a><a href="#_6">📦 深挖的话要学什么</a><a href="#_7">⚖️ 要不要深挖</a><a href="#_8">✅ 检查点</a><a href="#_9">🛑 可以停在这里</a></nav>
+<button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
+<a href="00-怎么用这份导论.html#overview-start">重新选择学习目标</a></div></aside></div>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="06-推理优化.html"><div class="dir">← 上一节</div>⚡ 06 · 推理优化：省显存</a><a class="next" href="06b-解码策略.html"><div class="dir">下一节 →</div>🎲 06b · 解码策略</a></nav>

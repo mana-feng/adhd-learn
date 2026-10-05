@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading topic-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -294,10 +294,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#shannon-1950">🕰️ 一、Shannon 1950 的两条路</a></li>
-<li><a href="#_2">📊 二、评估函数：一串特征的加权和</a></li>
+<li><a href="#_2">📊 二、评估函数：先从特征加权和学起</a></li>
 <li><a href="#_3">👻 三、地平线效应</a></li>
 <li><a href="#_5">🎲 四、期望极小极大：骰子进来了</a></li>
-<li><a href="#ai">🕹 五、棋类 AI 简史</a></li>
+<li><a href="#ai">🕹 五、棋类 AI 简史：分清成果的性质</a></li>
 <li><a href="#mcts-">🌲 六、MCTS 和 α-β 的分工</a></li>
 <li><a href="#_7">🔗 这一章连到哪里</a></li>
 <li><a href="#_8">✅ 检查点</a></li>
@@ -305,297 +305,252 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ul>
 </div>
 </details>
-<h1 id="12-ai">12 · 评估函数与棋类 AI</h1>
+<div class="ov-layout"><article class="ov-body"><h1 id="12-ai">12 · 评估函数与棋类 AI</h1>
+<!-- topic-reading -->
+
 <p>⏱ <strong>34 分钟</strong> ｜ ⭐ <strong>搜索总得停下来；停下来那一刻拿什么给局面打分，决定了引擎的棋力</strong></p>
-<hr />
+<p><strong>本章目标：分清“估分”“搜出来的值”和“已经证明的胜负”。</strong></p>
+<p>先看<a href="#_2">一个局面怎样打分</a>，再看<a href="#_5">有骰子后为什么不能随便改分数</a>。历史与进一步的学习方法可以分次看；页面时长不是阅读期限。</p>
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>搜不到终局就得在半路给局面估分：评估函数是一串特征的加权和。
-⚠️ 但固定深度会带来地平线效应 —— 程序把坏消息推到搜索深度之外，然后以为它不存在。</strong></p>
-<hr />
+<p><strong>搜不到终局，就在搜索边界估计局面好坏；这个估计能帮助选招，但不是胜负证明。</strong></p>
+<p>评估函数可以是特征加权和，也可以是非线性神经网络。它和搜索配合：搜索展开候选走法，评估给边界局面打分，结果再沿树传回。</p>
+<p>先记一个风险：<strong>看得有限，又把尚未结束的交换估错，就可能把坏结果拖到视野之外。</strong> 这叫地平线效应。</p>
 <h2 id="shannon-1950">🕰️ 一、Shannon 1950 的两条路</h2>
-<p><a href="10-博弈树与Minimax.html">第 10 章</a>算过国际象棋是 $35^{100} \approx 10^{154}$，<a href="11-剪枝.html">第 11 章</a>的 α-β 把它砍成 $35^{50}$ —— <strong>还是毫无可能</strong>。
-所以讲义在「关键思想」里单列一条：<strong>有限地平线 + 近似评估</strong>（Zuse 1945、Wiener 1948、Shannon 1950）。Shannon 同时给了两条路：</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th></th>
-<th>做法</th>
-<th>谁在用</th>
-</tr>
-</thead>
+<p><strong>全部算完太贵，所以要决定“算到哪里停”和“停下后怎么估”。</strong></p>
+<p>沿用<a href="10-博弈树与Minimax.html">第 10 章</a>的粗略模型：每层 35 个选择，向下 100 层，叶节点量级为 $35^{100}\approx 2.6\times10^{154}$。这是固定分支的教学估算，不是国际象棋所有合法对局的精确计数。</p>
+<p><a href="11-剪枝.html">第 11 章</a>的 α-β 在<strong>理想走法排序</strong>下，可把深度指数约减半；这里仍有 $35^{50}\approx1.6\times10^{77}$ 的量级。一般排序没有这个最好情况的保证。</p>
+<div class="tw"><table data-audit-table="search-budget" style="min-width:0;width:100%">
+<thead><tr><th scope="col">搜索思路</th><th scope="col">怎样分配计算</th></tr></thead>
 <tbody>
-<tr>
-<td><strong>Type A</strong></td>
-<td>固定深度、<strong>全宽度</strong>搜完</td>
-<td>深蓝，以及所有现代 α-β 引擎的骨架</td>
-</tr>
-<tr>
-<td><strong>Type B</strong></td>
-<td>只挑<strong>有希望</strong>的几步，但搜得更深</td>
-<td>人类棋手；MCTS 的精神</td>
-</tr>
-</tbody>
-</table></div>
-<p>⭐ 现代引擎两个都要：α-β 全宽度搜到 $d$ 层（A），再对「危险」的分支单独往下延伸（B）。</p>
-<hr />
-<h2 id="_2">📊 二、评估函数：一串特征的加权和</h2>
-<p>$$\text{EVAL}(s) = \sum_i w_i\, f_i(s)$$</p>
-<p>讲义给的国际象棋特征分四类：</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>类</th>
-<th>内容</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>子力</strong></td>
-<td>后 = 9，车 = 5，马 = 象 = 3，兵 = 1</td>
-</tr>
-<tr>
-<td><strong>位置</strong></td>
-<td>某个子在某个格上的分数（小数）</td>
-</tr>
-<tr>
-<td><strong>交互</strong></td>
-<td>一个子攻击 / 保护另一个子的分数（小数）</td>
-</tr>
-<tr>
-<td>其他</td>
-<td>兵型、机动性……</td>
-</tr>
-</tbody>
-</table></div>
-<p>KnightCap 用了 <strong>2000 个特征</strong>。⭐ 为什么 2000 个还能算得飞快？讲义的解释是稀疏：
-任一局面下<strong>绝大多数特征都是 0</strong>（后同时只能待在 64 格里的一格）。
-再加上增量更新 —— 走一步只有少数几个特征会变，没必要重算整个和。</p>
-<p>⭐ 权重不必手调，<strong>可以用强化学习学出来</strong>（讲义原话）。这条线在<a href="../强化学习基础/index.html">强化学习基础</a>整套 16 章里讲透了，本板块不重写。</p>
-<h3 id="minimax">⭐ 一个容易忽略的性质：对 Minimax，只有序重要</h3>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>叶子值</th>
-<th>根选哪一支</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>$1, 2, 2, 4$</td>
-<td>右</td>
-</tr>
-<tr>
-<td>$1, 20, 20, 400$</td>
-<td>⭐ <strong>还是右</strong></td>
-</tr>
-</tbody>
-</table></div>
-<p><strong>任何单调变换都不改变 Minimax 选出的走法</strong>（讲义："move choice is preserved under any monotonic transformation of EVAL"）。
-确定性博弈里的收益是<strong>序数效用</strong> —— 只要排序对，数值本身怎么缩放都无所谓。⚠️ 这条舒服的性质，下一节遇到骰子就没了。</p>
-<hr />
-<h2 id="_3">👻 三、地平线效应</h2>
-<blockquote>
-<p>⚠️ <strong>定义</strong>：坏事就发生在搜索深度之外那一步。
-程序找到一串<strong>拖延</strong>的走法，把坏消息推到地平线以外 —— 于是它「看不见」了，评估函数还挺高兴。</p>
-</blockquote>
-<p>一个标准场景：黑方有个象<strong>必然要被吃掉</strong>，怎么都保不住。程序搜到深度 8，发现可以先用兵去将军 ——
-白方必须应，消耗掉两层；再送一个兵将军，又两层。等深度用完，<strong>象还在盘上</strong>，评估函数给了高分。
-代价是白送三个兵，而象下一步照丢不误。</p>
-<p>⭐ 关键认识：<strong>这是「固定深度」本身的病，不是评估函数写得不好。</strong> 深度从 8 加到 10，只是把地平线往后挪两层，程序会多送两个兵。</p>
-<h3 id="_4">治法：静默搜索</h3>
-<p>静默搜索（quiescence search）：到达深度上限时先看一眼局面安不安静 —— 有没有吃子、将军、后被攻击？
-不安静就<strong>继续往下搜，但只搜这些强制性走法</strong>，直到平静了再评估。
-讲义原话：<strong>「如果存在危险局势（例如后正被攻击），就延伸搜索深度。」</strong></p>
-<blockquote>
-<p>⭐ 直觉：<strong>评估函数只在静态局面上可信。</strong>
-兑子兑到一半的时候给盘面打分是没有意义的 —— 你数的子力，下一步就要变。</p>
-</blockquote>
-<p>讲义说现代象棋程序依赖三样东西：<strong>静默搜索、置换表、剪枝启发式</strong> —— 后两样都在<a href="11-剪枝.html">第 11 章</a>。</p>
-<hr />
-<h2 id="_5">🎲 四、期望极小极大：骰子进来了</h2>
-<p>西洋双陆棋、大富翁这类博弈里，树上多一层 <strong>CHANCE 节点</strong>（掷骰子、洗牌、发牌）。
-讲义的改法只有一行：<strong>CHANCE 节点返回子节点值的平均</strong>（按概率加权）。</p>
-<p>$$V(\text{chance}) = \sum_k P(k)\, V(\text{子}_k)$$</p>
+<tr><th scope="row">Type A</th><td>对给定深度内的合法走法做全宽度搜索</td></tr>
+<tr><th scope="row">Type B</th><td>用棋类知识挑选更有希望的分支，把预算用在更深处</td></tr>
+</tbody></table></div>
+
+<p>这是 Shannon 1950 年论文中的两类思路，不是“现代引擎只能二选一”。实际引擎可结合走法排序、选择性延伸、剪枝、评估等；不同剪枝是否保持原树结果，要看条件。历史入口见 <a href="https://www.computerhistory.org/chess/early-theorists/">Computer History Museum 的早期理论资料</a>。</p>
+<p><strong>现在可以先往下：我们就练“边界上怎样估分”。</strong></p>
+<h2 id="_2">📊 二、评估函数：先从特征加权和学起</h2>
+<p><strong>约定：本节所有分数从 MAX 方看，越高越有利。</strong> 终局直接按胜负规则赋值；尚未终局才使用近似评估。不能同一棵树里有时给白方打分、有时给轮到的一方打分而不转换符号。</p>
+<p>一种容易理解的线性评估是：</p>
+<p>$$\operatorname{EVAL}(s)=\sum_i w_i f_i(s)$$</p>
+<p>s 是局面；fᵢ 是从局面提取的第 i 个特征；wᵢ 表示这个特征对分数的影响。<strong>先算每项贡献，再相加。</strong></p>
+<ul>
+<li><strong>子力</strong>：先用后 9、车 5、象和马各 3、兵 1 作粗略示意，计算双方数量差。</li>
+<li><strong>位置</strong>：例如马在某个格子的奖励，来自位置表，不是“所有位置都是固定小数”。</li>
+<li><strong>交互</strong>：某个子被保护、被攻击，或两个子协同造成的影响。</li>
+<li><strong>其他</strong>：兵型、机动性、王的安全等。单位必须统一，不能把任意比例的分数直接相加。</li>
+</ul>
+<p><strong>可手算的教学局面：</strong>其他子力差相互抵消，MAX 多一车、少一象，位置项暂记 −0.5。那么子力项为 5 − 3 = 2，总分为 <strong>1.5 个兵的单位</strong>。</p>
+<p>这不是实际棋局的胜负判断：如果 MAX 下一步会被将死，“多一车”也没用。终局胜负必须高于普通子力比较，王也不能简单定一个普通棋子的交换价。</p>
+<p><strong>为什么特征多，仍可能算得快？</strong></p>
+<p>用 64 个指示量表示“己方后在哪个格子”，在恰有一个后的局面里，只有一个量为 1，其余为 0。这说明了<strong>稀疏表示</strong>；升变产生多个后时，不能仍说“永远只有一个非零项”。</p>
+<p>一步棋通常只改变部分特征，可以增量更新。注意：有稀疏特征，不等于所有特征都稀疏，也不保证整个评估器一定快。</p>
+<p>KnightCap 是用 <strong>TDLeaf 与搜索结合学习线性评估参数</strong>的历史实例；原文报告的是具体训练实验，不宜背一个没有对应版本依据的“2000 个特征”。想看学习机制，接到<a href="../强化学习基础/index.html">强化学习基础</a>；原始实验见 <a href="https://arxiv.org/abs/cs/9901002">Baxter 等人的论文</a>。</p>
+<h3 id="minimax">⭐ 对固定 Minimax 树，保留严格次序有什么用</h3>
+<p><strong>先固定一棵只有 MAX / MIN 节点的树：MAX 在根，两个孩子都是 MIN。</strong> 左边叶子 1、2；右边叶子 2、4。</p>
 <figure class="dia">
-<svg viewBox="0 0 600 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="期望极小极大小例子：MAX根下有两个各含两个等概率分支的CHANCE节点，左边0.5乘10加0.5乘0等于5，右边0.5乘4加0.5乘4等于4，根选左边值为5"><text x="300" y="20" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">CHANCE 层取的是期望 —— 不是最大也不是最小</text><text x="10" y="56" font-size="11.5" fill="var(--muted)">MAX</text><text x="10" y="145" font-size="11.5" fill="var(--muted)">CHANCE</text><text x="10" y="241" font-size="11.5" fill="var(--muted)">叶子</text><line x1="300" y1="66" x2="170" y2="120" stroke="var(--accent)" stroke-width="3"/><line x1="300" y1="66" x2="430" y2="120" stroke="var(--border)" stroke-width="1.5"/><line x1="170" y1="160" x2="100" y2="221" stroke="var(--border)" stroke-width="1.5"/><line x1="170" y1="160" x2="240" y2="221" stroke="var(--border)" stroke-width="1.5"/><line x1="430" y1="160" x2="360" y2="221" stroke="var(--border)" stroke-width="1.5"/><line x1="430" y1="160" x2="500" y2="221" stroke="var(--border)" stroke-width="1.5"/><rect x="280" y="36" width="40" height="30" rx="6" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/><text x="300" y="57" font-size="14" text-anchor="middle" fill="var(--accent)" font-weight="700">5</text><circle cx="170" cy="140" r="20" fill="var(--card)" stroke="var(--link)" stroke-width="2"/><text x="170" y="146" font-size="14" text-anchor="middle" fill="var(--fg)" font-weight="700">5</text><circle cx="430" cy="140" r="20" fill="var(--card)" stroke="var(--link)" stroke-width="2"/><text x="430" y="146" font-size="14" text-anchor="middle" fill="var(--fg)" font-weight="700">4</text><text x="122" y="192" font-size="11.5" text-anchor="end" fill="var(--muted)">0.5</text><text x="218" y="192" font-size="11.5" text-anchor="start" fill="var(--muted)">0.5</text><text x="382" y="192" font-size="11.5" text-anchor="end" fill="var(--muted)">0.5</text><text x="478" y="192" font-size="11.5" text-anchor="start" fill="var(--muted)">0.5</text><rect x="80" y="221" width="40" height="30" rx="4" fill="var(--card)" stroke="var(--border)"/><text x="100" y="242" font-size="13" text-anchor="middle" fill="var(--fg)">10</text><rect x="220" y="221" width="40" height="30" rx="4" fill="var(--card)" stroke="var(--border)"/><text x="240" y="242" font-size="13" text-anchor="middle" fill="var(--fg)">0</text><rect x="340" y="221" width="40" height="30" rx="4" fill="var(--card)" stroke="var(--border)"/><text x="360" y="242" font-size="13" text-anchor="middle" fill="var(--fg)">4</text><rect x="480" y="221" width="40" height="30" rx="4" fill="var(--card)" stroke="var(--border)"/><text x="500" y="242" font-size="13" text-anchor="middle" fill="var(--fg)">4</text><text x="300" y="285" font-size="11.5" text-anchor="middle" fill="var(--muted)">左：0.5×10 + 0.5×0 = 5　　右：0.5×4 + 0.5×4 = 4　　根选左</text></svg>
-<figcaption>一棵最小的期望极小极大树。两支的期望是 5 和 4，MAX 选左。下面会看到：把评估函数做一次单调变换，这个选择会翻过来。</figcaption>
+<svg viewBox="0 0 680 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="固定 Minimax 树：左支最小值为 1，右支最小值为 2，根选右">
+<path d="M340 64 L170 122 M340 64 L510 122 M170 162 L95 233 M170 162 L245 233 M510 162 L435 233 M510 162 L585 233" fill="none" stroke="var(--border)" stroke-width="2"/>
+<path d="M340 64 L510 122" fill="none" stroke="var(--accent)" stroke-width="3"/>
+<rect x="270" y="22" width="140" height="44" rx="9" fill="var(--card)" stroke="var(--accent)"/>
+<text x="340" y="50" text-anchor="middle" font-size="20" fill="var(--fg)">MAX：2</text>
+<rect x="100" y="120" width="140" height="44" rx="9" fill="var(--card)" stroke="var(--border)"/>
+<text x="170" y="149" text-anchor="middle" font-size="20" fill="var(--fg)">MIN：1</text>
+<rect x="440" y="120" width="140" height="44" rx="9" fill="var(--card)" stroke="var(--accent)"/>
+<text x="510" y="149" text-anchor="middle" font-size="20" fill="var(--fg)">MIN：2</text>
+<text x="95" y="255" text-anchor="middle" font-size="22" fill="var(--fg)">1</text>
+<text x="245" y="255" text-anchor="middle" font-size="22" fill="var(--fg)">2</text>
+<text x="435" y="255" text-anchor="middle" font-size="22" fill="var(--fg)">2</text>
+<text x="585" y="255" text-anchor="middle" font-size="22" fill="var(--fg)">4</text>
+</svg>
+<figcaption>先在两支各取最小，再由根取最大。</figcaption>
 </figure>
 
+<div class="tw"><table data-audit-table="minimax-transform" style="min-width:0;width:100%">
+<thead><tr><th scope="col">看哪一层</th><th scope="col">原分数</th><th scope="col">变换后</th></tr></thead>
+<tbody>
+<tr><th scope="row">左边叶子</th><td>1、2</td><td>1、20</td></tr>
+<tr><th scope="row">右边叶子</th><td>2、4</td><td>20、400</td></tr>
+<tr><th scope="row">左 MIN</th><td>1</td><td>1</td></tr>
+<tr><th scope="row">右 MIN</th><td>2</td><td>20</td></tr>
+<tr><th scope="row">根选择</th><td>右</td><td>右</td></tr>
+</tbody></table></div>
+
+<p>最右列用同一个严格递增映射把 1→1、2→20、4→400。每一步取最大或最小的次序都没有变，所以选择仍为右。</p>
+<p><strong>条件别丢：</strong>固定搜索树、统一变换所有叶子评分（含终局值）、变换严格递增，并使用一致的平局处理。递减变换会反转偏好；仅非递减的变换可能制造新的平局。</p>
+<p>这讲的是固定 Minimax 树的保序性质。实际引擎若依赖分数幅度决定剪枝或扩展，变换后连搜索树都变了，就不能用它保证走法不变；也不能把它直接推广到随机收益的比较。</p>
+<h2 id="_3">👻 三、地平线效应</h2>
+<p><strong>坏结果可能在搜索边界之外，不一定恰好是下一步。</strong> 如果边界评估没有把它计入，程序可能选择“拖延损失”，甚至为拖延再付出代价。</p>
+<p>保留一个象棋直觉：假设一个象终究保不住，送兵将军能暂时迫使对方应将，推迟吃象。只在象还没丢的时刻数子力，可能误把拖延当救援。</p>
+<p>下面是<strong>人为规定后果的教学对照，不是一份给定棋谱的强制变化证明</strong>。用兵为单位，象记 3；短期评估只数已损失子力。</p>
+<div class="tw"><table data-audit-table="horizon" style="min-width:0;width:100%">
+<thead><tr><th scope="col">选择</th><th scope="col">截断估计</th><th scope="col">最终损失</th></tr></thead>
+<tbody>
+<tr><th scope="row">立即丢象</th><td>−3</td><td>−3</td></tr>
+<tr><th scope="row">先送一兵拖延</th><td>−1</td><td>−6</td></tr>
+</tbody></table></div>
+
+<p>拖延这一支的设定是：后续还会丢两兵和一个象，加上已经丢的一兵，最终损失共 6。</p>
+<p>浅看时 −1 好于 −3；把后续结果算进去后，−3 好于 −6。<strong>问题出在有限搜索和边界估分共同漏掉了后果。</strong></p>
+<p>加深搜索有时能解决眼前这个例子，但新的战术也可能出现在更远处。不能断言“加深两层一定多送两个兵”，也不能说评估函数质量完全无关。</p>
+<h3 id="_4">缓解方法：静默搜索</h3>
+<p><strong>普通搜索到深度上限时，先别急着给尚未结束的战术交换下结论。</strong></p>
+<p>静默搜索通常继续看一部分战术走法，例如吃子；若正在被将军，必须考虑合法的应将走法。<strong>吃子不全是强制走法</strong>，“后被攻击”也不代表所有实现都会自动扩展同一组分支。</p>
+<p>可以这样理解一个常见框架：</p>
+<ol>
+<li>先检查终局；终局使用胜负结果。</li>
+<li>未被将军时，可把静态评估作为“不继续战术交换”的基线候选。</li>
+<li>再搜索选定的战术走法，把回应的后果纳入估计；被将军时不能用“原地不动”逃避应将。</li>
+</ol>
+<p>这能减轻兑子进行到一半造成的误判，但不是彻底解决地平线效应。实现仍需处理重复局面、搜索预算和剪枝条件。</p>
+<p><a href="11-剪枝.html">第 11 章的置换表与剪枝</a>帮助复用搜索和分配预算；<strong>边界估分、静默搜索、缓存和剪枝是配合关系，不是互相替代。</strong></p>
+<h2 id="_5">🎲 四、期望极小极大：骰子进来了</h2>
+<p><strong>MAX 挑自己最有利的，MIN 挑对自己最不利的，CHANCE 则按概率平均。</strong></p>
+<p>例如双陆棋掷骰子会改变可用走法。这里假设局面可观察、随机结果的概率已知；若是看不到的手牌，还需要处理信息集或信念，不能只添加一个 CHANCE 节点就算解决。</p>
+<p>$$V(\text{chance})=\sum_k p_k V_k$$</p>
+<p>pₖ 是第 k 个结果的概率，非负且总和为 1；Vₖ 是该结果之后的子节点值。它们都从同一方的收益口径计算。</p>
+<figure class="dia">
+<svg viewBox="0 0 680 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="机会节点比较：左边期望 5，右边期望 4，MAX 选左">
+<path d="M340 64 L170 126 M340 64 L510 126 M170 170 L95 262 M170 170 L245 262 M510 170 L435 262 M510 170 L585 262" fill="none" stroke="var(--border)" stroke-width="2"/>
+<path d="M340 64 L170 126" fill="none" stroke="var(--accent)" stroke-width="3"/>
+<rect x="265" y="20" width="150" height="45" rx="9" fill="var(--card)" stroke="var(--accent)"/>
+<text x="340" y="50" text-anchor="middle" font-size="20" fill="var(--fg)">MAX：5</text>
+<rect x="65" y="122" width="210" height="52" rx="24" fill="var(--card)" stroke="var(--accent)"/>
+<text x="170" y="155" text-anchor="middle" font-size="20" fill="var(--fg)">CHANCE：5</text>
+<rect x="405" y="122" width="210" height="52" rx="24" fill="var(--card)" stroke="var(--border)"/>
+<text x="510" y="155" text-anchor="middle" font-size="20" fill="var(--fg)">CHANCE：4</text>
+<g fill="var(--muted)" font-size="18" text-anchor="middle"><text x="102" y="213">0.5</text><text x="238" y="213">0.5</text><text x="442" y="213">0.5</text><text x="578" y="213">0.5</text></g>
+<g fill="var(--fg)" font-size="23" text-anchor="middle"><text x="95" y="288">10</text><text x="245" y="288">0</text><text x="435" y="288">4</text><text x="585" y="288">4</text></g>
+<text x="340" y="335" text-anchor="middle" font-size="18" fill="var(--muted)">两边都按概率平均，不是只看最大的叶子 10</text>
+</svg>
+<figcaption>看两支的期望：5 大于 4，选左。</figcaption>
+</figure>
+
+<p>这是只包含 MAX 与 CHANCE 的最小片段；完整的期望极小极大树还可以包含 MIN 层。</p>
+<p><strong>逐支算：</strong>左边 0.5 × 10 + 0.5 × 0 = 5；右边 0.5 × 4 + 0.5 × 4 = 4，因此 MAX 选左。</p>
 <h3 id="_6">⭐ 现在精确值要紧了</h3>
-<p>拿上图做实验。把评估函数换成 $\sqrt{\cdot}$ —— 它是<strong>严格单调递增</strong>的，按第二节的说法不该影响任何东西：</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th></th>
-<th>原来</th>
-<th>换成 $\sqrt{\cdot}$ 之后</th>
-</tr>
-</thead>
+<p><strong>保留叶子的排序，不再足以保留“平均以后”的排序。</strong> 将上图所有非负叶子值开平方：</p>
+<div class="tw"><table data-audit-table="chance-scale" style="min-width:0;width:100%">
+<thead><tr><th scope="col">比较对象</th><th scope="col">原始分数</th><th scope="col">开平方后</th></tr></thead>
 <tbody>
-<tr>
-<td>左支</td>
-<td>$0.5 \times 10 + 0.5 \times 0 = \mathbf{5}$</td>
-<td>$0.5\sqrt{10} + 0.5 \times 0 \approx \mathbf{1.58}$</td>
-</tr>
-<tr>
-<td>右支</td>
-<td>$0.5 \times 4 + 0.5 \times 4 = \mathbf{4}$</td>
-<td>$0.5 \times 2 + 0.5 \times 2 = \mathbf{2.00}$</td>
-</tr>
-<tr>
-<td>MAX 选</td>
-<td><strong>左</strong></td>
-<td>⚠️ <strong>右</strong></td>
-</tr>
-</tbody>
-</table></div>
-<p><strong>同一棵树，同一个单调变换，走法翻了。</strong></p>
-<blockquote>
-<p>⭐ 确定性博弈里 EVAL 是<strong>序数</strong>的（排序对就行）；
-随机博弈里 EVAL 必须是<strong>基数</strong>的 —— 讲义的原话是 <strong>EVAL 应当正比于期望收益</strong>。</p>
-</blockquote>
-<p>这就是为什么 TD-Gammon 的网络输出被明确解释成<strong>获胜概率</strong>，而不是随便一个「越大越好」的分数。</p>
-<p>⚠️ 代价：骰子把分支因子乘上去了。双陆棋每回合有 <strong>21 种</strong>骰子结果，复杂度变成 $O\big((bn)^m\big)$，实际只能搜 2–3 层。
-α-β 也能改编到随机博弈上，但讲义说了前提：<strong>评估必须有界</strong>。</p>
-<hr />
-<h2 id="ai">🕹 五、棋类 AI 简史</h2>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>年</th>
-<th>事件</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>1769 / 1846</td>
-<td>土耳其行棋傀儡（骗局）；Babbage 与 Lovelace 的井字棋机器</td>
-</tr>
-<tr>
-<td>1912 / 1944</td>
-<td>Zermelo、von Neumann：<strong>完美对弈的算法存在</strong></td>
-</tr>
-<tr>
-<td><strong>1950 / 1951</strong></td>
-<td>Shannon：有限地平线 + 近似评估；Turing：第一个国际象棋程序</td>
-</tr>
-<tr>
-<td>1956 / 1959</td>
-<td>McCarthy：<strong>剪枝</strong>；Samuel 跳棋：⭐ 哈希表、数据压缩、<strong>用机器学习调参数</strong>三首创</td>
-</tr>
-<tr>
-<td>1961</td>
-<td>Michie 的 MENACE（用火柴盒学井字棋）</td>
-</tr>
-<tr>
-<td>1989–95 / 1997</td>
-<td><strong>TD-Gammon</strong>；<strong>深蓝</strong>击败卡斯帕罗夫</td>
-</tr>
-<tr>
-<td>2007 / 2016 / 2017</td>
-<td><strong>Chinook</strong> 证明跳棋必和；AlphaGo；AlphaZero</td>
-</tr>
-</tbody>
-</table></div>
-<p>三条值得单独记：</p>
-<p><strong>深蓝（1997）</strong> 六局击败卡斯帕罗夫。传统上电脑开局强（开局库）、残局强（深搜），
-人类靠中局「<strong>打开局面</strong>」抬高分支因子取胜 —— 卡斯帕罗夫试了，但深蓝速度够快扛住了。
-⚠️ 现在普通 PC 上的引擎已经明显强于深蓝。</p>
-<p>Chinook 的残局库覆盖 8 子以下的<strong>全部 443,748,401,247 个局面</strong>（后扩到 10 子、38 万亿）。
-2007 年 Schaeffer 证明跳棋双方最优下必和，方法是<strong>增量地把博弈树填出来、跳过那些大概率会被剪掉的分支</strong>，
-算了几个月后收敛到「真实的（剪枝后的）树」的骨架 —— ⭐ <a href="11-剪枝.html">第 11 章</a>的剪枝在这里直接变成了证明工具。</p>
-<p>⭐ <strong>TD-Gammon</strong>（Tesauro）：196 个输入、20 个隐藏单元、1 个输出，输出就是<strong>获胜概率</strong>。
-Tesauro 训了两个网络对比 —— EP 网（学人类专家偏好，监督学习）和 TD 网（自我对弈，TD 学习），TD 网赢了。
-再加上三步前瞻（期望极小极大）和手工特征，1995 年成为世界最强双陆棋手。</p>
-<blockquote>
-<p>⭐ 讲义解释了它<strong>为什么在双陆棋上行得通</strong>：骰子的随机性<strong>逼着自我对弈去探索大得多的搜索空间</strong>。
-而在国际象棋这种确定性博弈上，直接 TD 学习效果很差 —— 必须把学习和树搜索结合起来。</p>
-</blockquote>
-<p><strong>TreeStrap</strong>（Veness 2009）就是那个结合：非叶节点也一起更新（包括没被选中的走法），
-而且 ⭐ <strong>α-β 造成截断时那个上界或下界照样能拿来当训练目标</strong> —— 正是<a href="11-剪枝.html">第 11 章</a>说的「被剪节点的值退化成一个界」。
-它第一次证明国际象棋可以从随机初始权重、纯自我对弈练到大师级。</p>
-<hr />
+<tr><th scope="row">左支期望</th><td>5</td><td>约 1.58</td></tr>
+<tr><th scope="row">右支期望</th><td>4</td><td>2</td></tr>
+<tr><th scope="row">MAX 选择</th><td>左</td><td>右</td></tr>
+</tbody></table></div>
+
+<p>左支变成 0.5 × √10 + 0.5 × √0 ≈ 1.58；右支变成 0.5 × 2 + 0.5 × 2 = 2。<strong>开平方保留单个分数的高低，却改变了不同结果之间的差距，因此选择翻转。</strong></p>
+<p>如果目标是期望得分，叶子就要使用相容的得分或效用尺度。不能把任意“越大越好”的分数都当成获胜概率。</p>
+<details>
+<summary>可以怎样改尺度？骰子又增加多少计算？</summary>
+<p><strong>正仿射变换可以保留选择</strong>：统一用 aV + b 替换叶子值，其中 a &gt; 0。由于每个机会节点概率之和为 1，其期望也变成 aE[V] + b；MAX、MIN 的次序同样保留。开平方不属于这一类变换。</p>
+<p>双陆棋的一对公平六面骰有 <strong>36 个等概率有序结果</strong>，合并次序后是 <strong>21 种组合</strong>：</p>
+<ul>
+<li>6 种对子，每种概率 1 / 36。</li>
+<li>15 种不同点数，每种概率 2 / 36。</li>
+<li><strong>不能给这 21 种都分配 1 / 21。</strong></li>
+</ul>
+<p>粗略设每次随机分支有 n 种，每个结果下有 b 个动作，连续展开 m 组“随机结果 + 决策”，规模为 $O((nb)^m)$。这是给定模型的复杂度估计；不是所有随机博弈都只能搜索 2–3 层。</p>
+<p>要在机会节点剪枝，需要用未搜索部分的合法上下界推断总期望范围。例如：已知半数概率对应值 10，其余半数的值在 [0,10]，那么总期望在 [5,10]。若 MAX 另有价值 11 的选项，这一支就不必精算。</p>
+<p><strong>没有这种界，不能只看到一个差结果就照搬普通 α-β 截断。</strong> 少量尚未看到的大收益，仍可能改变平均。</p>
+</details>
+<h2 id="ai">🕹 五、棋类 AI 简史：分清成果的性质</h2>
+<p><strong>不用背一串“谁打败谁”。下面四个例子分别回答：算得快、证明结果、学会估分、用搜索教估分。</strong></p>
+<h3 id="deep-blue">深蓝：工程系统赢得一场比赛</h3>
+<p>1997 年，深蓝在六局比赛中以 <strong>3.5 比 2.5</strong> 击败卡斯帕罗夫。它结合专用硬件、搜索、评估与棋类知识；不是单凭一个加权和，也不能把胜利简化为“中局分支多，但机器够快”。见 <a href="https://www.ibm.com/history/deep-blue">IBM 的深蓝记录</a>。</p>
+<p>赢得这场比赛不等于证明国际象棋的标准初始局面是胜、负或和。不同年代引擎的强弱比较，还需要明确版本、硬件和时限，不用“现在普通 PC 一定更强”代替证据。</p>
+<h3 id="chinook">Chinook：标准初始局面的和棋证明</h3>
+<p><strong>2007 年解决的是英美式 8×8 跳棋的标准初始局面：双方最优对弈为和棋。</strong> 不是任何跳棋变体，也不是任意残局都和棋。</p>
+<p>它结合残局数据库和前向证明搜索：先确定大量残局的精确胜负，再用有依据的搜索把初始局面连接到这些结果。剪掉分支需要证明该分支不影响结论，<strong>不是因为“大概率不会用到”就忽略它</strong>。</p>
+<p><a href="https://webdocs.cs.ualberta.ca/~chinook/databases/">项目的 8 子残局库</a>记录 <strong>443,748,401,247</strong> 个局面；<a href="https://webdocs.cs.ualberta.ca/~chinook/publications/solving_checkers.html">2007 年求解论文入口</a>对应的 10 子库约 <strong>39 万亿</strong>个局面。这些是数据库规模，不是要求读者记住的公式。</p>
+<p><a href="https://webdocs.cs.ualberta.ca/~chinook/project/">项目历程</a>从 1989 年开始，中间有暂停，到 2007 年完成求解；不能说整个证明只算了几个月。这一例体现<a href="11-剪枝.html">剪枝</a>与验证的关系，而不是“训练逐渐收敛”的故事。</p>
+<h3 id="td-gammon">TD-Gammon：自我对弈学习估分</h3>
+<p><strong>TD-Gammon 用神经网络预测局面结果，再用自我对弈中的后续预测和终局结果更新网络。</strong> 它是非线性评估函数，不属于前面那个单纯线性加权和。</p>
+<p>Tesauro 的 1995 年文章描述了<strong>四个输出</strong>，对应白方/黑方普通获胜与 gammon 获胜，未单独建模少见的三倍 backgammon。输出再按收益口径组合，不能笼统写成“一个输出就是胜率”。</p>
+<p>原文还区分了版本：仅用棋盘编码的实验中，40 个隐藏单元、20 万盘训练达到与监督学习的 Neurogammon 相近的水平；加入手工特征后的版本更强。1992 年介绍的 2.0 版使用两层前瞻。不要把不同版本的输入数、隐藏层、输出数和搜索深度拼成一个“固定架构”。</p>
+<p>1995 年报道的结论是接近顶尖人类的水平，不是证明“世界第一”。这些具体条件见 <a href="https://bkgm.com/articles/tesauro/tdl.html">Tesauro 本人的文章</a>。</p>
+<p><strong>这里保留两个学习启发：</strong></p>
+<ul>
+<li>骰子的随机性有助于产生不同局面，但不自动保证充分探索或训练收敛。</li>
+<li>监督学习专家示例和自我对弈提供不同训练信号；一个实验中的胜负不能推出哪一种学习方式永远更好。</li>
+</ul>
+<h3 id="treestrap">TDLeaf 与 TreeStrap：让搜索结果帮助学习</h3>
+<p><strong>国际象棋上的学习并非“不可能”，难点包括探索不足、战术后果和估分误差。</strong> 搜索可以提供更有用的训练信号。</p>
+<p>TDLeaf 把 TD 学习与搜索主变化的叶节点联系起来。TreeStrap 则利用同一次搜索中多个节点的返回值，不只学习最终实际走过的一条路线。</p>
+<p>对于 α-β 返回的界，要保留“只知道范围”的含义：若只知道值至少为 5，当前估计为 3，可以向上修正；估计为 7 时，不能假装真实答案就是 5、硬拉回去。下界与上界对应单侧约束。</p>
+<p>Veness 等人 2009 年的 Meep 实验从随机评估权重出发，借助自我对弈与搜索获得了较强棋力。原文把在线测试表现描述为大师级范围；这是特定配置下的实测，<strong>不是任意网络、任意自我对弈都收敛的证明</strong>。见 <a href="https://papers.nips.cc/paper_files/paper/2009/hash/389bc7bb1e1c2a5e7e147703232a88f6-Abstract.html">TreeStrap 原论文</a>。</p>
+<details>
+<summary>历史补充：早期人物、机器与学习实验</summary>
+<p>以下按思想发展分组，避免把“设想”“运行的程序”“实验结果”“数学定理”混成同一种成就。</p>
+<ul>
+<li><strong>机械设想</strong>：土耳其行棋傀儡内部有人操纵，不是自动推理；Babbage 曾设想供人挑战的井字棋装置。不能据此声称他与 Lovelace 已共同造出该机器。参见 <a href="https://www.computerhistory.org/chess/thm-42b86ebff1a81/">博物馆的机械棋手史</a>与 <a href="https://www.computerhistory.org/babbage/charlesbabbage">Babbage 生平资料</a>。</li>
+<li><strong>理论与程序设想</strong>：Zermelo 的 1913 年工作讨论棋类博弈的理论问题；von Neumann 的 1928 年极小极大定理和与 Morgenstern 合著的 1944 年著作属于博弈论发展，不能把年份合并成“完美棋局算法已经高效可算”。条件接到<a href="../博弈论与集体决策/13-零和与极大极小.html">零和与极大极小</a>。</li>
+<li><strong>有限搜索</strong>：Zuse、Wiener、Turing、Shannon 都出现在早期机器下棋的探索史中。这里重点学习 Shannon 的有限搜索与估分，而不要求背有争议的“第一个完整程序”归属。</li>
+<li><strong>运行中的搜索与学习</strong>：McCarthy 参与早期棋类搜索研究；Samuel 的 1959 年跳棋工作探索了通过学习调整评估。搜索、缓存、表示和学习可以配合，但不在本页声称哈希表、压缩、学习三者都由他首次发明。</li>
+<li><strong>MENACE</strong>：Michie 在 1960 年代初用火柴盒与彩色珠子演示井字棋的学习：局面对应盒子，珠子对应可选动作，胜负反馈改变抽取倾向。它说明简单部件也能实现学习，不说明已掌握所有棋类。</li>
+<li><strong>近期里程碑</strong>：TD-Gammon、深蓝、Chinook 之后，AlphaGo（2016 年对李世石的比赛）、AlphaGo Zero（2017 年）与 AlphaZero（2017 年预印本、2018 年正式论文）体现了搜索与学习的继续结合；差别见下一节。</li>
+</ul>
+</details>
 <h2 id="mcts-">🌲 六、MCTS 和 α-β 的分工</h2>
-<p>围棋分支因子超过 300，而且<strong>静态评估极难写</strong>（一块棋是死是活往往要算到很深才知道），α-β 那条路走不动。
-<strong>MCTS</strong> 换了思路：不穷举，采样 —— 树随机地一点点长出来，走一小段之后把剩下的棋随机下完，用大量对局的胜率统计代替评估函数。</p>
-<blockquote>
-<p>⭐ 分工一句话：
-<strong>α-β = 穷举 + 剪枝 + 一个写得出来的评估函数；MCTS = 采样 + 统计，不需要评估函数。</strong>
-分支小、评估写得出来的地方（国际象棋）α-β 至今仍最强；分支 300 以上、评估难写的地方（围棋）MCTS 赢。</p>
-</blockquote>
-<p>AlphaGo 是 MCTS + 深度网络（先学人类棋谱再自我对弈），AlphaZero 完全靠自我对弈。</p>
-<p>⭐ 最后一个扣子：<strong>自我对弈为什么讲得通？</strong> 因为围棋、象棋、将棋都是二人零和博弈 ——
-<a href="../博弈论与集体决策/13-零和与极大极小.html">第 13 章</a>证明了这类博弈的值 $v$ 唯一、且「最优策略」与对手打什么无关，
-<strong>两边都在逼近同一个确定的东西</strong>。⚠️ 换成非零和（谈判、多方拍卖），「自我对弈会收敛到什么」重新变成没有答案的问题。</p>
-<hr />
-<h2 id="_7">🔗 这一章连到哪里</h2>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>去哪</th>
-<th>为什么</th>
-</tr>
-</thead>
+<p><strong>不是“象棋只能用 α-β，围棋只能用 MCTS”，也不存在分支数超过 300 就自动换算法的规则。</strong></p>
+<p>19×19 围棋开局有 361 个落点，之后合法动作数随局面改变；高分支与复杂局面估分使分配搜索预算很重要。但算法选择还与评估质量、时间、硬件和任务有关。</p>
+<div class="tw"><table data-audit-table="search-methods" style="min-width:0;width:100%">
+<thead><tr><th scope="col">方法</th><th scope="col">主要怎样使用预算</th></tr></thead>
 <tbody>
-<tr>
-<td><a href="11-剪枝.html">11-剪枝.html</a></td>
-<td>剪枝让你搜得更深，本章讲搜到头之后怎么办；⭐ TreeStrap 正好拿「被剪节点退化成的界」当训练目标</td>
-</tr>
-<tr>
-<td><a href="../博弈论与集体决策/13-零和与极大极小.html">博弈论与集体决策 13 · 零和与极大极小</a></td>
-<td>⭐ 那一章讲清了<strong>自我对弈为什么讲得通</strong> —— 底下垫的是零和的极大极小定理</td>
-</tr>
-<tr>
-<td><a href="../强化学习基础/05-蒙特卡洛与时序差分.html">强化学习基础 05 · 蒙特卡洛与时序差分</a></td>
-<td>TD-Gammon 用的 TD 学习本体在那里；本章只讲它怎么用，<strong>不重写学习算法</strong></td>
-</tr>
-<tr>
-<td><a href="../强化学习基础/index.html">强化学习基础</a></td>
-<td>「评估函数的权重可以用强化学习学出来」的完整展开，是那边整套 16 章</td>
-</tr>
-<tr>
-<td><a href="13-CSP是什么.html">13-CSP是什么.html</a></td>
-<td>下一站换个问法：不问「怎么走到目标」，而问「<strong>哪一组赋值同时满足所有约束</strong>」—— 路径不重要了</td>
-</tr>
-</tbody>
-</table></div>
-<hr />
+<tr><th scope="row">α-β</th><td>在 Minimax 树中用上下界排除不会影响结果的分支</td></tr>
+<tr><th scope="row">MCTS</th><td>根据已有访问统计反复选择、扩展、评估并回传，集中更多模拟到有希望的分支</td></tr>
+</tbody></table></div>
+
+<p>基本 MCTS 可以用 rollout：从边界局面按某种策略模拟到终局，回传结果。<strong>rollout 策略可以随机，但“MCTS 必须把剩下的棋随机下完”不是定义。</strong></p>
+<p>现代做法也可以用价值网络直接评估边界，用策略网络指导分配搜索；所以“MCTS 不需要评估函数”并不成立。α-β 若只搜到截断深度，通常同样需要边界评估；能搜到终局的部分则使用精确结果。</p>
+<p><strong>三个名字，分开记：</strong></p>
+<ul>
+<li>AlphaGo：结合人类棋谱学习、自我对弈、网络与树搜索，早期版本还使用 rollout。</li>
+<li>AlphaGo Zero：训练不依赖人类棋谱，通过自我对弈学习围棋。</li>
+<li>AlphaZero：进一步在围棋、国际象棋和将棋上分别训练；无需人类棋谱，不等于无需游戏规则、合法动作实现或算法设计。见 <a href="https://deepmind.google/blog/alphago-zero-starting-from-scratch/">研究团队的 AlphaGo Zero 说明</a>与 <a href="https://deepmind.google/blog/alphazero-shedding-new-light-on-chess-shogi-and-go/">AlphaZero 说明</a>。</li>
+</ul>
+<h3 id="self-play-limits">自我对弈有目标，不等于自动到达目标</h3>
+<p><strong>极小极大定理说明适用的零和博弈存在均衡值，不负责保证任意训练算法找到它。</strong> 策略也未必唯一。</p>
+<p>搜索和学习会遇到有限样本、函数逼近、探索不足、对手持续变化等问题。即使均衡存在，某种自我对弈更新也可能循环或不稳定。</p>
+<p><a href="../博弈论与集体决策/13-零和与极大极小.html">第 13 章</a>讲的是“有哪些保证、保证到哪一步”。非零和也可以有均衡和专门的学习理论，不能简单说“非零和没有答案”。</p>
+<h2 id="_7">🔗 这一章连到哪里</h2>
+<ul>
+<li><a href="11-剪枝.html">11-剪枝.html</a>：检查 α-β 返回的是精确值、上界还是下界；TreeStrap 不能把界当真值。</li>
+<li><a href="../博弈论与集体决策/13-零和与极大极小.html">博弈论与集体决策 13 · 零和与极大极小</a>：区分均衡存在、最坏情况保证与学习收敛。</li>
+<li><a href="../强化学习基础/05-蒙特卡洛与时序差分.html">强化学习基础 05 · 蒙特卡洛与时序差分</a>：TD-Gammon 使用的学习思路。</li>
+<li><a href="../强化学习基础/index.html">强化学习基础</a>：继续看评估或策略怎样从交互中学习。</li>
+<li><a href="13-CSP是什么.html">13-CSP是什么.html</a>：下一站改问“哪一组赋值同时满足所有约束”。</li>
+</ul>
 <h2 id="_8">✅ 检查点</h2>
 <ol>
-<li>Shannon 1950 给的 Type A 和 Type B 各是什么？现代引擎用哪个？</li>
-<li>评估函数长什么样？KnightCap 有 2000 个特征，为什么还算得飞快？对 Minimax，它的<strong>精确值</strong>要紧吗？</li>
-<li>什么是地平线效应？举一个具体场景。为什么说「加深一层」治不好它？</li>
-<li>静默搜索怎么做？背后的直觉是什么？</li>
-<li>手算：左 CHANCE 节点两个等概率叶子是 10 和 0，右边是 4 和 4。MAX 选哪支？把评估函数换成 $\sqrt{\cdot}$ 之后呢？这说明了什么？</li>
-<li>Chinook 的残局库覆盖了多少个局面？Schaeffer 证明跳棋必和用的是什么方法？</li>
-<li>TD-Gammon 为什么在双陆棋上成功，而直接 TD 学习在国际象棋上不行？</li>
-<li>α-β 和 MCTS 的分工是什么？自我对弈能收敛，底下垫的是哪条结论？</li>
+<li>Type A 与 Type B 怎样分配搜索预算？α-β 总能把指数减半吗？</li>
+<li>线性评估怎样得到示例中的 1.5？对固定 Minimax 树，哪种变换可以保持选择？</li>
+<li>拖延丢象的例子里，短期与长期比较为何相反？加深搜索一定无效吗？</li>
+<li>静默搜索怎样缓解问题？被将军时能只用静态估分吗？</li>
+<li>原来的 10、0 与 4、4 两支各值多少？叶子开平方后呢？</li>
+<li>Chinook 的 8 子与 10 子数据库是什么规模？求解结论适用于什么起点和规则？</li>
+<li>TD-Gammon 与 TreeStrap 分别怎样获得训练信号？骰子是否保证学习成功？</li>
+<li>MCTS 一定不使用评估函数吗？极小极大定理是否保证自我对弈收敛？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>Type A</strong> = 固定深度、全宽度搜完；Type B = 只挑有希望的几步但搜得更深。现代引擎两个都用：α-β 全宽度搜到 $d$ 层，再对危险分支单独延伸。</li>
-<li>$\text{EVAL}(s) = \sum_i w_i f_i(s)$，特征分子力（后 9 / 车 5 / 马 = 象 3 / 兵 1）、位置、交互、兵型机动性。算得快是因为<strong>稀疏</strong> —— 任一局面下绝大多数特征是 0（后同时只能在一格），再加增量更新。精确值不要紧，只有序重要：$1,2,2,4$ 和 $1,20,20,400$ 选出同一支，任何单调变换都不改变 Minimax 的走法，确定性博弈里收益是序数效用。</li>
-<li><strong>坏事就在搜索深度之外那一步</strong>，程序用一串拖延走法把它推到地平线外。场景：黑象必丢，程序先送兵将军消耗层数，深度用完时象还在盘上、评估函数给高分，代价是白送三个兵而象照丢。治不好是因为这是固定深度本身的病 —— 加深两层只是把地平线挪两层。</li>
-<li>到深度上限时先看局面<strong>安不安静</strong>（吃子、将军、后被攻击）；不安静就继续往下搜，但只搜这些强制走法，直到平静再评估。直觉：评估函数只在静态局面上可信。</li>
-<li>原来左 $=5$、右 $=4$，<strong>选左</strong>；换 $\sqrt{\cdot}$ 后左 $=0.5\sqrt{10}\approx1.58$、右 $=2.00$，⚠️ 选右。随机博弈里单调变换会翻转走法，所以 EVAL 必须正比于期望收益，不能只保证序。</li>
-<li><strong>443,748,401,247</strong> 个（8 子以下全部，后扩到 10 子、38 万亿）。方法是增量填博弈树、跳过大概率会被剪掉的分支，几个月后收敛到「真实剪枝树」的骨架 —— 剪枝变成了证明工具。</li>
-<li>因为<strong>骰子的随机性逼着自我对弈探索大得多的搜索空间</strong>。确定性博弈里直接 TD 学习效果很差，必须把学习和树搜索结合 —— TD-Leaf、TreeStrap（后者连 α-β 截断产生的上下界都拿来当训练目标）。</li>
-<li><strong>α-β = 穷举 + 剪枝 + 一个写得出来的评估函数；MCTS = 采样 + 统计，不需要评估函数。</strong> 象棋归前者，围棋（分支 300+、评估难写）归后者。自我对弈能收敛，垫在底下的是零和的极大极小定理：值 $v$ 唯一、最优策略与对手无关。⚠️ 非零和没这个保证。</li>
+<li>Type A 给定深度内全宽度搜索；Type B 有选择地深入。α-β 的指数约减半是理想排序下的量级，不是所有实际搜索都能达到。</li>
+<li>5 − 3 − 0.5 = 1.5。固定 MAX/MIN 树上，对所有叶子统一做严格递增变换并保持平局规则，可保持选择；实际引擎的搜索树不能随变换改变。</li>
+<li>教学对照中，边界只看到 −1 优于 −3；最终却是 −6 差于 −3。加深或改进评估可能发现这次错误，但不能保证不存在更远处的错误。</li>
+<li>到达边界后继续检查选定的战术走法，避免过早评价。被将军时必须考虑合法应将，不能用“不走棋”的静态分数替代。</li>
+<li>原来左 5、右 4，选左；开平方后左约 1.58、右 2，选右。平均比较不仅依赖排序，还依赖分数尺度和概率。</li>
+<li>8 子库为 443,748,401,247 个局面，10 子库约 39 万亿；它们是规模信息，不用背。证明针对英美式跳棋标准初始局面、双方最优为和，不是所有局面都和。</li>
+<li>TD-Gammon 由自我对弈中的后续预测和终局结果学习；TreeStrap 利用同次搜索多个节点的值或单侧界。随机骰子有助覆盖，但不提供普遍成功保证。</li>
+<li>MCTS 可以用 rollout，也可以用价值网络。均衡存在定理不等于训练收敛定理，有限样本自我对弈可能不稳定。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_9">🛑 可以停在这里</h2>
-<p>⚡ <strong>走神救援</strong></p>
-<blockquote>
-<p>⭐ <strong>α-β 剪掉一半指数，象棋还是搜不完——所以必须半路停下来估分。</strong> 这就是 Shannon 1950 的「有限地平线 + 近似评估」，他给的两条路（固定深度全宽度 / 只挑有希望的几步搜得更深）现代引擎两个都用。评估函数是特征加权和；⭐ 它能有两千个特征还算得飞快，靠的是<strong>稀疏加增量更新</strong>。</p>
-<p>⭐ <strong>对 Minimax，精确值不要紧、只有序要紧</strong>——把所有分数换成任意保序的另一组，选出来的还是同一支。<strong>收益是序数效用。</strong></p>
-<p>⚠️ <strong>地平线效应</strong>：坏事就在深度之外那一步，程序用一串拖延走法把它推出去——结果是白白付出代价而坏事照样发生。⭐ <strong>这是固定深度本身的病，加深两层只是把地平线挪两层。</strong> 治法是<strong>静默搜索</strong>：到了深度上限先看局面安不安静，不安静就只沿强制走法继续搜。⭐ 直觉一句话：<strong>评估函数只在静态局面上可信。</strong></p>
-<p>⭐⭐ <strong>但一加进随机性，精确值就突然要紧了</strong>：期望极小极大要按概率加权平均，而<strong>把评估函数换成一个严格单调递增的变换，走法会翻</strong>。所以 ⭐ <strong>随机博弈里评估函数必须正比于期望收益</strong>——这正是 TD-Gammon 的输出被解释成「获胜概率」的原因。</p>
-<p>简史三条里最值得记的：Chinook 用残局库加剪枝<strong>证明</strong>了跳棋必和——⭐ <strong>剪枝在这里变成了证明工具</strong>；TD-Gammon 的自我对弈网打赢了监督学专家偏好的网，⭐ <strong>它行得通是因为骰子逼着自我对弈探索大得多的空间</strong>，确定性博弈得靠别的办法。</p>
-<p>分工：<strong>α-β 是穷举加剪枝加写得出来的评估函数，MCTS 是采样加统计、不需要评估函数。</strong> ⭐ 而自我对弈之所以讲得通，垫在底下的是<strong>零和的极大极小定理</strong>——非零和就没这个保证。</p>
-</blockquote>
-<p><strong>下一节</strong> 👉 <a href="13-CSP是什么.html">13-CSP是什么.html</a></p>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这四件事</p><ul><li>边界估分不是终局证明，线性公式只是一个入门模型。</li><li>固定 Minimax 看次序；机会节点平均时还要看概率与收益尺度。</li><li>静默搜索缓解有限视野，不是治好所有估分错误。</li><li>会下棋、解出了游戏、训练必然收敛，是三种不同的结论。</li></ul></section>
+
+<p>能解释 <strong>为什么 5 大于 4，但开平方后 1.58 小于 2</strong>，这次就可以停。下一节：<a href="13-CSP是什么.html">13-CSP是什么.html</a>。</p></article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
+<button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#shannon-1950">🕰️ 一、Shannon 1950 的两条路</a><a href="#_2">📊 二、评估函数：先从特征加权和学起</a><a href="#_3">👻 三、地平线效应</a><a href="#_5">🎲 四、期望极小极大：骰子进来了</a><a href="#ai">🕹 五、棋类 AI 简史：分清成果的性质</a><a href="#mcts-">🌲 六、MCTS 和 α-β 的分工</a><a href="#_7">🔗 这一章连到哪里</a><a href="#_8">✅ 检查点</a><a href="#_9">🛑 可以停在这里</a></nav>
+<button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
+<a href="index.html">回到本模块目录</a></div></aside></div>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="11-剪枝.html"><div class="dir">← 上一节</div>✂️ 11 · α-β 剪枝</a><a class="next" href="13-CSP是什么.html"><div class="dir">下一节 →</div>🧩 13 · CSP 是什么</a></nav>

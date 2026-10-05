@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>07 · 评测的坑：随机划分在这里是作弊 · 科学问题怎么变成模型</title>
+<title>07 · 评测的坑：先确定要推广到谁 · 科学问题怎么变成模型</title>
 <script>(function(){var t=localStorage.getItem('recsys-theme');
 if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
 @font-face{font-family:"CodeCJK";
@@ -295,22 +295,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">🧬 一、为什么这里的样本不独立</a></li>
 <li><a href="#_3">🧪 二、把这件事跑出来</a></li>
-<li><a href="#_4">🚨 三、为什么正则化救不了它</a></li>
-<li><a href="#_5">🔧 四、正确的划分怎么做</a></li>
-<li><a href="#_6">🪤 五、另外三个坑</a></li>
-<li><a href="#_10">🔗 这一章连到哪里</a></li>
-<li><a href="#_11">✅ 检查点</a></li>
-<li><a href="#_12">🛑 可以停在这里</a></li>
+<li><a href="#_5">🚨 三、为什么正则化救不了它</a></li>
+<li><a href="#_6">🔧 四、正确的划分怎么做</a></li>
+<li><a href="#_7">🪤 五、另外三个坑</a></li>
+<li><a href="#_11">🔗 这一章连到哪里</a></li>
+<li><a href="#_12">✅ 检查点</a></li>
+<li><a href="#_13">🛑 可以停在这里</a></li>
 </ul>
 </div>
 </details>
-<h1 id="07">07 · 评测的坑：随机划分在这里是作弊</h1>
+<h1 id="07">07 · 评测的坑：先确定要推广到谁</h1>
 <p>⏱ <strong>32 分钟</strong> ｜ ⭐ <strong>同一份数据同一个模型，只改划分方式，R² 从 0.71 掉到 −1.20</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>随机划分训练集和测试集，在科学数据上几乎总是错的。</strong>
-互联网数据里样本大致独立；这里不是 —— 同一个家族的序列彼此高度相似，
-随机划分会把「几乎一样的东西」同时放进两边，于是模型<strong>只要记住就能拿高分</strong>。</p>
+<p><strong>想预测未见过的家族，就不能用同族混在两边的随机划分来证明能力。</strong> 随机划分回答的更接近“已见家族里的新序列”，分组划分回答“新家族”。</p>
+<p>互联网数据也可能存在同用户、重复内容等依赖；不是只有科学数据需要检查。先定义部署目标，再决定哪些相关样本不能跨集。</p>
 <hr />
 <h2 id="_2">🧬 一、为什么这里的样本不独立</h2>
 <p>蛋白质序列数据库里，大量条目是<strong>同源</strong>的：来自不同物种、但由同一个祖先演化而来，
@@ -380,16 +379,33 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <p>真实输出：</p>
-<div class="codehilite"><pre><span></span><code>同一份数据、同一个模型，只改划分方式：
-  random split   test R2 = 0.707
-  group split    test R2 = -1.199
-  inflation      1.906
-random split: 100% of test seqs have a same-family sibling in train
-</code></pre></div>
-
+<section aria-label="同一个模型，两种泛化问题" class="experiment-result" id="experiment-result-21">
+<h3 id="_4">同一个模型，两种泛化问题</h3>
+<p>随机划分测试已见家族中的新序列；分组划分测试未见家族。先确定实际要解决哪一种问题，再选择划分。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>划分方式</th>
+<th style="text-align: right;">测试集 R²</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>random split：随机划分</td>
+<td style="text-align: right;">0.707</td>
+</tr>
+<tr>
+<td>group split：按家族划分</td>
+<td style="text-align: right;">-1.199</td>
+</tr>
+</tbody>
+</table></div>
+<p>两项 R² 差 <strong>1.906</strong>。随机划分中，<strong>100%</strong> 的测试序列在训练集中有同一家族的样本。</p>
+<p>负 R² 表示本次平方误差大于以<strong>测试集均值</strong>作常数预测的误差；这不等于已经实测了“预测训练集均值”的基线。</p>
+</section>
 <figure class="dia"><svg viewBox="0 0 760 344" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="左右两个面板各有四个家族圈：左边随机划分，每个圈里训练和测试的点混在一起；右边按家族划分，每个圈整圈同色"><text class="dia-t" x="196" y="40" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">随机划分（默认做法）</text><circle cx="118" cy="108" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="139.0" cy="108.0" r="6" fill="var(--done)"/><circle cx="128.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="107.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="97.0" cy="108.0" r="6" fill="var(--done)"/><circle cx="107.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="128.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="274" cy="108" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="295.0" cy="108.0" r="6" fill="var(--done)"/><circle cx="284.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="263.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="253.0" cy="108.0" r="6" fill="var(--done)"/><circle cx="263.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="284.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="118" cy="204" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="139.0" cy="204.0" r="6" fill="var(--done)"/><circle cx="128.5" cy="222.2" r="6" fill="var(--accent)"/><circle cx="107.5" cy="222.2" r="6" fill="var(--accent)"/><circle cx="97.0" cy="204.0" r="6" fill="var(--done)"/><circle cx="107.5" cy="185.8" r="6" fill="var(--accent)"/><circle cx="128.5" cy="185.8" r="6" fill="var(--accent)"/><circle cx="274" cy="204" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="295.0" cy="204.0" r="6" fill="var(--done)"/><circle cx="284.5" cy="222.2" r="6" fill="var(--accent)"/><circle cx="263.5" cy="222.2" r="6" fill="var(--accent)"/><circle cx="253.0" cy="204.0" r="6" fill="var(--done)"/><circle cx="263.5" cy="185.8" r="6" fill="var(--accent)"/><circle cx="284.5" cy="185.8" r="6" fill="var(--accent)"/><text class="dia-t" x="196" y="264" font-size="12.5" text-anchor="middle" fill="var(--danger,#e5534b)" font-weight="700">测试集 100% 有同族兄弟在训练集</text><text class="dia-t" x="196" y="290" font-size="13.5" text-anchor="middle" fill="var(--danger,#e5534b)" font-weight="700">测试 R² = 0.707</text><text class="dia-t" x="196" y="312" font-size="12" text-anchor="middle" fill="var(--muted)">看着像个能用的模型</text><line x1="380" y1="30" x2="380" y2="322" stroke="var(--border)" stroke-width="1.4"/><text class="dia-t" x="566" y="40" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">按家族划分</text><circle cx="488" cy="108" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="509.0" cy="108.0" r="6" fill="var(--accent)"/><circle cx="498.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="477.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="467.0" cy="108.0" r="6" fill="var(--accent)"/><circle cx="477.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="498.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="644" cy="108" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="665.0" cy="108.0" r="6" fill="var(--accent)"/><circle cx="654.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="633.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="623.0" cy="108.0" r="6" fill="var(--accent)"/><circle cx="633.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="654.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="488" cy="204" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="509.0" cy="204.0" r="6" fill="var(--accent)"/><circle cx="498.5" cy="222.2" r="6" fill="var(--accent)"/><circle cx="477.5" cy="222.2" r="6" fill="var(--accent)"/><circle cx="467.0" cy="204.0" r="6" fill="var(--accent)"/><circle cx="477.5" cy="185.8" r="6" fill="var(--accent)"/><circle cx="498.5" cy="185.8" r="6" fill="var(--accent)"/><circle cx="644" cy="204" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="665.0" cy="204.0" r="6" fill="var(--done)"/><circle cx="654.5" cy="222.2" r="6" fill="var(--done)"/><circle cx="633.5" cy="222.2" r="6" fill="var(--done)"/><circle cx="623.0" cy="204.0" r="6" fill="var(--done)"/><circle cx="633.5" cy="185.8" r="6" fill="var(--done)"/><circle cx="654.5" cy="185.8" r="6" fill="var(--done)"/><text class="dia-t" x="566" y="264" font-size="12.5" text-anchor="middle" fill="var(--done)" font-weight="700">构造上就是 0%</text><text class="dia-t" x="566" y="290" font-size="13.5" text-anchor="middle" fill="var(--done)" font-weight="700">测试 R² = &#8722;1.199</text><text class="dia-t" x="566" y="312" font-size="12" text-anchor="middle" fill="var(--muted)">还不如直接猜均值</text><circle cx="470" cy="336" r="5" fill="var(--accent)"/><text class="dia-t" x="482" y="340" font-size="11.5" fill="var(--muted)">训练集</text><circle cx="556" cy="336" r="5" fill="var(--done)"/><text class="dia-t" x="568" y="340" font-size="11.5" fill="var(--muted)">测试集</text><text class="dia-t" x="20" y="340" font-size="12" fill="var(--fg)" font-weight="700">虚线圈 = 一个同源家族</text></svg><figcaption>只看<b>每个虚线圈里有没有两种颜色</b>：左边每个家族都被切开了，测试集里的每一条在训练集里都躺着一个几乎一样的兄弟 —— 模型<b>只要记住就能拿高分</b>。⭐ 右边整圈同色，才是在问「没见过的家族你行不行」。⚠️ 两边是<b>同一份数据、同一个模型、同一套超参</b>。</figcaption></figure>
 
-<p>⭐ <strong><code>R² = 0.707</code> 看起来是个像样的模型；<code>R² = −1.199</code> 意味着它还不如直接猜训练集均值。</strong>
+<p>⭐ <strong><code>R² = 0.707</code> 看起来是个像样的模型；<code>R² = −1.199</code> 意味着它平方误差还大于以测试集均值作常数预测的误差。</strong>
 同一份数据、同一个模型、同一套超参 —— <strong>只改了怎么切</strong>。</p>
 <blockquote>
 <p>⚠️ <strong>你的数值会不同，要看的是两者的差距。</strong> 我换了六组设置复核过：
@@ -398,16 +414,16 @@ random split: 100% of test seqs have a same-family sibling in train
 ⭐ 这个差距<strong>不是某组超参下的巧合</strong>。</p>
 </blockquote>
 <hr />
-<h2 id="_4">🚨 三、为什么正则化救不了它</h2>
+<h2 id="_5">🚨 三、为什么正则化救不了它</h2>
 <p>一个自然的反应是「加大正则化就好了」。上面那组复核里，
 把 <code>lam</code> 从 1 加到 100，按家族划分的 R² 从 −1.20 抬到 −0.25 —— <strong>抬上去了，但还是负的</strong>。</p>
 <p>⭐ <strong>原因不在模型复杂度，在于训练集里根本没有测试家族的信息。</strong>
 标签由家族原型决定，而那 10 个测试家族的原型模型一次都没见过。
 正则化能防止过拟合，防不了「要预测的东西压根不在训练分布里」。</p>
 <p>⚠️ 所以看到「按组划分后指标暴跌」时，<strong>不要第一时间去调模型</strong> —— 先接受这个数字，
-它才是你系统真实泛化能力的估计。</p>
+它估计的是对该分组规则下未见家族的泛化，不一定代表所有部署场景。</p>
 <hr />
-<h2 id="_5">🔧 四、正确的划分怎么做</h2>
+<h2 id="_6">🔧 四、正确的划分怎么做</h2>
 <ol>
 <li><strong>先聚类，再划分。</strong> 按序列相似度把数据聚成簇，<strong>整簇整簇地分配</strong>到训练/验证/测试。
    🗓️ 工具层面常用 CD-HIT、MMseqs2 这类序列聚类程序（版本和参数会变，用之前查它们的当前文档）。</li>
@@ -427,24 +443,24 @@ random split: 100% of test seqs have a same-family sibling in train
 <strong>连阈值定在哪都是你的决定</strong>。这才是科学数据上真正难的那一半。</p>
 </blockquote>
 <hr />
-<h2 id="_6">🪤 五、另外三个坑</h2>
-<h3 id="_7">只有成功的实验进了数据库</h3>
+<h2 id="_7">🪤 五、另外三个坑</h2>
+<h3 id="_8">只有成功的实验进了数据库</h3>
 <p>发表和录入本身是有筛选的：做出来没效果的分子、表达失败的突变体，大多不会进公开库。
 ⚠️ 于是你的「负样本」不是真正的负样本，而是<strong>没被记录的那一类被整体删掉了</strong>。</p>
 <p>⭐ 这就是<a href="../数据这一关/15-采样偏差与幸存者偏差.html">数据这一关 · 15 采样偏差与幸存者偏差</a>
 讲的那件事：<strong>你手上的数据只包含「活下来的」那部分，而失败的那部分根本没进样本。</strong>
 用它训出来的模型会系统性高估效果，<strong>而且从数据本身看不出问题</strong>。</p>
-<h3 id="_8">测试集太小，指标根本分不出差别</h3>
+<h3 id="_9">测试集太小，指标根本分不出差别</h3>
 <p>科学数据的测试集常常只有一两百条 —— 而按家族划分之后，<strong>有效独立样本数还要再打一个折</strong>。
 ⚠️ 站内<a href="../大模型全景导论/11-评测体系.html">大模型全景导论 · 11 评测体系</a>算过一笔同类的账：
 <strong>100 题只能分辨约 8 个百分点，想分辨 3 个点要约 700 题。</strong>
 ⭐ 你的测试集如果只有 40 个独立家族，「A 比 B 高 2 个点」这句话大概率没有意义。</p>
-<h3 id="_9">指标选错</h3>
+<h3 id="_10">指标选错</h3>
 <p>阳性样本占 3% 时，一个「全都预测阴性」的模型准确率就有 97%。
 ⭐ 极不平衡的数据上看准确率没有意义，该看的是 AUPRC 这类对正类敏感的指标，
 或者干脆报「排名前 N 里有几个真阳性」—— <strong>因为下游真正要做的就是「挑 N 个去做实验」</strong>。</p>
 <hr />
-<h2 id="_10">🔗 这一章连到哪里</h2>
+<h2 id="_11">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -472,9 +488,9 @@ random split: 100% of test seqs have a same-family sibling in train
 </tbody>
 </table></div>
 <hr />
-<h2 id="_11">✅ 检查点</h2>
+<h2 id="_12">✅ 检查点</h2>
 <ol>
-<li>为什么科学数据上的随机划分是作弊？用一句话说清机制。</li>
+<li>为什么随机划分不能证明对新家族的泛化？它能回答什么问题？</li>
 <li>实验里两种划分的 R² 各是多少？「负的 R²」意味着什么？</li>
 <li>加大正则化能不能救回按家族划分的指标？为什么？</li>
 <li>正确的划分要做哪四件事？为什么验证集也要按组切？</li>
@@ -484,18 +500,18 @@ random split: 100% of test seqs have a same-family sibling in train
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>同源序列高度相似，随机划分会把<strong>几乎一样的样本</strong>同时放进训练集和测试集，于是模型只要<strong>记住训练集</strong>就能在测试集拿高分 —— 测的是记忆不是泛化。实验里随机划分下 <strong>100%</strong> 的测试序列在训练集里有同族兄弟。</li>
-<li><strong>随机划分 R² = 0.707，按家族划分 R² = −1.199</strong>，虚高 1.906。负的 R² 意味着模型<strong>还不如直接猜训练集均值</strong>。</li>
+<li>随机划分可能让训练与测试共享家族特征，本例 <strong>100%</strong> 的测试序列都有同族训练样本。它可评估相应分布中的新序列，却不能替代未见家族评估；划分必须对应实际目标。</li>
+<li><strong>随机划分 R² = 0.707，按家族划分 R² = −1.199</strong>，两种评估相差 1.906。负的 R² 意味着模型<strong>平方误差还大于以测试集均值作常数预测的误差</strong>。</li>
 <li><strong>不能。</strong> <code>lam</code> 从 1 加到 100，按家族划分只从 −1.20 抬到 −0.25，<strong>仍然是负的</strong>。因为问题不在模型复杂度，而在于<strong>训练集里根本没有测试家族的信息</strong> —— 正则化防得了过拟合，防不了「要预测的东西不在训练分布里」。</li>
 <li>①按相似度聚类再整簇分配 ②报告时必须同时报相似度阈值 ③<strong>验证集也要按组切</strong>（否则调参那一步照样泄漏）④用别人的公开划分前先问它是怎么划的。</li>
 <li>负样本不是真正的负样本，而是「没被记录的那一类被整体删掉了」，模型会<strong>系统性高估效果、而且从数据本身看不出来</strong>。对应<a href="../数据这一关/15-采样偏差与幸存者偏差.html">数据这一关 15 · 采样偏差与幸存者偏差</a>。</li>
-<li><strong>大概率不可信。</strong> 站内算过：100 个独立样本只能分辨约 8 个百分点，想分辨 3 个点要约 700 个。40 个家族比 100 还少。</li>
+<li>不能仅凭 40 个家族或 2 个点下结论。需要明确指标、家族大小和相关性，用按家族的重复划分或重采样估计差值的不确定性；二分类比例的样本量例子不能直接套到 R²。</li>
 </ol>
 </details>
 <hr />
-<h2 id="_12">🛑 可以停在这里</h2>
+<h2 id="_13">🛑 可以停在这里</h2>
 <p>读到这里你手上有一条可以立刻执行的规矩：<strong>拿到任何科学数据集，第一件事是问「它是怎么划分的」</strong> ——
-如果答案是「随机」，那所有报告出来的指标都要重新估。</p>
+如果要推广到未见家族而数据却随机混合，应重新进行对应的分组评估。</p>
 <p>⚠️ <strong>什么时候看下一页</strong>：你已经能正确评估了，接下来要决定<strong>下一批实验做什么</strong> ——
 那是把评测接回数据生产的事。</p>
 <p>⚡ <strong>走神救援</strong></p>

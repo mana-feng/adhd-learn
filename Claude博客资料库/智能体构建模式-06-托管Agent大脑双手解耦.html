@@ -188,7 +188,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <div class="adhd-head">
 <p class="meta">⏱ <strong>14 分钟</strong> ｜ 🧠 <strong>决策和执行分开放</strong></p>
 <h2 id="tldr">🎯 一句话</h2>
-<p class="tl">把「决定做什么」和「实际去做」拆成两层：<strong>大脑在托管环境里推理，双手在你自己的环境里执行</strong>。⭐ 好处是<strong>敏感数据和凭证不必离开你的边界</strong>。</p>
+<p class="tl"><strong>把控制循环、执行环境和会话日志分开，让它们可以分别替换与恢复。</strong>执行环境可以按需求连接，但这不自动保证数据不出内网；工具返回给托管模型的内容仍需审查。</p>
 </div>
 
 <details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
@@ -219,33 +219,38 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>Sandbox（沙箱）：</strong> 执行代码和文件操作的环境</li>
 </ol>
 <h2 id="_4">耦合架构的问题：「别养宠物」</h2>
-<p>最初的设计把所有组件塞进单个容器，带来一系列问题：
-- <strong>宠物问题：</strong> 容器挂了会话就永久丢失；容器无响应要人工「护理康复」
-- <strong>调试困难：</strong> 唯一的观察窗口是 WebSocket 事件流，无法定位故障来源；工程师需要 shell 访问装着用户数据的容器，造成安全和隐私障碍
-- 网络假设： harness 假设所有资源都在自己的容器内，客户想接自己的私有 VPC 就要做网络对等</p>
+<p>原文回顾了把组件放进同一个容器时的三个问题：</p>
+<ul>
+<li><strong>状态难恢复：</strong>会话依赖容器存活，容器无响应时需要人工维护。原文称之为“宠物问题”。</li>
+<li><strong>故障难定位：</strong>WebSocket 事件流不足以区分控制循环、网络或容器故障；直接进入含用户数据的容器调试又有隐私障碍。</li>
+<li><strong>网络假设过强：</strong>默认资源都与 harness 同处一地，接入客户私有 VPC 时需要额外处理连接关系。</li>
+</ul>
 <h2 id="_5">解耦后的架构</h2>
 <p><strong>harness 移到容器外部</strong>：不再运行在容器内，而是通过 <code>execute(name, input) → string</code> 把容器当工具调用——容器从「宠物」变成可互换的「牲畜」。容器失败时 harness 捕获错误，Claude 可以用标准配方重新拉起一个新容器重试。</p>
 <p><strong>harness 自身也可替换</strong>：因为 session 日志存在 harness 之外。失败的 harness 通过 <code>wake(sessionId)</code> 重启、<code>getSession(id)</code> 取回事件日志、恢复运行；运行中持续通过 <code>emitEvent(id, event)</code> 记录事件。</p>
-<p>安全架构——耦合设计会把凭据暴露给同容器内 Claude 生成的代码（提示词注入即可窃取 token）。<br class="prose-beat">解耦后用两种模式：
-- <strong>资源绑定认证：</strong> 凭据在初始化时完成资源认证。<br class="prose-beat">git 仓库在沙箱搭建阶段就用内嵌 token 克隆好，后续 git 操作无需暴露凭据
-- <strong>保险库认证（Vault-Based）：</strong> OAuth token 和自定义工具凭据留在外部安全保险库；Claude 通过 MCP 代理服务器用会话关联的令牌取用，凭据从不暴露给 harness</p>
+<p><strong>安全边界要看凭据能否被生成代码读到。</strong>原文指出，代码与凭据共处一个容器会增加提示注入后的凭据窃取风险；不是任意提示注入都必然成功。</p>
+<p>原文给出两种认证方式：</p>
+<ul>
+<li><strong>资源绑定认证：</strong>在初始化 Git 资源时完成认证，让代理可以执行允许的 Git 操作而不直接处理 token。不要把这段描述当成“将明文 token 写进可读文件就安全”的实现指令。</li>
+<li><strong>保险库认证：</strong>OAuth 等凭据放在沙箱外，由专用 MCP 代理根据会话关联的授权调用外部服务，harness 不直接取得这些凭据。</li>
+</ul>
+<p><strong>部署时还要单独核对：</strong>工具权限、返回数据和网络边界。以上是原文架构说明，不是数据绝不外传的证明。</p>
 <h2 id="session">Session 作为外部上下文对象</h2>
-<p>长周期任务常常超出上下文窗口。与其做不可逆的取舍（摘要、选择性裁剪），不如让 session 在窗口之外提供一个<strong>持久的上下文对象</strong>。<code>getEvents()</code> 接口让 harness 可以：
-- 选取事件流的位置切片
-- 回退到某个时刻之前以理解上下文
-- 从上次停止的位置继续</p>
+<p>长周期任务可能超出上下文窗口。把事件持久化到窗口之外，可以在摘要或裁剪之后保留可查询记录；它不意味着所有历史都会自动进入模型上下文。</p>
+<p><code>getEvents()</code> 接口支持三类读取：</p>
+<ul><li>按位置选取事件片段。</li><li>回到某个时刻之前，查看发生了什么。</li><li>从上次停止阅读的位置继续。</li></ul>
 <p>harness 还能在把事件送进 Claude 上下文前做变换，实现上下文组织和 prompt cache 优化。<strong>这把「可恢复的存储」与「上下文管理」分开了</strong>——未来的 harness 可以采用任何新出现的上下文工程技术。</p>
 <h2 id="_6">规模化：多大脑，多双手</h2>
-<p>性能提升（不再要求每个会话都配容器后，首 token 延迟 TTFT 大幅改善）：
-- <strong>p50 TTFT 下降约 60%</strong>
-- <strong>p95 TTFT 下降超过 90%</strong></p>
+<p>原文报告其自身系统的首 token 延迟改善。TTFT 指从接收任务到产生第一个响应 token 的等待时间：</p>
+<ul><li><strong>p50 下降约 60%。</strong></li><li><strong>p95 下降超过 90%。</strong></li></ul>
+<p>这些是原文系统的测量结果，不是采用相同架构就能复现的通用加速比。</p>
 <p>原因：过去每个大脑都要有自己的容器并承担完整启动成本（克隆仓库、拉起进程、拉取事件）；现在容器只在工具调用需要时才配置，不需要沙箱交互的会话可以立即开始推理。</p>
 <p><strong>多大脑：</strong> 解耦让 harness 变成无状态可扩展——多大脑就是启动多个 harness，只在必要时连上双手。</p>
 <p><strong>多双手：</strong> <code>execute(name, input) → string</code> 接口支持无限种执行环境——容器、自定义工具、MCP server，或理论上任何系统。harness 不关心「手」是容器、手机还是别的什么。<strong>关键是大脑之间可以互相传递双手</strong>，从而支持协作式 Agent 场景。</p>
 <h2 id="_7">设计原则</h2>
 <ul>
 <li><strong>接口有主见，实现不设限：</strong> 对 Claude 需要什么接口（会话操作和计算）有强主张，但不对具体实现做任何假设</li>
-<li><strong>通过分离实现故障安全：</strong> 没有单点故障会级联——容器故障、harness 崩溃、沙箱问题都表现为 Claude 能自行处理的工具调用错误</li>
+<li><strong>缩小故障影响：</strong>分离状态与执行有助于独立恢复；仍需测试超时、重试、幂等与共享依赖，不能推断所有故障都能自动恢复或绝不级联。</li>
 <li><strong>面向未来：</strong> 无需架构改动就能容纳未来的 harness；不同的任务专用 harness（如 Claude Code）在系统内工作方式相同</li>
 </ul>
 <h2 id="_8">结论</h2>
@@ -260,8 +265,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>⭐ 解决<strong>「想用托管的强模型，但数据和系统不能出内网」</strong>这个矛盾。解耦之后，<strong>推理在云端进行，而工具执行留在本地</strong>，云端只看到工具的调用请求和返回摘要。</li>
-<li><strong>数据和凭证可以完全留在你的边界内</strong>。⚠️ 但要注意：<strong>工具的返回值仍然会回到云端模型的上下文</strong>——所以<strong>返回值里包含什么，需要专门审查和裁剪</strong>，否则敏感数据还是会流出去。⭐ <strong>「执行在本地」不等于「数据不出去」。</strong></li>
+<li>主要解决组件紧耦合带来的替换、恢复和扩展困难。执行环境不必总与控制循环在同一容器，但也不保证一定在用户本地。</li>
+<li>凭据隔离与数据外传是两项检查。即使执行留在本地，工具返回的内容仍可能进入托管模型上下文；返回值不一定只是摘要，需要明确审查。</li>
 <li><strong>①网络往返变多</strong>（每次工具调用都要跨边界），延迟上升；<strong>②需要一套可靠的双向通道和鉴权</strong>；<strong>③故障排查跨了两个环境</strong>，日志要能对齐；<strong>④版本管理</strong>——本地工具的行为变了，云端的提示词可能要跟着改。</li>
 </ol>
 </details>

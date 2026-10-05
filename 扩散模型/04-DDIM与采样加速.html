@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading topic-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -293,109 +293,142 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
-<li><a href="#_2">🐌 一、慢在哪：不是图大，是步多</a></li>
-<li><a href="#ddpm">🎲 二、DDPM 为什么一步都不能跳</a></li>
-<li><a href="#ddim">⏩ 三、DDIM 改了什么</a></li>
-<li><a href="#ddpm-ddim">🎛️ 四、η：一个旋钮在 DDPM 和 DDIM 之间滑动</a></li>
-<li><a href="#1000-50">🔢 五、动手：把 1000 步的表抽成 50 步</a></li>
-<li><a href="#_3">🎰 六、确定性带来的三个副产品</a></li>
-<li><a href="#_4">📉 七、步数不是越多越好</a></li>
-<li><a href="#_5">🗓️ 八、步数和调度表怎么配</a></li>
+<li><a href="#_2">🐌 一、慢在哪：先数网络评估，再看单次成本</a></li>
+<li><a href="#ddpm">🎲 二、相邻步公式不能只改一个下标</a></li>
+<li><a href="#ddim">⏩ 三、DDIM 的一步：先估计，再走向选定的噪声水平</a></li>
+<li><a href="#ddpm-ddim">🎛️ 四、η：控制新噪声，不负责保证质量</a></li>
+<li><a href="#1000-50">🔢 五、动手：从 1000 个噪声水平中选出 50 个</a></li>
+<li><a href="#_3">🎰 六、固定轨迹有什么用：复现、图生图与插值</a></li>
+<li><a href="#_4">📉 七、怎样判断增加步数有没有用</a></li>
+<li><a href="#_5">🗓️ 八、步数、时间表和求解器怎样一起选择</a></li>
 <li><a href="#_6">🔗 这一章连到哪里</a></li>
 <li><a href="#_7">✅ 检查点</a></li>
 <li><a href="#_8">🛑 可以停在这里</a></li>
 </ul>
 </div>
 </details>
-<h1 id="04-ddim">04 · DDIM 与采样加速</h1>
-<p>⏱ <strong>42 分钟</strong> ｜ ⭐ 为什么 50 步能顶 1000 步，以及 UI 上那个「种子」为什么真能复现</p>
+<div class="ov-layout"><article class="ov-body"><h1 id="04-ddim">04 · DDIM 与采样加速</h1>
+<!-- topic-reading -->
+
+<p><link rel="stylesheet" href="../assets/diff-formula-help.css"><script defer src="../assets/diff-formula-help.js"></script></p>
+<p>⏱ <strong>42 分钟</strong> ｜ 阅读与实验参考，可分次完成 ｜ <strong>先分清步数、随机性和复现条件</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>DDPM 每走一步都要掷一次骰子，所以一步都不能跳；DDIM 把骰子拿掉，采样变成一条确定的轨迹 —— 于是可以在时间步上跳着走，20~50 步就出图。</strong></p>
-<p>上一章讲的是训练：模型学会了「给一张带噪的图，说出里面掺了什么噪声」。
-这一章讲<strong>生成</strong>：同一份权重，一个字都不用重训，怎么把 1000 次调用砍到 50 次。</p>
+<p><strong>DDIM 用当前预测和目标噪声水平构造更新，允许选一张更稀疏的采样时间表。</strong> 它可以减少模型调用，但不是“去掉随机数就能无损跳步”，也没有所有模型通用的 50 步答案。</p>
+<p>先把界面上的三个设置分开：</p>
+<ul>
+<li><strong>步数</strong>：准备做多少次采样更新。更完整的成本还要数实际网络评估次数。</li>
+<li><strong>采样器与调度表</strong>：每次怎样更新、选哪些噪声水平。</li>
+<li><strong>种子</strong>：控制随机数的起点；它不是整套复现参数。</li>
+</ul>
+<p>想理解跳步，先看<a href="#ddim">两次计算</a>；只想动手，去<a href="#1000-50">时间表</a>或<a href="#_4">可复算的小实验</a>。公式推导放在折叠里，不必先读完推导才继续。</p>
+<p>上一章训练噪声预测器，本章用它生成样本。对于本页的噪声预测参数化，保持训练时的噪声表、时间标记和输入约定一致，可以复用权重来换采样方式；不能把任何预测类型的模型不加转换地代进来。</p>
 <hr />
-<h2 id="_2">🐌 一、慢在哪：不是图大，是步多</h2>
-<p>每一步都是一次完整的网络前向，而且<strong>步与步之间硬串行</strong> —— 第 t 步的输出就是第 t−1 步的输入。
-（同一批里的多张图倒是可以并排跑，所以「一次出 8 张」几乎不额外花时间。）</p>
-<p>⭐ 于是出图耗时 ≈ <strong>步数 × 单次前向</strong>。想快只有两条路：<strong>让每一步更便宜</strong>（下一章的潜空间），或者<strong>少走几步</strong>（这一章）。</p>
+<h2 id="_2">🐌 一、慢在哪：先数网络评估，再看单次成本</h2>
+<p>通常一次去噪的结果，是下一次去噪的输入；同一个样本的这条链需要依次执行。减少链上的更新次数，是加速的一条路。</p>
+<p><strong>但“步数”不一定等于“网络前向次数”。</strong> 某些求解器一次更新需要多次评估；CFG 还要取得有条件和无条件预测，可能合成一个更大的 batch 调用。比较速度时应同时记录这些设置。</p>
+<p>一个便于理解的近似是：重复部分的耗时，取决于<strong>网络评估次数（NFE）与每次评估成本</strong>。最后还要加编码、解码、调度和数据搬运等开销。</p>
+<p>同一批图片可以并行处理，这可能提高吞吐量，却不代表一次出 8 张几乎免费。计算量、显存和实际延迟都会受 batch 大小与硬件影响。</p>
+<p>你可以从两端节省工作：本章减少或改善采样更新；下一章让反复去噪处理较小的潜变量。图的大小同样会影响单次成本，不能排除在外。</p>
 <hr />
-<h2 id="ddpm">🎲 二、DDPM 为什么一步都不能跳</h2>
-<p>DDPM 的反向过程是一条<strong>马尔可夫链</strong>：</p>
-<p>$$x_{t-1} = \frac{1}{\sqrt{\alpha_t}}\left(x_t - \frac{\beta_t}{\sqrt{1-\bar\alpha_t}}\,\epsilon_\theta(x_t,t)\right) + \sigma_t z,\qquad z\sim\mathcal N(0,I)$$</p>
-<p>💡 <strong>人话</strong>：按模型预测的噪声把 $x_t$ 减掉一点，然后<strong>再重新掺一点全新的随机噪声回去</strong>。</p>
-<p>末尾那个 $\sigma_t z$ 是关键 —— 它让每一步不是「算」出来的，而是从一个分布里<strong>抽</strong>出来的。
-而这个分布的整套推导都建立在「$t$ 和 $t-1$ 相邻」上（$\alpha_t$、$\beta_t$ 都是<strong>单步</strong>的量）。</p>
-<p>⚠️ 所以你不能把式子里的 $t-1$ 改成 $t-20$ 当作跳了 20 步 —— 那样式子根本不成立。
-<strong>1000 步不是保守，是这个公式自己要求的。</strong></p>
-<hr />
-<h2 id="ddim">⏩ 三、DDIM 改了什么</h2>
-<p>⭐⭐ <strong>先说最容易误会的一点：DDIM 不用重训，也不是另一个模型，它只是换了个采样器。</strong></p>
-<p>为什么能换得这么随便？因为训练只用到一个东西 —— 前向的<strong>边缘分布</strong> $q(x_t\mid x_0)$。
-DDIM 构造了一族<strong>非马尔可夫</strong>的前向过程，它们的 $q(x_t\mid x_0)$ 和 DDPM 完全一样，
-只有「相邻两步之间怎么衔接」不同。<strong>训练目标看不见这个差别</strong>，所以同一份权重直接就能用。</p>
+<h2 id="ddpm">🎲 二、相邻步公式不能只改一个下标</h2>
+<p><strong>不能直接把相邻步公式里的 t−1 改成 t−20，同时保留原来的系数。</strong> 原因是系数描述了特定的时间间隔，不是随机性禁止跳步。</p>
+<p>本页用 $\beta_t$ 表示从 t−1 到 t 的加噪量，$\alpha_t=1-\beta_t$，$\bar\alpha_t=\prod_{s=1}^t\alpha_s$。横线表示从起点累计的信号保留比例，不是另一个可随意调的参数。</p>
+<p>先看一步由什么组成：当前样本 $x_t$、模型预测的噪声，以及可能新抽取的高斯噪声 $z$。</p>
 <details>
-<summary>📐 那一族过程是怎么构造出来的（想看再点）</summary>
-<p>DDPM 先定义单步加噪 $q(x_t\mid x_{t-1})$，再<strong>推出</strong> $q(x_t\mid x_0)$。
-DDIM 反过来：<strong>先钉死</strong> $q(x_t\mid x_0)=\mathcal N(\sqrt{\bar\alpha_t}x_0,(1-\bar\alpha_t)I)$，
-再去找所有满足它的联合分布。答案不唯一，是一族，由自由参数 $\sigma$ 索引：</p>
-<p>$$q_\sigma(x_{t'}\mid x_t,x_0)=\mathcal N\!\left(\sqrt{\bar\alpha_{t'}}x_0+\sqrt{1-\bar\alpha_{t'}-\sigma^2}\cdot\frac{x_t-\sqrt{\bar\alpha_t}x_0}{\sqrt{1-\bar\alpha_t}},\;\sigma^2 I\right)$$</p>
-<p>⭐ 这一族里<strong>没有一个成员用到「相邻」这个条件</strong>，$t'$ 可以是任何比 $t$ 小的步。</p>
+<summary>查看相邻步 DDPM 公式与每一项</summary>
+<p>把均值单独记作 $\mu_t$，长式就可以分成两行：</p>
+<p>$$\mu_t=\frac{1}{\sqrt{\alpha_t}}\left(x_t-\frac{\beta_t}{\sqrt{1-\bar\alpha_t}}\epsilon_\theta(x_t,t)\right).$$</p>
+<p>$$x_{t-1}=\mu_t+\sigma_t z,\qquad z\sim\mathcal N(0,I).$$</p>
+<ul>
+<li>$\epsilon_\theta(x_t,t)$ 是网络的预测，不是已知的真实噪声。</li>
+<li>$\mu_t$ 是按这一步的系数算出的均值。</li>
+<li>$\sigma_t z$ 提供新随机量；$\sigma_t$ 是标准差，方差是它的平方。</li>
+</ul>
+<p>最后一步可以采用不再注入新噪声的约定。DDPM 也有不同方差选择，所以比较“等价”时必须说明采用哪一种。</p>
 </details>
-<p>采样时的每一步，其实只有两个动作：</p>
-<p><strong>① 用当前的 $\epsilon$ 猜一张干净图</strong>（不管噪声水平多高都能算）：</p>
-<p>$$\hat x_0=\frac{x_t-\sqrt{1-\bar\alpha_t}\,\epsilon_\theta(x_t,t)}{\sqrt{\bar\alpha_t}}$$</p>
-<p><strong>② 把这张猜出来的图，按下一个噪声水平重新加噪回去</strong>：</p>
-<p>$$x_{t'}=\sqrt{\bar\alpha_{t'}}\,\hat x_0+\sqrt{1-\bar\alpha_{t'}-\sigma^2}\,\epsilon_\theta(x_t,t)+\sigma z$$</p>
-<p>💡 <strong>人话：每一步都先赌一把「最终这张图长什么样」，再退回到下一个噪声水平重新出发。</strong></p>
-<p>⭐ 看清楚：<strong>这两行里哪儿也没要求 $t'=t-1$。</strong> 第二步只需要知道目标噪声水平 $\bar\alpha_{t'}$ 是多少，
-$t'$ 想取 $t-20$ 就取 $t-20$。<strong>这就是能跳步的全部原因。</strong></p>
-<figure class="dia"><svg viewBox="0 0 760 178" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="左侧 DDPM 是一条密集连续的节点链，右侧 DDIM 只有五个节点、虚线跳跃相连"><text class="dia-t" x="190" y="24" font-size="14" text-anchor="middle" fill="var(--fg)" font-weight="700">DDPM：一步都不能跳</text><text class="dia-t" x="570" y="24" font-size="14" text-anchor="middle" fill="var(--accent)" font-weight="700">DDIM：可以跳着走</text><circle cx="40" cy="70" r="9" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/><line x1="49" y1="70" x2="69" y2="70" stroke="var(--muted)" stroke-width="2"/><circle cx="78" cy="70" r="9" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/><line x1="87" y1="70" x2="107" y2="70" stroke="var(--muted)" stroke-width="2"/><circle cx="116" cy="70" r="9" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/><line x1="125" y1="70" x2="145" y2="70" stroke="var(--muted)" stroke-width="2"/><circle cx="154" cy="70" r="9" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/><line x1="163" y1="70" x2="183" y2="70" stroke="var(--muted)" stroke-width="2"/><circle cx="192" cy="70" r="9" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/><line x1="201" y1="70" x2="221" y2="70" stroke="var(--muted)" stroke-width="2"/><circle cx="230" cy="70" r="9" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/><line x1="239" y1="70" x2="259" y2="70" stroke="var(--muted)" stroke-width="2"/><circle cx="268" cy="70" r="9" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/><line x1="277" y1="70" x2="297" y2="70" stroke="var(--muted)" stroke-width="2"/><circle cx="306" cy="70" r="9" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/><line x1="315" y1="70" x2="335" y2="70" stroke="var(--muted)" stroke-width="2"/><circle cx="344" cy="70" r="9" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/><text class="dia-t" x="190" y="104" font-size="12" text-anchor="middle" fill="var(--muted)">每步都注入 σ·z（一次抽样）</text><text class="dia-t" x="190" y="124" font-size="12" text-anchor="middle" fill="var(--muted)">整套推导要求 t 和 t−1 相邻</text><text class="dia-t" x="190" y="148" font-size="12.5" text-anchor="middle" fill="var(--danger,#e5534b)" font-weight="700">1000 步全串行</text><circle cx="420" cy="70" r="9" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.8"/><circle cx="500" cy="70" r="9" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.8"/><circle cx="580" cy="70" r="9" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.8"/><circle cx="660" cy="70" r="9" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.8"/><circle cx="700" cy="70" r="9" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.8"/><line x1="429" y1="70" x2="491" y2="70" stroke="var(--accent)" stroke-width="2.2" stroke-dasharray="5 4"/><line x1="509" y1="70" x2="571" y2="70" stroke="var(--accent)" stroke-width="2.2" stroke-dasharray="5 4"/><line x1="589" y1="70" x2="651" y2="70" stroke="var(--accent)" stroke-width="2.2" stroke-dasharray="5 4"/><line x1="669" y1="70" x2="691" y2="70" stroke="var(--accent)" stroke-width="2.2" stroke-dasharray="5 4"/><text class="dia-t" x="570" y="104" font-size="12" text-anchor="middle" fill="var(--muted)">去掉随机项 → 确定性</text><text class="dia-t" x="570" y="124" font-size="12" text-anchor="middle" fill="var(--muted)">边缘分布和 DDPM 一样 → 不用重训</text><text class="dia-t" x="570" y="148" font-size="12.5" text-anchor="middle" fill="var(--done)" font-weight="700">20~50 步就出图</text><line x1="360" y1="40" x2="360" y2="164" stroke="var(--border)" stroke-width="1.5" stroke-dasharray="4 4"/></svg><figcaption>看节点<b>密度</b>：左边每一步都得算，右边可以隔着跳。⭐ 关键不是右边更聪明，是它换掉了「必须相邻」这个前提 —— 而训练目标只用得到边缘分布，所以<b>换采样器不用重训</b>。</figcaption></figure>
+<p>若把时间表重新选得稀疏，并为新的间隔重算系数，<strong>随机采样仍然可以跳步</strong>。例如 <a href="https://github.com/openai/improved-diffusion/blob/main/improved_diffusion/respace.py">OpenAI 的 respacing 实现</a>会保留选中时刻的累计噪声比例、构造新的间隔参数，并映射回模型原来的时间标记。</p>
+<p>因此，“按原相邻链完整执行要走完它的步数”是对指定算法的描述；“所有带随机项的算法都必须走 1000 步”则不是。</p>
+<hr />
+<h2 id="ddim">⏩ 三、DDIM 的一步：先估计，再走向选定的噪声水平</h2>
+<p>想象你正在 t=1000，准备直接到 t′=500。你需要当前的预测，也需要目标时刻的累计系数；不是简单把原来一个小步执行一半。</p>
+<p>本页约定 $t'&lt;t$，数学时间 0 是干净端点，$\bar\alpha_0=1$。为减少重复文字，把当前噪声预测简记为：</p>
+<p>$$e_t=\epsilon_\theta(x_t,t).$$</p>
+<h3 id="ddim-predict-clean">第一个动作：估计干净样本</h3>
+<p>$$\hat x_0=\frac{x_t-\sqrt{1-\bar\alpha_t}\,e_t}{\sqrt{\bar\alpha_t}}.$$</p>
+<p>先减去预测的噪声部分，再除以信号系数。帽子提醒你：这是<strong>估计</strong>，不是已经拿到了原图。高噪声时分母可能很小，预测误差也会被放大。</p>
+<h3 id="ddim-update">第二个动作：组合出目标时刻的样本</h3>
+<p>先给“沿当前预测方向的系数”起一个短名字，避免把三个根号挤在一行：</p>
+<p>$$c=\sqrt{1-\bar\alpha_{t'}-\sigma^2}.$$</p>
+<p>$$x_{t'}=\sqrt{\bar\alpha_{t'}}\,\hat x_0+c\,e_t+\sigma z.$$</p>
+<p>从左到右读三个部分：</p>
+<ol>
+<li><strong>估计的干净样本</strong>，按目标信号比例缩放。</li>
+<li><strong>当前预测方向</strong>，按剩余噪声幅度缩放。</li>
+<li><strong>新的随机量</strong>，其大小由这段更新的 $\sigma$ 决定。</li>
+</ol>
+<p>其中 z 是新抽的标准高斯，不能与前面的网络预测 $e_t$ 混为一谈。$\sigma=0$ 时第三项消失，前两项仍然要计算。</p>
+<p>式子允许选择非相邻的 t′，但要求系数合法，例如 $0\leq\sigma^2\leq1-\bar\alpha_{t'}$。能计算一个大步，不等于这个大步与许多个小步有相同的生成质量。</p>
+<figure class="dia">
+<svg viewBox="0 0 760 252" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="两张从高噪声到干净端点的采样时间表：上方每隔一格更新，下方选择较少的时间点。选稀疏网格和是否加入新随机量是两个不同选择。">
+<text x="30" y="26" fill="var(--fg)" font-size="15" font-weight="700">比较的是时间网格，不是“有无随机数”的禁令</text>
+<text x="30" y="65" fill="var(--fg)" font-size="13">密集网格</text>
+<path d="M165 60 H702" fill="none" stroke="var(--muted)" stroke-width="2"/>
+<polygon points="710,60 700,54 700,66" fill="var(--muted)"/>
+<g fill="var(--card)" stroke="var(--muted)" stroke-width="2"><circle cx="170" cy="60" r="8"/><circle cx="230" cy="60" r="8"/><circle cx="290" cy="60" r="8"/><circle cx="350" cy="60" r="8"/><circle cx="410" cy="60" r="8"/><circle cx="470" cy="60" r="8"/><circle cx="530" cy="60" r="8"/><circle cx="590" cy="60" r="8"/><circle cx="650" cy="60" r="8"/></g>
+<text x="170" y="92" fill="var(--muted)" font-size="12" text-anchor="middle">高噪声</text><text x="690" y="92" fill="var(--muted)" font-size="12" text-anchor="middle">干净端点</text>
+<text x="30" y="136" fill="var(--accent)" font-size="13">稀疏网格</text>
+<path d="M165 131 H702" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6 5"/>
+<polygon points="710,131 700,125 700,137" fill="var(--accent)"/>
+<g fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"><circle cx="170" cy="131" r="8"/><circle cx="350" cy="131" r="8"/><circle cx="530" cy="131" r="8"/><circle cx="690" cy="131" r="8"/></g>
+<text x="30" y="185" fill="var(--fg)" font-size="13">每条新间隔：按起点、目标点的累计系数重新构造更新。</text>
+<text x="30" y="215" fill="var(--muted)" font-size="13">η = 0 不加入新的步内噪声；η &gt; 0 也可采用合法的稀疏更新。</text>
+<text x="30" y="239" fill="var(--muted)" font-size="12">节点数量仅示意，不代表本页实验的实际步数。</text>
+</svg>
+<figcaption>看两行的节点密度：下方减少了更新次数。再看最下面一句：选哪些时刻、是否加入新噪声，需要分别决定。</figcaption>
+</figure>
 
+<h3 id="ddim-training-reuse">为什么通常可以复用训练好的噪声预测器</h3>
+<p>噪声预测训练可以直接抽一个 t，从干净样本构造 $x_t$，再让网络预测噪声。它使用的是这个时刻的条件边缘分布 $q(x_t\mid x_0)$，不必在训练时模拟整条反向采样链。</p>
+<p>DDIM 的构造保留这些边缘分布，改变时刻间的连接方式，从而复用常见的噪声预测训练。这里说的是兼容的预测目标与参数约定，不是所有变分目标的权重都严格相同。<a href="https://arxiv.org/html/2010.02502v4#S3">原论文 §3–4</a>给出了构造及其代理目标的关系。</p>
+<details>
+<summary>选读：保留边缘分布的那族条件分布</summary>
+<p>先固定每个时刻的边缘：</p>
+<p>$$q(x_t\mid x_0)=\mathcal N\!\left(\sqrt{\bar\alpha_t}x_0,(1-\bar\alpha_t)I\right).$$</p>
+<p>把给定真实 x₀ 时的标准化残差记作 r，把目标均值记作 m：</p>
+<p>$$r=\frac{x_t-\sqrt{\bar\alpha_t}x_0}{\sqrt{1-\bar\alpha_t}}.$$</p>
+<p>$$m=\sqrt{\bar\alpha_{t'}}x_0+\sqrt{1-\bar\alpha_{t'}-\sigma^2}\,r.$$</p>
+<p>$$q_\sigma(x_{t'}\mid x_t,x_0)=\mathcal N(m,\sigma^2I).$$</p>
+<p>给定 x₀ 且 t&gt;0 时，r 的协方差为 I。新增高斯噪声独立于 r，因此两部分噪声的协方差相加为 $(1-\bar\alpha_{t'})I$，与所需边缘匹配；σ=0 时按退化的确定性条件分布理解。</p>
+<p>这是<strong>知道真实 x₀ 时</strong>的构造。实际生成不知道 x₀，所以前面的更新换入预测的 $\hat x_0$；不能把这个替换之后的有限步生成分布直接宣称为精确的数据分布。</p>
+</details>
+<blockquote>
+<p>可以先停：你已经知道“一步怎样算”和“为什么可以选更少的时刻”。下一节只是在这个更新里调节新噪声的大小。</p>
+</blockquote>
 <hr />
-<h2 id="ddpm-ddim">🎛️ 四、η：一个旋钮在 DDPM 和 DDIM 之间滑动</h2>
-<p>上面那个自由参数 $\sigma$，实践中写成一个更好用的形式（$\eta$ 是随机性总开关，前面两个根号只是把它缩放到当前噪声水平该有的量级）：</p>
-<p>$$\sigma_{t\to t'}=\eta\sqrt{\frac{1-\bar\alpha_{t'}}{1-\bar\alpha_t}}\sqrt{1-\frac{\bar\alpha_t}{\bar\alpha_{t'}}}$$</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>η</th>
-<th>是什么</th>
-<th>后果</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>0</strong></td>
-<td>⭐ 确定性 DDIM</td>
-<td>整条轨迹没有一处随机；同一个初始噪声永远出同一张图；<strong>跳步基本不掉质量</strong></td>
-</tr>
-<tr>
-<td>0 ~ 1</td>
-<td>中间地带</td>
-<td>每步注一点随机，多样性回来一些，跳步的代价也回来一些</td>
-</tr>
-<tr>
-<td><strong>1</strong></td>
-<td>退回 DDPM</td>
-<td>和原来的 DDPM 采样等价</td>
-</tr>
-</tbody>
-</table></div>
-<p>⚠️ <strong>η 越大，步数少了越吃亏</strong>：注进去的随机本来指望后面几百步慢慢洗掉，只给 20 步就洗不干净。
-<strong>「少步数」和「高随机性」是一对矛盾，不能都要。</strong></p>
+<h2 id="ddpm-ddim">🎛️ 四、η：控制新噪声，不负责保证质量</h2>
+<p>常见的选择把这一段的标准差写成：</p>
+<p>$$\sigma_{t\to t'}=\eta\sqrt{\frac{1-\bar\alpha_{t'}}{1-\bar\alpha_t}}\sqrt{1-\frac{\bar\alpha_t}{\bar\alpha_{t'}}}.$$</p>
+<p>η 读作 eta。它是无量纲的控制系数；另外两项依赖这次更新的起点与目标，不能省略后直接把 η 当噪声标准差。</p>
+<div class="tw"><table data-audit-table="ddim-eta" style="min-width:0;width:100%"><thead><tr><th>取值</th><th>这一步发生什么</th></tr></thead><tbody><tr><td>η = 0</td><td>不再引入步内随机量。固定初始噪声、条件与全部计算约定后，数学更新是确定的。</td></tr><tr><td>0 &lt; η &lt; 1</td><td>引入一定新噪声；质量和多样性的变化需要对当前模型实测。</td></tr><tr><td>η = 1</td><td>在完整相邻网格、相同预测与后验方差约定下，对应 DDPM 更新；稀疏网格则是另一条链。</td></tr></tbody></table></div>
+
+<p>常用范围 0≤η≤1 能使本页系数合法。一般的 σ 仍须满足上一节的方差约束，不能任意调到根号内为负。</p>
+<p>例如本页线性噪声表的 1000→500 大步，η=1 时，新增噪声方差约 <strong>0.920977</strong>，方向系数的平方约 <strong>0.000436</strong>，两者都合法。这是“随机且能跳步”的具体反例，<strong>不是这个大步画质好的证据</strong>。</p>
+<p>采用其他 DDPM 方差、预测裁剪或额外引导后，“η=1 与某个实现完全等价”还需重新核对。<a href="https://github.com/ermongroup/ddim/blob/main/functions/denoising.py">DDIM 官方更新代码</a>可以逐项对照这些系数。</p>
+<p>少步数可能影响质量，但不能解释成“新增噪声必然要用后面几百步洗掉”。随机程度与时间网格都是设计选择，没有“少步数与随机性绝对不能兼得”的定律。</p>
 <hr />
-<h2 id="1000-50">🔢 五、动手：把 1000 步的表抽成 50 步</h2>
-<p>不需要模型、不需要 GPU，几毫秒跑完：</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 把 1000 步的 DDPM 调度表，按 DDIM 的方式抽成 50 步</span>
+<h2 id="1000-50">🔢 五、动手：从 1000 个噪声水平中选出 50 个</h2>
+<p><strong>这段程序只打印时间表，不生成图片，也不是完整采样器。</strong> 需要 PyTorch，不下载模型，不需要 GPU。</p>
+<p>这里保留 0、20、40…980 的数组索引例子。注意它采用零起始下标：代码 <code>abar[0]</code> 已经加过第一步噪声，对应前面数学记号的 $\bar\alpha_1$，不是干净端点 $\bar\alpha_0=1$。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 从 1000 个已加噪的时间水平中选 50 个；本段仅查看表，不执行采样。</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
 <span class="n">T</span> <span class="o">=</span> <span class="mi">1000</span>
-<span class="n">betas</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">1e-4</span><span class="p">,</span> <span class="mf">0.02</span><span class="p">,</span> <span class="n">T</span><span class="p">)</span>      <span class="c1"># DDPM 原论文的线性 beta 表</span>
-<span class="n">abar</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cumprod</span><span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">betas</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>   <span class="c1"># abar[t] 就是公式里的 alpha_bar_t</span>
+<span class="n">betas</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">1e-4</span><span class="p">,</span> <span class="mf">0.02</span><span class="p">,</span> <span class="n">T</span><span class="p">)</span>
+<span class="n">abar</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cumprod</span><span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">betas</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>   <span class="c1"># 数组索引 t 对应数学时间 t+1</span>
 
 <span class="n">S</span> <span class="o">=</span> <span class="mi">50</span>
-<span class="n">tau</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">T</span> <span class="o">//</span> <span class="n">S</span><span class="p">)</span>           <span class="c1"># ⭐ 均匀跳步：0, 20, 40, ..., 980</span>
+<span class="n">tau</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">T</span> <span class="o">//</span> <span class="n">S</span><span class="p">)</span>           <span class="c1"># 本例 T 能被 S 整除</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;原始 </span><span class="si">{</span><span class="n">T</span><span class="si">}</span><span class="s2"> 步 -&gt; 抽成 </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">tau</span><span class="p">)</span><span class="si">}</span><span class="s2"> 步，步距 </span><span class="si">{</span><span class="n">T</span><span class="w"> </span><span class="o">//</span><span class="w"> </span><span class="n">S</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;前 6 个时间步：&quot;</span><span class="p">,</span> <span class="n">tau</span><span class="p">[:</span><span class="mi">6</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;后 6 个时间步：&quot;</span><span class="p">,</span> <span class="n">tau</span><span class="p">[</span><span class="o">-</span><span class="mi">6</span><span class="p">:]</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
@@ -405,138 +438,179 @@ $t'$ 想取 $t-20$ 就取 $t-20$。<strong>这就是能跳步的全部原因。<
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">t</span><span class="si">:</span><span class="s2">5d</span><span class="si">}</span><span class="s2">   </span><span class="si">{</span><span class="n">a</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">10.6f</span><span class="si">}</span><span class="s2">   </span><span class="si">{</span><span class="n">a</span><span class="o">.</span><span class="n">sqrt</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">8.4f</span><span class="si">}</span><span class="s2">   </span><span class="si">{</span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">a</span><span class="p">)</span><span class="o">.</span><span class="n">sqrt</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">8.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </code></pre></div>
 
-<p>真实输出：</p>
-<div class="codehilite" data-code-language="text"><pre><span></span><code>原始 1000 步 -&gt; 抽成 50 步，步距 20
-前 6 个时间步： [0, 20, 40, 60, 80, 100]
-后 6 个时间步： [880, 900, 920, 940, 960, 980]
+<p>它选到 <strong>50 个点</strong>：前六个为 0、20、40、60、80、100，后六个为 880、900、920、940、960、980。打印是升序；实际生成通常反向走，并另行处理干净端点。</p>
+<p>本例最后一个点是 980，<strong>不是 999</strong>。也不要把 <code>T // S</code> 当作适用于任意输入的选点器：不能整除时点数可能不是 S，S&gt;T 时步距甚至会为 0。下一节的完整实验另外定义了含两端点的时间表。</p>
+<p>下表是此代码打印的系数，四舍五入位数与程序一致。a 表示当前索引取到的累计系数。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>数组索引</th>
+<th>a</th>
+<th>信号系数 √a</th>
+<th>噪声系数 √(1−a)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>0.999900</td>
+<td>0.9999</td>
+<td>0.0100</td>
+</tr>
+<tr>
+<td>140</td>
+<td>0.809844</td>
+<td>0.8999</td>
+<td>0.4361</td>
+</tr>
+<tr>
+<td>280</td>
+<td>0.443395</td>
+<td>0.6659</td>
+<td>0.7461</td>
+</tr>
+<tr>
+<td>420</td>
+<td>0.163926</td>
+<td>0.4049</td>
+<td>0.9144</td>
+</tr>
+<tr>
+<td>560</td>
+<td>0.040879</td>
+<td>0.2022</td>
+<td>0.9793</td>
+</tr>
+<tr>
+<td>700</td>
+<td>0.006868</td>
+<td>0.0829</td>
+<td>0.9966</td>
+</tr>
+<tr>
+<td>840</td>
+<td>0.000777</td>
+<td>0.0279</td>
+<td>0.9996</td>
+</tr>
+<tr>
+<td>980</td>
+<td>0.000059</td>
+<td>0.0077</td>
+<td>1.0000</td>
+</tr>
+</tbody>
+</table></div>
+<p>从索引 980 回到 560，信号系数约从 0.0077 增至 0.2022。它说明不同时间水平的信噪比例不同，<strong>没有证明高噪声段无用、细节只在最后形成，或均匀选点一定浪费</strong>。</p>
+<p>要比较选点方式，应固定模型和评估任务，实际测生成质量与成本。仅看加噪系数不能替代这项实验。</p>
+<hr />
+<h2 id="_3">🎰 六、固定轨迹有什么用：复现、图生图与插值</h2>
+<h3 id="ddim-reproducibility">1. 复现：种子之外还要保存什么</h3>
+<p>η=0 时没有新的步内抽样，但初始噪声仍然是随机的。固定全部输入与计算之后，采样器定义一条确定轨迹。</p>
+<p>分享结果时，同时记录模型及版本、提示词和负面提示词、尺寸、初始噪声或种子、采样器、步数、时间表、η、CFG 和其他处理设置。</p>
+<p>硬件、精度、软件实现、batch 和浮点运算顺序也可能影响逐位复现。种子相同不意味着任意环境、任意设置都输出同一张图。</p>
+<p>随机采样器也能复现，只要其所有随机流和计算条件得到控制。确定性 DDIM 减少了需要管理的步内随机量，不是让“复现”第一次成为可能。</p>
+<h3 id="ddim-img2img">2. 图生图：从选定噪声强度开始</h3>
+<p>先把参考图加噪到某个中间水平，再从那里去噪；潜空间模型还需要先编码参考图。strength 通常控制起始噪声水平或采样区间，但不同界面映射可能不同。</p>
+<p>较小的加噪一般保留更多输入信息，较大的加噪允许更大变化。这是倾向，不是“必然只改细节”或“必然保留大结构”的保证。</p>
+<p>比较 strength 时还要控制编码取样、前向加噪、初始随机数、提示词等条件。即使 η=0，若每次加噪用不同随机数，也不能把所有变化归因于这个滑块。</p>
+<h3 id="ddim-interpolation">3. 插值：线性中点改变了噪声的尺度</h3>
+<p>令 A、B 是两个独立的 d 维标准高斯噪声，线性中点为 $(A+B)/2$。它的每维方差是 <strong>1/2</strong>，不是 1。</p>
+<p>在本页 SD 1.x 尺寸例子中，d=4×64×64=16384。原噪声范数的理论均方根为 128，中点为约 <strong>90.51</strong>，比例为 $1/\sqrt2\approx0.7071$。这是均方根，不是某一次抽样的精确长度。</p>
+<p>高维高斯的大部分概率质量集中在典型半径附近，但中心不是“空的”或概率密度为零。中点分布发生变化，不能进一步直接断言模型从未见过它、图一定发灰。</p>
+<p><strong>球面插值（SLERP）是控制方向和半径的一种选择。</strong> 归一化线性插值也能控制范数；它们都不自动保证完整高斯分布或生成图的语义连续。零向量、近同向与反向端点还需单独处理。</p>
+<p>本页只核验噪声统计，没有运行图像插值质量实验。因此可以得出“线性中点收缩了尺度”，不能报告“使用 SLERP 后灰图问题已消失”。</p>
+<hr />
+<h2 id="_4">📉 七、怎样判断增加步数有没有用</h2>
+<p><strong>固定条件比较质量与成本，不预先规定 50 步够用。</strong> 下面采用很小的一维分布，能在 CPU 上复算，不需要训练网络。</p>
+<h3 id="ddim-experiment-setup">先明确这次实验在测什么</h3>
+<p>目标分布有两个峰：一半样本来自均值 −2、标准差 0.5 的高斯，另一半来自均值 2、标准差 0.5 的高斯。</p>
+<ul>
+<li>每组 <strong>20,000</strong> 个样本，1000 个线性 β 从 0.0001 到 0.02。</li>
+<li>数学时间 0 是干净端点，<code>abar[0]=1</code>。每种 S 用 <code>rint(linspace(1000, 0, S+1))</code> 选点，包含两端并执行 S 次更新；本页所列 S 都无重复点。</li>
+<li>η=0；比较不同 S 时，复用同一初始噪声和同一真实参照样本 A。</li>
+<li>使用可解析计算的条件均值 $\mathbb E[\epsilon\mid x_t]$。它只看 xₜ 和 t，不知道当前样本隐藏的真实 x₀ 或 ε。</li>
+</ul>
+<p>误差用一维 W1 距离。对于本页相等样本数的两组经验分布，将各自样本排序、逐位相减取绝对值，最后取平均即可；这是这个特殊情形的计算方法。<a href="https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.wasserstein_distance.html">Wasserstein 距离的定义</a>可进一步对照。</p>
+<p>它排除了神经网络训练误差，但仍有有限样本评估和有限终端噪声近似的影响，<strong>不是纯数值积分误差</strong>。</p>
+<h3 id="ddim-experiment-results">一个固定种子的结果</h3>
+<p>种子为 20260911，float64、CPU；本次在 Python 3.12.14、NumPy 2.3.5 上独立执行。</p>
+<div class="tw"><table data-audit-table="ddim-w1" style="min-width:0;width:100%"><thead><tr><th>更新次数 S</th><th>生成样本对真实 A 的 W1</th></tr></thead><tbody><tr><td>2</td><td>1.176438</td></tr><tr><td>5</td><td>0.276636</td></tr><tr><td>10</td><td>0.134077</td></tr><tr><td>20</td><td>0.068328</td></tr><tr><td>50</td><td>0.027475</td></tr><tr><td>100</td><td>0.014568</td></tr><tr><td>200</td><td>0.011184</td></tr></tbody></table></div>
 
-    t     alpha_bar    信号系数     噪声系数
-    0     0.999900     0.9999     0.0100
-  140     0.809844     0.8999     0.4361
-  280     0.443395     0.6659     0.7461
-  420     0.163926     0.4049     0.9144
-  560     0.040879     0.2022     0.9793
-  700     0.006868     0.0829     0.9966
-  840     0.000777     0.0279     0.9996
-  980     0.000059     0.0077     1.0000
+<p>看最后两行：100→200 在这次实验中仍有改善。该表只支持这个玩具模型在这些设置下的观测，不能给图像模型划出“可用”“灾难”或通用饱和点。</p>
+<p>还固定运行了另外两个种子 20260912、20260913。三个种子的平均 W1，在 S=50、100、200 时分别为 <strong>0.029870、0.018169、0.014903</strong>；这三次观测也没有建立某个普遍收敛阈值。</p>
+<h3 id="ddim-not-a-floor">真实样本之间的距离，不是硬下限</h3>
+<p>同一次实验还独立抽了真实样本 B、C。得到 W1(A,B)=<strong>0.056764</strong>，而 W1(A,C)=<strong>0.027507</strong>。C 也是独立真实样本，却比 B 更接近 A。</p>
+<p>因此不能把某一对真实样本的距离叫作“谁也低不过的地板”，也不能从生成误差中减去它，就把剩下的数命名为纯模型误差或纯离散误差。</p>
+<p>不同种子会改变这些距离；例如种子 20260912 的 A/B 距离为 0.014690，A/C 为 0.041334，大小顺序反了。应报告抽样条件和多次结果，而不是挑一组有利数字。</p>
+<details>
+<summary>运行完整小实验：只需 NumPy，复制到一个空文件即可</summary>
+<p>先看 <code>sample</code>：每轮估计 x₀，再按目标累计系数组合；<code>epsilon_mean</code> 提供本例的解析预测器。最后的三个真实样本来自独立随机流，没有重复用 A 与自己比较。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># New reproducible experiment; not a reproduction of the old table.</span>
+<span class="c1"># CPU + NumPy only. W1 includes finite-sample and terminal-prior effects.</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="n">T</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">SEED</span> <span class="o">=</span> <span class="mi">1000</span><span class="p">,</span> <span class="mi">20000</span><span class="p">,</span> <span class="mi">20260911</span>
+<span class="n">STEPS</span> <span class="o">=</span> <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">50</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="mi">200</span><span class="p">)</span>
+<span class="n">betas</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">1e-4</span><span class="p">,</span> <span class="mf">0.02</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+<span class="n">abar</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">r_</span><span class="p">[</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">cumprod</span><span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">betas</span><span class="p">)]</span>  <span class="c1"># clean t=0: abar[0]=1</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">draw_true</span><span class="p">(</span><span class="n">rng</span><span class="p">):</span>
+    <span class="n">means</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">rng</span><span class="o">.</span><span class="n">integers</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">N</span><span class="p">),</span> <span class="mf">2.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">2.0</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">means</span> <span class="o">+</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">(</span><span class="n">N</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">epsilon_mean</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+    <span class="c1"># Conditional mean E[epsilon | x_t], not a sample&#39;s hidden true noise.</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">abar</span><span class="p">[</span><span class="n">t</span><span class="p">]</span>
+    <span class="n">v</span> <span class="o">=</span> <span class="n">a</span> <span class="o">*</span> <span class="mf">0.25</span> <span class="o">+</span> <span class="mf">1.0</span> <span class="o">-</span> <span class="n">a</span>
+    <span class="n">mean_component</span> <span class="o">=</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">tanh</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">a</span><span class="p">)</span> <span class="o">*</span> <span class="mf">2.0</span> <span class="o">*</span> <span class="n">x</span> <span class="o">/</span> <span class="n">v</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">a</span><span class="p">)</span> <span class="o">/</span> <span class="n">v</span> <span class="o">*</span> <span class="p">(</span><span class="n">x</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">a</span><span class="p">)</span> <span class="o">*</span> <span class="n">mean_component</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">sample</span><span class="p">(</span><span class="n">initial</span><span class="p">,</span> <span class="n">steps</span><span class="p">):</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="n">initial</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="n">grid</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">rint</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">steps</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">t</span><span class="p">,</span> <span class="n">previous</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">grid</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">grid</span><span class="p">[</span><span class="mi">1</span><span class="p">:]):</span>
+        <span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="n">abar</span><span class="p">[</span><span class="n">t</span><span class="p">],</span> <span class="n">abar</span><span class="p">[</span><span class="n">previous</span><span class="p">]</span>
+        <span class="n">eps</span> <span class="o">=</span> <span class="n">epsilon_mean</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+        <span class="n">x0_hat</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">a</span><span class="p">)</span> <span class="o">*</span> <span class="n">eps</span><span class="p">)</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">b</span><span class="p">)</span> <span class="o">*</span> <span class="n">x0_hat</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">b</span><span class="p">)</span> <span class="o">*</span> <span class="n">eps</span>  <span class="c1"># eta=0</span>
+    <span class="k">return</span> <span class="n">x</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">w1</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">y</span><span class="p">)))</span>  <span class="c1"># equal sample sizes</span>
+
+<span class="n">streams</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">SeedSequence</span><span class="p">(</span><span class="n">SEED</span><span class="p">)</span><span class="o">.</span><span class="n">spawn</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span>
+<span class="n">rng_noise</span><span class="p">,</span> <span class="n">rng_a</span><span class="p">,</span> <span class="n">rng_b</span><span class="p">,</span> <span class="n">rng_c</span> <span class="o">=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">streams</span><span class="p">]</span>
+<span class="n">initial</span> <span class="o">=</span> <span class="n">rng_noise</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">(</span><span class="n">N</span><span class="p">)</span>
+<span class="n">true_a</span><span class="p">,</span> <span class="n">true_b</span><span class="p">,</span> <span class="n">true_c</span> <span class="o">=</span> <span class="p">[</span><span class="n">draw_true</span><span class="p">(</span><span class="n">r</span><span class="p">)</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="p">(</span><span class="n">rng_a</span><span class="p">,</span> <span class="n">rng_b</span><span class="p">,</span> <span class="n">rng_c</span><span class="p">)]</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;steps  W1(generated, true_A)&quot;</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">steps</span> <span class="ow">in</span> <span class="n">STEPS</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">steps</span><span class="si">:</span><span class="s2">5d</span><span class="si">}</span><span class="s2">  </span><span class="si">{</span><span class="n">w1</span><span class="p">(</span><span class="n">sample</span><span class="p">(</span><span class="n">initial</span><span class="p">,</span><span class="w"> </span><span class="n">steps</span><span class="p">),</span><span class="w"> </span><span class="n">true_a</span><span class="p">)</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;W1(A,B)=</span><span class="si">{</span><span class="n">w1</span><span class="p">(</span><span class="n">true_a</span><span class="p">,</span><span class="w"> </span><span class="n">true_b</span><span class="p">)</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;W1(A,C)=</span><span class="si">{</span><span class="n">w1</span><span class="p">(</span><span class="n">true_a</span><span class="p">,</span><span class="w"> </span><span class="n">true_c</span><span class="p">)</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;W1(B,C)=</span><span class="si">{</span><span class="n">w1</span><span class="p">(</span><span class="n">true_b</span><span class="p">,</span><span class="w"> </span><span class="n">true_c</span><span class="p">)</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </code></pre></div>
 
-<p>⭐ <strong>这张表里藏着一条后面要用的结论：均匀跳步很浪费。</strong>
-看「信号系数」一列 —— 从 t=980 走到 t=560，信号只从 <strong>0.0077</strong> 涨到 <strong>0.2022</strong>，
-这一整段肉眼都是雪花、几乎分不出区别，却吃掉了差不多一半的步数；
-而 t 从 280 走到 0，信号从 <strong>0.6659</strong> 涨到 <strong>0.9999</strong>，<strong>一张图的细节全在这一段定下来</strong>。
-<strong>步要花在「图还在明显变」的地方。</strong></p>
+<p>这里的 <code>sample</code> 只用于上面列出的有效 S；把任意步数或别的模型放进来，需要额外检查网格和接口。W1 公式也限本页等样本数的一维比较。</p>
+</details>
+<details>
+<summary>旧结果记录为何不再作为饱和结论的依据</summary>
+<p>此前本页列过 S=2、5、10、20、50、100、200，对应 W1 为 1.1473、0.2759、0.1326、0.0682、0.0298、0.0225、0.0228，并把另一组真实样本距离 0.0199 叫作地板。</p>
+<p>这些旧数字缺少足以还原的完整参数与脚本，<strong>本次没有声称复现它们</strong>。即使数字来自某次有效运行，100→200 的单次上升也不能独自证明饱和，更不能证明有网络误差时只会更早饱和。</p>
+<p>上面的新实验补齐了分布、网格、随机流和完整代码。保留要研究的问题——步数怎样影响质量——同时撤去不成立的“硬地板”和通用阈值推断。</p>
+</details>
 <hr />
-<h2 id="_3">🎰 六、确定性带来的三个副产品</h2>
-<p>$\eta=0$ 时，采样从「一串抽样」变成了<strong>一个函数</strong>：给定 $x_T$，输出唯一确定。这件事的实用价值不比「快」小。</p>
-<p><strong>① 种子能复现。</strong> seed 只是用来生成 $x_T$ 的随机数种子；既然 $x_T\mapsto x_0$ 是个确定映射，
-同样的种子 + 模型 + 提示词 + 步数和调度 = 同一张图。
-⚠️ 这几个「同样」缺一不可，而且还有一条隐藏条件：<strong>浮点归约顺序也得一样</strong>。
-换显卡、换推理框架、换 batch 大小都可能差那么一点点 ——
-🔑 这和语言模型那边「temperature=0 也不保证逐位复现」是<strong>同一个坑</strong>（链接见章末）。</p>
-<p><strong>② 图生图不从纯噪声出发。</strong> 把真实图片按前向公式加噪到中间某个 $t$，再从那里去噪走完，出来的图就保留了原图的大结构。
-UI 上的 <strong>strength</strong> 就是「加到多深」：小 → 只动细节和风格，大 → 越来越像重画。
-⚠️ 随机采样器也能做图生图，<strong>确定性带来的是可控</strong> —— strength 每调一点，你能确定变化是这次调整的功劳，而不是重抽了个签。</p>
-<p><strong>③ 插值要用球面插值，不能取平均。</strong> 在 $x_T$ 上从 A 走到 B，输出会连续地从图 A 变成图 B。
-⚠️ 但<strong>线性</strong>中点会出问题，这一点可以直接算：Stable Diffusion 的潜空间 $d=4\times64\times64=16384$ 维，
-标准高斯的样本几乎全落在半径 $\sqrt d=128$ 的<strong>球壳</strong>上（实测范数中位数 <strong>128.01</strong>），中心附近反而是空的；
-而两个独立噪声的线性中点，范数中位数只有 <strong>90.51</strong>，正好是 $1/\sqrt2\approx$ <strong>0.7071</strong> 倍 ——
-掉进了模型训练时从没见过的区域，于是中间几帧发灰糊掉。<strong>沿球面走就没这个问题。</strong></p>
-<hr />
-<h2 id="_4">📉 七、步数不是越多越好</h2>
-<p>「50 步够不够」与其背结论，不如测一次。下面这组数是用<strong>解析解当去噪网络</strong>测的
-（一维两峰高斯混合的 $\epsilon$ 有闭式解），所以它量的是<strong>纯粹的离散化误差</strong>，不掺任何网络自身误差；
-误差用生成样本和真实样本的一维 Wasserstein 距离，两万个样本。</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>步数</th>
-<th>W1（生成 vs 真实）</th>
-<th>离地板还差</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>2</td>
-<td>1.1473</td>
-<td>+1.1274</td>
-</tr>
-<tr>
-<td>5</td>
-<td>0.2759</td>
-<td>+0.2561</td>
-</tr>
-<tr>
-<td>10</td>
-<td>0.1326</td>
-<td>+0.1127</td>
-</tr>
-<tr>
-<td>20</td>
-<td>0.0682</td>
-<td>+0.0483</td>
-</tr>
-<tr>
-<td><strong>50</strong></td>
-<td>0.0298</td>
-<td><strong>+0.0099</strong></td>
-</tr>
-<tr>
-<td><strong>100</strong></td>
-<td>0.0225</td>
-<td><strong>+0.0026</strong></td>
-</tr>
-<tr>
-<td><strong>200</strong></td>
-<td>0.0228</td>
-<td><strong>+0.0029</strong></td>
-</tr>
-</tbody>
-</table></div>
-<p>「地板」是两组<strong>真实样本</strong>之间的 W1，<strong>0.0199</strong> —— 有限样本本身的抖动，谁也低不过它。</p>
-<ul>
-<li><strong>2 步是灾难</strong>，5 步已进入可用区间，之后每翻一倍误差差不多减半。</li>
-<li>50 步离地板只差 0.0099，100 步差 0.0026 —— <strong>50→100 这一倍算力只买回那点差距的四分之三</strong>。</li>
-<li>⭐ <strong>100 → 200 完全没有收益</strong>（0.0225 → 0.0228，反而略高，是采样抖动）。<strong>这就是饱和。</strong></li>
-</ul>
-<p>⚠️ <strong>别把「50 步」这个数字搬到你的模型上。</strong> 饱和点取决于调度表、$\eta$、模型质量和分辨率，
-真实模型还要叠上网络自己的预测误差，<strong>饱和点只会来得更早</strong>。
-<strong>能搬走的只有形状：先陡后平，而且平得比大多数人想象得早。</strong></p>
-<hr />
-<h2 id="_5">🗓️ 八、步数和调度表怎么配</h2>
-<p>第五节那张表已经说明白了：均匀跳步把太多步花在了看不出区别的高噪声段。于是有了别的排法。</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>排法</th>
-<th>怎么排</th>
-<th>特点</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>均匀（uniform）</td>
-<td><code>range(0, T, T // S)</code></td>
-<td>最简单，S 小的时候质量掉得最快</td>
-</tr>
-<tr>
-<td>二次（quadratic）</td>
-<td>步距按平方分布，低噪声端更密</td>
-<td>DDIM 原论文就给了这一种，短步数下明显好过均匀</td>
-</tr>
-<tr>
-<td>⭐ Karras 式</td>
-<td>不在 $t$ 上排，改在噪声水平上按幂律排</td>
-<td>现在多数推理框架的默认，对 10~20 步的场景收益最大</td>
-</tr>
-</tbody>
-</table></div>
-<p>另一条正交的路：<strong>换更好的求解器</strong>。
-⭐ DDIM 本质上是把去噪写成一条常微分方程、再用<strong>一阶欧拉法</strong>去解。既然是解 ODE，就可以上二阶和多步法 ——
-DPM-Solver、DPM-Solver++、UniPC 干的就是这件事，常见说法是十几步能达到 DDIM 五十步上下的效果，<strong>同样不需要重训</strong>。</p>
-<p>⚠️ <strong>最后一条最容易被忽略：采样器和调度表是复现的一部分。</strong>
-同一个种子、同一个提示词，把 DDIM 换成 DPM-Solver++ 就是另一张图。
-<strong>分享参数时，步数、采样器、调度表要和种子一起给。</strong></p>
+<h2 id="_5">🗓️ 八、步数、时间表和求解器怎样一起选择</h2>
+<p><strong>先定比较条件，再改一个设置。</strong> 时间表决定在哪里评估，求解器决定怎样利用预测更新；两者都可能影响少步数表现。</p>
+<h3 id="ddim-schedule-options">三种选点思路</h3>
+<p><strong>均匀选点。</strong> 在某个时间参数上等间隔取点，简单且便于比较。要说明是哪一个参数，并检查取整、重复点和端点；不能只写一个 <code>range</code> 就认为任意 S 都正确。</p>
+<p><strong>二次选点。</strong> 点的位置按索引的平方排布，可以使较低 t 的一端更密；是位置呈平方关系，不是相邻步距本身按平方增长。DDIM 原论文对 CIFAR-10 用过这种选择，对其他数据用了线性选择，不能改写为二次在所有少步数任务上都更好。</p>
+<p><strong>Karras 式噪声网格。</strong> 直接在噪声尺度上用幂律控制点位。<a href="https://github.com/NVlabs/edm/blob/main/generate.py">EDM 官方采样实现</a>提供了具体构造。它是一种可选设计，不是所有框架默认、所有 10–20 步设置都必胜的规则。</p>
+<h3 id="ddim-solvers">求解器：不只是换一张时间表</h3>
+<p>确定性 DDIM 在适当重参数化后，与常微分方程（ODE）的一阶 Euler 离散有关；这个表述有 <strong>η=0 和变量约定</strong>，不能把所有带随机量的更新都说成普通 ODE 的 Euler 法。</p>
+<p><a href="https://github.com/LuChengTHU/dpm-solver">DPM-Solver、DPM-Solver++</a> 和 <a href="https://github.com/wl-zhao/UniPC">UniPC</a> 等方法使用更高阶或多步的信息来改善有限评估预算下的近似。兼容模型的预测参数化后，通常不必为了更换这些求解器重训权重。</p>
+<p>但某方法“十几步等于另一方法五十步”需要指定模型、引导、任务和质量指标。比较时同时记录实际 NFE；不能仅凭界面上的 step 数判断成本或精度。</p>
+<p>可以先测试 20、50、100 等预算，再用多组固定种子与同一任务比较质量、耗时和显存。<strong>这是实验起点，不是合格步数清单。</strong> 若后两档仍有值得付费的改善，就继续测，而不是被“50 步足够”拦住。</p>
 <hr />
 <h2 id="_6">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
@@ -549,51 +623,53 @@ DPM-Solver、DPM-Solver++、UniPC 干的就是这件事，常见说法是十几�
 <tbody>
 <tr>
 <td><a href="../大模型全景导论/06c-解码参数怎么调.html">大模型全景导论 06c · 解码参数怎么调，出问题怎么查</a></td>
-<td>⭐ 那一页有一整节讲「temperature=0 也不保证逐位复现」：GPU 浮点加法不满足结合律，batch 组成一变归约顺序就跟着变。<strong>DDIM 的「同种子同图」踩的是同一个坑</strong> —— 数学上确定，工程上仍会差一点</td>
+<td>对照数学确定性与工程逐位复现的差别，保存完整环境和设置，不只保存种子。</td>
 </tr>
 <tr>
 <td><a href="../AI基础设施/19-投机解码.html">AI基础设施 19 · 投机解码</a></td>
-<td>语言模型那边同一个病（串行步数太多）的另一种药：小模型先猜几个 token，大模型一次验完。⭐ 值得对照的是<strong>代价不同</strong> —— 投机解码可以证明输出分布和原模型完全一致，而 DDIM 跳步是<strong>近似</strong>，20 步和 1000 步不是同一张图</td>
+<td>对照两种减少串行开销的思路：正确实现的投机采样可在规定假设下保持目标分布；DDIM 的少步近似不能据此声称精确保留有限步原链分布。</td>
 </tr>
 <tr>
-<td><a href="../大模型全景导论/10b-图像生成.html">大模型全景导论 10b · 图像生成：扩散模型</a></td>
-<td>14 分钟的全景版：扩散和自回归为什么是两种范式、五个关键组件各管什么。⭐ 那一页的深挖清单白纸黑字写着 DDIM「整块要外找」—— 你正在读的就是它点名要的那一块</td>
+<td><a href="../大模型全景导论/10b-图像生成.html">大模型全景导论 10b · 图像生成</a></td>
+<td>回到组件总览，再区分采样器与去噪主干。导论已有本站扩散模块入口，本章就是站内深读部分。</td>
 </tr>
 </tbody>
 </table></div>
 <hr />
 <h2 id="_7">✅ 检查点</h2>
 <ol>
-<li>DDPM 的反向过程为什么一步都不能跳？式子里哪一项是罪魁祸首？</li>
-<li>DDIM 需要重新训练吗？为什么？（提示：训练目标只用到了什么）</li>
-<li>DDIM 的一步拆成哪两个动作？哪一个动作允许了跳步？</li>
-<li>η=0 和 η=1 分别对应什么？η 大了以后，为什么少步数更吃亏？</li>
-<li>第五节那张表里，t 从 980 到 560，信号系数只从多少涨到多少？这说明均匀跳步有什么毛病？</li>
-<li>步数-误差表里 50 / 100 / 200 步各离地板差多少？这三个数说明什么？</li>
-<li>为什么两个噪声之间要用球面插值？线性中点的范数掉到了原来的几倍？</li>
+<li>为什么不能只把相邻步公式的 t−1 改成 t−20？这是否意味着随机采样绝对不能跳步？</li>
+<li>DDIM 为什么能复用常见噪声预测权重？需要保持哪些模型和时间约定？</li>
+<li>一次更新怎样从噪声预测得到干净样本估计，再组合到目标时刻？估计为什么不是真实原图？</li>
+<li>η=0 去掉哪部分随机性？η=1 在什么条件下对应 DDPM，为什么不能不看网格就说完全等价？</li>
+<li>时间表例子从索引 980 到 560 的信号系数怎样变化？这张表为什么不能证明均匀选点浪费或所有细节只在后半程形成？</li>
+<li>新实验的 50、100、200 步结果说明什么？真实对真实的 W1 为什么不能作为硬地板或直接减掉的误差分量？</li>
+<li>独立高斯噪声线性中点的方差和典型半径怎样变化？为什么 SLERP 只是一个选择，不能自动保证生成画质？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>因为它是<strong>马尔可夫链</strong>，每步的分布都按「$t$ 和 $t-1$ 相邻」推导（$\alpha_t$、$\beta_t$ 都是单步量）。罪魁祸首是末尾的 $\sigma_t z$ —— 它让每一步是从分布里<strong>抽</strong>样，而不是算出来的。把 $t-1$ 换成 $t-20$ 式子就不成立。</li>
-<li><strong>不需要。</strong> 训练只用到前向的边缘分布 $q(x_t\mid x_0)$，而 DDIM 那一族非马尔可夫前向过程的这个边缘分布和 DDPM 完全一样，差别只在相邻两步怎么衔接 —— 训练目标看不见它。</li>
-<li>① 用当前 $\epsilon$ 猜一张干净图 $\hat x_0=(x_t-\sqrt{1-\bar\alpha_t}\epsilon)/\sqrt{\bar\alpha_t}$；② 按下一个噪声水平重新加噪回去。⭐ <strong>第二个动作允许跳步</strong> —— 它只需要目标噪声水平 $\bar\alpha_{t'}$，从没要求 $t'=t-1$。</li>
-<li>η=0 是确定性 DDIM（同一个初始噪声永远出同一张图），η=1 退回 DDPM。η 大了以后，注进去的随机要靠后面几百步慢慢洗掉，只给 20 步洗不干净 —— 少步数和高随机性是一对矛盾。</li>
-<li>只从 <strong>0.0077</strong> 涨到 <strong>0.2022</strong>。这一大段肉眼全是雪花、分不出区别，却吃掉近一半步数；而 t 从 280 到 0 那段信号从 0.6659 涨到 0.9999，细节全在那里定下来。说明<strong>均匀跳步把步花错了地方</strong>。</li>
-<li>50 步差 <strong>+0.0099</strong>，100 步差 <strong>+0.0026</strong>，200 步差 <strong>+0.0029</strong>（比 100 步还略高，是采样抖动）。说明收益<strong>先陡后平</strong>：50→100 只买回一点点，100→200 完全没有收益。⚠️ 而且这还是没有网络误差的理想条件，真实模型饱和得更早。</li>
-<li>因为高维标准高斯的样本几乎全落在半径 $\sqrt d$ 的<strong>球壳</strong>上（$d=16384$ 时是 128，实测范数中位数 128.01），中心是空的。两个独立噪声的线性中点范数只有 <strong>90.51</strong>，是原来的 <strong>0.7071</strong> 倍，落进模型没见过的区域 → 中间帧发灰糊掉。沿球面走不会离开那层壳。</li>
+<li>相邻步系数对应指定间隔，换目标必须重新构造系数。合法的稀疏随机更新存在，随机项不是禁止跳步的原因。</li>
+<li>构造保留训练使用的条件边缘分布，能复用兼容的噪声预测训练。实际还要对齐噪声表、时间标记、输入尺度、预测类型及必要转换；不能说任意变分损失权重都完全一样。</li>
+<li>先从 xₜ 减去预测噪声、除以信号系数得到 x̂₀，再把目标信号、预测方向和可能的新随机量组合起来。网络只有当前观测，可能预测不准，尤其高噪声下误差会放大；换用估计后不再自动拥有真实条件分布的精确性。</li>
+<li>η=0 去掉新增步内噪声，不去掉随机初始噪声。η=1 在完整相邻网格、相同预测与后验方差等约定下对应 DDPM；稀疏网格、不同方差或其他处理会改变比较对象。</li>
+<li>约从 0.0077 变成 0.2022。它描述加噪系数，不描述模型正在学或正在生成的全部结构；判断选点效率需要受控的质量与成本测量。代码索引 0 还不是数学上的干净端点。</li>
+<li>单种子结果依次为 0.027475、0.014568、0.011184；100→200 仍改善，但不支持通用图像阈值。真实样本之间的经验距离会随抽样变化，另一组真实样本就可能更近；它既非下界，也不与生成误差构成可直接相减的分解。</li>
+<li>中点协方差为 I/2，范数的理论均方根缩为原来的 1/√2；d=16384 时由 128 变成约 90.51。高斯中心不是空的。SLERP 或归一化线性插值可控制半径，但完整分布、端点边界和图像语义仍需检查，不能直接保证不发灰或更清楚。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_8">🛑 可以停在这里</h2>
-<p>读到这里，你已经知道 UI 上那三个旋钮（步数、采样器、种子）各自在动什么，
-也知道了「把步数从 50 调到 150」大概率是白花钱。这些今天就能用上。</p>
-<p><strong>出现这些情况时再回来</strong>：出图不可复现（第六节那几个「同样」）；
-少步数下图发灰或糊（第四节的 η、第八节的调度表）；换个采样器就变成另一张图（第八节最后一条）。</p>
+<p>你现在能分清：采样器怎样更新、时间表选哪些点、随机性从哪里来。选择步数时，用当前任务的质量与成本结果，而不是背一个固定数字。</p>
+<p>回来时按问题进入：<a href="#ddim-reproducibility">复现</a>、<a href="#ddim-img2img">strength 对照</a>、<a href="#ddim-interpolation">插值尺度</a>、<a href="#_4">步数实验</a>或<a href="#_5">时间表与求解器</a>。</p>
 <p>⚡ <strong>走神救援</strong></p>
-<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>采样开销取决于需要执行多少次去噪网络，换采样器可以减少步数。</li><li>DDIM 利用预测的干净样本与目标噪声水平构造更新，允许选择较稀疏的时间步。</li><li>随机性参数、步数和调度都会影响结果，复现实验不能只保存种子。</li><li>用质量与耗时一起选择步数，不能假设步数翻倍就一定更好。</li></ul></section>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>跳步要匹配新间隔的系数；随机采样也能采用稀疏网格。</li><li>DDIM 用预测的干净样本和目标噪声水平构造更新，预测不等于真实原图。</li><li>η=0 仍有随机初始噪声；复现需保存模型、条件、时间表和计算环境。</li><li>步数是否值得增加要实测；真实样本间的一次距离不是误差地板。</li></ul></section>
 
-<p><strong>下一节</strong> 👉 <a href="05-Latent-Diffusion.html">05-Latent-Diffusion.md</a></p>
+<p><strong>下一节</strong> 👉 <a href="05-Latent-Diffusion.html">05 · Latent Diffusion</a></p></article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
+<button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">🐌 一、慢在哪：先数网络评估，再看单次成本</a><a href="#ddpm">🎲 二、相邻步公式不能只改一个下标</a><a href="#ddim">⏩ 三、DDIM 的一步：先估计，再走向选定的噪声水平</a><a href="#ddpm-ddim">🎛️ 四、η：控制新噪声，不负责保证质量</a><a href="#1000-50">🔢 五、动手：从 1000 个噪声水平中选出 50 个</a><a href="#_3">🎰 六、固定轨迹有什么用：复现、图生图与插值</a><a href="#_4">📉 七、怎样判断增加步数有没有用</a><a href="#_5">🗓️ 八、步数、时间表和求解器怎样一起选择</a><a href="#_6">🔗 这一章连到哪里</a><a href="#_7">✅ 检查点</a><a href="#_8">🛑 可以停在这里</a></nav>
+<button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
+<a href="index.html">回到本模块目录</a></div></aside></div>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="03-训练目标为什么是预测噪声.html"><div class="dir">← 上一节</div>🎯 03 · 训练目标为什么是预测噪声</a><a class="next" href="05-Latent-Diffusion.html"><div class="dir">下一节 →</div>🗜️ 05 · Latent Diffusion</a></nav>

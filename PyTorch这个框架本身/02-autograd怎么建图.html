@@ -295,31 +295,31 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">🧩 一、图不是你画的，是算出来的</a></li>
 <li><a href="#_3">🧩 二、图是动态的：每次前向都是一张新图</a></li>
-<li><a href="#backward">🧩 三、backward() 走完，图就没了</a></li>
-<li><a href="#_4">🧩 四、梯度是累加的，不是覆盖的</a></li>
+<li><a href="#_4">🧩 三、反向用完后，中间张量通常会释放</a></li>
+<li><a href="#_5">🧩 四、梯度是累加的，不是覆盖的</a></li>
 <li><a href="#grad">🧩 五、只有叶子会拿到 .grad</a></li>
-<li><a href="#backward_1">🧩 六、backward() 要一个标量</a></li>
-<li><a href="#_5">🧩 七、图到底占多少地方（实测）</a></li>
+<li><a href="#backward">🧩 六、backward() 要一个标量</a></li>
+<li><a href="#_6">🧩 七、图到底占多少地方（实测）</a></li>
 <li><a href="#retain_graph">🧩 八、什么时候真的需要 retain_graph</a></li>
 <li><a href="#autogradgrad-grad">🧩 九、autograd.grad：要梯度但不写进 .grad</a></li>
-<li><a href="#_7">🔗 这一章连到哪里</a></li>
-<li><a href="#_8">✅ 检查点</a></li>
-<li><a href="#_9">🛑 可以停在这里</a></li>
+<li><a href="#_8">🔗 这一章连到哪里</a></li>
+<li><a href="#_9">✅ 检查点</a></li>
+<li><a href="#_10">🛑 可以停在这里</a></li>
 </ul>
 </div>
 </details>
 <h1 id="02-autograd">02 · autograd：图是什么时候建的，又是什么时候没的</h1>
-<p>⏱ <strong>80 分钟</strong> ｜ ⭐ <strong>实测：第二次 <code>backward()</code> 直接报 "Trying to backward through the graph a second time" —— 图默认用完就扔</strong></p>
+<p>⏱ <strong>80 分钟</strong> ｜ ⭐ <strong>实测：第二次 <code>backward()</code> 直接报 "Trying to backward through the graph a second time" —— 通常释放的是反向所需的中间张量</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>你从来没有「定义」过一张计算图 —— 图是前向的时候顺手记下来的，<code>backward()</code> 走完一遍就被扔掉了。</strong>
+<p><strong>默认梯度模式下，autograd 在前向计算时记录可微运算；反向传播通常释放所保存的中间张量，而不是让所有图结构立刻消失。</strong>
 本章要讲清四件事：图是<strong>什么时候</strong>建的（每次前向、每次都是新的）、图上存了什么（实测一次前向为反向存下 44.0 MB）、
-图是什么时候没的（<code>backward()</code> 一走完就释放）、以及为什么梯度是累加而不是覆盖。</p>
+中间张量何时释放（通常在反向用完后释放）、以及为什么梯度是累加而不是覆盖。</p>
 <p>⚠️ <strong>本章不讲 <code>detach</code> / <code>no_grad</code> 怎么用</strong>，那是第 04 章。这里只讲图本身。</p>
 <hr />
 <h2 id="_2">🧩 一、图不是你画的，是算出来的</h2>
 <p>第 01 章说过，说明书上第六个字段 <code>requires_grad</code> 一开，「接下来对它做的每一步都要被记账」。
-记账的方式就是：<strong>每一次运算，都在结果张量上挂一个 <code>grad_fn</code></strong>。</p>
+在默认梯度模式下，涉及需要梯度的输入的可微运算，通常会让输出带有 grad_fn；叶子、不可微运算与禁用梯度的区域需要分别看待。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
 <span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">2.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>   <span class="c1"># 叶子：你自己造的</span>
@@ -348,7 +348,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td><strong>叶子（leaf）</strong></td>
 <td><code>is_leaf == True</code>、<code>grad_fn is None</code></td>
-<td>⭐ 你自己造的张量：模型参数、输入数据。<strong>只有它会拿到 <code>.grad</code></strong></td>
+<td>⭐ 你自己造的张量：模型参数、输入数据。默认通常只给需要梯度的叶子累积 .grad；非叶子可用 retain_grad 保留</td>
 </tr>
 <tr>
 <td><strong>中间结果</strong></td>
@@ -419,7 +419,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⚠️ <strong>一个容易记反的点</strong>：动态不等于「便宜」。图是每一步真的<strong>建出来</strong>的对象，
 第七节会量给你看它有多大。</p>
 <hr />
-<h2 id="backward">🧩 三、<code>backward()</code> 走完，图就没了</h2>
+<h2 id="_4">🧩 三、反向用完后，中间张量通常会释放</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
 <span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">3.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -435,6 +435,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>实测输出（⭐ <strong>报错是真实原文</strong>）：</p>
 <section class="visual-block visual-block-flow" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">第一次 backward，a.grad = [6.0]</span></div><div class="vb-flow-row"><span class="vb-flow-step">第二次 backward -&gt; Trying to backward through the graph a second time (or directly access saved tensors after they have already been freed). Saved intermediate values of the graph are freed when you call .backward() or autograd.grad(). Specify retain_graph=True if you need to backward through the graph a second time or if you need to access saved tensors after calling backward.</span></div></div></section>
+<p>本例的平方运算需要保存输入，释放后再沿同一图反向会报错。某些不需要保存中间值的简单运算可能可以重复反向，因此不能把“第二次必报错”当作普遍规则。</p>
 <p>⭐ <strong>报错原文里其实把机制说完了</strong>，拆开看：</p>
 <div class="tw"><table>
 <thead>
@@ -482,7 +483,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⚠️⚠️ <strong>注意第二行的 <code>12.0</code>。</strong> 两次 <code>backward()</code> 求的是同一个导数，答案当然都是 6 ——
 但 <code>b.grad</code> 变成了 <strong>12</strong>。这直接引出下一节。</p>
 <hr />
-<h2 id="_4">🧩 四、梯度是累加的，不是覆盖的</h2>
+<h2 id="_5">🧩 四、梯度是累加的，不是覆盖的</h2>
 <p>⭐ <strong>这是 <code>optimizer.zero_grad()</code> 存在的唯一原因，也是那个节点叫 <code>AccumulateGrad</code> 的原因。</strong></p>
 <p><code>backward()</code> 做的事是 <code>x.grad += 算出来的梯度</code>，<strong>不是</strong> <code>x.grad = 算出来的梯度</code>。</p>
 <div class="tw"><table>
@@ -609,7 +610,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
 <hr />
-<h2 id="backward_1">🧩 六、<code>backward()</code> 要一个标量</h2>
+<h2 id="backward">🧩 六、<code>backward()</code> 要一个标量</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
 <span class="n">c</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">],</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -653,7 +654,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 也就是把 batch 内的损失求和而不是求平均。⭐ 后果是<strong>有效学习率跟着 batch size 变</strong>，
 换个 batch size 训练行为就变了，而且不报错。</p>
 <hr />
-<h2 id="_5">🧩 七、图到底占多少地方（实测）</h2>
+<h2 id="_6">🧩 七、图到底占多少地方（实测）</h2>
 <p>反向传播需要「前向时的一些中间值」。到底存了多少？可以用 <code>saved_tensors_hooks</code> 数出来：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -800,7 +801,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 （<a href="../机器学习与深度学习基础/15-PyTorch实战手册.html">ML 基础 15 章</a> 的模板写的正是 <code>total += loss.item() * len(xb)</code>。）</p>
 <h3 id="2-loss">假需求 ②：想对同一个 loss 反传两次</h3>
 <p>多半是你的代码结构错了。⭐ 正确做法是<strong>重新前向一次</strong>，得到一张新图。</p>
-<h3 id="_6">真需求：三种</h3>
+<h3 id="_7">真需求：三种</h3>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -880,7 +881,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong><code>create_graph=True</code> 是「让这次反向本身也被记账」</strong> —— 只有这样，算出来的梯度 <code>g</code> 才带着 <code>grad_fn</code>，
 才能对它再求一次导。⚠️ 它隐含了 <code>retain_graph=True</code>，<strong>显存开销更大</strong>，别随手加。</p>
 <hr />
-<h2 id="_7">🔗 这一章连到哪里</h2>
+<h2 id="_8">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -924,7 +925,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <hr />
-<h2 id="_8">✅ 检查点</h2>
+<h2 id="_9">✅ 检查点</h2>
 <ol>
 <li>图是什么时候建的？「叶子」「中间结果」「<code>grad_fn</code> 节点」三个角色分别怎么认？</li>
 <li><code>AccumulateGrad</code> 这个节点名说明了什么？它导致训练循环里必须写哪一行？</li>
@@ -940,7 +941,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>图是前向的时候顺手记下来的</strong>，不是你定义的：每一次运算在结果张量上挂一个 <code>grad_fn</code>。叶子：<code>is_leaf==True</code>、<code>grad_fn is None</code>，你自己造的（参数、输入），只有它会拿到 <code>.grad</code>；中间结果：<code>is_leaf==False</code>、有 <code>grad_fn</code>，<code>requires_grad</code> 是继承来的；<code>grad_fn</code> 节点：真正的图，每个节点知道「怎么反着算」和「上游是谁（<code>next_functions</code>）」。</li>
+<li><strong>图是前向的时候顺手记下来的</strong>，不是你定义的：默认梯度模式下，相关可微运算的输出带有 grad_fn。叶子：<code>is_leaf==True</code>、<code>grad_fn is None</code>，你自己造的（参数、输入），默认给需要梯度的叶子累积 .grad；非叶子可用 retain_grad 保留；中间结果：<code>is_leaf==False</code>、有 <code>grad_fn</code>，<code>requires_grad</code> 是继承来的；<code>grad_fn</code> 节点：真正的图，每个节点知道「怎么反着算」和「上游是谁（<code>next_functions</code>）」。</li>
 <li>它叫「<strong>累加</strong>梯度」不叫「设置梯度」——<code>backward()</code> 做的是 <code>x.grad += ...</code> 而不是 <code>=</code>。所以训练循环里每一步必须 <code>optimizer.zero_grad()</code>，否则这一步的梯度是历史所有步的和，训练完全不收敛。</li>
 <li><code>Trying to backward through the graph a second time</code>。被释放的<strong>不是图的结构</strong>，是节点为反向存下来的中间张量（原文：<code>Saved intermediate values of the graph are freed</code>）。默认释放是对的设计 —— 那些东西很占地方（实测 44.0 MB）。</li>
 <li><strong>12.0</strong>。两次求的是同一个导数（都是 6），但梯度是累加的，所以 <code>.grad</code> 变成 6+6=12。清零（<code>b.grad = None</code>）后重算才是 6.0。</li>
@@ -953,17 +954,15 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ol>
 </details>
 <hr />
-<h2 id="_9">🛑 可以停在这里</h2>
+<h2 id="_10">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
-<blockquote>
-<p>⭐ <strong>图不是你定义的，是前向时顺手记下来的</strong>——每一次运算在结果上挂一个 <code>grad_fn</code>。三个角色：<strong>叶子</strong>（你自己造的参数和输入，⭐ <strong>只有它拿得到 <code>.grad</code></strong>）、中间结果、<code>grad_fn</code> 节点。</p>
-<p>⭐ 终点那个节点叫 <code>AccumulateGrad</code>，<strong>名字本身就是答案：它累加不是覆盖</strong>——这就是 <code>optimizer.zero_grad()</code> 存在的唯一原因，忘了就「训练完全不收敛」。</p>
-<p>图是动态的：同一个函数走不同分支就建出不同的图，所以能用 <code>print</code> 和断点调试、变长结构免费；⚠️ 代价是每次都要重建、无法提前优化（<code>torch.compile</code> 治的就是这条）。</p>
-<p>⭐ <code>backward()</code> 走完图就没了，而<strong>释放的不是结构是中间张量</strong>——实测一次前向为反向存下的量<strong>比模型参数本身还多</strong>。⭐ <strong>图的大小随 batch size 走、参数不随</strong>，这就是 OOM 先调小 batch 的机制。</p>
-<p>⚠️ 只有叶子有 <code>.grad</code>：中间结果是 <code>None</code> 并且只打一条 <strong>UserWarning 不是报错</strong>——所以梯度监控会一路打印 <code>None</code> 而你以为一切正常。要看就 <code>retain_grad()</code>；⚠️ 别把它和 <code>retain_graph=True</code>（留整张图）搞混。</p>
-<p><code>backward()</code> 要标量，⚠️ 别用 <code>backward(torch.ones_like(out))</code> 绕过——那等于求和，<strong>有效学习率会跟着 batch size 变</strong>。</p>
-<p>⭐ 最值钱的一条：<strong>报错建议的 <code>retain_graph=True</code> 多半是错的修法</strong>。真正的病常常是 <code>total_loss += loss</code>（累加的是张量），图会跟着步数一起长——修法是加 <code>.item()</code>。</p>
-</blockquote>
+<ul>
+<li>默认梯度模式下，autograd 按实际执行的可微运算记录图。</li>
+<li>反向通常释放保存的中间张量，不等于所有图结构立刻消失。</li>
+<li>梯度会累积；是否清零取决于这次是否要做梯度累积。</li>
+<li>retain_grad 保留某个中间张量的梯度，retain_graph 保留再次反向所需的中间值。</li>
+<li>只做日志统计时取 loss.item()，避免把用于记录的数值与计算图绑在一起。</li>
+</ul>
 <p><strong>下一节</strong> 👉 <a href="03-三种就地操作报错.html">03-三种就地操作报错.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>

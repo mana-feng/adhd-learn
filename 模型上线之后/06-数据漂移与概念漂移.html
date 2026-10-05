@@ -297,8 +297,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#_3">🔍 二、怎么检测数据漂移</a></li>
 <li><a href="#_4">🕵️ 三、概念漂移：难在哪、怎么发现</a></li>
 <li><a href="#_6">🛠️ 四、发现了漂移，做什么</a></li>
-<li><a href="#psi">💀 五、一个"PSI 全绿但模型已经烂了"的真事故</a></li>
-<li><a href="#_7">🔬 六、对抗验证：完整可跑版</a></li>
+<li><a href="#psi">💀 五、教学案例：PSI 全绿，误差仍可能上升</a></li>
+<li><a href="#_7">🔬 六、对抗验证：函数与使用边界</a></li>
 <li><a href="#_10">🔗 七、和站内其他章的关系</a></li>
 <li><a href="#_11">✅ 检查点</a></li>
 <li><a href="#_12">🛑 可以停在这里</a></li>
@@ -306,247 +306,346 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="06">06 · 数据漂移与概念漂移</h1>
-<p>⏱ <strong>38 分钟</strong> ｜ ⭐ <strong>分清它们，才知道该修什么</strong></p>
+<p>⏱ <strong>38 分钟（参考，可分次读）</strong> ｜ ⭐ <strong>先看哪里变了，再决定是否要修模型</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p>数据漂移：进来的东西变了。
-概念漂移：进来的东西没变，但<strong>它和答案的关系变了</strong>。
-<strong>前者重训能修，后者重训未必能修 —— 而且它更难发现。</strong></p>
+<p><strong>漂移是在问“数据或规律变了吗”，不是直接宣布“模型坏了，马上重训”。</strong></p>
 <figure class="dia" data-fig="drift_diagnosis"><svg viewBox="0 0 700 424" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="漂移类型的诊断决策树"><defs><marker id="aa__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker><marker id="aal__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--link)"/></marker><marker id="aag__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--done)"/></marker></defs><rect x="260" y="62" width="190" height="46" rx="10" fill="var(--card)" stroke="var(--muted)" stroke-width="2"/><text class="dia-t" x="355.0" y="90.0" font-size="12" text-anchor="middle" fill="var(--fg)" font-weight="700">指标掉了</text><rect x="230" y="138" width="250" height="50" rx="10" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/><text class="dia-t" x="355.0" y="168.0" font-size="12" text-anchor="middle" fill="var(--fg)" font-weight="700">输入分布变了吗？</text><line x1="355" y1="112" x2="355" y2="132" stroke="var(--muted)" stroke-width="1.8" marker-end="url(#aa__f1)"/><rect x="40" y="224" width="200" height="50" rx="10" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/><text class="dia-t" x="140.0" y="254.0" font-size="12" text-anchor="middle" fill="var(--fg)" font-weight="700">突变还是渐变？</text><line x1="290" y1="192" x2="180" y2="218" stroke="var(--accent)" stroke-width="1.8" marker-end="url(#aa__f1)"/><text class="dia-t" x="215" y="200" font-size="11" text-anchor="middle" fill="var(--accent)" font-weight="700">变了</text><rect x="20" y="308" width="118" height="54" rx="10" fill="var(--card)" stroke="var(--danger,#e5534b)" stroke-width="2"/><text class="dia-t" x="79.0" y="330" font-size="12" text-anchor="middle" fill="var(--fg)" font-weight="700">管道坏了</text><text class="dia-t" x="79.0" y="347" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">先修，别重训</text><rect x="152" y="308" width="118" height="54" rx="10" fill="var(--card)" stroke="var(--link)" stroke-width="2"/><text class="dia-t" x="211.0" y="330" font-size="12" text-anchor="middle" fill="var(--fg)" font-weight="700">数据漂移</text><text class="dia-t" x="211.0" y="347" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">重训 / 加权</text><line x1="110" y1="278" x2="82" y2="302" stroke="var(--danger,#e5534b)" stroke-width="1.6" marker-end="url(#aa__f1)"/><line x1="170" y1="278" x2="204" y2="302" stroke="var(--link)" stroke-width="1.6" marker-end="url(#aal__f1)"/><text class="dia-t" x="76" y="294" font-size="11" text-anchor="middle" fill="var(--danger,#e5534b)" font-weight="normal">突变</text><text class="dia-t" x="212" y="294" font-size="11" text-anchor="middle" fill="var(--link)" font-weight="normal">渐变</text><rect x="430" y="224" width="230" height="50" rx="10" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/><text class="dia-t" x="545.0" y="254.0" font-size="12" text-anchor="middle" fill="var(--fg)" font-weight="700">有标签的样本上准了吗？</text><line x1="420" y1="192" x2="520" y2="218" stroke="var(--accent)" stroke-width="1.8" marker-end="url(#aa__f1)"/><text class="dia-t" x="486" y="200" font-size="11" text-anchor="middle" fill="var(--accent)" font-weight="700">没变</text><rect x="410" y="308" width="118" height="54" rx="10" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/><text class="dia-t" x="469.0" y="330" font-size="12" text-anchor="middle" fill="var(--fg)" font-weight="700">概念漂移</text><text class="dia-t" x="469.0" y="347" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">重训+调窗口</text><rect x="542" y="308" width="130" height="54" rx="10" fill="var(--card)" stroke="var(--done)" stroke-width="2"/><text class="dia-t" x="607.0" y="330" font-size="12" text-anchor="middle" fill="var(--fg)" font-weight="700">标签漂移</text><text class="dia-t" x="607.0" y="347" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">重校准即可 ⭐</text><line x1="500" y1="278" x2="470" y2="302" stroke="var(--accent)" stroke-width="1.6" marker-end="url(#aa__f1)"/><line x1="580" y1="278" x2="606" y2="302" stroke="var(--done)" stroke-width="1.6" marker-end="url(#aag__f1)"/><text class="dia-t" x="462" y="294" font-size="11" text-anchor="middle" fill="var(--accent)" font-weight="normal">掉了</text><text class="dia-t" x="614" y="294" font-size="11" text-anchor="middle" fill="var(--done)" font-weight="normal">还准，只是概率偏了</text><text class="dia-t" x="350" y="32" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">两个提问，把四种情况分干净 —— 而它们的处理方式完全不同</text><text class="dia-t" x="350" y="386" font-size="12.5" text-anchor="middle" fill="var(--danger,#e5534b)" font-weight="700">💀 最贵的错误：管道坏了的时候去重训 —— 那会把错误数据永久固化进模型</text><text class="dia-t" x="350" y="408" font-size="11.5" text-anchor="middle" fill="var(--done)" font-weight="600">⭐ 最省力的情况：标签漂移只需重新校准概率，比重训便宜得多</text></svg><figcaption>两个提问就能把四种情况分干净，而它们的处理方式完全不同。💀 最贵的错误：<b>管道坏了的时候去重训</b> —— 那会把错误数据永久固化进模型。⭐ 最省力的情况：标签漂移只需重新校准概率。</figcaption></figure>
 
+<p>先看输入，再等真实标签核对效果，最后决定修管道、调策略、校准还是重训。任何一种漂移，都不能单独决定解决方案。</p>
 <hr />
 <h2 id="_2">📐 一、用概率写清楚区别</h2>
-<p>模型学的是 $P(y \mid x)$，而你看到的数据由 $P(x, y) = P(y|x)\,P(x)$ 决定。</p>
+<p>x 是模型看到的输入，y 是事后知道的真实结果。联合分布可以写成 $P(x,y)=P(y|x)P(x)$：既要知道“来了什么样的样本”，也要知道“这样的样本会得到什么结果”。</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>类型</th>
-<th>变的是</th>
-<th>直觉</th>
+<th>名称</th>
+<th>改变与假设</th>
+<th>怎么理解</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>数据漂移</strong>（covariate shift）</td>
-<td>$P(x)$ 变，$P(y\|x)$ 不变</td>
-<td><strong>来的人变了</strong>，但「什么样的人会买」这个规律没变</td>
+<td>输入分布漂移（data drift）</td>
+<td>P(x) 变；仅看输入不能确认其他部分</td>
+<td>来的人或数据组成变了</td>
 </tr>
 <tr>
-<td><strong>概念漂移</strong>（concept drift）</td>
-<td>$P(y\|x)$ <strong>变了</strong> ⭐</td>
-<td><strong>同样的人，现在的行为和以前不一样了</strong></td>
+<td>协变量偏移（covariate shift）</td>
+<td>P(x) 变，另假设 P(y∣x) 不变</td>
+<td>来的人变了，但同样条件下的规律仍相同</td>
 </tr>
 <tr>
-<td><strong>标签漂移</strong>（prior shift）</td>
-<td>$P(y)$ 变</td>
-<td>正样本整体比例变了（如欺诈率上升）</td>
+<td>概念漂移（本章口径）</td>
+<td>P(y∣x) 变；P(x) 可以变，也可以不变</td>
+<td>同样条件下，结果的规律变了</td>
+</tr>
+<tr>
+<td>标签偏移（label/prior shift）</td>
+<td>P(y) 变，另假设 P(x∣y) 不变</td>
+<td>各类的比例变了，但类内输入分布仍相同</td>
 </tr>
 </tbody>
 </table></div>
-<p>💡 <strong>一组对照例子</strong>（同一个信贷模型）：</p>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">数据漂移：</span></div><div class="vb-flow-row"><span class="vb-flow-step">营销渠道换了</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">来的用户从 35 岁白领变成 22 岁学生</span></div><div class="vb-flow-row"><span class="vb-flow-step">「收入高的人违约率低」这条规律【依然成立】</span></div><div class="vb-flow-row"><span class="vb-flow-step">重新训练（用新人群的数据）就能修好 ✅</span></div><div class="vb-flow-row"><span class="vb-flow-step">概念漂移：</span></div><div class="vb-flow-row"><span class="vb-flow-step">经济环境变了</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">同样收入、同样年龄的人，违约率整体上升</span></div><div class="vb-flow-row"><span class="vb-flow-step">「收入</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">违约率」这条【关系本身变了】</span></div><div class="vb-flow-row"><span class="vb-flow-step">必须用新数据重训，而且【旧数据可能有害】⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">标签漂移：</span></div><div class="vb-flow-row"><span class="vb-flow-step">风控策略放松</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">通过率提高</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">坏账率从 2% 涨到 5%</span></div><div class="vb-flow-row"><span class="vb-flow-step">模型排序可能还对，但【输出的概率不再校准】</span></div><div class="vb-flow-row"><span class="vb-flow-step">修法可能只需要重新校准，不用重训 ⭐</span></div></div></section>
-<blockquote>
-<p>⭐ <strong>最后一行是个实用的省力点</strong>：
-<strong>标签漂移常常只需要调整阈值或做一次概率重校准</strong>，
-比重训模型便宜得多。<strong>先判断类型，再决定动作。</strong></p>
-</blockquote>
+<p><strong>这些不是互斥的三个盒子。</strong> 标签偏移通常也会改变 P(x) 和 P(y∣x)；只是正样本比例上升，还不足以确认它满足标签偏移的假设。不同资料对“概念漂移”的用词也可能更宽。</p>
+<p>标签偏移的条件可核对 <a href="https://arxiv.org/abs/1802.03916">Lipton 等的原论文</a>。</p>
+<p><strong>同一个信贷模型的三种教学假设：</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>额外假设是什么</th>
+<th>先做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>渠道换了，客户从 35 岁白领变成 22 岁学生</td>
+<td>假设给定完整特征后的违约规律没变，才称协变量偏移</td>
+<td>检查新人群覆盖、分组误差及标签；效果仍达标时不必立即重训</td>
+</tr>
+<tr>
+<td>经济环境改变，同样收入、年龄等条件下违约率上升</td>
+<td>条件分布 P(y∣x) 改变</td>
+<td>核对新标签、缺失的环境因素，比较新窗口训练或其他调整</td>
+</tr>
+<tr>
+<td>坏账率由 2% 变成 5%</td>
+<td>只有各类别内部的输入分布仍稳定，才满足标签偏移</td>
+<td>检验假设，再考虑先验修正、校准、阈值或重训</td>
+</tr>
+</tbody>
+</table></div>
+<p>“风控策略放松”还会改变谁被观察到，不能直接当作纯标签偏移的证明。</p>
+<p><strong>校准和阈值也不是一回事。</strong> 校准调整概率含义；阈值决定在哪个概率开始采取行动。调阈值不会自动把概率校准好，也没有“标签漂移总是最省力”的保证。</p>
 <hr />
 <h2 id="_3">🔍 二、怎么检测数据漂移</h2>
 <h3 id="1">方法 1：逐特征统计检验</h3>
+<p>先挑一个特征，对比参考期与当前期的样本。参考期不一定永远是训练集，也可以是经过确认的稳定生产窗口；比较口径要记录下来。</p>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>特征类型</th>
 <th>常用方法</th>
-<th>说明</th>
+<th>使用边界</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>数值</td>
-<td><strong>KS 检验</strong></td>
-<td>比较两个分布，无需假设正态</td>
+<td>连续数值</td>
+<td>KS 两样本检验</td>
+<td>不要求正态；样本相关、重复值和大量同时检验会影响解读</td>
 </tr>
 <tr>
-<td>数值</td>
-<td><strong>PSI</strong>（群体稳定性指数）⭐</td>
-<td>工业界最常用，有公认阈值</td>
+<td>分桶数值</td>
+<td>PSI（群体稳定性指数）</td>
+<td>衡量桶占比差异，本身不是显著性概率</td>
 </tr>
 <tr>
 <td>类别</td>
-<td>卡方检验 / PSI</td>
-<td></td>
+<td>卡方检验或类别 PSI</td>
+<td>对齐类别，处理新类别、稀有类别及过小期望频数</td>
 </tr>
 </tbody>
 </table></div>
-<p><strong>PSI 的公式和阈值</strong>（记住这个就够用）：</p>
-<p>$$\text{PSI} = \sum_i (p_i^{\text{线上}} - p_i^{\text{训练}}) \cdot \ln\frac{p_i^{\text{线上}}}{p_i^{\text{训练}}}$$</p>
-<section class="comparison-repair" id="comparison-repair-23"><section class="reading-information"><p class="reading-information-title">计算前两步</p><ul><li>把特征分成 10 个桶（按训练集的分位数切）</li><li>算每个桶的占比变化</li></ul></section><div class="tw"><table><caption>PSI 的阅读区间（作为排查线索）</caption><thead><tr><th scope="col">PSI 范围</th><th scope="col">原文判断</th></tr></thead><tbody><tr><th scope="row">&lt; 0.1</th><td>稳定 ✅</td></tr><tr><th scope="row">0.1 ~ 0.25</th><td>有变化 ⚠️ 关注</td></tr><tr><th scope="row">&gt; 0.25</th><td>显著漂移 🔴 该查了</td></tr></tbody></table></div></section>
+<p><strong>PSI：看同一组桶里的比例差了多少。</strong></p>
+<p>$$\text{PSI}=\sum_i (p_i^{\text{线上}}-p_i^{\text{参考}})
+\ln\frac{p_i^{\text{线上}}}{p_i^{\text{参考}}}$$</p>
+<p>i 表示桶；两边的 p 都是该桶的占比。相同分布的理论值为 0，但两批有限样本的经验值通常不会恰好为 0。</p>
+<section class="comparison-repair" id="comparison-repair-23">
+<p><b>计算前两步：</b>用参考期确定同一套分桶边界；再把两期数据分别放进这些桶。10 桶只是一个候选，不是定理。</p>
+<div class="tw"><table>
+<caption>常见 PSI 经验区间，不是通用统计检验</caption>
+<thead><tr><th>经验区间</th><th>能怎么用</th><th>不能推出什么</th></tr></thead>
+<tbody>
+<tr><td>&lt; 0.1</td><td>在该经验规则下信号较小</td><td>不能证明没有漂移或模型仍准确</td></tr>
+<tr><td>0.1–0.25</td><td>作为进一步排查的候选</td><td>不能直接解释为某个置信水平</td></tr>
+<tr><td>&gt; 0.25</td><td>检查变化及业务影响</td><td>不能单凭此值自动重训</td></tr>
+</tbody>
+</table></div>
+</section>
 
+<p>固定阈值没有统一的样本量保证。相关讨论见 <a href="https://arxiv.org/abs/2307.11878">PSI 与样本规模的研究</a>。</p>
+<p>下面是<strong>一维有限数值</strong>的 PSI 函数。需要 NumPy；不处理类别和缺失值。函数会拒绝空数组、非有限值和常量参考列，不把无法计算静默当成“稳定”。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">psi</span><span class="p">(</span><span class="n">base</span><span class="p">,</span> <span class="n">live</span><span class="p">,</span> <span class="n">bins</span><span class="o">=</span><span class="mi">10</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;base/live 是同一个特征的两批取值。按 base 的分位数切桶。&quot;&quot;&quot;</span>
-    <span class="n">edges</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">quantile</span><span class="p">(</span><span class="n">base</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">bins</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span>
-    <span class="n">edges</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">edges</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span>        <span class="c1"># ⭐ 防止线上出现超界值被丢掉</span>
-    <span class="n">b</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">histogram</span><span class="p">(</span><span class="n">base</span><span class="p">,</span> <span class="n">edges</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">base</span><span class="p">)</span>
-    <span class="n">l</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">histogram</span><span class="p">(</span><span class="n">live</span><span class="p">,</span> <span class="n">edges</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">live</span><span class="p">)</span>
-    <span class="n">eps</span> <span class="o">=</span> <span class="mf">1e-6</span>                                    <span class="c1"># ⭐ 防 log(0)</span>
-    <span class="n">b</span><span class="p">,</span> <span class="n">l</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="n">eps</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">l</span><span class="p">,</span> <span class="n">eps</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;同一特征的两批有限数值；参考期分位数分桶，半计数平滑。&quot;&quot;&quot;</span>
+    <span class="n">base</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">base</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+    <span class="n">live</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">live</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">base</span><span class="o">.</span><span class="n">ndim</span> <span class="o">!=</span> <span class="mi">1</span> <span class="ow">or</span> <span class="n">live</span><span class="o">.</span><span class="n">ndim</span> <span class="o">!=</span> <span class="mi">1</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">base</span><span class="o">.</span><span class="n">size</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">live</span><span class="o">.</span><span class="n">size</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;base/live 必须是一维非空数组&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">base</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">live</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;请先单独检查缺失值和无穷值&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">bins</span><span class="p">,</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">integer</span><span class="p">))</span> <span class="ow">or</span> <span class="n">bins</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;bins 必须是至少为 2 的整数&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">base</span><span class="p">)</span><span class="o">.</span><span class="n">size</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;参考列为常量：请单独监控新值及其比例&quot;</span><span class="p">)</span>
+    <span class="n">edges</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">quantile</span><span class="p">(</span><span class="n">base</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">bins</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)))</span>
+    <span class="n">edges</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">edges</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span>
+    <span class="n">b</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">histogram</span><span class="p">(</span><span class="n">base</span><span class="p">,</span> <span class="n">edges</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
+    <span class="n">l</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">histogram</span><span class="p">(</span><span class="n">live</span><span class="p">,</span> <span class="n">edges</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
+    <span class="c1"># ⭐ 两期使用相同边界；给每个桶加半个计数，再归一化，避免 log(0)</span>
+    <span class="n">b</span> <span class="o">=</span> <span class="p">(</span><span class="n">b</span> <span class="o">+</span> <span class="mf">0.5</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">base</span><span class="o">.</span><span class="n">size</span> <span class="o">+</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">b</span><span class="o">.</span><span class="n">size</span><span class="p">)</span>
+    <span class="n">l</span> <span class="o">=</span> <span class="p">(</span><span class="n">l</span> <span class="o">+</span> <span class="mf">0.5</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">live</span><span class="o">.</span><span class="n">size</span> <span class="o">+</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">l</span><span class="o">.</span><span class="n">size</span><span class="p">)</span>
     <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">((</span><span class="n">l</span> <span class="o">-</span> <span class="n">b</span><span class="p">)</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">l</span> <span class="o">/</span> <span class="n">b</span><span class="p">)))</span>
 </code></pre></div>
 
-<p>⚠️ <strong>PSI 的两个坑</strong>：</p>
+<p><strong>看这两处写法：</strong> 分桶只依赖 base，live 超出旧范围的值也会进入首尾桶；平滑后两边仍分别加到 1。平滑方法和桶数会影响结果，不能与其他实现的数值不加说明地混用。</p>
+<p>重复分位点会合并，因此实际桶数可能少于请求值。离散值很少的特征宜按类别比较；只看桶占比，也可能漏掉桶内的变化。</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>坑</th>
-<th>说明</th>
+<th>常见坑</th>
+<th>为什么</th>
+<th>怎么处理</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>分桶必须按训练集切，且边界要存下来</strong></td>
-<td>每次按各自分位数切，永远算不出漂移 💀</td>
+<td>两期各自分位数分桶</td>
+<td>每边都近似等比例，但同名桶已经不是同一范围，掩盖变化</td>
+<td>固定参考边界，并随基准版本保存</td>
 </tr>
 <tr>
-<td><strong>样本量小时不稳</strong></td>
-<td>少于 1000 条时 PSI 波动很大，别急着告警</td>
+<td>小样本、稀有桶、重复监控</td>
+<td>随机波动及多次比较会带来误报</td>
+<td>用稳定历史窗口校准，检查缺失、新值、分组样本量和业务代价</td>
 </tr>
 </tbody>
 </table></div>
 <h3 id="2">方法 2：对抗验证（一次看全部特征）</h3>
-<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">① 训练集样本标成 0，线上样本标成 1</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 训一个分类器区分它们</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 如果 AUC ≈ 0.5</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">两批数据分不开</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">没有漂移 ✅</span></div><div class="vb-flow-row"><span class="vb-flow-step">如果 AUC 明显 &gt; 0.5</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">有漂移 🔴</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 更值钱的是第 ④ 步：</span></div><div class="vb-flow-row"><span class="vb-flow-step">④ 看这个分类器的【特征重要性】—— 排在最前的就是漂移的元凶</span></div></div></section>
-<blockquote>
-<p>🔗 <strong>这个方法你在 <a href="../Kaggle竞赛方法论/23_数据泄露与外部数据.html">Kaggle 23</a> 见过</strong>
-（那里用它检测训练集和测试集的分布差异）。
-<strong>同一个工具，换个场景</strong>：那里比的是训练集 vs 测试集，这里比的是训练集 vs 线上流量。</p>
-<p>⭐ <strong>它比逐特征检验强的地方</strong>：<strong>能发现「联合分布」的漂移</strong> ——
-每个特征单看都正常，但它们的组合变了（比如「高收入 + 年轻」这个组合突然变多）。</p>
-</blockquote>
+<p>这里“对抗”不是攻击模型，而是训练一个<strong>区分样本来自哪一期</strong>的分类器。</p>
+<ol>
+<li>参考期标 0，当前期标 1。</li>
+<li>留出未参与训练的数据，或计算折外预测。</li>
+<li>看这个分类器在未见样本上能否稳定区分两期。</li>
+<li>检查哪些特征与区分有关，再结合管道、业务变更与分组数据排查。</li>
+</ol>
+<p><strong>AUC≈0.5 只说明当前检测器没有表现出区分能力。</strong> 样本少、模型弱、特征不足或切分不合理，都可能漏检；这不是“无漂移”的证明。</p>
+<p>AUC 较高是两期可区分的证据，但需排除数据来源标记、重复实体和评估泄漏。特征重要性提供排查线索，不证明谁是因果上的“元凶”。可对照 <a href="https://docs.seldon.ai/alibi-detect/cd/methods/offline/classifierdrift">Alibi Detect 的分类器漂移检测</a>。</p>
+<p><strong>为什么值得一次看多列？</strong> 可以构造这样的例子：参考期只有 (0,0)、(1,1)，当前期只有 (0,1)、(1,0)，四种情况各自在所属时期等频。每一列都一半 0、一半 1，但两列的关系改变了；能学习这个关系的检测器才有机会发现它。</p>
+<p>同一工具也用于 <a href="../Kaggle竞赛方法论/23_数据泄露与外部数据.html">Kaggle 23</a> 的训练集与测试集对照。</p>
 <hr />
 <h2 id="_4">🕵️ 三、概念漂移：难在哪、怎么发现</h2>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>数据漂移：看输入就能发现 ← 不需要标签 ✅</p><p>概念漂移：必须知道【真实答案】才能发现 ← 需要标签 💀</p></div></section>
-<p><strong>这就是它难的根本原因</strong>：标签常常要等很久（<a href="07-没有标签怎么发现退化.html">第 7 章</a>专门讲这个）。</p>
+<p><strong>只看 x，通常无法识别任意 P(y∣x) 的变化。</strong> 如果两期输入分布完全相同，输入检测器无法知道“同样输入的答案换了”。</p>
+<p>标签或可信结果信号因此很重要，但也要检查标签成熟度、采样偏差和业务口径。无标签方法可在额外假设下提供预警，不能无条件确认或排除概念漂移。<a href="07-没有标签怎么发现退化.html">第 7 章</a>继续讨论这条边界。</p>
 <h3 id="_5">三种形态</h3>
-<section class="reading-information"><p class="reading-information-title">关键信息</p><ul><li><span>① 突变（sudden）</span></li><li><span>政策变了、竞品上线、疫情开始</span></li><li><span>表现：某一天指标断崖式下跌</span></li><li><span>② 渐变（gradual）⭐ 最危险</span></li><li><span>用户习惯慢慢改变</span></li><li><span>表现：每天掉一点点，单看哪天都在正常波动内</span></li><li><span>三个月后回头看，已经掉了 20%</span></li><li><span>③ 周期性（recurring）</span></li><li><span>季节、节假日、工作日/周末</span></li><li><span>不是"坏"，但模型要能处理</span></li></ul></section>
-<blockquote>
-<p>⭐ <strong>② 最危险的原因</strong>：<strong>任何单日的告警阈值都不会触发</strong>。
-<strong>对策：除了日环比，一定要看「和 30 天前比」「和 90 天前比」。</strong></p>
-</blockquote>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>形态</th>
+<th>教学例子</th>
+<th>观察方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>突变</td>
+<td>业务规则在某天改变</td>
+<td>看变化时点、分组误差与事件记录</td>
+</tr>
+<tr>
+<td>渐变</td>
+<td>用户偏好缓慢改变</td>
+<td>同时比较近期及较长的稳定基线，避免只看相邻两天</td>
+</tr>
+<tr>
+<td>周期或复现</td>
+<td>季节、节假日、工作日模式回来</td>
+<td>对齐可比周期，判断是否超出预期范围</td>
+</tr>
+</tbody>
+</table></div>
+<p>没有一种形态永远“最危险”。渐变可能没有触发单日阈值，也可能被趋势检测提前发现。30/90 天只是候选窗口，不适合所有标签延迟和季节周期。</p>
 <h3 id="auc">一个便宜的检测手段：滑动窗口 AUC</h3>
-<section class="comparison-repair" id="comparison-repair-24"><p>把有标签的样本按时间排，算每周的 AUC</p><div class="tw"><table><caption>按时间排列后与基线比较</caption><thead><tr><th scope="col">周</th><th scope="col">AUC 与观察</th></tr></thead><tbody><tr><th scope="row">周1</th><td>0.82</td></tr><tr><th scope="row">周2</th><td>0.81</td></tr><tr><th scope="row">周3</th><td>0.81</td></tr><tr><th scope="row">周4</th><td>0.79 ← 单看是正常波动</td></tr><tr><th scope="row">周5</th><td>0.78</td></tr><tr><th scope="row">周6</th><td>0.76 ← 和周1比已经掉了 0.06 🔴</td></tr></tbody></table></div><section class="reading-information"><p class="reading-information-title">看哪里</p><ul><li>⭐ 关键是【和基线比】，不是和上周比</li></ul></section></section>
+<section class="comparison-repair" id="comparison-repair-24">
+<p>下面是教学假设：每周都使用标签已经成熟、口径一致的样本；不是某个项目的实跑记录。</p>
+<div class="tw"><table>
+<caption>同一指标相对基线的变化</caption>
+<thead><tr><th>周</th><th>AUC</th><th>怎么读</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>0.82</td><td>作为当前比较基线</td></tr>
+<tr><td>2</td><td>0.81</td><td>结合样本量判断差异</td></tr>
+<tr><td>3</td><td>0.81</td><td>不能单凭相同均值宣布稳定</td></tr>
+<tr><td>4</td><td>0.79</td><td>没有不确定性估计，不能断言“正常波动”</td></tr>
+<tr><td>5</td><td>0.78</td><td>继续检查分组与累计趋势</td></tr>
+<tr><td>6</td><td>0.76</td><td>比第 1 周低 0.06，值得调查原因</td></tr>
+</tbody>
+</table></div>
+<p><b>看哪里：</b>相邻周变化小，不代表相对基线变化小；但 AUC 降低本身不能证明是概念漂移，也可能与样本构成、标签或管道有关。</p>
+</section>
+
+<p>分类还需看校准和业务指标；回归可看 MAE。重叠滑动窗口彼此相关，不能把它们当成很多份独立证据。</p>
 <hr />
 <h2 id="_6">🛠️ 四、发现了漂移，做什么</h2>
-<p><strong>别急着重训。按这个顺序判断</strong>：</p>
-<section class="visual-block visual-block-flow" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">① 是数据管道坏了吗？</span></div><div class="vb-flow-row"><span class="vb-flow-step">突变 + 只有个别特征异常 + 缺失率变化</span></div><div class="vb-flow-row"><span class="vb-flow-step">【先修管道，绝不重训】⭐（重训会把错误固化，见第 1 章）</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 是数据漂移吗（P(x) 变）？</span></div><div class="vb-flow-row"><span class="vb-flow-step">输入分布变了，但有标签的样本上模型还准</span></div><div class="vb-flow-row"><span class="vb-flow-step">用新数据重训 / 加样本权重</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 是概念漂移吗（P(y|x) 变）？</span></div><div class="vb-flow-row"><span class="vb-flow-step">输入分布没怎么变，但预测准确率掉了</span></div><div class="vb-flow-row"><span class="vb-flow-step">必须用新数据重训，且【要考虑丢掉太旧的数据】⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">④ 是标签漂移吗（P(y) 变）？</span></div><div class="vb-flow-row"><span class="vb-flow-step">排序还对，但概率不准了</span></div><div class="vb-flow-row"><span class="vb-flow-step">可能只需重新校准，不用重训 ⭐ 最便宜</span></div></div></section>
+<p><strong>先查数据可信不可信，再查效果和行动。</strong> 下表是排查路线，不是只凭一个告警给漂移“确诊”。</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>情况</th>
-<th>该做的</th>
-<th>不该做的</th>
+<th>当前证据</th>
+<th>优先动作</th>
+<th>不要直接推出</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>管道故障</td>
-<td>修管道</td>
-<td>❌ <strong>重训</strong></td>
+<td>单位、编码、缺失或接口突然异常</td>
+<td>查管道与变更，隔离坏数据；修复后再验证候选</td>
+<td>用受污染数据重训会自动修好问题</td>
 </tr>
 <tr>
-<td>数据漂移</td>
-<td>重训 / 加权 / 扩样本</td>
-<td>❌ 只调阈值</td>
+<td>P(x) 变，但成熟标签上的效果仍达标</td>
+<td>检查新人群覆盖并继续监测；有证据时再比较加权、补样或重训</td>
+<td>只要有漂移就必须重训</td>
 </tr>
 <tr>
-<td>概念漂移</td>
-<td>重训 + <strong>调整训练窗口</strong></td>
-<td>❌ 无脑用全量历史</td>
+<td>同类输入的结果规律可能变了</td>
+<td>核对标签与业务规则；比较校准、新特征、训练窗口或策略调整</td>
+<td>唯一办法是丢掉所有旧数据</td>
 </tr>
 <tr>
-<td>标签漂移</td>
-<td>重校准 / 调阈值</td>
-<td>❌ 大动干戈重训</td>
+<td>满足标签偏移假设，类别先验变化</td>
+<td>验证先验修正与校准；按行动代价调整阈值</td>
+<td>调阈值就等于概率重新校准</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>🔗 重训练的具体策略（窗口多长、多久一次、怎么验证）→ <a href="16-重训练.html">第 16 章</a></p>
-</blockquote>
+<p>重训不是禁忌，也不是默认答案。确认管道修复、可用标签和验证方案后，可以重训新的候选；不能让未经调查的异常数据自动进入发布链。</p>
+<p>训练窗口、频率与发布验收见 <a href="16-重训练.html">第 16 章</a>。</p>
 <hr />
-<h2 id="psi">💀 五、一个"PSI 全绿但模型已经烂了"的真事故</h2>
-<p>这是概念漂移最典型的样子，<strong>也是漂移监控最尴尬的时刻</strong>。</p>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">某外卖平台的配送时长（ETA）预估模型</span></div><div class="vb-flow-row"><span class="vb-flow-step">特征：距离、时段、天气、商家出餐历史、骑手密度……</span></div><div class="vb-flow-row"><span class="vb-flow-step">某个月开始，用户投诉&quot;预计 30 分钟实际 45 分钟&quot;暴涨</span></div><div class="vb-flow-row"><span class="vb-flow-step">查漂移监控：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 全部 47 个特征的 PSI 都 &lt; 0.06 ✅ 全绿</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 对抗验证 AUC = 0.52 ✅ 分不开</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 预测值分布：均值 31.2</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">31.5 分钟 ✅ 几乎没动</span></div><div class="vb-flow-row"><span class="vb-flow-step">监控体系一个字都没说</span></div></div></section>
-<p><strong>真正发生的事</strong>：</p>
-<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">平台调整了骑手的接单规则（一次最多并单从 3 单改成 5 单）</span></div><div class="vb-flow-row"><span class="vb-flow-step">【输入特征一个都没变】：距离一样、时段一样、骑手密度一样</span></div><div class="vb-flow-row"><span class="vb-flow-step">但【同样的输入，实际配送时长普遍多了 4 分钟】</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 这就是教科书定义里的 P(y|x) 变了 —— 而且是外部规则造成的</span></div></div></section>
+<h2 id="psi">💀 五、教学案例：PSI 全绿，误差仍可能上升</h2>
+<p><strong>以下 ETA（配送时长）场景是教学构造，不是有来源可查的真实事故。</strong> 数字用于说明各条监控能看什么，不能作为事故证据。</p>
+<p>假设模型只看到距离、时段、天气、商家历史、骑手密度等特征，却没有看到平台新调整的并单规则：每次最多从 3 单改成 5 单。</p>
+<p>再假设两期的输入分布基本不变，但新规则使相同输入下的实际配送时长上移。例如某些样本多了约 4 分钟；这不等于每条样本都恰好多 4 分钟。</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>检测手段</th>
-<th>结果</th>
-<th>为什么</th>
+<th>观察信号（假设值）</th>
+<th>看到什么</th>
+<th>不能单独证明什么</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>PSI / KS</td>
-<td>❌ 全绿</td>
-<td>它们只看 $P(x)$</td>
+<td>47 个特征的 PSI 都 &lt; 0.06</td>
+<td>按当前分桶，边际占比变化较小</td>
+<td>不是所有联合分布与结果规律都没变</td>
 </tr>
 <tr>
-<td>对抗验证</td>
-<td>❌ AUC 0.52</td>
-<td>同上，只看输入</td>
+<td>对抗验证 AUC=0.52</td>
+<td>当前检测器区分较弱</td>
+<td>不证明严格同分布</td>
 </tr>
 <tr>
-<td>预测分布</td>
-<td>❌ 没动</td>
-<td>模型的输入没变，输出自然没变</td>
+<td>预测均值 31.2→31.5 分钟</td>
+<td>预测的总体均值变化小</td>
+<td>不证明预测误差不变；均值也不代表完整分布</td>
 </tr>
 <tr>
-<td><strong>滑动窗口 MAE</strong></td>
-<td>✅ <strong>6.1 → 9.8 分钟</strong> ⭐</td>
-<td>唯一看了真实答案的</td>
+<td>成熟标签上的 MAE 6.1→9.8 分钟</td>
+<td>平均绝对误差增加 3.7 分钟</td>
+<td>不能仅凭 MAE 确认根因就是并单规则</td>
 </tr>
 <tr>
-<td>用户投诉率</td>
-<td>✅ 涨了 3 倍</td>
-<td>最晚，也最贵</td>
+<td>投诉率为原来的 3 倍</td>
+<td>体验相关信号恶化</td>
+<td>投诉不一定最晚到来，也不等于无偏标签</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>⭐ <strong>这个事故给出的是本章最重要的结论</strong>：
-<strong>漂移监控（PSI / 对抗验证）只能发现数据漂移，对概念漂移是完全失明的。</strong>
-<strong>无论你的漂移看板多绿，都必须另外有一条"看真实答案"的线。</strong></p>
-<p>💡 <strong>这个案例还有一个附加教训</strong>：<strong>概念漂移的原因常常在你的系统之外</strong> ——
-政策、规则、竞品、天气、上下游的业务决策。
-<strong>对策：让业务方的重大变更（规则调整、活动、定价）以事件的形式打到你的监控时间轴上</strong>，
-排查时能一眼对上。🔗 <a href="11-从告警到根因.html">第 11 章</a>会讲这条"变更时间轴"。</p>
-</blockquote>
+<p>“预计 30、实际 45 分钟”可作为一条投诉例子，但不能从总体 MAE 或“约多 4 分钟”反推出这条记录一定发生过。</p>
+<p><strong>这组对照要留下的结论：输入监控没有报警，不等于结果质量没变。</strong> 在纯条件变化、输入分布不变时，只看输入无法识别它；现实中两种变化也可能同时发生。</p>
+<p>把业务规则、定价、活动等重大变化记入时间轴，可帮助形成待验证的解释，而不是直接证明因果。见 <a href="11-从告警到根因.html">第 11 章</a>。</p>
 <hr />
-<h2 id="_7">🔬 六、对抗验证：完整可跑版</h2>
-<p>第二节说了思路，这里给能直接抄的实现。</p>
+<h2 id="_7">🔬 六、对抗验证：函数与使用边界</h2>
+<p>下面保留 LightGBM 路线，需要 NumPy、pandas、scikit-learn、LightGBM。输入是同名同序的数值特征表；不传真实业务标签，0/1 仅表示来源时期。</p>
+<p>这是可调用函数，不是自带业务数据的训练脚本。对存在重复用户、群组或强时间依赖的数据，应另外设计分组/时间留出；这里的随机分层切分只适用于近似独立的样本。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span><span class="o">,</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span><span class="o">,</span><span class="w"> </span><span class="nn">lightgbm</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">lgb</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.model_selection</span><span class="w"> </span><span class="kn">import</span> <span class="n">cross_val_predict</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.model_selection</span><span class="w"> </span><span class="kn">import</span> <span class="n">cross_val_predict</span><span class="p">,</span> <span class="n">StratifiedKFold</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">roc_auc_score</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">adversarial_validation</span><span class="p">(</span><span class="n">train_df</span><span class="p">,</span> <span class="n">live_df</span><span class="p">,</span> <span class="n">n</span><span class="o">=</span><span class="mi">50000</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;返回 (AUC, 每个特征的重要性)。AUC≈0.5 说明两批数据分不开。&quot;&quot;&quot;</span>
-    <span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;返回折外 AUC 和拟合检测器的重要性；都不是因果判据。&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">list</span><span class="p">(</span><span class="n">train_df</span><span class="o">.</span><span class="n">columns</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">list</span><span class="p">(</span><span class="n">live_df</span><span class="o">.</span><span class="n">columns</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">len</span><span class="p">(</span><span class="n">train_df</span><span class="o">.</span><span class="n">columns</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;两期必须有相同且同序的特征列&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="nb">int</span><span class="p">)</span> <span class="ow">or</span> <span class="n">n</span> <span class="o">&lt;</span> <span class="mi">5</span> <span class="ow">or</span> <span class="nb">min</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">train_df</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">live_df</span><span class="p">))</span> <span class="o">&lt;</span> <span class="mi">5</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;本例 5 折需要每个来源至少 5 个样本&quot;</span><span class="p">)</span>
     <span class="n">a</span> <span class="o">=</span> <span class="n">train_df</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="nb">min</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">train_df</span><span class="p">)),</span> <span class="n">random_state</span><span class="o">=</span><span class="n">seed</span><span class="p">)</span>
     <span class="n">b</span> <span class="o">=</span> <span class="n">live_df</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="nb">min</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">live_df</span><span class="p">)),</span> <span class="n">random_state</span><span class="o">=</span><span class="n">seed</span><span class="p">)</span>
     <span class="n">X</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">([</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">],</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-    <span class="n">y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">r_</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">a</span><span class="p">)),</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">b</span><span class="p">))]</span>          <span class="c1"># ⭐ 训练集=0，线上=1</span>
-
-    <span class="c1"># ⭐ 一定要打乱，否则按时间排列的数据在 CV 里会泄漏</span>
-    <span class="n">idx</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">permutation</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">X</span><span class="p">));</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">X</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">idx</span><span class="p">],</span> <span class="n">y</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">r_</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">a</span><span class="p">)),</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">b</span><span class="p">))]</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">(</span><span class="n">pd</span><span class="o">.</span><span class="n">api</span><span class="o">.</span><span class="n">types</span><span class="o">.</span><span class="n">is_numeric_dtype</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">X</span><span class="o">.</span><span class="n">dtypes</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;本例只接受已对齐的数值特征&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">X</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">))</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;请先检查缺失值、无穷值及其来源&quot;</span><span class="p">)</span>
 
     <span class="n">clf</span> <span class="o">=</span> <span class="n">lgb</span><span class="o">.</span><span class="n">LGBMClassifier</span><span class="p">(</span><span class="n">n_estimators</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">learning_rate</span><span class="o">=</span><span class="mf">.05</span><span class="p">,</span>
-                             <span class="n">num_leaves</span><span class="o">=</span><span class="mi">31</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
-    <span class="c1"># ⭐ 用交叉验证的 out-of-fold 概率算 AUC，避免自己评自己</span>
-    <span class="n">oof</span> <span class="o">=</span> <span class="n">cross_val_predict</span><span class="p">(</span><span class="n">clf</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cv</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">&quot;predict_proba&quot;</span><span class="p">)[:,</span> <span class="mi">1</span><span class="p">]</span>
+                            <span class="n">num_leaves</span><span class="o">=</span><span class="mi">31</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span>
+                            <span class="n">n_jobs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="c1"># ⭐ 打乱让两种来源分布在各折中，但不能消除重复实体或时间泄漏</span>
+    <span class="n">cv</span> <span class="o">=</span> <span class="n">StratifiedKFold</span><span class="p">(</span><span class="n">n_splits</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">shuffle</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="n">seed</span><span class="p">)</span>
+    <span class="n">oof</span> <span class="o">=</span> <span class="n">cross_val_predict</span><span class="p">(</span><span class="n">clf</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">cv</span><span class="o">=</span><span class="n">cv</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">&quot;predict_proba&quot;</span><span class="p">)[:,</span> <span class="mi">1</span><span class="p">]</span>
     <span class="n">auc</span> <span class="o">=</span> <span class="n">roc_auc_score</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">oof</span><span class="p">)</span>
 
     <span class="n">clf</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
@@ -555,70 +654,75 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     <span class="k">return</span> <span class="n">auc</span><span class="p">,</span> <span class="n">imp</span>
 </code></pre></div>
 
-<section class="comparison-repair" id="comparison-repair-25"><div class="tw"><table><caption>时间分类器：如何读区分能力</caption><thead><tr><th scope="col">AUC 范围</th><th scope="col">原文判断</th></tr></thead><tbody><tr><th scope="row">≤ 0.55</th><td>两批数据基本一致 ✅</td></tr><tr><th scope="row">0.55 ~ 0.70</th><td>有可察觉的漂移 ⚠️ 看 imp 前几名</td></tr><tr><th scope="row">0.70 ~ 0.90</th><td>明显漂移 🔴</td></tr><tr><th scope="row">&gt; 0.90</th><td>💀 几乎可以完美区分</td></tr></tbody></table></div><p>—— 先怀疑【泄漏了时间类特征】（如 event_date、id 自增）</p></section>
-<blockquote>
-<p>⚠️ <strong>AUC &gt; 0.9 时的第一反应不该是"漂移好严重"</strong>，而是
-<strong>"我是不是把时间戳、自增 ID 这类特征喂进去了"</strong> ——
-这类特征天然能完美区分新旧数据，会把真正的漂移信号淹掉。
-<strong>规则：对抗验证前先剔除所有单调递增/时间相关的字段。</strong></p>
-</blockquote>
+<p>先看折外 AUC，别用训练集得分自评；这里 imp 是 LightGBM 默认的分裂次数重要性。相关特征可能分摊或替代彼此的重要性，不能据此直接定责。</p>
+<section class="comparison-repair" id="comparison-repair-25">
+<div class="tw"><table>
+<caption>这些 AUC 区间只帮助描述来源区分能力，不是漂移的统一裁决线</caption>
+<thead><tr><th>AUC 范围示意</th><th>怎样理解</th></tr></thead>
+<tbody>
+<tr><td>≤0.55</td><td>不意味着两期一致；还要检查 AUC 是否明显低于 0.5、检测器能力与样本不确定性</td></tr>
+<tr><td>0.55–0.70</td><td>出现一定区分信号，结合留出或置换检验调查</td></tr>
+<tr><td>0.70–0.90</td><td>当前检测器区分较强，不直接等于业务风险严重</td></tr>
+<tr><td>&gt;0.90</td><td>检查来源标记、ID、时间字段与数据采样，也可能是真实的大幅变化</td></tr>
+</tbody>
+</table></div>
+<p>AUC 低于 0.5 也值得检查方向与切分，不应统统归入“稳定”。若做置换检验，需按相同切分和训练步骤重新拟合；不能只给某个分数贴一个固定显著性标签。</p>
+</section>
+
+<p><strong>时间字段不是一律删除。</strong> 采集时间或自增 ID 若只泄露来源，先排除或单列检查；真实服务使用的小时、星期、账龄等可能正是业务特征，应按检测目的决定。对比“含/不含来源标记”两种版本有助于定位。</p>
 <h3 id="_8">⚠️ 漂移检测的六个坑</h3>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>坑</th>
-<th>后果</th>
 <th>怎么修</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>分桶边界每次重算</strong></td>
-<td>永远算不出漂移（两边各自等分位）💀</td>
-<td>边界随模型一起保存 ⭐</td>
+<td>两期各自分桶</td>
+<td>保存并复用同一组边界；单列监控缺失与新类别</td>
 </tr>
 <tr>
-<td><strong>样本量太小就报警</strong></td>
-<td>1000 条样本下 PSI 天然波动 0.02~0.05</td>
-<td>定最小样本量；小样本时看置信区间</td>
+<td>小样本直接套固定阈值</td>
+<td>用匹配样本量和桶数的稳定历史窗口校准误报</td>
 </tr>
 <tr>
-<td><strong>对抗验证喂了时间类特征</strong></td>
-<td>AUC 虚高到 0.99，掩盖真信号</td>
-<td>先剔除 id / 时间戳 ⭐</td>
+<td>检测器读到了来源标记</td>
+<td>审查特征用途与切分，不盲删所有时间相关信息</td>
 </tr>
 <tr>
-<td><strong>只看特征不看标签延迟后的指标</strong></td>
-<td>对概念漂移完全失明 💀💀</td>
-<td>必须有滑动窗口的真实指标</td>
+<td>只看输入和预测，不看真实结果</td>
+<td>建立成熟标签或可信结果的误差监控</td>
 </tr>
 <tr>
-<td><strong>把周期性当成漂移</strong></td>
-<td>每周一、每个月初都告警</td>
-<td>用同比（第 8 章）而不是环比</td>
+<td>不区分预期周期与额外变化</td>
+<td>对齐季节、节假日或可比周期，检查残余差异</td>
 </tr>
 <tr>
-<td><strong>发现漂移就自动重训</strong></td>
-<td>管道故障时把错误固化 💀</td>
-<td><strong>先分类再动作</strong>（第四节那张表）⭐</td>
+<td>告警后直接自动重训发布</td>
+<td>先调查，再训练候选，最后独立验证能否上线</td>
 </tr>
 </tbody>
 </table></div>
-<h3 id="_9">📐 一个能省很多误报的数字</h3>
+<h3 id="_9">📐 PSI 的波动要怎样估计</h3>
 <section class="result-board" aria-label="PSI 的样本量与随机波动">
-<p class="result-board-title">PSI 阈值离不开样本量</p>
+<p class="result-board-title">用稳定时期的数据，估计你的 PSI 会怎样波动</p>
 <div class="tw"><table>
-<caption>10 桶、没有真实漂移时的经验随机波动</caption>
-<thead><tr><th>样本量</th><th>PSI 的典型随机波动</th><th>该怎么读</th></tr></thead>
+<caption>样本规模不同，分别校准误报，不能共用一个固定阈值</caption>
+<thead><tr><th>每期样本量</th><th>该怎么验证，而不是背一个 PSI 区间</th></tr></thead>
 <tbody>
-<tr><td>500</td><td>0.05 ～ 0.12</td><td>阈值 0.1 会天天报警</td></tr>
-<tr><td>2,000</td><td>0.02 ～ 0.05</td><td>正常波动仍然不可忽略</td></tr>
-<tr><td>10,000</td><td>0.005 ～ 0.015</td><td>经典阈值开始更可信</td></tr>
-<tr><td>100,000</td><td>&lt; 0.005</td><td>0.1 才是有意义的阈值</td></tr>
+<tr><td>500</td><td>从稳定期重复抽取同规模样本，观察稀有桶与零计数影响</td></tr>
+<tr><td>2,000</td><td>固定分桶、平滑与抽样方案，再比较波动分布</td></tr>
+<tr><td>10,000</td><td>误差通常更容易估计，但不能自动获得 0.1/0.25 阈值保证</td></tr>
+<tr><td>100,000</td><td>大样本也要区分统计可检测与业务重要；注意重复监控</td></tr>
 </tbody>
 </table></div>
-<p class="result-board-takeaway">PSI 的经典阈值（0.1 / 0.25）默认每个格子有上万条样本；分人群、分渠道后，误报会显著增加。</p>
+<p class="result-board-takeaway">PSI 没有“经典阈值默认每格上万条”的普遍前提。两期样本量、桶数、分布和平滑都影响随机波动。</p>
 </section>
+
+<p>可操作的起点：选一段有理由认为稳定的数据，按真实线上窗口的大小重复抽样；每次使用同一套基准与算法，记录无漂移时的 PSI 分布，再结合漏报和误报的成本设告警规则。</p>
+<p>时间相关或群组相关的数据不能随意打散成独立样本；应保留相关结构。多特征、多渠道反复检测时，也要记录整体告警率，不能只优化单次阈值。</p>
 <hr />
 <h2 id="_10">🔗 七、和站内其他章的关系</h2>
 <div class="tw"><table>
@@ -630,71 +734,67 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </thead>
 <tbody>
 <tr>
-<td><a href="01-训练完才是开始.html">第 1 章</a>四种变差方式</td>
-<td>这一章展开其中的 ②③</td>
+<td><a href="01-训练完才是开始.html">第 1 章</a></td>
+<td>训练后还要检查输入、标签、效果和服务</td>
 </tr>
 <tr>
-<td><a href="05-该监控什么.html">第 5 章</a>数据层监控</td>
-<td>漂移检测是它的一部分</td>
+<td><a href="05-该监控什么.html">第 5 章</a></td>
+<td>漂移监控是数据层监控的一部分</td>
 </tr>
 <tr>
-<td><a href="../Kaggle竞赛方法论/23_数据泄露与外部数据.html">Kaggle 23</a>对抗验证</td>
-<td>同一个工具，换了场景</td>
+<td><a href="../Kaggle竞赛方法论/23_数据泄露与外部数据.html">Kaggle 23</a></td>
+<td>同一工具用于训练集与测试集对照</td>
 </tr>
 <tr>
 <td><a href="../机器学习的数学原理/08-偏差方差分解.html">数学原理 08</a></td>
-<td>分布变了意味着测试分布≠训练分布</td>
+<td>训练与测试分布不同时，原评估条件需要重新核对</td>
 </tr>
 </tbody>
 </table></div>
 <hr />
 <h2 id="_11">✅ 检查点</h2>
 <ol>
-<li>数据漂移、概念漂移、标签漂移分别是什么变了？</li>
-<li>用信贷的例子说明三者的区别。</li>
-<li>哪一种最省力？为什么？</li>
-<li>PSI 的三档阈值是什么？它有哪两个坑？</li>
-<li>对抗验证怎么做？它比逐特征检验强在哪？</li>
-<li>为什么概念漂移比数据漂移难发现？</li>
-<li>概念漂移的三种形态里哪种最危险？对策是什么？</li>
-<li>发现漂移后的判断顺序是什么？哪种情况绝不能重训？</li>
-<li>ETA 那个事故里，为什么 PSI、对抗验证、预测分布全都没报？唯一报出来的是什么？</li>
-<li>这个事故给出的最重要结论是什么？附加教训呢？</li>
-<li>对抗验证 AUC &gt; 0.9 时，第一反应应该是什么？</li>
-<li>漂移检测的六个坑里，哪两个会让你对概念漂移完全失明 / 把错误固化？</li>
-<li>PSI 的经典阈值默认你有多少样本？「拆细之后到处都在报警」的真正原因是什么？</li>
+<li>输入漂移、协变量偏移、概念漂移和标签偏移的条件分别是什么？</li>
+<li>信贷的三个例子还需要哪些假设？</li>
+<li>校准、阈值和重训有什么区别？哪一种总是最省力？</li>
+<li>PSI 的 0.1/0.25 能否解释为显著性标准？分桶和小样本有哪些坑？</li>
+<li>对抗验证怎么做？为什么可能发现单列检测漏掉的变化？</li>
+<li>只看输入，能否无条件识别概念漂移？</li>
+<li>突变、渐变、周期变化分别要怎样观察？</li>
+<li>为什么告警后不能直接用异常数据重训发布？</li>
+<li>ETA 教学例子的几个信号各看到了什么？</li>
+<li>业务变更时间轴能帮助什么，又不能证明什么？</li>
+<li>AUC 很高时怎么检查时间字段？接近或低于 0.5 呢？</li>
+<li>哪两种操作会漏掉真实误差或把数据故障固化？</li>
+<li>如何为自己的样本规模确定 PSI 告警规则？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>数据漂移</strong> P(x) 变、P(y|x) 不变；概念漂移 P(y|x) 变；标签漂移 P(y) 变。</li>
-<li>数据漂移：渠道换了，来的人从 35 岁白领变 22 岁学生，但"收入高违约低"仍成立。概念漂移：经济变了，同样收入年龄的人违约率整体上升，<strong>关系本身变了</strong>。标签漂移：风控放松，坏账率 2%→5%，排序可能还对但概率不再校准。</li>
-<li><strong>标签漂移</strong>。常常只需要重新校准或调阈值，比重训便宜得多。</li>
-<li>PSI &lt;0.1 稳定、0.1~0.25 关注、&gt;0.25 显著漂移。两个坑：<strong>分桶必须按训练集切且边界存下来</strong>（各自切永远算不出漂移）、样本量小于 1000 时不稳。</li>
-<li>训练集标 0、线上标 1，训分类器区分；<strong>AUC≈0.5 无漂移，明显&gt;0.5 有漂移</strong>；更值钱的是看它的特征重要性找出元凶。强在能发现联合分布的漂移——每个特征单看正常但组合变了。</li>
-<li>因为<strong>数据漂移看输入就能发现（不需要标签），概念漂移必须知道真实答案（需要标签）</strong>，而标签常常要等很久。</li>
-<li><strong>渐变最危险</strong>——每天掉一点点，任何单日阈值都不触发，三个月后已掉 20%。对策：除了日环比，要看和 30 天前、90 天前比。</li>
-<li>①管道坏了吗 ②数据漂移吗 ③概念漂移吗 ④标签漂移吗。<strong>管道故障时绝不能重训</strong>——会把错误固化。</li>
-<li>因为<strong>平台改了骑手并单规则，输入特征一个都没变</strong>（距离、时段、骑手密度全一样），变的是"同样输入下实际配送时长多了 4 分钟"，即 P(y|x)。PSI 全 &lt;0.06、对抗验证 AUC 0.52、预测均值 31.2→31.5，它们全都只看 P(x)。唯一报出来的是滑动窗口 MAE：6.1 → 9.8 分钟（唯一看了真实答案的指标）。</li>
-<li><strong>漂移监控（PSI/对抗验证）只能发现数据漂移，对概念漂移是完全失明的</strong>——无论漂移看板多绿，都必须另外有一条"看真实答案"的线。附加教训：概念漂移的原因常常在你的系统之外（政策、规则、竞品、上下游业务决策），所以要让业务方的重大变更以事件的形式打到监控时间轴上。</li>
-<li>不是"漂移好严重"，而是<strong>"我是不是把时间戳、自增 ID 这类单调特征喂进去了"</strong>——它们天然能完美区分新旧数据，会把真正的漂移信号淹掉。对抗验证前先剔除所有时间相关字段。</li>
-<li><strong>只看特征不看标签延迟后的真实指标</strong> → 对概念漂移完全失明；发现漂移就自动重训 → 管道故障时把错误固化。后者的修法是先分类再动作。</li>
-<li>默认你有<strong>上万条</strong>样本（500 条时 PSI 的随机波动就有 0.05~0.12，阈值 0.1 会天天报警）。「拆细之后到处报警」的真正原因是分人群/分渠道后每个格子的样本量掉得很快，PSI 的随机波动随之变大。</li>
+<li>输入漂移只说 P(x) 变；协变量偏移另假设 P(y∣x) 不变；概念漂移说 P(y∣x) 变；标签偏移另要求 P(x∣y) 不变。</li>
+<li>渠道例子要验证条件规律；环境例子要核对同条件下结果；坏账率变化不能单独确认标签偏移。</li>
+<li>校准改概率含义，阈值改行动，重训改模型。没有永远最省力或总能成功的一个。</li>
+<li>不是。统一分桶并保存边界，核对缺失、样本量、平滑和重复监控的误报。</li>
+<li>来源标 0/1，训练检测器，用留出或折外预测评估；有能力的模型可识别多列之间关系的变化。</li>
+<li>不能。输入分布相同而结果规律改变时，只看输入无法识别；额外假设下的预警不等于无条件确诊。</li>
+<li>突变对照事件，渐变看趋势和基线，周期变化对齐可比周期；没有固定最危险的一类。</li>
+<li>先排查管道、标签和采样；异常原因不明时，重训可能学习错误数据。候选仍需独立发布验证。</li>
+<li>PSI 看桶占比，对抗 AUC 看当前检测器的来源区分，预测均值看输出均值；MAE 使用真实结果，投诉提供另一种体验信号。</li>
+<li>帮助形成待验证的原因和时间对应；事件先后不是因果证明。</li>
+<li>检查来源泄漏与真实变化，不盲删所有时间字段；接近 0.5 可能漏检，明显低于 0.5 还需查方向、切分与随机性。</li>
+<li>只看输入而不核对成熟标签，可能漏掉条件变化；告警即重训发布，可能把管道故障固化。</li>
+<li>用稳定历史、相同窗口大小与分桶方法估计波动，再考虑相关性、多重监控和业务代价；没有通用最低样本数。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_12">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
-<blockquote>
-<p>⭐ <strong>三种漂移，分清才知道该做什么</strong>：<strong>数据漂移</strong>是来的人变了、规律没变；<strong>概念漂移</strong>是同样的人行为变了、关系本身变了；<strong>标签漂移</strong>是正例比例变了——⭐ <strong>标签漂移最省力，常常只要重新校准或调阈值，不用重训。</strong></p>
-<p>检测数据漂移两把工具。PSI 的两个坑：<strong>分桶必须按训练集切且边界要存下来</strong>、⚠️ <strong>样本少的时候它本身就不稳</strong>。⭐ <strong>对抗验证更值钱的地方不是那个 AUC，是它的特征重要性——它直接告诉你元凶是谁</strong>，而且<strong>能发现逐特征看不出来的联合分布漂移</strong>。</p>
-<p>⭐ <strong>概念漂移难在必须有标签才能发现</strong>（数据漂移看输入就够）。三种形态里<strong>渐变最危险</strong>：⚠️ <strong>每天掉一点点，任何单日阈值都不触发</strong>——所以要和一个月前、三个月前比，不能只看日环比。</p>
-<p>发现漂移后的处置<strong>有顺序</strong>：先问管道是不是坏了（💀 <strong>管道坏了绝不能重训，那会把错误固化</strong>），再分数据漂移、概念漂移、标签漂移分别处理。</p>
-<p>💀 <strong>那个「PSI 全绿但模型已经烂了」的事故是全章的支点</strong>：平台改了一条业务规则，<strong>输入特征一个都没变</strong>——PSI、对抗验证、预测均值全部正常，<strong>而同样的输入下真实结果已经偏了</strong>，唯一报出来的是那条看真实答案的误差曲线。</p>
-<p>⭐⭐ <strong>结论：PSI 和对抗验证只能发现数据漂移，对概念漂移完全失明——漂移看板再绿，也必须另有一条「看真实答案」的线。</strong>
-⭐ 附加教训：<strong>概念漂移的原因常常在你的系统之外</strong>（政策、规则、竞品）——<strong>把业务方的重大变更打到监控时间轴上。</strong></p>
-<p>⚠️ 两个反向的坑：<strong>对抗验证 AUC 高得离谱时，先怀疑自己喂了时间戳或自增 ID</strong>，而不是「漂移严重」；📐 <strong>PSI 的经典阈值默认你有上万条样本</strong>——样本少时随机波动就能超过阈值，⭐ <strong>这才是「拆细之后到处都在报警」的真正原因。</strong></p>
-</blockquote>
+<ul>
+<li>先问什么变了：输入、条件规律、类别比例；不同偏移假设不能混用。</li>
+<li>PSI 和对抗验证是排查工具，不是“模型没问题”的证明。</li>
+<li>输入没报警，也要等成熟标签核对真实效果。</li>
+<li>告警之后先查原因，再比较候选方案；训练成功不等于可以发布。</li>
+</ul>
 <p><strong>下一节</strong> 👉 <a href="07-没有标签怎么发现退化.html">07-没有标签怎么发现退化.md</a> ⭐</p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>

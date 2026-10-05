@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading topic-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -296,9 +296,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#_2">🧩 一、断层在哪里</a></li>
 <li><a href="#_3">🗺 二、占据栅格：把连续空间切回格子</a></li>
 <li><a href="#_5">🧲 三、势场法：不搜索，直接滑下去</a></li>
-<li><a href="#_6">💥 四、局部极小：势场法的致命伤</a></li>
+<li><a href="#_6">💥 四、局部极小与其他停滞：势场的风险</a></li>
 <li><a href="#vfh">📡 五、VFH：不要把方向信息加没了</a></li>
-<li><a href="#voronoi-delaunay">🕸 六、地图全知道时：Voronoi 与 Delaunay</a></li>
+<li><a href="#voronoi-delaunay">🕸 六、地图已知时：Voronoi 与 Delaunay</a></li>
 <li><a href="#_10">⏱ 七、最短的路不等于最快的路</a></li>
 <li><a href="#_11">🔗 这一章连到哪里</a></li>
 <li><a href="#_12">✅ 检查点</a></li>
@@ -306,174 +306,270 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ul>
 </div>
 </details>
-<h1 id="09">09 · 运动规划</h1>
-<p>⏱ <strong>34 分钟</strong> ｜ ⭐ <strong>前八章的状态是一格一格的，机器人的状态是连续的实数 —— 这一章讲怎么把连续世界重新变回图</strong></p>
+<div class="ov-layout"><article class="ov-body"><h1 id="09">09 · 运动规划</h1>
+<p>⏱ <strong>34 分钟</strong> ｜ 阅读参考，不是完成时限；先看“能不能过”，再按需要看势函数和轨迹公式。</p>
+<!-- topic-reading -->
+
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>要么把连续空间离散化（占据栅格、Voronoi 图）让 A* 重新能用，要么干脆不搜索、直接顺着「目标吸引 + 障碍排斥」的合力往下滑（势场法）——
-后者快得多，但会卡在合力为零的地方永远出不来。</strong></p>
-<p>前八章你一直在一个<strong>有限、可枚举</strong>的状态空间里搜。真机器人不在那种空间里 —— 它在一块地板上，位置是一对实数。</p>
+<p><strong>机器人不能只知道“往目标走”：还要知道自己的身体过不过得去，以及走到那里要花多长时间。</strong></p>
+<p>这一章把三件事分开：用地图规划路线，用局部信息调整动作，再给路线安排速度和时间。它们可以配合，不是只能三选一。</p>
+<ul>
+<li>想知道 A* 怎么用到真实场地：先看<a href="#_3">占据栅格</a>。</li>
+<li>想看一个会失败、但能亲自复现的算法：去<a href="#_9">1337 步停住的实验</a>。</li>
+<li>想理解几何路线：看<a href="#voronoi-delaunay">Voronoi 与 Delaunay</a>。</li>
+<li>已经有路线，想让机器人走得快：看<a href="#_10">路径与轨迹</a>。</li>
+<li>走神后回来：从<a href="#_13">四句回顾</a>接上。</li>
+</ul>
+<p>先记住一个边界：<strong>地图上的路线存在，不代表有宽度、有惯性的小车一定能沿着它走。</strong></p>
 <hr />
 <h2 id="_2">🧩 一、断层在哪里</h2>
-<p><a href="08-启发式怎么设计.html">第 8 章</a>教你怎么给一个搜索问题设计启发式。那套东西的前提你可能没注意到：</p>
+<p><a href="08-启发式怎么设计.html">第 8 章</a>已经教过怎样为搜索设计启发式。现在不是把那些方法丢掉，而是先给它们准备一个合适的机器人模型。</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>前八章假设</th>
-<th>真机器人</th>
+<th>前面常用的搜索例子</th>
+<th>机器人问题多了什么</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>状态可枚举（城市、格子）</td>
-<td>位置 $(x,y)$ 是<strong>实数对</strong>，还有朝向 $\theta$、速度 —— 数不完</td>
+<td>城市、棋盘等可列出的状态</td>
+<td>位置 $(x,y)$ 连续变化，还可能需要朝向、速度</td>
 </tr>
 <tr>
-<td>后继函数给出<strong>有限</strong>几个动作</td>
-<td>「往前一点」里的「一点」是多少？连续动作也数不完</td>
+<td>有限几个后继</td>
+<td>行驶方向、距离或控制量可以连续取值</td>
 </tr>
 <tr>
-<td>边代价是个固定数字</td>
-<td>代价是<strong>时间</strong>或<strong>能量</strong>，取决于你走多快、拐多急</td>
+<td>已给出的边和边代价</td>
+<td>要判断动作是否可行，再计算距离、时间或能量</td>
 </tr>
 <tr>
-<td>世界完全已知</td>
-<td>车载传感器只看得见周围两三米</td>
+<td>已知的地图</td>
+<td>可能只有局部观测，还存在误差和未探索区域</td>
 </tr>
 </tbody>
 </table></div>
-<p>⭐ 讲义按<strong>最后一条</strong>把方法分成两类，这个分法很好用：</p>
+<p>连续状态不是说“不能搜索”。它意味着我们需要选择一种有限表示，或者使用不展开搜索树的局部控制方法。</p>
+<h3 id="motion-map-knowledge">别把“看见多少”与“使用什么算法”绑死</h3>
+<p><strong>局部观测</strong>是当前只知道身边一部分环境；<strong>已知全局地图</strong>是已有整个规划区域的表示。地图已知也不等于没有误差。</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>环境</th>
-<th>能看见什么</th>
-<th>方法</th>
+<th>当前条件</th>
+<th>可以做什么</th>
+<th>还要留心什么</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>部分可观测</strong>（只有车载传感器）</td>
-<td>周围一圈</td>
-<td>占据栅格 · 势场 · 向量场直方图</td>
+<td>小车只看到身边的障碍</td>
+<td>更新局部栅格，做势场或 VFH 避障</td>
+<td>没看到的地方不能默认安全；可能需要探索、重规划</td>
 </tr>
 <tr>
-<td><strong>完全可观测</strong>（头顶摄像头）</td>
-<td>整张地图</td>
-<td>Delaunay 三角剖分 · Voronoi 图 · 参数三次样条</td>
+<td>已有场地地图</td>
+<td>在栅格或几何路线图上搜索</td>
+<td>机器人尺寸、定位误差、地图变化</td>
+</tr>
+<tr>
+<td>已选出一条路线</td>
+<td>为路线安排速度与时间</td>
+<td>转弯、加速、刹车和碰撞约束</td>
 </tr>
 </tbody>
 </table></div>
-<p>第一类适合扫地机、户外小车；第二类适合博物馆、商场、Robocup 小型组这种<strong>天花板上装了相机</strong>的场地。</p>
+<p>扫地机、户外小车常需要边走边更新地图。场馆或 RoboCup 小型组可以借助外部摄像头获得位置，但相机也可能有遮挡；车载传感器同样可以逐渐建立全局地图。</p>
+<p>所以不能用“车载传感器”直接定义部分可观测，也不能用“头顶有相机”保证完全可观测。参数样条更不是一种感知方式，它负责描述后面的运动轨迹。</p>
 <hr />
 <h2 id="_3">🗺 二、占据栅格：把连续空间切回格子</h2>
-<p>最直接的一招：<strong>把环境切成笛卡尔网格，每个格子维护一个「这里有障碍」的概率估计。</strong></p>
-<p>⭐ 注意是<strong>概率</strong>不是 0/1。传感器有噪声：超声波会被斜面弹走，激光会穿过玻璃。
-一次读数说「这格空」不可信，几十次融合起来才可信。所以每格存的是一个不断被更新的信念值。</p>
-<p>一旦有了栅格，前面几章的东西<strong>原封不动地回来了</strong>：格子是节点，相邻格子（4 邻接或 8 邻接）是边，
-障碍概率超阈值的格子删掉，然后跑 A*，启发式用曼哈顿距离或欧氏距离 —— 正是<a href="08-启发式怎么设计.html">第 8 章</a>讲的那两个。</p>
+<p><strong>把地面切成小方格，再判断机器人能在哪些格子之间移动。</strong></p>
+<p>概率占据栅格为每个格子维护“这里有障碍”的概率估计。比如 0.9 表示当前模型认为这里很可能被占据，不是说它有 90% 的面积被障碍填满。</p>
+<p>为什么保留概率？传感器会出错：超声波可能被斜面反射到别处，玻璃也可能使某些激光测量不可靠。概率模型可以融合多次观测；但重复观测仍有相关误差，并非次数多就必然正确。</p>
+<p>用于搜索时，通常还要把格子分成可通行、障碍或未知。<strong>概率地图与二值搜索地图是两个处理阶段</strong>；并不是任何叫“栅格”的数据结构都必须存概率。</p>
+<h3 id="motion-robot-footprint">先处理身体，再把格子连成图</h3>
+<p>如果机器人是半径 10 cm 的圆盘，中心离墙 5 cm 仍会碰撞。不能只检查中心所在格是不是空的。</p>
+<p>一个直观办法是：<strong>先把障碍向外扩张机器人半径，再把机器人中心当成一个点规划</strong>。这就是<a href="https://lavalle.pl/planning/node156.html">配置空间</a>的一个简单例子；非圆形机器人转身时，朝向也可能要放进状态。</p>
+<p>随后才是建图：</p>
+<ol>
+<li>决定占据阈值、未知格怎么处理，以及需要多少额外安全余量。</li>
+<li>把允许停留的格子当作节点。</li>
+<li>只连接整段运动都合法的邻居。斜着走时，也要检查是否穿过墙角。</li>
+<li>给每条边规定代价，再选择与代价一致的启发式。</li>
+</ol>
+<p>这一步是在模型中检查“过不过得去”。它不能消除真实感知误差，执行时仍需要监测。</p>
+<h3 id="motion-grid-metrics">A* 的距离估计要和走法配对</h3>
+<p>以下以每格边长 1 为单位；障碍只会限制路线，下面的距离先忽略障碍来估计下界。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>允许的动作和代价</th>
+<th>可用的下界</th>
+<th>不要混用的情况</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>上下左右，每步代价 1</td>
+<td>曼哈顿距离；欧氏距离也可，但通常更弱</td>
+<td>这里不能偷偷加入斜走一步</td>
+</tr>
+<tr>
+<td>上下左右代价 1，斜走代价 √2</td>
+<td>欧氏距离；八方向距离也可</td>
+<td>曼哈顿距离可能高估</td>
+</tr>
+<tr>
+<td>八个方向都只收代价 1</td>
+<td>切比雪夫距离：两个坐标差绝对值的最大值</td>
+<td>欧氏距离也可能高估</td>
+</tr>
+</tbody>
+</table></div>
+<p>看一个最小例子：从 (0,0) 到 (1,1)，若能花 √2 直接斜走，真实最短代价就是 √2，不能再把曼哈顿距离 2 当下界。</p>
+<p>若费用是时间或风险，不是距离，还得重新检查单位和下界。怎样判断可容许与一致，回看<a href="08-启发式怎么设计.html">第 8 章</a>。</p>
 <h3 id="_4">⚠️ 分辨率的两难</h3>
-<p>格子多大是这个方法唯一的旋钮，而它两头都疼：</p>
+<p><strong>格子越细，几何细节越多，但节点也越多。</strong> 下面只算二维 10 m × 10 m 方形场地，不含朝向和速度维度。</p>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>格子边长</th>
-<th>10 m × 10 m 场地的格子数</th>
-<th>问题</th>
+<th style="text-align: right;">格子数</th>
+<th>应该怎样理解</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>20 cm</td>
-<td>2 500</td>
-<td>一道 30 cm 宽的门可能整体落进障碍格，<strong>明明过得去却被判成过不去</strong></td>
+<td style="text-align: right;">2 500</td>
+<td>保守栅格化可能把窄门抹掉；是否能过还取决于机器人宽度和网格对齐</td>
 </tr>
 <tr>
 <td>5 cm</td>
-<td>40 000</td>
-<td>还算能接受</td>
+<td style="text-align: right;">40 000</td>
+<td>更细，不代表任何设备都必然算得动</td>
 </tr>
 <tr>
 <td>1 cm</td>
-<td><strong>1 000 000</strong></td>
-<td>边长缩到 1/5，格子数涨 25 倍（按面积走）</td>
+<td style="text-align: right;">1 000 000</td>
+<td>从 5 cm 再缩小 5 倍，格数增加 25 倍</td>
 </tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>格子数按边长的平方涨</strong>：精度提高一个数量级，内存和节点数各涨 100 倍。常见折中是<strong>分层</strong> —— 粗栅格搜全局、细栅格避障。</p>
+<p>例如，一道 30 cm 的门对足够窄的机器人可能可通行，却在粗糙的保守地图中消失；对直径大于 30 cm 的机器人，门本来就过不去。</p>
+<p>格子数与边长的<strong>平方成反比</strong>。边长缩小到原来的 1/10，二维格数增加到 100 倍；这不是一次搜索运行时间也必然精确增加 100 倍。</p>
+<p>格子边长只是重要旋钮之一。占据阈值、机器人膨胀范围、未知格策略、邻接关系也会改变结果。粗图规划全局、细图处理局部是一种折中，但两层之间也要核对可通行性。</p>
+<p><strong>这里的“有路就能找到”只针对已经建好的有限图。</strong> 若采用正确的去重与搜索规则，A* 能找到图里的可达目标；要保证最低代价，还需符合启发式和重开节点等条件。</p>
+<p>图中无路，不足以证明连续场地里无路。讨论“随着分辨率不断加细能否最终找到连续路径”是另一层保证，不能用一次固定栅格的成功代替。<a href="https://lavalle.pl/planning/node182.html">LaValle 对这些完备性概念作了区分</a>。</p>
 <hr />
 <h2 id="_5">🧲 三、势场法：不搜索，直接滑下去</h2>
-<p>另一条路彻底放弃搜索。<strong>把机器人当成势场里的一个点</strong>：目标吸它、障碍推它，它顺着合力走就行。</p>
-<p>$$U(q) = U_{att}(q) + U_{rep}(q),\qquad F(q) = -\nabla U(q)$$</p>
-<p>吸引项通常取到目标距离的平方（离得越远拉得越狠）：</p>
-<p>$$U_{att}(q) = \tfrac12 k_{att}\, d(q, q_{goal})^2$$</p>
-<p>排斥项只在障碍附近 $\rho \le \rho_0$ 生效，贴上去时趋于无穷：</p>
-<p>$$U_{rep}(q) = \begin{cases}\tfrac12 k_{rep}\left(\dfrac{1}{\rho} - \dfrac{1}{\rho_0}\right)^2 &amp; \rho \le \rho_0\\[4pt] 0 &amp; \rho &gt; \rho_0\end{cases}$$</p>
-<p>⭐ 好处非常实在，讲义原话是 <strong>very rapid computation</strong>：每一步只要算几个向量加法，
-<strong>不展开任何搜索树</strong>；天然反应式，传感器读到什么就算什么，不需要全局地图；障碍在动也无所谓，下一帧重算一遍。</p>
-<p>代价在下一节。</p>
+<p><strong>把目标想成往下走的方向，把障碍附近想成不愿靠近的高地。</strong> 每一步只看当前位置该往哪边移动，不先搜索整条路线。</p>
+<p>本节的 $q$ 是机器人点模型的位置，$q_{goal}$ 是目标位置。$U(q)$ 是人为设计的“高度”，不一定是真实物理能量。</p>
+<p>先只读这一条：</p>
+<p>$$F(q)=-\nabla U(q)$$</p>
+<p>$\nabla U$ 指向高度上升最快的方向，前面的负号把方向反过来。$F$ 在下面代码中是移动指令的方向和大小，不是已经包含质量、惯性和电机限制的物理控制模型。</p>
+<h3 id="motion-potential-parts">高度由目标项和障碍项组成</h3>
+<p>$$U(q)=U_{att}(q)+\sum_j U_{rep,j}(q)$$</p>
+<p><code>att</code> 表示吸引，<code>rep</code> 表示排斥；$j$ 对应第几个障碍。单个障碍只占求和中的一项。</p>
+<p>吸引项取到目标距离的平方：</p>
+<p>$$U_{att}(q)=\tfrac12 k_{att}\,d(q,q_{goal})^2$$</p>
+<p>$d$ 是距离，正数 $k_{att}$ 控制吸引强度。在二维平面欧氏距离下，这一项给出的方向正好朝向目标，离目标越远，拉得越强。</p>
+<details>
+<summary>按需看：障碍附近的排斥公式</summary>
+<p>对第 $j$ 个障碍，记 $\rho_j$ 为机器人点到障碍的距离，$\rho_0&gt;0$ 为影响范围，$k_{rep}&gt;0$ 为排斥强度。对真实有形状的障碍，应先明确距离是量到边界还是经配置空间处理后的障碍。</p>
+<p>$$U_{rep,j}(q)=\begin{cases}\tfrac12 k_{rep}\left(\dfrac{1}{\rho_j}-\dfrac{1}{\rho_0}\right)^2,&amp;0&lt;\rho_j\le\rho_0\\[4pt]0,&amp;\rho_j&gt;\rho_0\end{cases}$$</p>
+<p>读法：离得足够远时，这个障碍不产生排斥；进入影响范围后，越近越不愿靠近。$\rho_j=0$ 是公式奇点，不是可以直接代入的正常位置。</p>
+<p>接下来的实验把障碍简化成点，距离量到点中心。它用于研究停滞，不代表真实圆盘机器人已经完成碰撞检查。</p>
+</details>
+<p>它常适合快速响应：无需展开搜索树，可以根据新观测重算局部指令。但计算量仍取决于考虑多少障碍、如何查距离，不能只凭“向量加法”断言在所有场景都更快。</p>
+<p><strong>动态障碍不是“下一帧重算就解决了”。</strong> 还要考虑感知延迟、刹车距离、步长和运动约束，否则计算方向正确也可能来不及避让。</p>
 <hr />
-<h2 id="_6">💥 四、局部极小：势场法的致命伤</h2>
-<p>讲义为这一件事专门留了一整页。<strong>它不是「偶尔会遇到的小毛病」，它是这个方法的结构性缺陷。</strong></p>
+<h2 id="_6">💥 四、局部极小与其他停滞：势场的风险</h2>
+<p><strong>合力为零，只说明这一步没有方向，不说明到达了目标。</strong></p>
+<p>先分清两个词：<strong>局部极小</strong>像一个小碗底，足够近的地方没有更低的点；若其他邻近位置都更高，就是严格局部极小。<strong>鞍点</strong>则在某些方向像谷底，在另一些方向仍有下坡路。</p>
+<p>两者都可能让恰好停在该点的简单梯度控制器不动。下面的原实验属于第二种，不能把它叫成二维局部极小。</p>
 <figure class="dia">
-<svg viewBox="0 0 600 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="势场法局部极小示意：机器人从左侧起点出发，被三个竖排障碍挡住，吸引力向右与排斥力向左恰好抵消，合力为零，机器人停在离目标一半的位置"><text x="300" y="20" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">势场法的局部极小：合力为零，可是离目标还有一半</text><line x1="60" y1="180" x2="540" y2="180" stroke="var(--border)" stroke-width="1.5" stroke-dasharray="5 5"/><circle cx="70" cy="180" r="7" fill="var(--muted)"/><text x="70" y="205" font-size="11.5" text-anchor="middle" fill="var(--muted)">起点</text><circle cx="520" cy="180" r="7" fill="var(--done)"/><text x="520" y="205" font-size="11.5" text-anchor="middle" fill="var(--done)">目标</text><circle cx="330" cy="130" r="17" fill="var(--danger)"/><circle cx="330" cy="180" r="17" fill="var(--danger)"/><circle cx="330" cy="230" r="17" fill="var(--danger)"/><line x1="70" y1="180" x2="238" y2="180" stroke="var(--accent)" stroke-width="3"/><polygon points="238,174 250,180 238,186" fill="var(--accent)"/><circle cx="262" cy="180" r="8" fill="var(--accent)"/><text x="262" y="163" font-size="12" text-anchor="middle" fill="var(--accent)" font-weight="700">合力 = 0</text><line x1="150" y1="140" x2="228" y2="140" stroke="var(--accent)" stroke-width="2"/><polygon points="228,134 240,140 228,146" fill="var(--accent)"/><text x="194" y="130" font-size="11.5" text-anchor="middle" fill="var(--fg)">吸引力 → 拉向目标</text><line x1="240" y1="220" x2="162" y2="220" stroke="var(--danger)" stroke-width="2"/><polygon points="162,214 150,220 162,226" fill="var(--danger)"/><text x="194" y="238" font-size="11.5" text-anchor="middle" fill="var(--fg)">排斥力 ← 推离障碍</text><text x="180" y="256" font-size="11.5" text-anchor="middle" fill="var(--muted)">机器人停在这里，再也不动</text><text x="330" y="278" font-size="11.5" text-anchor="middle" fill="var(--muted)">三个障碍排成一列，把通道封住</text></svg>
-<figcaption>三个障碍排成一列时，向右的吸引力和向左的排斥力在某一点正好抵消。上下方向因为对称也抵消。机器人停住，而它离目标还有一整段。A* 会绕开这堵墙，势场法不会 —— 因为它根本不搜索。</figcaption>
+<svg viewBox="0 0 600 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="势场停滞示意：目标吸引力与障碍排斥力抵消，上下方向因对称抵消；合力为零不代表到达目标，也不能仅凭这一点判断局部极小"><text x="300" y="20" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">势场停滞：合力为零，可是还没到目标</text><line x1="60" y1="180" x2="540" y2="180" stroke="var(--border)" stroke-width="1.5" stroke-dasharray="5 5"/><circle cx="70" cy="180" r="7" fill="var(--muted)"/><text x="70" y="205" font-size="11.5" text-anchor="middle" fill="var(--muted)">起点</text><circle cx="520" cy="180" r="7" fill="var(--done)"/><text x="520" y="205" font-size="11.5" text-anchor="middle" fill="var(--done)">目标</text><circle cx="330" cy="130" r="17" fill="var(--danger)"/><circle cx="330" cy="180" r="17" fill="var(--danger)"/><circle cx="330" cy="230" r="17" fill="var(--danger)"/><line x1="70" y1="180" x2="238" y2="180" stroke="var(--accent)" stroke-width="3"/><polygon points="238,174 250,180 238,186" fill="var(--accent)"/><circle cx="262" cy="180" r="8" fill="var(--accent)"/><text x="262" y="163" font-size="12" text-anchor="middle" fill="var(--accent)" font-weight="700">合力 = 0</text><line x1="150" y1="140" x2="228" y2="140" stroke="var(--accent)" stroke-width="2"/><polygon points="228,134 240,140 228,146" fill="var(--accent)"/><text x="194" y="130" font-size="11.5" text-anchor="middle" fill="var(--fg)">吸引力 → 拉向目标</text><line x1="240" y1="220" x2="162" y2="220" stroke="var(--danger)" stroke-width="2"/><polygon points="162,214 150,220 162,226" fill="var(--danger)"/><text x="194" y="238" font-size="11.5" text-anchor="middle" fill="var(--fg)">排斥力 ← 推离障碍</text><text x="180" y="256" font-size="11.5" text-anchor="middle" fill="var(--muted)">这个控制器在此没有移动方向</text><text x="330" y="278" font-size="11.5" text-anchor="middle" fill="var(--muted)">对称障碍示意，不表示真实通道已封闭</text></svg>
+<figcaption>看左右两支力：它们抵消，上下又因对称抵消。这里只画停滞机制，不是按实验坐标比例绘制；是否能绕行还要由地图和机器人尺寸决定。</figcaption>
 </figure>
 
-<p>三种典型的卡死：① <strong>障碍正挡在目标前面</strong> —— 机器人、障碍、目标三点共线时，吸引与排斥严格反向，必然存在抵消点；
-② <strong>U 形（凹形）障碍</strong> —— 滑进凹口后两侧排斥把它顶在中间、吸引把它往里推，来回振荡出不去；
-③ 窄通道 —— 门框两侧的排斥叠加，在门口形成一道势垒，本来能过的门被「封」上了。</p>
+<h3 id="motion-trap-scenarios">三类常见风险，不是每次都必然发生</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>情境</th>
+<th>为什么可能卡住</th>
+<th>不要多推一步</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>障碍位于目标前方，初值对称</td>
+<td>吸引与排斥可能抵消，控制器也没有横向偏转</td>
+<td>零合力点未必是局部极小</td>
+</tr>
+<tr>
+<td>U 形或其他凹障碍</td>
+<td>局部吸引把机器人往凹处带，退出可能需要先远离目标</td>
+<td>停住还是振荡，与势函数及离散控制参数有关</td>
+</tr>
+<tr>
+<td>窄通道</td>
+<td>两侧排斥区叠加，算法不愿进入本来可通行的空间</td>
+<td>先确认机器人实际能过，别把物理过不去误叫算法失败</td>
+</tr>
+</tbody>
+</table></div>
 <h3 id="_7">⭐ 根本原因只有一句</h3>
-<blockquote>
-<p>⭐ <strong>势场法就是梯度下降。</strong>
-它只看当前点的梯度，不展开树、不记录去过哪里、不回溯。
-所以它继承了梯度下降的全部毛病：<strong>碰到局部极小就停</strong>，而且<strong>没有完备性</strong> ——
-A* 保证「有路就一定找得到」，势场法<strong>什么都不保证</strong>。这是「快」的标价。</p>
-</blockquote>
-<p>⚠️ 更麻烦的是<strong>失败是静默的</strong>：不崩、不报错、电机还通着电，日志一切正常，机器人只是在原地微微抖动。
-工程上要加一个「多久没有靠近目标」的计时器兜底 —— 因为你<strong>没法靠看日志发现它卡住了</strong>。</p>
+<p><strong>本节的简单控制器只做局部下降，没有系统尝试整条绕行路线。</strong></p>
+<p>它不记录搜索分支，也不回溯，所以不能保证“连续场地里有路，就一定到目标”。相对地，A* 的保证也是在已经建好的图以及正确算法条件内，不是对现实世界无条件保证。</p>
+<p>这不是说所有势函数方法都毫无保证。精心构造的导航函数、调和势函数有各自的理论条件；不能把一般吸引加排斥模型的缺陷扩大到整个方法家族。</p>
+<p>停滞也不是日志里永远看不见。可以同时记录目标距离、实际位移、合力大小和安全距离；持续无进展时触发停车、重规划或人工处理。“一段时间没接近目标”是告警信号，不是数学上证明无路。</p>
 <h3 id="_8">三种补救，各有各的代价</h3>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>办法</th>
 <th>怎么做</th>
-<th>代价</th>
+<th>仍要核对的边界</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>随机扰动</td>
-<td>卡住时随机走几步再下滑</td>
-<td><strong>没有任何保证</strong>，可能立刻滑回同一个坑</td>
+<td>停滞时尝试不同方向，再继续下降</td>
+<td>随意扰动本身没有到达保证，也可能再进另一个坑；动作仍要安全</td>
 </tr>
 <tr>
 <td>调和势场</td>
-<td>用拉普拉斯方程构造保证无局部极小的势场</td>
-<td>要<strong>全局地图</strong> + 数值求解，反应式的优势没了</td>
+<td>用拉普拉斯方程和合适边界条件构造势函数</td>
+<td>可排除不希望出现的内部局部极小，但仍可能有鞍点；通常需全局几何与数值求解</td>
 </tr>
 <tr>
-<td>⭐ <strong>分工</strong></td>
-<td>势场只做<strong>局部避障</strong>，全局路线交给栅格上的 A*</td>
-<td>工程标准答案：慢的负责「往哪走」，快的负责「别撞上」</td>
+<td>全局与局部分工</td>
+<td>例如栅格 A* 提供路线，局部控制器响应邻近障碍</td>
+<td>是常用组合思路，不是唯一方案；两层冲突、地图更新和停车策略也要处理</td>
 </tr>
 </tbody>
 </table></div>
-<h3 id="_9">🔨 二十行跑一遍卡死</h3>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 势场法：一跑就卡在局部极小</span>
+<p>想了解一般势场、导航函数与调和函数的差别，可按需看 <a href="https://lavalle.pl/planning/par2.pdf">LaValle 教材第 8 章相关部分</a>。这里不要求先会解微分方程，先记住“保证取决于构造和条件”。</p>
+<h3 id="_9">🔨 独立跑一遍：1337 步停住</h3>
+<p>这段只需 Python 标准库。它保留原实验的起点、目标、三处点障碍、步长和停止阈值；不是可直接驱动真实小车的避障程序。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 对称点模型：合力接近零时停住；下面的停点不是二维局部极小。</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
 
 <span class="n">GOAL</span> <span class="o">=</span> <span class="p">(</span><span class="mf">9.0</span><span class="p">,</span> <span class="mf">5.0</span><span class="p">)</span>
-<span class="n">OBST</span> <span class="o">=</span> <span class="p">[(</span><span class="mf">6.0</span><span class="p">,</span> <span class="mf">5.0</span><span class="p">),</span> <span class="p">(</span><span class="mf">6.0</span><span class="p">,</span> <span class="mf">6.2</span><span class="p">),</span> <span class="p">(</span><span class="mf">6.0</span><span class="p">,</span> <span class="mf">3.8</span><span class="p">)]</span>      <span class="c1"># 三个障碍竖排，正挡在起点和目标中间</span>
-<span class="n">K_ATT</span><span class="p">,</span> <span class="n">K_REP</span><span class="p">,</span> <span class="n">RHO0</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">8.0</span><span class="p">,</span> <span class="mf">2.0</span>               <span class="c1"># RHO0：排斥力作用半径，超出就是 0</span>
+<span class="n">OBST</span> <span class="o">=</span> <span class="p">[(</span><span class="mf">6.0</span><span class="p">,</span> <span class="mf">5.0</span><span class="p">),</span> <span class="p">(</span><span class="mf">6.0</span><span class="p">,</span> <span class="mf">6.2</span><span class="p">),</span> <span class="p">(</span><span class="mf">6.0</span><span class="p">,</span> <span class="mf">3.8</span><span class="p">)]</span>
+<span class="n">K_ATT</span><span class="p">,</span> <span class="n">K_REP</span><span class="p">,</span> <span class="n">RHO0</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">8.0</span><span class="p">,</span> <span class="mf">2.0</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">force</span><span class="p">(</span><span class="n">p</span><span class="p">):</span>
-    <span class="n">fx</span> <span class="o">=</span> <span class="n">K_ATT</span> <span class="o">*</span> <span class="p">(</span><span class="n">GOAL</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="n">p</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>                <span class="c1"># ⭐ 吸引力：指向目标</span>
+    <span class="n">fx</span> <span class="o">=</span> <span class="n">K_ATT</span> <span class="o">*</span> <span class="p">(</span><span class="n">GOAL</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="n">p</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
     <span class="n">fy</span> <span class="o">=</span> <span class="n">K_ATT</span> <span class="o">*</span> <span class="p">(</span><span class="n">GOAL</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">p</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
     <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">OBST</span><span class="p">:</span>
         <span class="n">dx</span><span class="p">,</span> <span class="n">dy</span> <span class="o">=</span> <span class="n">p</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="n">o</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">p</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">o</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
         <span class="n">rho</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">hypot</span><span class="p">(</span><span class="n">dx</span><span class="p">,</span> <span class="n">dy</span><span class="p">)</span>
-        <span class="k">if</span> <span class="mf">1e-9</span> <span class="o">&lt;</span> <span class="n">rho</span> <span class="o">&lt;=</span> <span class="n">RHO0</span><span class="p">:</span>                   <span class="c1"># ⭐ 排斥力：背离障碍，贴近时急剧变大</span>
+        <span class="k">if</span> <span class="mf">1e-9</span> <span class="o">&lt;</span> <span class="n">rho</span> <span class="o">&lt;=</span> <span class="n">RHO0</span><span class="p">:</span>
             <span class="n">g</span> <span class="o">=</span> <span class="n">K_REP</span> <span class="o">*</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">/</span> <span class="n">rho</span> <span class="o">-</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="n">RHO0</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">rho</span> <span class="o">**</span> <span class="mi">3</span><span class="p">)</span>
             <span class="n">fx</span> <span class="o">+=</span> <span class="n">g</span> <span class="o">*</span> <span class="n">dx</span>
             <span class="n">fy</span> <span class="o">+=</span> <span class="n">g</span> <span class="o">*</span> <span class="n">dy</span>
@@ -483,7 +579,7 @@ A* 保证「有路就一定找得到」，势场法<strong>什么都不保证</s
 <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">100001</span><span class="p">):</span>
     <span class="n">fx</span><span class="p">,</span> <span class="n">fy</span> <span class="o">=</span> <span class="n">force</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
     <span class="n">n</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">hypot</span><span class="p">(</span><span class="n">fx</span><span class="p">,</span> <span class="n">fy</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;</span> <span class="mf">1e-4</span><span class="p">:</span>                                 <span class="c1"># ⭐ 合力≈0：再也动不了了</span>
+    <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;</span> <span class="mf">1e-4</span><span class="p">:</span>
         <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;第 </span><span class="si">%d</span><span class="s2"> 步合力≈0，停在 (</span><span class="si">%.2f</span><span class="s2">, </span><span class="si">%.2f</span><span class="s2">)，离目标还差 </span><span class="si">%.2f</span><span class="s2">&quot;</span> <span class="o">%</span>
               <span class="p">(</span><span class="n">step</span><span class="p">,</span> <span class="n">p</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">p</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">math</span><span class="o">.</span><span class="n">dist</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">GOAL</span><span class="p">)))</span>
         <span class="k">break</span>
@@ -493,77 +589,364 @@ A* 保证「有路就一定找得到」，势场法<strong>什么都不保证</s
     <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;10 万步都没到，停在 (</span><span class="si">%.2f</span><span class="s2">, </span><span class="si">%.2f</span><span class="s2">)&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">p</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">p</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
 </code></pre></div>
 
-<p>实跑输出：<code>第 1337 步合力≈0，停在 (4.97, 5.00)，离目标还差 4.03</code>。
-起点到目标一共 8 个单位，它走了不到 4 个就永久停住了。</p>
+<p>本页实跑结果：<strong>第 1337 步合力≈0，停在 (4.97, 5.00)，离目标还差 4.03</strong>。</p>
+<p>起点到目标相距 8，它只走了不到 4。<code>force</code> 汇总吸引与三个排斥；<code>p += 0.001 * F</code> 是离散移动；停止条件检查的是合力，不是“已经到达目标”。</p>
+<p>代码对极小距离使用了数值保护，但没有碰撞处理；本次运行没有接近那个保护阈值。不要把跳过奇点计算当成避障成功。</p>
+<h3 id="motion-saddle-versus-minimum">为什么这次是鞍点？真正的局部极小又长什么样？</h3>
+<p>只看原实验的对称水平线，停点像一个低处；但是向上或向下偏一点，势能还能降低。<strong>有横向下坡路，所以它不是二维小碗底。</strong></p>
+<p>同一种势函数也能构造真正的小碗底。保留目标 (9,5)，改成两个障碍 (6,4)、(6,6)，把排斥强度设为 $16+8\sqrt2$，其他强度与影响半径分别取 1、2。</p>
+<p>此时 (5,5) 的吸引与排斥抵消，而且附近各个方向的二阶变化都为正。它是一个离目标还有 4 的严格局部极小；这与原来的三障碍鞍点是<strong>两个不同的实验</strong>。</p>
+<details>
+<summary>想亲自核对：分别验证鞍点与局部极小，代码可独立运行</summary>
+<p>下面重新定义势函数，不依赖上一个代码框。原实验的驻点用二分求出；第二个实验的 (5,5) 是按参数构造的精确驻点。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+
+<span class="n">GOAL</span> <span class="o">=</span> <span class="p">(</span><span class="mf">9.0</span><span class="p">,</span> <span class="mf">5.0</span><span class="p">)</span>
+<span class="n">RHO0</span> <span class="o">=</span> <span class="mf">2.0</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">potential</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">obstacles</span><span class="p">,</span> <span class="n">strength</span><span class="p">):</span>
+    <span class="n">total</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">dist</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">GOAL</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">/</span> <span class="mi">2</span>
+    <span class="k">for</span> <span class="n">obstacle</span> <span class="ow">in</span> <span class="n">obstacles</span><span class="p">:</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">dist</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">obstacle</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">r</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">math</span><span class="o">.</span><span class="n">inf</span>
+        <span class="k">if</span> <span class="n">r</span> <span class="o">&lt;=</span> <span class="n">RHO0</span><span class="p">:</span>
+            <span class="n">total</span> <span class="o">+=</span> <span class="n">strength</span> <span class="o">/</span> <span class="mi">2</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">/</span> <span class="n">r</span> <span class="o">-</span> <span class="mi">1</span> <span class="o">/</span> <span class="n">RHO0</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span>
+    <span class="k">return</span> <span class="n">total</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">force</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">obstacles</span><span class="p">,</span> <span class="n">strength</span><span class="p">):</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="p">[</span><span class="n">GOAL</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">-</span> <span class="n">p</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">2</span><span class="p">)]</span>
+    <span class="k">for</span> <span class="n">obstacle</span> <span class="ow">in</span> <span class="n">obstacles</span><span class="p">:</span>
+        <span class="n">delta</span> <span class="o">=</span> <span class="p">[</span><span class="n">p</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">-</span> <span class="n">obstacle</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">2</span><span class="p">)]</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">hypot</span><span class="p">(</span><span class="o">*</span><span class="n">delta</span><span class="p">)</span>
+        <span class="k">if</span> <span class="mi">0</span> <span class="o">&lt;</span> <span class="n">r</span> <span class="o">&lt;=</span> <span class="n">RHO0</span><span class="p">:</span>
+            <span class="n">factor</span> <span class="o">=</span> <span class="n">strength</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">/</span> <span class="n">r</span> <span class="o">-</span> <span class="mi">1</span> <span class="o">/</span> <span class="n">RHO0</span><span class="p">)</span> <span class="o">/</span> <span class="n">r</span> <span class="o">**</span> <span class="mi">3</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="p">[</span><span class="n">result</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">factor</span> <span class="o">*</span> <span class="n">delta</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">2</span><span class="p">)]</span>
+    <span class="k">return</span> <span class="n">result</span>
+
+<span class="n">old_obstacles</span> <span class="o">=</span> <span class="p">[(</span><span class="mf">6.0</span><span class="p">,</span> <span class="mf">5.0</span><span class="p">),</span> <span class="p">(</span><span class="mf">6.0</span><span class="p">,</span> <span class="mf">6.2</span><span class="p">),</span> <span class="p">(</span><span class="mf">6.0</span><span class="p">,</span> <span class="mf">3.8</span><span class="p">)]</span>
+<span class="n">lo</span><span class="p">,</span> <span class="n">hi</span> <span class="o">=</span> <span class="mf">4.0</span><span class="p">,</span> <span class="mf">5.8</span>
+<span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">80</span><span class="p">):</span>
+    <span class="n">mid</span> <span class="o">=</span> <span class="p">(</span><span class="n">lo</span> <span class="o">+</span> <span class="n">hi</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
+    <span class="k">if</span> <span class="n">force</span><span class="p">((</span><span class="n">mid</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span> <span class="n">old_obstacles</span><span class="p">,</span> <span class="mi">8</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">lo</span> <span class="o">=</span> <span class="n">mid</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">hi</span> <span class="o">=</span> <span class="n">mid</span>
+<span class="n">p</span> <span class="o">=</span> <span class="p">((</span><span class="n">lo</span> <span class="o">+</span> <span class="n">hi</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span><span class="p">,</span> <span class="mf">5.0</span><span class="p">)</span>
+<span class="n">center</span> <span class="o">=</span> <span class="n">potential</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">old_obstacles</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span>
+<span class="n">side</span> <span class="o">=</span> <span class="n">potential</span><span class="p">((</span><span class="n">p</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mf">5.01</span><span class="p">),</span> <span class="n">old_obstacles</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">side</span> <span class="o">&lt;</span> <span class="n">center</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;原驻点 x=</span><span class="si">%.8f</span><span class="s2">；侧移后的势能变化=</span><span class="si">%.8f</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">p</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">side</span> <span class="o">-</span> <span class="n">center</span><span class="p">))</span>
+
+<span class="n">new_obstacles</span> <span class="o">=</span> <span class="p">[(</span><span class="mf">6.0</span><span class="p">,</span> <span class="mf">4.0</span><span class="p">),</span> <span class="p">(</span><span class="mf">6.0</span><span class="p">,</span> <span class="mf">6.0</span><span class="p">)]</span>
+<span class="n">strength</span> <span class="o">=</span> <span class="mi">16</span> <span class="o">+</span> <span class="mi">8</span> <span class="o">*</span> <span class="n">math</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+<span class="n">q</span> <span class="o">=</span> <span class="p">(</span><span class="mf">5.0</span><span class="p">,</span> <span class="mf">5.0</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">math</span><span class="o">.</span><span class="n">hypot</span><span class="p">(</span><span class="o">*</span><span class="n">force</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">new_obstacles</span><span class="p">,</span> <span class="n">strength</span><span class="p">))</span> <span class="o">&lt;</span> <span class="mf">1e-12</span>
+<span class="c1"># 两个障碍关于 y=5 对称；此点的 Hessian 是 curvature 乘单位矩阵。</span>
+<span class="n">curvature</span> <span class="o">=</span> <span class="mi">7</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">math</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">curvature</span> <span class="o">&gt;</span> <span class="mi">0</span>
+<span class="n">base</span> <span class="o">=</span> <span class="n">potential</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">new_obstacles</span><span class="p">,</span> <span class="n">strength</span><span class="p">)</span>
+<span class="n">increments</span> <span class="o">=</span> <span class="p">[</span><span class="n">potential</span><span class="p">((</span><span class="mi">5</span> <span class="o">+</span> <span class="n">dx</span><span class="p">,</span> <span class="mi">5</span> <span class="o">+</span> <span class="n">dy</span><span class="p">),</span> <span class="n">new_obstacles</span><span class="p">,</span> <span class="n">strength</span><span class="p">)</span> <span class="o">-</span> <span class="n">base</span>
+              <span class="k">for</span> <span class="n">dx</span><span class="p">,</span> <span class="n">dy</span> <span class="ow">in</span> <span class="p">[(</span><span class="mf">0.01</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="p">(</span><span class="o">-</span><span class="mf">0.01</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mf">0.01</span><span class="p">),</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.01</span><span class="p">)]]</span>
+<span class="k">assert</span> <span class="nb">min</span><span class="p">(</span><span class="n">increments</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;新驻点 (5,5)；两个二阶特征值均为 </span><span class="si">%.6f</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">curvature</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;四个邻近试点的势能都更高：&quot;</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">increments</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
+</code></pre></div>
+
+<p>输出中的原驻点 x 约为 <strong>4.96551423</strong>，侧移势能变化约为 <strong>−0.00002673</strong>。第二例的两个二阶特征值都是 <strong>9.828427</strong>，四个邻近试点也都更高。</p>
+<p>“二阶特征值”在这里描述不同方向的局部弯曲：两个都正，结合驻点附近二阶连续可微且梯度为零，可判定严格局部极小。只测试四个点本身还不是证明；本例的解析结果是 $H=(7+2\sqrt2)I$。</p>
+<p>如果想核对这个解析式：对影响范围内、距离为 $r&gt;0$ 的单个排斥项，径向二阶导数是 $k_{rep}\left(\frac{3}{r^4}-\frac{2}{\rho_0r^3}\right)$。在本例 $r=\sqrt2$ 处，两个对称障碍的交叉项抵消，再加吸引项的单位矩阵，得到上面的 $H$。</p>
+</details>
+<p>原实验若把初始 y 改成 5.001，本页实测会离开原鞍点，却又停在另一非目标位置。因此“打破对称”不等于“保证到目标”。</p>
 <hr />
 <h2 id="vfh">📡 五、VFH：不要把方向信息加没了</h2>
-<p><strong>向量场直方图</strong>（Vector Field Histogram）是讲义给的「更不容易卡住」的方案，四步：
-① 维护持续更新的<strong>笛卡尔直方图栅格</strong>（就是占据栅格）；
-② 按机器人当前位置和朝向转成极坐标直方图 —— 横轴方向角，纵轴那个方向上的障碍密度；
-③ 找出候选谷（连成一片的低障碍密度扇区）；④ 挑一个最接近目标方向的谷，朝那儿走。</p>
-<p>⭐ <strong>它和势场法的差别就在第 2 步。</strong> 势场法把所有障碍的排斥向量<strong>加成一个合力</strong>，而求和是有损的：
-两个障碍中间有条缝，排斥向量一相加，缝就被抹平成「前方整体有阻力」，机器人看不见缝在哪儿。
-VFH 保留的是沿方向的整个分布，缝在直方图上是一个显眼的低谷 —— 所以它能在势场法只会硬顶的地方找到穿过去的方向。</p>
+<p><strong>势场把障碍影响合成一个方向；VFH 先保留各个方向的拥挤程度，再挑方向。</strong></p>
+<p>VFH 是 Vector Field Histogram，向量场直方图。下面是它的阅读顺序，不是可以直接替代全部控制细节的伪代码。</p>
+<ol>
+<li><strong>更新二维直方图栅格。</strong> 累积“某个位置可能有障碍”的证据。原始方法用确定度数值（certainty value，表示障碍存在的证据强度）和简化更新，不能把它直接等同于完整贝叶斯概率占据图。</li>
+<li><strong>转成以机器人为中心的极坐标直方图。</strong> 横向依次看方向角，竖向数值表示该方向的障碍密度。</li>
+<li><strong>寻找候选谷。</strong> 连续一片低于阈值的方向构成一个谷；它保留了可能有通道的方向信息。</li>
+<li><strong>在谷内选方向并控制速度。</strong> 通常偏向目标方向，同时考虑谷宽、选择稳定性与实际可通行余量。</li>
+</ol>
+<p>可以把三个方向的密度想成左边高、中间低、右边高：中间可能存在缝隙。一个合力向量不再保留这种三方向分布；直方图仍能区分它们。</p>
+<figure class="dia">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 320" role="img" aria-labelledby="motion-vfh-title motion-vfh-desc">
+<title id="motion-vfh-title">VFH 方向密度示意：中间低谷保留候选方向</title>
+<desc id="motion-vfh-desc">方向从负60度到正60度，示意密度依次为8、6、2、1、2、7、8。阈值为3，负20度到正20度连续低于阈值，构成一个候选谷。数值仅用于解释读法，不是机器人实测。</desc>
+<g font-family="sans-serif" fill="var(--fg)">
+<text x="300" y="24" text-anchor="middle" font-size="17" font-weight="700">保留每个方向的信息，才能看见中间的低谷</text>
+<text x="64" y="52" font-size="13">障碍密度（示意单位）</text>
+<path d="M64 62V240H532" fill="none" stroke="var(--border)" stroke-width="2"/>
+<g fill="var(--accent)">
+<rect x="90" y="80" width="38" height="160" rx="3"/>
+<rect x="150" y="120" width="38" height="120" rx="3"/>
+<rect x="390" y="100" width="38" height="140" rx="3"/>
+<rect x="450" y="80" width="38" height="160" rx="3"/>
+</g>
+<g fill="var(--done)">
+<rect x="210" y="200" width="38" height="40" rx="3"/>
+<rect x="270" y="220" width="38" height="20" rx="3"/>
+<rect x="330" y="200" width="38" height="40" rx="3"/>
+</g>
+<path d="M64 180H532" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 5"/>
+<text x="520" y="172" text-anchor="end" font-size="13">阈值 3</text>
+<g text-anchor="middle" font-size="14">
+<text x="109" y="260">−60°</text><text x="169" y="260">−40°</text>
+<text x="229" y="260">−20°</text><text x="289" y="260">0°</text>
+<text x="349" y="260">20°</text><text x="409" y="260">40°</text>
+<text x="469" y="260">60°</text>
+<text x="109" y="73">8</text><text x="169" y="113">6</text>
+<text x="229" y="193">2</text><text x="289" y="213">1</text>
+<text x="349" y="193">2</text><text x="409" y="93">7</text><text x="469" y="73">8</text>
+<text x="300" y="285">方向角；0° 是这里选定的前方</text>
+<text x="300" y="310" fill="var(--done)" font-weight="700">绿色连续低于阈值：先作为候选谷，再判断能不能走</text>
+</g>
+</g>
+</svg>
+<figcaption>先看低于虚线的三根柱：中间的方向信息被保留下来。这是解释读法的七扇区小例子，不是 VFH 原论文参数或实机测量；扇区选取还需后续规则。</figcaption>
+</figure>
+
+<p>但“低谷”只是当前模型中的候选，不是碰撞安全证明。窄谷可能容不下机器人，未知障碍也可能在下一次观测出现。<a href="https://public.websites.umich.edu/~ykoren/uploads/The_Vector_Field_HistogramuFast_Obstacle_Avoidance.pdf">原始论文</a>还区分宽谷、窄谷以及具体扇区和速度的选取。</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th></th>
+<th>比较项</th>
 <th>占据栅格 + A*</th>
-<th>势场法</th>
+<th>本节的简单势场</th>
 <th>VFH</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>要全局地图吗</td>
-<td>要</td>
-<td>不要</td>
-<td>不要</td>
+<td>地图范围</td>
+<td>可用局部或全局图；保证只覆盖当前建图范围</td>
+<td>可用邻近障碍信息</td>
+<td>累积局部栅格信息用于当前决策</td>
 </tr>
 <tr>
-<td>完备性</td>
-<td>⭐ 有（栅格分辨率内）</td>
-<td>❌ 没有</td>
-<td>不保证，但明显更稳</td>
+<td>有路必到吗</td>
+<td>正确实现可穷尽有限图，但连续场地另说</td>
+<td>不保证</td>
+<td>一般不保证到达全局目标</td>
 </tr>
 <tr>
-<td>保留了什么</td>
-<td>全部</td>
-<td>只有一个合力向量</td>
-<td>⭐ 整个方向分布</td>
+<td>保留的信息</td>
+<td>格子层面的空间与邻接关系，并非连续世界全部细节</td>
+<td>最终移动指令是一个合力向量</td>
+<td>用方向密度分布来选局部方向</td>
 </tr>
 </tbody>
 </table></div>
+<p>VFH 针对势场压缩方向信息的部分缺点作了改进；不能脱离地图、速度和评价指标，断言它对所有场景都“明显更稳”。</p>
 <hr />
-<h2 id="voronoi-delaunay">🕸 六、地图全知道时：Voronoi 与 Delaunay</h2>
-<p>天花板上有相机、障碍位置全部已知时，有比栅格聪明得多的做法。</p>
-<p><strong>Delaunay 三角剖分</strong>（讲义的贪心构造）：在障碍最近点之间加线段，按长度从短到长依次加，
-<strong>与已有线段相交的一律不加</strong>，加完得到一张铺满自由空间的三角网。
-Voronoi 图是它的对偶 —— 每条 Voronoi 边都是「到两个最近障碍等距」的点的集合。</p>
+<h2 id="voronoi-delaunay">🕸 六、地图已知时：Voronoi 与 Delaunay</h2>
+<p><strong>除了铺满小格子，也可以用障碍之间的几何关系，提取一张更稀疏的路线图。</strong></p>
+<p>这里先看静态、已建模的平面环境。地图可以来自外部相机，也可以来自预先测绘；几何方法不以安装哪一种相机为前提。</p>
+<h3 id="motion-delaunay-definition">Delaunay 不是“先连最短的边”</h3>
+<p>对普通平面点集，Delaunay 三角剖分要求：<strong>每个三角形的外接圆内部，不包含其他输入点</strong>。外接圆就是经过三个顶点的圆。</p>
+<p>在没有退化情况时，这种剖分与点集的 Voronoi 图互为对偶：两个点的 Voronoi 区域共享一条边时，这两个点之间对应一条 Delaunay 边。四点共圆时可能有不唯一的合法选择。<a href="https://doc.cgal.org/latest/Triangulation_2/classCGAL_1_1Delaunay__triangulation__2.html">CGAL 的官方定义</a>以空圆条件为准。</p>
+<p>为什么不按长度从短到长加边，只避开交叉？看一个整数例子：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>按凸四边形顺序排列的点</th>
+<th>坐标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td>(0,0)</td>
+</tr>
+<tr>
+<td>B</td>
+<td>(3,3)</td>
+</tr>
+<tr>
+<td>C</td>
+<td>(1,3)</td>
+</tr>
+<tr>
+<td>D</td>
+<td>(0,1)</td>
+</tr>
+</tbody>
+</table></div>
 <figure class="dia">
-<svg viewBox="0 0 600 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="三个障碍的Voronoi图：三条等距边交于一个到三处等距的点，粗线标出的路径沿着这些边走，始终离最近的障碍最远"><text x="300" y="20" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">Voronoi 边 = 到两个最近障碍等距的点</text><polyline points="164,84 300,230 439,100" fill="none" stroke="var(--accent-soft)" stroke-width="10" stroke-linejoin="round"/><line x1="300" y1="230" x2="164" y2="84" stroke="var(--link)" stroke-width="2"/><line x1="300" y1="230" x2="439" y2="100" stroke="var(--link)" stroke-width="2"/><line x1="300" y1="230" x2="296" y2="285" stroke="var(--link)" stroke-width="2"/><circle cx="150" cy="220" r="16" fill="var(--danger)"/><circle cx="300" cy="80" r="16" fill="var(--danger)"/><circle cx="450" cy="240" r="16" fill="var(--danger)"/><circle cx="300" cy="230" r="5" fill="var(--accent)"/><text x="150" y="254" font-size="11.5" text-anchor="middle" fill="var(--muted)">障碍 A</text><text x="300" y="52" font-size="11.5" text-anchor="middle" fill="var(--muted)">障碍 B</text><text x="450" y="274" font-size="11.5" text-anchor="middle" fill="var(--muted)">障碍 C</text><text x="250" y="250" font-size="11.5" text-anchor="end" fill="var(--accent)">三条边的交点</text><text x="300" y="318" font-size="11.5" text-anchor="middle" fill="var(--muted)">粗线：沿 Voronoi 边走，每一步都离最近的障碍尽量远</text></svg>
-<figcaption>三个障碍的 Voronoi 图。三条边分别是 AB、BC、AC 的中垂线的一部分，交点到三个障碍等距。把太窄（机器人过不去）的弧剪掉之后，剩下的就是一张只有几十条边的图，可以直接跑 A*。</figcaption>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 870 460" role="img" aria-labelledby="motion-delaunay-compare-title motion-delaunay-compare-desc">
+<title id="motion-delaunay-compare-title">短对角线不一定符合 Delaunay：同一四点的两种剖分</title>
+<desc id="motion-delaunay-compare-desc">两栏使用相同尺度。四点为 A零零、B三三、C一三、D零一，不是矩形。左栏选 AC，长根号10；ABC外接圆的圆心O为二一，D落在圆内，所以不合格。右栏选更长的BD，长根号13；ABD和BCD都满足空圆条件，因此合格。右栏不画两个圆，以免遮挡四点和对角线。</desc>
+<g font-family="sans-serif" fill="var(--fg, #2a2a33)">
+<text x="220" y="30" text-anchor="middle" font-size="22" font-weight="700">AC 短一些，但不合格</text>
+<text x="650" y="30" text-anchor="middle" font-size="22" font-weight="700">BD 更长，却合格</text>
+<text x="220" y="58" text-anchor="middle" font-size="17">AC = √10 ≈ 3.16</text>
+<text x="650" y="58" text-anchor="middle" font-size="17">BD = √13 ≈ 3.61</text>
+
+<rect x="20" y="78" width="400" height="362" rx="14" fill="var(--card, #fff)" stroke="var(--border, #e6e2d9)"/>
+<rect x="450" y="78" width="400" height="362" rx="14" fill="var(--card, #fff)" stroke="var(--border, #e6e2d9)"/>
+
+<!-- Geometry: screen=(100+65*x,330-65*y); right panel adds 430 px. -->
+<polygon points="100,330 295,135 165,135" fill="var(--accent-soft, #fff0e6)"/>
+<circle cx="230" cy="265" r="145.34441853748632" fill="none" stroke="var(--accent, #e8590c)" stroke-width="2" stroke-dasharray="6 5"/>
+<path d="M100 330L295 135L165 135L100 265Z" fill="none" stroke="var(--muted, #6b6b76)" stroke-width="2.5"/>
+<line x1="100" y1="330" x2="165" y2="135" stroke="var(--danger, #c92a2a)" stroke-width="4"/>
+<g fill="var(--fg, #2a2a33)">
+<circle cx="100" cy="330" r="5"/><circle cx="295" cy="135" r="5"/><circle cx="165" cy="135" r="5"/>
+<circle cx="230" cy="265" r="3"/>
+</g>
+<circle cx="100" cy="265" r="7" fill="var(--danger, #c92a2a)"/>
+<g font-size="17">
+<text x="35" y="357">A (0,0)</text><text x="299" y="128">B (3,3)</text>
+<text x="130" y="112">C (1,3)</text><text x="29" y="249">D (0,1)</text>
+<text x="237" y="284">O (2,1)</text>
+</g>
+<text x="176" y="336" font-size="19" font-weight="700" fill="var(--danger, #c92a2a)">D 在圆内</text>
+<text x="245" y="100" font-size="16" fill="var(--accent, #e8590c)">ABC 外接圆</text>
+<text x="220" y="429" text-anchor="middle" font-size="16">OD² = 4，小于半径平方 5</text>
+
+<polygon points="530,330 725,135 530,265" fill="var(--accent-soft, #fff0e6)"/>
+<polygon points="725,135 595,135 530,265" fill="var(--quote-bg, #f4f1ea)"/>
+<path d="M530 330L725 135L595 135L530 265Z" fill="none" stroke="var(--muted, #6b6b76)" stroke-width="2.5"/>
+<line x1="725" y1="135" x2="530" y2="265" stroke="var(--done, #2f9e44)" stroke-width="4"/>
+<g fill="var(--fg, #2a2a33)">
+<circle cx="530" cy="330" r="5"/><circle cx="725" cy="135" r="5"/>
+<circle cx="595" cy="135" r="5"/><circle cx="530" cy="265" r="5"/>
+</g>
+<g font-size="17">
+<text x="465" y="357">A (0,0)</text><text x="729" y="128">B (3,3)</text>
+<text x="560" y="112">C (1,3)</text><text x="459" y="249">D (0,1)</text>
+</g>
+<text x="640" y="245" font-size="21" font-weight="700" fill="var(--done, #2f9e44)">选择 BD</text>
+<text x="650" y="398" text-anchor="middle" font-size="16">ABD、BCD 两个三角形</text>
+<text x="650" y="425" text-anchor="middle" font-size="16">各自的外接圆内都没有第四点</text>
+</g>
+</svg>
+<figcaption>先看左边红色 D：它落在 ABC 的外接圆内，所以较短的 AC 不合格；右边换成较长的 BD，两侧三角形才都满足空圆条件（两栏四点坐标与比例相同）。</figcaption>
 </figure>
 
-<p>所以<strong>沿 Voronoi 边走，等价于「随时离最近的障碍尽量远」</strong> —— 正是你希望一台会晃、定位有误差的机器人走的路。</p>
-<p>流程是：建 Voronoi 图 → <strong>剪掉太窄、机器人过不去的弧</strong> → 在剩下的图上跑 A* → 把路径转成轨迹。
-⭐ 价值在<strong>规模</strong>：同一块场地细栅格几万个节点，Voronoi 图只有几十条边，小三个数量级，而且天生落在「安全」的位置上。</p>
+<p>AC 长 √10，比 BD 的 √13 短，所以短边贪心会先选 AC。但 ABC 外接圆的圆心为 (2,1)，半径平方为 5；D 到圆心的距离平方为 4，落在圆内。<strong>AC 不满足 Delaunay 条件，正确的对角线是 BD。</strong></p>
+<p>点集三角剖分覆盖的是点集的凸包，不能自动当作“已经避开所有障碍的自由空间”。真实障碍有边界，机器人也有宽度，需要约束建模、净空与碰撞检查。</p>
+<h3 id="motion-voronoi-clearance">Voronoi：读懂“等距”，不要读成“处处最远”</h3>
+<p>普通点集 Voronoi 边上的点，到相邻的两个最近输入点等距。机器人规划的广义版本则要看距障碍<strong>边界</strong>的距离，还可能包含场地边界。</p>
+<figure class="dia">
+<svg viewBox="0 0 600 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="三个点障碍的Voronoi示意：三条等距边交汇，粗线显示骨架中的一段路线；等距不表示每个位置都达到全场最大净空"><text x="300" y="20" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">Voronoi 边 = 到两个最近障碍等距的点</text><polyline points="164,84 300,230 439,100" fill="none" stroke="var(--accent-soft)" stroke-width="10" stroke-linejoin="round"/><line x1="300" y1="230" x2="164" y2="84" stroke="var(--link)" stroke-width="2"/><line x1="300" y1="230" x2="439" y2="100" stroke="var(--link)" stroke-width="2"/><line x1="300" y1="230" x2="296" y2="285" stroke="var(--link)" stroke-width="2"/><circle cx="150" cy="220" r="16" fill="var(--danger)"/><circle cx="300" cy="80" r="16" fill="var(--danger)"/><circle cx="450" cy="240" r="16" fill="var(--danger)"/><circle cx="300" cy="230" r="5" fill="var(--accent)"/><text x="150" y="254" font-size="11.5" text-anchor="middle" fill="var(--muted)">障碍 A</text><text x="300" y="52" font-size="11.5" text-anchor="middle" fill="var(--muted)">障碍 B</text><text x="450" y="274" font-size="11.5" text-anchor="middle" fill="var(--muted)">障碍 C</text><text x="250" y="250" font-size="11.5" text-anchor="end" fill="var(--accent)">三条边的交点</text><text x="300" y="318" font-size="11.5" text-anchor="middle" fill="var(--muted)">粗线：沿等距骨架走；仍需检查净空与可通行性</text></svg>
+<figcaption>看三条细线：它们是两两中垂线的相应部分，交点到三点近似等距。圆形符号标记点障碍；真实障碍的大小、形状以及场地边界需要另行建模。</figcaption>
+</figure>
+
+<p>这张骨架能帮助路线留在障碍之间较宽敞的位置，给定位误差留余量，但<strong>净空沿骨架也会变化</strong>。</p>
+<p>例如，障碍点 (−1,0)、(1,0) 的 Voronoi 边是竖直中线。线上 (0,0)、(0,1)、(0,2) 都等距，最近障碍距离却分别为 1、√2、√5。不能把等距换成“每一步都是整个场地里最安全的位置”。</p>
+<h3 id="motion-roadmap-steps">把几何骨架变成可用路线</h3>
+<ol>
+<li>根据障碍与场地边界建立适合当前模型的几何表示。</li>
+<li>结合机器人外形，剪掉净空不足或存在碰撞的连接。</li>
+<li>把起点、目标接入路线图，接入段也要检查碰撞。</li>
+<li>在剩下的图上用正确的代价与启发式搜索。</li>
+<li>转成可执行轨迹后，再核对碰撞和运动约束。</li>
+</ol>
+<p>Delaunay 中连接障碍的边可以描述“障碍之间哪一道间隙允许通过”；它本身不是让机器人沿着边穿进障碍的行驶命令。不要把这种间隙图与 Voronoi 骨架路线当成同一张图。</p>
+<p>稀疏骨架有时比细栅格小很多，但规模由地图决定。旧的“几万个节点变成几十条边、少三个数量级”只有在给出具体地图和计数方式时才能核验，不是普遍保证；节点数和边数也应分别比较。</p>
 <hr />
 <h2 id="_10">⏱ 七、最短的路不等于最快的路</h2>
-<blockquote>
-<p>⭐ 一条<strong>有长直段</strong>的路可以先加速再减速；一条更短但拐弯很多的路，每个弯都要减速。长的那条反而更快。</p>
-</blockquote>
-<p>要优化时间，路径就不能只是折线，得是<strong>能表达速度的曲线</strong>。讲义用<strong>参数三次样条</strong>，每一段写成</p>
-<p>$$P(t) = \begin{pmatrix}P_x(t)\\ P_y(t)\end{pmatrix} = a\,t^3 + b\,t^2 + c\,t + d$$</p>
-<p>给定这一段<strong>起点</strong>（$t=0$）和<strong>终点</strong>（$t=s$）的位置和速度，四个系数向量就唯一解出来了。</p>
-<p>⭐ 关键改动在 $s$ 上。传统做法固定 $s = 1$（$t$ 只是形状参数）；讲义<strong>把 $s$ 当成这一段花掉的时间去最小化</strong>，约束是运动学能力：</p>
-<p>$$\frac{\lVert P''(t)\rVert}{A} + \left(\frac{\lVert P'(t)\rVert}{V}\right)^{2} \le 1,\qquad 0 \le t \le s$$</p>
-<p>$A$、$V$ 是最大加速度和最大速度，这一条同时管住「别超速」和「弯别拐太急」。</p>
-<p>完整算法三步（讲义原文）：① <strong>Delaunay 三角剖分</strong>把场地变成图；② A* 搜索，路径由参数三次样条拼成、代价是时间不是长度；
-③ ⭐ <strong>梯度下降调路点</strong>，把整条曲线抹平。</p>
-<p>⭐ 第 3 步值得单独说一句：这里的<strong>梯度下降不是在训练神经网络</strong>。变量是几十个路点的坐标，
-目标是整条轨迹的总时间，梯度解析可算 —— 没有数据集、没有标签、没有 GPU。
-<strong>答案是被算出来的，不是被学出来的</strong>。讲义说这套系统真部署在 Robocup F180 小型组。</p>
+<p><strong>路径回答从哪里经过，轨迹还回答什么时候到那里。</strong></p>
+<p>长一点的直路可能允许持续加速；短一点却有急弯的路可能要反复减速。因此最小距离和最小时间可能给出不同选择，不是每一条长路都更快。</p>
+<p>折线也能加上时间安排，但尖角可能迫使机器人停下。平滑曲线是构造可执行轨迹的一种方式，不是表达速度的唯一方式。</p>
+<h3 id="motion-cubic-segment">一小段三次曲线，四种量各管什么</h3>
+<p>$$P(t)=a\,t^3+b\,t^2+c\,t+d,\qquad 0\le t\le s$$</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>符号</th>
+<th>在这一段中的作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>$P(t)$</td>
+<td>时刻 t 的位置；平面中有 x、y 两个分量</td>
+</tr>
+<tr>
+<td>$P'(t)$</td>
+<td>速度：位置随时间怎么变</td>
+</tr>
+<tr>
+<td>$P''(t)$</td>
+<td>加速度：速度随时间怎么变</td>
+</tr>
+<tr>
+<td>$s&gt;0$</td>
+<td>走完整段的时间</td>
+</tr>
+<tr>
+<td>$a,b,c,d$</td>
+<td>决定曲线的四个系数；二维时都是向量</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>选定正时长 s，再给定两端的位置与速度，才能唯一解出这四个系数。</strong> 改变 s 时系数通常也要重算，尤其当端点速度仍固定为实际物理速度时。</p>
+<h3 id="motion-cubic-example">一个可以看出速度变化的小例子</h3>
+<p>只沿一条直线从位置 0 走到位置 1，两端速度都取 0。用 $u=t/s$ 表示已经经过的时间比例：</p>
+<p>$$P(t)=3u^2-2u^3,\qquad u=t/s$$</p>
+<p>这段轨迹从静止起步，中途较快，到终点又停下。把时长从 1 改为 2，同一位置变化用更长时间完成，因此速度与加速度都会下降。</p>
+<p>下面的代码只需标准 Python，独立打印起点、中点、终点的位置和速度，以及整段的最大速度和最大加速度大小。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">sample</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">duration</span><span class="p">):</span>
+    <span class="n">u</span> <span class="o">=</span> <span class="n">t</span> <span class="o">/</span> <span class="n">duration</span>
+    <span class="n">position</span> <span class="o">=</span> <span class="mi">3</span> <span class="o">*</span> <span class="n">u</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">-</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">u</span> <span class="o">**</span> <span class="mi">3</span>
+    <span class="n">velocity</span> <span class="o">=</span> <span class="p">(</span><span class="mi">6</span> <span class="o">*</span> <span class="n">u</span> <span class="o">-</span> <span class="mi">6</span> <span class="o">*</span> <span class="n">u</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span> <span class="o">/</span> <span class="n">duration</span>
+    <span class="n">acceleration</span> <span class="o">=</span> <span class="p">(</span><span class="mi">6</span> <span class="o">-</span> <span class="mi">12</span> <span class="o">*</span> <span class="n">u</span><span class="p">)</span> <span class="o">/</span> <span class="n">duration</span> <span class="o">**</span> <span class="mi">2</span>
+    <span class="k">return</span> <span class="n">position</span><span class="p">,</span> <span class="n">velocity</span><span class="p">,</span> <span class="n">acceleration</span>
+
+<span class="k">for</span> <span class="n">duration</span> <span class="ow">in</span> <span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;时长 </span><span class="si">%.0f</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">duration</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">ratio</span> <span class="ow">in</span> <span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">):</span>
+        <span class="n">t</span> <span class="o">=</span> <span class="n">ratio</span> <span class="o">*</span> <span class="n">duration</span>
+        <span class="n">p</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">a</span> <span class="o">=</span> <span class="n">sample</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">duration</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;t=</span><span class="si">%.1f</span><span class="s2">, 位置=</span><span class="si">%.3f</span><span class="s2">, 速度=</span><span class="si">%.3f</span><span class="s2">, 加速度=</span><span class="si">%.3f</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">p</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">a</span><span class="p">))</span>
+    <span class="c1"># 此特定三次段的解析极值，不是任意轨迹只查三点就够。</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;最大速度=</span><span class="si">%.3f</span><span class="s2">, 最大加速度大小=</span><span class="si">%.3f</span><span class="s2">&quot;</span> <span class="o">%</span>
+          <span class="p">(</span><span class="mf">1.5</span> <span class="o">/</span> <span class="n">duration</span><span class="p">,</span> <span class="mi">6</span> <span class="o">/</span> <span class="n">duration</span> <span class="o">**</span> <span class="mi">2</span><span class="p">))</span>
+</code></pre></div>
+
+<div class="tw"><table>
+<thead>
+<tr>
+<th>时长</th>
+<th style="text-align: right;">中点位置</th>
+<th style="text-align: right;">整段最大速度</th>
+<th style="text-align: right;">整段最大加速度大小</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td style="text-align: right;">0.5</td>
+<td style="text-align: right;">1.5</td>
+<td style="text-align: right;">6</td>
+</tr>
+<tr>
+<td>2</td>
+<td style="text-align: right;">0.5</td>
+<td style="text-align: right;">0.75</td>
+<td style="text-align: right;">1.5</td>
+</tr>
+</tbody>
+</table></div>
+<p>数字说明“花多少时间”会改变运动要求。这个例子不含障碍和转弯，不是在复现机器人完整轨迹规划器。</p>
+<h3 id="motion-dynamic-constraint">约束必须说清是哪一种</h3>
+<p>记 A 为选定的加速度尺度、V 为选定的速度尺度，二者都为正。最简单的限制是速度大小不超过 V、加速度大小不超过 A；其他模型也可能把两种能力耦合起来。</p>
+<p>下面保留一种<strong>示意性的耦合限制</strong>来练习读公式，它不是所有机器人的通用动力学定律：</p>
+<p>$$\frac{\lVert P''(t)\rVert}{A}+\left(\frac{\lVert P'(t)\rVert}{V}\right)^2\le1,\qquad 0\le t\le s$$</p>
+<p>读法：加速度占用一部分允许量，速度也占用一部分，两者相加不能超过 1。它比“两项各自不超过 1”更严格：加速度为 0.8A、速度为 0.8V 时，左边是 0.8+0.64=1.44，仍然不满足。</p>
+<p>约束写着“所有 t”，就不能只查起终点。例如上面时长为 1 的三次段两端速度都为 0，中间却达到 1.5；只检查端点会漏掉中途超速。</p>
+<p>这个示意约束并非对下面论文式 (14) 的转录。真实小车还可能有最小转弯半径、不可横移、驱动力和摩擦模型，必须以采用的机器人模型为准。</p>
+<h3 id="motion-robocup">历史例子：RoboCup 的路线与样条联合优化</h3>
+<p>Thomas、Blair、Barnes 在 2003 年研究了用于 RoboCup 小型组的规划器。它展示了“不训练神经网络，也能直接优化运动”的思路；不要把一个特定规划器简化成无条件最优的三步口诀。</p>
+<ol>
+<li><strong>用几何图表达间隙。</strong> Delaunay 边提供可调路点所在的间隙，先按可通行性剪枝。</li>
+<li><strong>搜索候选，再评价轨迹时间。</strong> 原算法用直线距离形成快速搜索估计和时间下界，再把候选转换为三次轨迹评价，并不是简单把所有 A* 边权改成一个固定时间。</li>
+<li><strong>局部调整路点状态。</strong> 不仅调整位置，还调整速度，以降低总时间；边界约束与候选路线限制仍然存在。</li>
+</ol>
+<p>论文采用动态约束的近似处理，局部改进也可能陷在次优结果。因此这里的 A* 子过程不能替整套连续轨迹优化承诺全局最优。<a href="https://www.researchgate.net/publication/4046027_Towards_an_efficient_optimal_trajectory_planner_for_multiple_mobile_robots">原论文作者上传正文</a>的 Table I、Table II 与结论说明了这些步骤和边界。</p>
+<p>“梯度下降式优化”在这里服务于轨迹参数，不是神经网络权重。优化目标是总时间，约束来自机器人与环境；不需要标签数据，也不以是否使用 GPU 来定义方法。</p>
 <hr />
 <h2 id="_11">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
@@ -576,61 +959,75 @@ Voronoi 图是它的对偶 —— 每条 Voronoi 边都是「到两个最近障�
 <tbody>
 <tr>
 <td><a href="08-启发式怎么设计.html">08-启发式怎么设计.html</a></td>
-<td>栅格和 Voronoi 图把连续空间变回图之后，跑的还是那一章的 A* 和曼哈顿/欧氏启发式 —— 这一章是在给它<strong>准备输入</strong></td>
+<td>把连续空间表示成图之后，还要给搜索选择不高估剩余费用的启发式</td>
 </tr>
 <tr>
 <td><a href="10-博弈树与Minimax.html">10-博弈树与Minimax.html</a></td>
-<td>下一站换一种「环境不配合」：不是障碍挡路，是<strong>有个人跟你对着干</strong></td>
+<td>下一站面对的不是静态障碍，而是会主动改变局面的对手</td>
 </tr>
 <tr>
 <td><a href="../机器学习与深度学习基础/09-优化器与学习率.html">机器学习与深度学习基础 09 · 优化器与学习率</a></td>
-<td>势场法卡局部极小、靠随机扰动逃出来，和那一章的局部极小与动量是<strong>同一件事的两个场景</strong></td>
+<td>对照梯度、鞍点、局部极小；相似的数学工具不代表不同任务的收敛保证相同</td>
 </tr>
 <tr>
 <td><a href="../强化学习基础/02-MDP.html">强化学习基础 02 · MDP</a></td>
-<td>这一章假设你<strong>知道</strong>障碍在哪、机器人怎么动；动力学未知只能试出来时，就变成那边的 MDP</td>
+<td>对照状态、动作与动力学模型；已知模型和未知模型都可能用 MDP 建模，未知不等于 MDP 的定义</td>
 </tr>
 </tbody>
 </table></div>
+<p>若观测不足以确定当前状态，还要考虑如何表示不确定性。不要一边用局部传感器，一边默默假设完整状态永远已知。<a href="https://lavalle.pl/planning/node480.html">MDP 的马尔可夫条件</a>关注给定当前状态与动作后，历史是否还带来额外的转移信息，不是“是否已经知道动力学”。</p>
 <hr />
 <h2 id="_12">✅ 检查点</h2>
 <ol>
-<li>前八章的搜索和运动规划之间，最根本的那条断层是什么？</li>
-<li>占据栅格里每个格子存的为什么是<strong>概率</strong>而不是「有 / 没有」？</li>
-<li>一块 10 m × 10 m 的场地，格子边长从 5 cm 缩到 1 cm，格子数从多少变成多少？为什么是这个倍数？</li>
-<li>势场法为什么会卡在局部极小？用一句话说清<strong>根本原因</strong>。三种典型的卡死场景各是什么？</li>
-<li>VFH 和势场法的关键差别在哪一步？为什么这个差别让它更不容易卡住？</li>
-<li>「沿 Voronoi 边走」在几何上意味着什么？为什么这对机器人有好处？</li>
-<li>最优轨迹规划的第 3 步用梯度下降，它优化的变量是什么、目标函数是什么？</li>
+<li>前面城市或棋盘搜索的例子，与机器人的运动规划相比，状态、动作和可行性多了什么问题？</li>
+<li>概率占据栅格为什么保留“有障碍的概率”？这是否表示用于搜索的格子不能再分成可通行与障碍？</li>
+<li>10 m × 10 m 场地，格子边长从 5 cm 缩到 1 cm，格子数从多少变成多少？为什么是这个倍数？</li>
+<li>简单势场为什么可能停在非目标位置？原三障碍实验是鞍点还是局部极小？共线、U 形与窄通道各有什么风险？</li>
+<li>VFH 与把排斥向量加成一个合力，关键差别在哪一步？为什么看见低谷还不等于保证能到目标？</li>
+<li>沿 Voronoi 边走，在几何上意味着什么？为什么通常有利于留出净空，但不等于处处净空最大？</li>
+<li>RoboCup 历史轨迹规划例子的局部优化在调什么变量、优化什么目标？为什么不能据此承诺全局最优？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>状态空间从离散变成连续</strong>：前八章状态可枚举、动作有限、代价是固定边权；机器人的位置是一对实数、动作连续、代价是时间或能量。</li>
-<li><strong>传感器有噪声</strong> —— 超声波会被斜面弹走，激光会穿过玻璃。单次读数不可信，格子里存的是被多次观测不断更新的信念值。</li>
-<li>从 <strong>40 000</strong> 变成 1 000 000，涨 25 倍。格子数按边长的平方（按面积）走，边长缩到 1/5 就是 $5^2 = 25$ 倍。</li>
-<li><strong>势场法就是梯度下降</strong>：只看当前点的梯度，不展开搜索树、不记录去过哪里、不回溯，所以碰到合力为零就停，完全没有完备性。三种典型：① 三点共线，吸引与排斥严格反向必有抵消点；② U 形凹障碍，滑进凹口后来回振荡；③ 窄通道，门框两侧排斥叠加成势垒。</li>
-<li>差别在<strong>第 2 步：势场法把排斥向量加成一个合力，VFH 转成极坐标直方图</strong>。求和有损 —— 缝隙被抹平成「前方有阻力」；直方图保留整个方向分布，缝是一个显眼的低谷。</li>
-<li>Voronoi 边是「到两个最近障碍<strong>等距</strong>」的点集，沿边走等价于随时离最近的障碍尽量远 —— 对定位有误差、走起来会晃的机器人最能容忍误差。附带好处是规模只有几十条边。</li>
-<li>变量是<strong>几十个路点的坐标</strong>，目标是整条轨迹的总时间，约束是加速度和速度不超过 $A$、$V$。没有数据集也没有标签，梯度解析可算。</li>
+<li>
+<p>位置和控制量可能连续，还需要机器人尺寸、朝向、速度等状态。规划前要决定有限表示或控制模型，检查整段动作是否碰撞，并给出时间、距离或能量代价。</p>
+</li>
+<li>
+<p>概率用于表达和融合有误差的观测；用于搜索时仍可按阈值等规则分成可通行、障碍、未知。这两个阶段不矛盾，重复观测也不自动消除系统误差。</p>
+</li>
+<li>
+<p>从 <strong>40 000</strong> 到 <strong>1 000 000</strong>，增加 25 倍。边长变为 1/5，二维格数按边长平方的倒数变化，因此乘以 $5^2$。</p>
+</li>
+<li>
+<p>简单控制器只利用局部梯度，不系统搜索绕行路线；零合力既可能是局部极小，也可能是鞍点。原实验在对称轨迹上接近鞍点。共线可能导致抵消，U 形可能把下降方向困在凹处，窄通道可能被排斥区挡住；都应结合具体参数与机器人可通行性判断。</p>
+</li>
+<li>
+<p>势场最终压缩为一个向量，VFH 在方向选择前保留极坐标障碍密度分布。低谷提供候选方向，却未自动解决机器人尺寸、未知障碍、速度限制与全局死胡同。</p>
+</li>
+<li>
+<p>到两个最近障碍等距，适合构造障碍间的骨架路线；真实规划要量到障碍边界。净空沿边可能变化，还需剪除过窄连接并检查起终点接入，不是全场最大净空定理。</p>
+</li>
+<li>
+<p>调整路点位置和速度等轨迹参数，目标是减少总时间，受几何和运动约束限制。该研究使用候选路线与近似、局部调整；局部下降可能次优，不能把图搜索子过程的保证扩展到整个连续问题。</p>
+</li>
 </ol>
 </details>
 <hr />
 <h2 id="_13">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
-<blockquote>
-<p>⭐ <strong>前面几章的搜索都建在「状态可枚举」上，而真机器人不行</strong>：位置是一对实数、动作连续、代价是时间。</p>
-<p><strong>出路一是离散化</strong>：把场地切成网格，⭐ <strong>每格存的是「有障碍」的概率而不是 0/1</strong>（传感器有噪声），剩下的当节点跑 A*。⚠️ <strong>旋钮只有格子边长，而两头都疼</strong>：格子太大会<strong>把一道能过的门整体判成障碍</strong>；格子太小则格数<strong>按面积平方地涨</strong>。</p>
-<p><strong>出路二是根本不搜索</strong>——势场法：目标吸引、障碍排斥，顺着合力滑，⭐ <strong>每步只要几个向量加法，也不需要全局地图。</strong></p>
-<p>⚠️ <strong>代价是局部极小</strong>，三种典型形状：三点共线、U 形凹障碍、<strong>窄通道两侧的排斥叠加把门封死</strong>。
-⭐⭐ <strong>根本原因一句话：势场法就是梯度下降</strong>——只看当前梯度，不展开树、不回溯，<strong>完备性直接没了</strong>。
-⚠️ <strong>而且失败是静默的</strong>：不崩不报错，机器人就停在离目标还有一段的地方——⭐ <strong>只能靠「多久没靠近目标」这类超时才发现。</strong></p>
-<p>补救三条里 ⭐ <strong>工程标准答案是「势场只做局部避障，全局交给 A*」</strong>。
-⭐ 另一个改进很有启发：<strong>把排斥向量加成一个合力这一步本身就会抹平缝隙</strong>——<strong>改成保留整个方向分布，缝就是一个显眼的低谷。</strong></p>
-<p>地图全知道时可以走几何路线，⭐ <strong>沿着「到两个最近障碍等距」的那些边走，就是离障碍最远的走法。</strong></p>
-<p>⭐ 最后一句最容易被忽略：<strong>最短的路不等于最快的路</strong>——长直段能加速。所以轨迹要用样条，<strong>把每段的时长当成要最小化的量</strong>，⭐ <strong>用梯度下降去调路点：没有数据集，也没有标签。</strong></p>
-</blockquote>
-<p><strong>下一节</strong> 👉 <a href="10-博弈树与Minimax.html">10-博弈树与Minimax.html</a></p>
+<ul>
+<li>先给机器人留出身体空间，再谈格子或几何图上的路线。</li>
+<li>合力为零不等于到目标：原实验停在鞍点，另一个参数例才是真正的局部极小。</li>
+<li>VFH 保留方向分布，Voronoi 提供等距骨架；两者都不能跳过安全与模型检查。</li>
+<li>路径告诉你经过哪里，轨迹还要安排何时到达；最短距离不一定最短时间。</li>
+</ul>
+<p>现在能分清“地图、局部控制、带时间的轨迹”就可以停。想复跑，从<a href="#_9">1337 步实验</a>继续。</p>
+<p><strong>下一节</strong> 👉 <a href="10-博弈树与Minimax.html">10-博弈树与Minimax.html</a></p></article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
+<button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">🧩 一、断层在哪里</a><a href="#_3">🗺 二、占据栅格：把连续空间切回格子</a><a href="#_5">🧲 三、势场法：不搜索，直接滑下去</a><a href="#_6">💥 四、局部极小与其他停滞：势场的风险</a><a href="#vfh">📡 五、VFH：不要把方向信息加没了</a><a href="#voronoi-delaunay">🕸 六、地图已知时：Voronoi 与 Delaunay</a><a href="#_10">⏱ 七、最短的路不等于最快的路</a><a href="#_11">🔗 这一章连到哪里</a><a href="#_12">✅ 检查点</a><a href="#_13">🛑 可以停在这里</a></nav>
+<button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
+<a href="index.html">回到本模块目录</a></div></aside></div>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="08-启发式怎么设计.html"><div class="dir">← 上一节</div>📐 08 · 启发式怎么设计</a><a class="next" href="10-博弈树与Minimax.html"><div class="dir">下一节 →</div>🌲 10 · 博弈树与 Minimax</a></nav>

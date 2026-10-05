@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>07 · 启发式与 A\ · 不靠数据的 AI</title>
+<title>07 · 启发式与 A* · 不靠数据的 AI</title>
 <script>(function(){var t=localStorage.getItem('recsys-theme');
 if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
 @font-face{font-family:"CodeCJK";
@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading topic-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -293,47 +293,97 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
-<li><a href="#h">🧭 一、启发式函数 h 是什么</a></li>
-<li><a href="#_2">🍰 二、贪婪最佳优先：快，但会把你带沟里</a></li>
-<li><a href="#a">⭐ 三、A*：在地图上完整手算一遍</a></li>
-<li><a href="#_3">🧮 四、可容许性：从不高估</a></li>
-<li><a href="#a_1">📐 五、A* 为什么最优（这个论证很短，但看懂了会改变理解）</a></li>
-<li><a href="#_4">🔺 六、一致性：比可容许更强的那个条件</a></li>
-<li><a href="#a_2">📊 七、A* 的性质，和它唯一的死穴</a></li>
+<li><a href="#h">🧭 一、启发式函数h是什么</a></li>
+<li><a href="#_2">🍰 二、贪婪最佳优先：只看剩余估计</a></li>
+<li><a href="#a">⭐ 三、A*：在地图上手算每次选择</a></li>
+<li><a href="#_3">🧮 四、可容许性：估计不能高估</a></li>
+<li><a href="#a_1">📐 五、A*为什么能返回最优路线</a></li>
+<li><a href="#_4">🔺 六、一致性：防止永久闭集挡掉好路线</a></li>
+<li><a href="#a_2">📊 七、A*的性质，与低内存的IDA*</a></li>
 <li><a href="#_6">🔗 这一章连到哪里</a></li>
 <li><a href="#_7">✅ 检查点</a></li>
 <li><a href="#_8">🛑 可以停在这里</a></li>
 </ul>
 </div>
 </details>
-<h1 id="07-a">07 · 启发式与 A*</h1>
-<p>⏱ <strong>48 分钟</strong> ｜ ⭐ <strong>全板块最重要的一章：手机导航跑的就是它</strong></p>
+<div class="ov-layout"><article class="ov-body"><h1 id="07-a">07 · 启发式与 A*</h1>
+<!-- topic-reading -->
+
+<p>⏱ <strong>48 分钟</strong> ｜ 阅读参考 · <strong>已经走了多远，再加上还要走多远的估计。</strong></p>
+<p>本章可以分两次读：先学会读地图上的g、h、f；想知道“为什么保证最优”，再继续到条件和反例。</p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>$f(n) = g(n) + h(n)$：已经花掉的 + 还要花的估计。只要估计从不高估，按 $f$ 最小展开就一定拿到最优解。</strong></p>
-<p>一致代价搜索只看 $g$（最优但慢，展开 12 个），贪婪只看 $h$（快但绕远，展开 3 个、多走 32 公里）。<strong>A* 把两个加起来：418 公里的最优解，只展开 5 个。</strong></p>
+<p><strong>A* 把已经花掉的代价g，加上剩余代价的估计h，用两者之和f安排候选路线的先后。</strong></p>
+<p>$$f(n)=g(n)+h(n)$$</p>
+<p>这不是“估得差不多就保证最优”。<strong>本页主实验使用不重开的闭集图搜索，需要一致的h作为最优保证；后面会演示正确重开节点后，怎样使用只满足可容许性的h。</strong></p>
+<p>在同一张罗马尼亚地图上，UCS得到418公里、展开12次；本页A*也得到418公里、展开5次。少检查了一些分支，但没有改变最小公里数这个目标。</p>
+<ul>
+<li>先认符号：<a href="#h">g、h、f各在说什么</a>。</li>
+<li>想逐步看选择：<a href="#a">6次取出的地图记录</a>。</li>
+<li>自己写A*前必看：<a href="#_5">闭集为什么可能挡掉更便宜的路</a>。</li>
+</ul>
 <hr />
-<h2 id="h">🧭 一、启发式函数 h 是什么</h2>
-<p>$h(n)$ = <strong>从节点 $n$ 到目标的「最便宜路径」的估计代价</strong>。罗马尼亚地图上现成就有一个：<strong>每个城市到 Bucharest 的直线距离</strong> $h_{SLD}$。</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 接 05 章的 search.py，加在文件末尾</span>
-<span class="n">H</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;Arad&quot;</span><span class="p">:</span> <span class="mi">366</span><span class="p">,</span> <span class="s2">&quot;Bucharest&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;Craiova&quot;</span><span class="p">:</span> <span class="mi">160</span><span class="p">,</span> <span class="s2">&quot;Dobreta&quot;</span><span class="p">:</span> <span class="mi">242</span><span class="p">,</span> <span class="s2">&quot;Eforie&quot;</span><span class="p">:</span> <span class="mi">161</span><span class="p">,</span>
-     <span class="s2">&quot;Fagaras&quot;</span><span class="p">:</span> <span class="mi">178</span><span class="p">,</span> <span class="s2">&quot;Giurgiu&quot;</span><span class="p">:</span> <span class="mi">77</span><span class="p">,</span> <span class="s2">&quot;Hirsova&quot;</span><span class="p">:</span> <span class="mi">151</span><span class="p">,</span> <span class="s2">&quot;Iasi&quot;</span><span class="p">:</span> <span class="mi">226</span><span class="p">,</span> <span class="s2">&quot;Lugoj&quot;</span><span class="p">:</span> <span class="mi">244</span><span class="p">,</span>
-     <span class="s2">&quot;Mehadia&quot;</span><span class="p">:</span> <span class="mi">241</span><span class="p">,</span> <span class="s2">&quot;Neamt&quot;</span><span class="p">:</span> <span class="mi">234</span><span class="p">,</span> <span class="s2">&quot;Oradea&quot;</span><span class="p">:</span> <span class="mi">380</span><span class="p">,</span> <span class="s2">&quot;Pitesti&quot;</span><span class="p">:</span> <span class="mi">98</span><span class="p">,</span>
-     <span class="s2">&quot;RimnicuVilcea&quot;</span><span class="p">:</span> <span class="mi">193</span><span class="p">,</span> <span class="s2">&quot;Sibiu&quot;</span><span class="p">:</span> <span class="mi">253</span><span class="p">,</span> <span class="s2">&quot;Timisoara&quot;</span><span class="p">:</span> <span class="mi">329</span><span class="p">,</span> <span class="s2">&quot;Urziceni&quot;</span><span class="p">:</span> <span class="mi">80</span><span class="p">,</span>
-     <span class="s2">&quot;Vaslui&quot;</span><span class="p">:</span> <span class="mi">199</span><span class="p">,</span> <span class="s2">&quot;Zerind&quot;</span><span class="p">:</span> <span class="mi">374</span><span class="p">}</span>
+<h2 id="h">🧭 一、启发式函数h是什么</h2>
+<p><strong>h是对“从当前状态到目标，最便宜还要花多少”的估计。</strong> 这样的估计叫启发式，不是已经发生的支出。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>符号</th>
+<th>看哪一段</th>
+<th>本章单位</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>g(n)</td>
+<td>当前候选路径从Arad走到n，已经花了多少</td>
+<td>公里</td>
+</tr>
+<tr>
+<td>h(n)</td>
+<td>从n到Bucharest，还要多少的估计</td>
+<td>公里</td>
+</tr>
+<tr>
+<td>f(n)</td>
+<td>沿这条候选路线继续到目标，总共可能需要多少</td>
+<td>公里</td>
+</tr>
+</tbody>
+</table></div>
+<p>同一个城市可以有不同的候选路径，因此g可能不同。h在本章只根据城市和目标确定。</p>
+<h3 id="search-07-sld">一个现成估计：到目标的直线距离</h3>
+<p>如果路的代价是公里数，城市到Bucharest的直线距离可以作为h。我们用 $h_{SLD}$ 表示这张表，SLD是straight-line distance的缩写。</p>
+<p><strong>单位必须对齐。</strong> 如果想最少花费的是时间，就不能直接把“公里数”加到“分钟数”上。可以在条件成立时用直线距离除以最大可用速度，构造时间下界。</p>
+<h3 id="search-07-pick">先在两个候选之间选一次</h3>
+<p>从Arad经Sibiu出来后，RimnicuVilcea的g=220、h=193；Fagaras的g=239、h=178。</p>
+<p>贪婪只看h，会选Fagaras；A*看g+h，会先选RimnicuVilcea，因为413小于417。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="n">frontier</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s2">&quot;RimnicuVilcea&quot;</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;Arad&quot;</span><span class="p">,</span> <span class="s2">&quot;Sibiu&quot;</span><span class="p">,</span> <span class="s2">&quot;RimnicuVilcea&quot;</span><span class="p">],</span> <span class="mi">220</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;Fagaras&quot;</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;Arad&quot;</span><span class="p">,</span> <span class="s2">&quot;Sibiu&quot;</span><span class="p">,</span> <span class="s2">&quot;Fagaras&quot;</span><span class="p">],</span> <span class="mi">239</span><span class="p">),</span>
+<span class="p">]</span>
+<span class="n">H</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;RimnicuVilcea&quot;</span><span class="p">:</span> <span class="mi">193</span><span class="p">,</span> <span class="s2">&quot;Fagaras&quot;</span><span class="p">:</span> <span class="mi">178</span><span class="p">}</span>
+<span class="n">GREEDY</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">f</span><span class="p">:</span> <span class="nb">min</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">f</span><span class="p">)),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">i</span><span class="p">:</span> <span class="n">H</span><span class="p">[</span><span class="n">f</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">0</span><span class="p">]])</span>
+<span class="n">ASTAR</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">f</span><span class="p">:</span> <span class="nb">min</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">f</span><span class="p">)),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">i</span><span class="p">:</span> <span class="n">f</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">2</span><span class="p">]</span> <span class="o">+</span> <span class="n">H</span><span class="p">[</span><span class="n">f</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">0</span><span class="p">]])</span>
 
-<span class="n">GREEDY</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">f</span><span class="p">:</span> <span class="nb">min</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">f</span><span class="p">)),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">i</span><span class="p">:</span> <span class="n">H</span><span class="p">[</span><span class="n">f</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">0</span><span class="p">]])</span>            <span class="c1"># 只看 h</span>
-<span class="n">ASTAR</span>  <span class="o">=</span> <span class="k">lambda</span> <span class="n">f</span><span class="p">:</span> <span class="nb">min</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">f</span><span class="p">)),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">i</span><span class="p">:</span> <span class="n">f</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">2</span><span class="p">]</span> <span class="o">+</span> <span class="n">H</span><span class="p">[</span><span class="n">f</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">0</span><span class="p">]])</span>  <span class="c1"># ⭐ g + h</span>
-
-<span class="nb">print</span><span class="p">(</span><span class="n">search</span><span class="p">(</span><span class="n">ROMANIA</span><span class="p">,</span> <span class="s2">&quot;Arad&quot;</span><span class="p">,</span> <span class="s2">&quot;Bucharest&quot;</span><span class="p">,</span> <span class="n">ASTAR</span><span class="p">))</span>   <span class="c1"># 把 ASTAR 换成 GREEDY 再跑一次</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">pick</span> <span class="ow">in</span> <span class="p">[(</span><span class="s2">&quot;Greedy&quot;</span><span class="p">,</span> <span class="n">GREEDY</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;A*&quot;</span><span class="p">,</span> <span class="n">ASTAR</span><span class="p">)]:</span>
+    <span class="n">state</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">g</span> <span class="o">=</span> <span class="n">frontier</span><span class="p">[</span><span class="n">pick</span><span class="p">(</span><span class="n">frontier</span><span class="p">)]</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="s2">&quot;g=&quot;</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="s2">&quot;h=&quot;</span><span class="p">,</span> <span class="n">H</span><span class="p">[</span><span class="n">state</span><span class="p">],</span> <span class="s2">&quot;f=&quot;</span><span class="p">,</span> <span class="n">g</span> <span class="o">+</span> <span class="n">H</span><span class="p">[</span><span class="n">state</span><span class="p">])</span>
 </code></pre></div>
 
+<p>输出中，Greedy选择Fagaras、f=417；A*选择RimnicuVilcea、f=413。这个小程序只演示已有候选的排序，下面才是完整路径搜索。</p>
+<h3 id="search-07-protocol">主实验的搜索版本与计数</h3>
+<ul>
+<li>使用同一张有限地图、非负路长，邻居顺序与第6章一致。</li>
+<li>贪婪取最小h；A*取最小f。优先级相同时，<strong>先入队先取出</strong>。</li>
+<li><code>explored</code>是全局集合，已经展开的状态不再展开；这称为本页的<strong>不重开版本</strong>。</li>
+<li><code>expanded</code>只计执行后继生成的非目标节点，不含取出的目标，也不含跳过的重复项。</li>
+<li>主实验的H以Bucharest为目标，目标h=0；H在这张图上满足后面定义的一致性。</li>
+</ul>
 <details>
-<summary>📋 直接能跑的完整版（上面那段依赖第 5 章的 <code>search</code>，这里把它带上了）</summary>
-<p>⭐ <strong>首页那个「直接看 A*」的按钮就是把你送到这一章的</strong>，所以这里给一份不依赖前面章节的完整脚本。
-复制到空文件，<code>python 文件名.py</code> 就能跑，不需要装任何库。</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># astar.py —— 第 5 章的框架 + 本章的贪婪与 A*，可独立运行</span>
-<span class="n">ROMANIA</span> <span class="o">=</span> <span class="p">{</span>
+<summary>直接运行完整实验：不用先读第5、6章</summary>
+<p>整段复制到空文件即可运行，不需要安装库。先看贪婪与A*两行，再看末尾只改变Pitesti估计的两次对照。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="n">ROMANIA</span> <span class="o">=</span> <span class="p">{</span>
     <span class="s2">&quot;Arad&quot;</span><span class="p">:</span> <span class="p">[(</span><span class="s2">&quot;Zerind&quot;</span><span class="p">,</span> <span class="mi">75</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;Sibiu&quot;</span><span class="p">,</span> <span class="mi">140</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;Timisoara&quot;</span><span class="p">,</span> <span class="mi">118</span><span class="p">)],</span>
     <span class="s2">&quot;Zerind&quot;</span><span class="p">:</span> <span class="p">[(</span><span class="s2">&quot;Arad&quot;</span><span class="p">,</span> <span class="mi">75</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;Oradea&quot;</span><span class="p">,</span> <span class="mi">71</span><span class="p">)],</span>
     <span class="s2">&quot;Oradea&quot;</span><span class="p">:</span> <span class="p">[(</span><span class="s2">&quot;Zerind&quot;</span><span class="p">,</span> <span class="mi">71</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;Sibiu&quot;</span><span class="p">,</span> <span class="mi">151</span><span class="p">)],</span>
@@ -357,12 +407,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="p">}</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">search</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">goal</span><span class="p">,</span> <span class="n">pick</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;返回 (路径, 总代价, 展开过的节点数)&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;有限非负代价图上的不重开版本；A*的保证另依赖h一致。&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">cost</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="k">for</span> <span class="n">edges</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">values</span><span class="p">()</span> <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">cost</span> <span class="ow">in</span> <span class="n">edges</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;本章比较只使用非负边代价&quot;</span><span class="p">)</span>
     <span class="n">frontier</span> <span class="o">=</span> <span class="p">[(</span><span class="n">start</span><span class="p">,</span> <span class="p">[</span><span class="n">start</span><span class="p">],</span> <span class="mi">0</span><span class="p">)]</span>
     <span class="n">explored</span><span class="p">,</span> <span class="n">expanded</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(),</span> <span class="mi">0</span>
     <span class="k">while</span> <span class="n">frontier</span><span class="p">:</span>
-        <span class="n">i</span> <span class="o">=</span> <span class="n">pick</span><span class="p">(</span><span class="n">frontier</span><span class="p">)</span>                    <span class="c1"># ⭐ 全部差异只在这一行</span>
-        <span class="n">state</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">g</span> <span class="o">=</span> <span class="n">frontier</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+        <span class="n">state</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">g</span> <span class="o">=</span> <span class="n">frontier</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">pick</span><span class="p">(</span><span class="n">frontier</span><span class="p">))</span>
         <span class="k">if</span> <span class="n">state</span> <span class="o">==</span> <span class="n">goal</span><span class="p">:</span>
             <span class="k">return</span> <span class="n">path</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">expanded</span>
         <span class="k">if</span> <span class="n">state</span> <span class="ow">in</span> <span class="n">explored</span><span class="p">:</span>
@@ -380,95 +431,173 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
      <span class="s2">&quot;RimnicuVilcea&quot;</span><span class="p">:</span> <span class="mi">193</span><span class="p">,</span> <span class="s2">&quot;Sibiu&quot;</span><span class="p">:</span> <span class="mi">253</span><span class="p">,</span> <span class="s2">&quot;Timisoara&quot;</span><span class="p">:</span> <span class="mi">329</span><span class="p">,</span> <span class="s2">&quot;Urziceni&quot;</span><span class="p">:</span> <span class="mi">80</span><span class="p">,</span>
      <span class="s2">&quot;Vaslui&quot;</span><span class="p">:</span> <span class="mi">199</span><span class="p">,</span> <span class="s2">&quot;Zerind&quot;</span><span class="p">:</span> <span class="mi">374</span><span class="p">}</span>
 
-<span class="n">GREEDY</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">f</span><span class="p">:</span> <span class="nb">min</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">f</span><span class="p">)),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">i</span><span class="p">:</span> <span class="n">H</span><span class="p">[</span><span class="n">f</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">0</span><span class="p">]])</span>            <span class="c1"># 只看 h</span>
-<span class="n">ASTAR</span>  <span class="o">=</span> <span class="k">lambda</span> <span class="n">f</span><span class="p">:</span> <span class="nb">min</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">f</span><span class="p">)),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">i</span><span class="p">:</span> <span class="n">f</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">2</span><span class="p">]</span> <span class="o">+</span> <span class="n">H</span><span class="p">[</span><span class="n">f</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">0</span><span class="p">]])</span>  <span class="c1"># ⭐ f = g + h</span>
+<span class="n">GREEDY</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">f</span><span class="p">:</span> <span class="nb">min</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">f</span><span class="p">)),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">i</span><span class="p">:</span> <span class="n">H</span><span class="p">[</span><span class="n">f</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">0</span><span class="p">]])</span>
+<span class="n">ASTAR</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">f</span><span class="p">:</span> <span class="nb">min</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">f</span><span class="p">)),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">i</span><span class="p">:</span> <span class="n">f</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">2</span><span class="p">]</span> <span class="o">+</span> <span class="n">H</span><span class="p">[</span><span class="n">f</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">0</span><span class="p">]])</span>
 
-<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">pick</span> <span class="ow">in</span> <span class="p">[(</span><span class="s2">&quot;贪婪&quot;</span><span class="p">,</span> <span class="n">GREEDY</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;A*&quot;</span><span class="p">,</span> <span class="n">ASTAR</span><span class="p">)]:</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">pick</span> <span class="ow">in</span> <span class="p">[(</span><span class="s2">&quot;Greedy&quot;</span><span class="p">,</span> <span class="n">GREEDY</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;A*&quot;</span><span class="p">,</span> <span class="n">ASTAR</span><span class="p">)]:</span>
     <span class="n">path</span><span class="p">,</span> <span class="n">cost</span><span class="p">,</span> <span class="n">expanded</span> <span class="o">=</span> <span class="n">search</span><span class="p">(</span><span class="n">ROMANIA</span><span class="p">,</span> <span class="s2">&quot;Arad&quot;</span><span class="p">,</span> <span class="s2">&quot;Bucharest&quot;</span><span class="p">,</span> <span class="n">pick</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">:</span><span class="s2">4s</span><span class="si">}</span><span class="s2"> 代价=</span><span class="si">{</span><span class="n">cost</span><span class="si">:</span><span class="s2">4d</span><span class="si">}</span><span class="s2"> 展开=</span><span class="si">{</span><span class="n">expanded</span><span class="si">:</span><span class="s2">2d</span><span class="si">}</span><span class="s2">  </span><span class="si">{</span><span class="s1">&#39; -&gt; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">path</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="s2">&quot;代价=&quot;</span><span class="p">,</span> <span class="n">cost</span><span class="p">,</span> <span class="s2">&quot;展开=&quot;</span><span class="p">,</span> <span class="n">expanded</span><span class="p">,</span> <span class="s2">&quot; -&gt; &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">path</span><span class="p">))</span>
+
+<span class="k">for</span> <span class="n">estimate</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">100</span><span class="p">,</span> <span class="mi">150</span><span class="p">):</span>
+    <span class="n">changed_h</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">H</span><span class="p">,</span> <span class="n">Pitesti</span><span class="o">=</span><span class="n">estimate</span><span class="p">)</span>
+    <span class="n">pick</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">f</span><span class="p">:</span> <span class="nb">min</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">f</span><span class="p">)),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">i</span><span class="p">:</span> <span class="n">f</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">2</span><span class="p">]</span> <span class="o">+</span> <span class="n">changed_h</span><span class="p">[</span><span class="n">f</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">0</span><span class="p">]])</span>
+    <span class="n">path</span><span class="p">,</span> <span class="n">cost</span><span class="p">,</span> <span class="n">expanded</span> <span class="o">=</span> <span class="n">search</span><span class="p">(</span><span class="n">ROMANIA</span><span class="p">,</span> <span class="s2">&quot;Arad&quot;</span><span class="p">,</span> <span class="s2">&quot;Bucharest&quot;</span><span class="p">,</span> <span class="n">pick</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;h(Pitesti)=&quot;</span><span class="p">,</span> <span class="n">estimate</span><span class="p">,</span> <span class="s2">&quot;代价=&quot;</span><span class="p">,</span> <span class="n">cost</span><span class="p">,</span> <span class="s2">&quot;展开=&quot;</span><span class="p">,</span> <span class="n">expanded</span><span class="p">)</span>
 </code></pre></div>
 
+<p>第一组输出：<strong>Greedy 450公里、展开3次；A* 418公里、展开5次</strong>。两个估计修改的输出分别是 <strong>100→418公里/5次，150→450公里/6次</strong>，后文会解释为什么不同。</p>
+<p>这里仍用列表扫描最小项，方便对照 <code>g</code>、<code>h</code>、<code>g+h</code>。后面独立的重开例子会用最小堆；不把两种实现的执行时间混作同一个基准。</p>
 </details>
-<p>⭐ <strong>注意这两行有多短。</strong> 上一章的 UCS 是 <code>f[i][2]</code>，贪婪是 <code>H[f[i][0]]</code>，A* 就是把它俩加起来。<strong>整个框架一个字没动。</strong></p>
 <hr />
-<h2 id="_2">🍰 二、贪婪最佳优先：快，但会把你带沟里</h2>
-<p><strong>规则</strong>：$f(n) = h(n)$，谁看起来离目标最近就展开谁。跑出来是 Arad → Sibiu → Fagaras → Bucharest，<strong>只展开 3 个节点</strong>（UCS 是 12 个），但这条路 450 公里，比最优的 418 多绕 32 公里。四个维度：完备性 ❌（会陷进循环）· 最优性 ❌（差 32 公里）· 时间空间都是 $O(b^m)$。</p>
-<p>⚠️ <strong>不完备的样子</strong>（讲义原例）：起点 Iasi、目标 Fagaras。Neamt 的直线距离看起来更近，贪婪就先去 Neamt——<strong>而 Neamt 只连回 Iasi，是个死胡同</strong>。树搜索版本会 Iasi → Neamt → Iasi → Neamt … 无限循环。</p>
-<blockquote>
-<p>⭐ <strong>贪婪的毛病和深度优先一模一样</strong>：一头扎进去、不回头、不算账。
-它唯一的问题是<strong>完全不看已经花了多少</strong>——Fagaras 那条路 $h$ 小，但 $g$ 大得多。</p>
-</blockquote>
-<hr />
-<h2 id="a">⭐ 三、A*：在地图上完整手算一遍</h2>
-<p>$g(n)$ 是起点到 $n$ <strong>实际花掉的</strong>，$h(n)$ 是 $n$ 到目标的<strong>估计</strong>。$f(n)$ 的含义很实在：「经过 $n$ 的那条解，总代价大概是多少」。</p>
-<p>从 Arad 出发，每一步取 $f$ 最小的展开：</p>
+<h2 id="_2">🍰 二、贪婪最佳优先：只看剩余估计</h2>
+<p><strong>贪婪最佳优先每次从整个frontier里挑h最小的候选。</strong> 它不是只在当前节点的孩子中选一个，也不是执行一条动作之后永远无法回头。</p>
+<p>本次结果是Arad → Sibiu → Fagaras → Bucharest，450公里，比418多32公里。只展开3次确实少，但这是“较少搜索工作换来较差路线”的一个例子，不是快与慢的普遍排名。</p>
+<h3 id="search-07-greedy-cost">不考虑g，会遗漏什么</h3>
+<p>Fagaras的剩余估计178，比RimnicuVilcea的193小；但走到Fagaras已经花了239，比走到RimnicuVilcea的220多。</p>
+<p>贪婪不把这份已花代价加入排序。<strong>即使h是剩余代价的合理下界，只看h也不一般保证总代价最小。</strong></p>
+<h3 id="search-07-greedy-cycles">循环例子必须说明搜索版本和目标</h3>
+<p>以Iasi、Neamt、Fagaras为例，先明确：目标现在是Fagaras，<strong>不能继续把前面到Bucharest的直线距离表当成到新目标的距离表</strong>。</p>
+<p>为了单独演示循环，暂时使用下面的人造h，而不是声称它们是真实地理距离：</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>步</th>
-<th>取出（$f$ 最小）</th>
-<th>生成的孩子：$g+h=f$</th>
+<th>状态</th>
+<th style="text-align: right;">人造h值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Iasi</td>
+<td style="text-align: right;">3</td>
+</tr>
+<tr>
+<td>Neamt</td>
+<td style="text-align: right;">2</td>
+</tr>
+<tr>
+<td>Vaslui</td>
+<td style="text-align: right;">4</td>
+</tr>
+<tr>
+<td>目标Fagaras</td>
+<td style="text-align: right;">0</td>
+</tr>
+</tbody>
+</table></div>
+<p>罗马尼亚图中，Iasi的邻居是Vaslui与Neamt，Neamt只连回Iasi。<strong>不查重复的树搜索</strong>会反复选：Iasi生成Neamt，Neamt生成Iasi，再生成Neamt……，因为它们的2或3总排在Vaslui的4前面。</p>
+<p>本章带全局 <code>explored</code> 的有限图实现则不会无限重复展开这两个状态；最终会检查其他候选。无限状态空间中，即使防止重复，也可能有无限多个h较小的新状态，使目标一直排不到。</p>
+<p>所以应分开记：<strong>贪婪不一般最优；其完备性还取决于状态空间和重复处理，不能把树搜索的循环直接套在本页有限图代码上。</strong><a href="https://artint.info/3e/html/ArtInt3e.Ch3.S6.html">Poole 与 Mackworth：贪婪最佳优先</a></p>
+<hr />
+<h2 id="a">⭐ 三、A*：在地图上手算每次选择</h2>
+<p><strong>这一段只问：此刻队列里，谁的g+h最小？</strong> 不需要先背最优性证明。</p>
+<p>下面“加入frontier”只列实际通过全局闭集过滤的孩子；返回已展开城市的边仍会被检查，但不会重新入队。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>次序</th>
+<th>取出的候选及f</th>
+<th>实际加入frontier的候选：g+h=f</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>1</td>
-<td><strong>Arad</strong> 366</td>
-<td>Sibiu 140+253=<strong>393</strong> · Timisoara 118+329=447 · Zerind 75+374=449</td>
+<td>Arad，366</td>
+<td>Zerind：75+374=449；Sibiu：140+253=393；Timisoara：118+329=447</td>
 </tr>
 <tr>
 <td>2</td>
-<td><strong>Sibiu</strong> 393</td>
-<td>RimnicuVilcea 220+193=<strong>413</strong> · Fagaras 239+178=417 · Arad 280+366=646 · Oradea 291+380=671</td>
+<td>Sibiu，393</td>
+<td>Oradea：291+380=671；Fagaras：239+178=417；RimnicuVilcea：220+193=413</td>
 </tr>
 <tr>
 <td>3</td>
-<td><strong>RimnicuVilcea</strong> 413</td>
-<td>Pitesti 317+98=<strong>415</strong> · Craiova 366+160=526 · Sibiu 300+253=553</td>
+<td>RimnicuVilcea，413</td>
+<td>Craiova：366+160=526；Pitesti：317+98=415</td>
 </tr>
 <tr>
 <td>4</td>
-<td><strong>Pitesti</strong> 415</td>
-<td>⭐ <strong>Bucharest</strong> 418+0=418 · RimnicuVilcea 414+193=607 · Craiova 455+160=615</td>
+<td>Pitesti，415</td>
+<td>Craiova：455+160=615；Bucharest：418+0=418</td>
 </tr>
 <tr>
 <td>5</td>
-<td><strong>Fagaras</strong> 417</td>
-<td>Bucharest 450+0=<strong>450</strong> · Sibiu 338+253=591</td>
+<td>Fagaras，417</td>
+<td>Bucharest：450+0=450</td>
 </tr>
 <tr>
 <td>6</td>
-<td><strong>Bucharest</strong> 418 → 目标，返回 ✅</td>
-<td></td>
+<td>Bucharest，418</td>
+<td>是目标，返回；不计作展开</td>
 </tr>
 </tbody>
 </table></div>
-<p>结果：<code>A* 代价=418 展开=5  Arad -&gt; Sibiu -&gt; RimnicuVilcea -&gt; Pitesti -&gt; Bucharest</code>。
-<strong>和 UCS 一样最优，展开数从 12 降到 5。</strong></p>
-<p>这张表里藏着三件必须看懂的事：</p>
-<blockquote>
-<p>⭐ <strong>① 第 4 步之后，Bucharest 已经躺在队列里了（$f=418$），A* 却没有停。</strong>
-因为 Fagaras 的 $f=417$ 更小——<strong>还存在一条更短的解的可能性</strong>。
-这就是上一章说「目标测试必须放在<strong>取出时</strong>」的具体理由。</p>
-<p>⭐ <strong>② 第 5 步生成了第二个 Bucharest 节点，$f=450$。</strong>
-两个不同的节点、装着同一个状态 Bucharest，一个 $g=418$、一个 $g=450$。
-这正是第 5 章那句「<strong>同一个状态可以对应树上很多个节点</strong>」。$f=450$ 那个永远不会被展开。</p>
-<p>⭐ <strong>③ 贪婪走的正是 Fagaras 那条路，A* 也只差 2 就上当了</strong>（417 vs 415）。
-救它的是那个 $g$：Pitesti 抢先生出 $f=418$ 的 Bucharest，把 450 那条挡掉了。</p>
-</blockquote>
+<p>结果是Arad → Sibiu → RimnicuVilcea → Pitesti → Bucharest：<strong>418公里，5次非目标展开</strong>。</p>
+<details>
+<summary>哪些返回边被闭集过滤，没有加入队列</summary>
+<p>这些算术仍可用来检查每一步，但父状态已经在闭集中，所以并未真正加入本代码的frontier。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>在哪里考察到</th>
+<th>返回已展开城市的候选g+h=f</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Sibiu</td>
+<td>Arad：280+366=646</td>
+</tr>
+<tr>
+<td>RimnicuVilcea</td>
+<td>Sibiu：300+253=553</td>
+</tr>
+<tr>
+<td>Pitesti</td>
+<td>RimnicuVilcea：414+193=607</td>
+</tr>
+<tr>
+<td>Fagaras</td>
+<td>Sibiu：338+253=591</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>考察邻居不等于入队，入队不等于展开。</strong> 使用不查重复的树搜索时，这些候选可能留在队列；不能把那种树图的所有孩子说成本代码都已入队。</p>
+</details>
+<h3 id="search-07-trace-takeaways">看懂这三件事，就能读懂整张表</h3>
+<p><strong>① 第4次之后已经看见目标，仍不能立刻停。</strong> Bucharest的候选代价418已经入队，但Fagaras的f=417更小。按当前估计，那个分支仍可能通向更便宜的路线，要先检查。</p>
+<p><strong>② 同一状态确实可以有两个候选。</strong> 第5次生成另一个Bucharest，g=450。目标状态相同，路线与总代价不同；最后返回的是418那个。</p>
+<p><strong>③ 先展开Fagaras不等于会“上当”。</strong> 将h(Pitesti)从98改为100时，它的f变为417，与Fagaras并列；由于Fagaras更早入队，会先展开它。但随后仍会检查Pitesti，最终返回418。</p>
+<p>这次安全不是因为Pitesti“恰好抢先2”。<strong>正确的下界、重复处理和目标终止条件，才让算法不会因为先看到一条450的路线就直接接受它。</strong></p>
 <hr />
-<h2 id="_3">🧮 四、可容许性：从不高估</h2>
-<blockquote>
-<p><strong>可容许（admissible）</strong>：对所有节点 $n$，$h(n) \le h^*(n)$，其中 $h^*(n)$ 是 $n$ 到目标的<strong>真实</strong>最小代价。</p>
-</blockquote>
-<p>人话：<strong>估计可以偏乐观，绝不能偏悲观。</strong></p>
-<p>$h_{SLD}$ 为什么可容许？<strong>因为两点之间直线最短</strong>——公路再怎么修也不可能比直线更近。查一下：$h(\text{Fagaras})=178$ 而真实的 Fagaras → Bucharest 是 211 公里，$h(\text{Pitesti})=98$ 而真实是 101，都没高估。</p>
-<p>⚠️ <strong>高估会怎样</strong>：把 $h(\text{Pitesti})$ 拍脑袋改成 150，那 $f(\text{Pitesti})=467 &gt; 417$，A* 会先展开 Fagaras、<strong>返回 450 那条路，而且它自己不知道错了。</strong></p>
+<h2 id="_3">🧮 四、可容许性：估计不能高估</h2>
+<p><strong>可容许h给的是剩余代价的下界：允许估少，不允许估多。</strong> 本章采用非负估计的约定。</p>
+<p>$$0\le h(n)\le h^*(n)$$</p>
+<ul>
+<li>$h(n)$：算法现在采用的估计。</li>
+<li>$h^*(n)$：从n到目标的真实最小代价。</li>
+<li>在目标处，已经不用再走，因此 <strong>h(goal)=0</strong>。</li>
+</ul>
+<h3 id="search-07-sld-bound">为什么直线距离可以</h3>
+<p>本章优化的是公里数，允许的公路路线不会比同一对地点间的直线更短。因此到目标的直线距离是不高估的估计。</p>
+<p>例如Fagaras到Bucharest：h=178，而最短公路代价为211；Pitesti的h=98，而最短公路代价为101。</p>
+<p>这两个例子帮助理解；要声称整张表可容许，条件必须对所有相关状态成立，而不是只验两个点。若目标改了，h也要对应新目标。<a href="https://inst.eecs.berkeley.edu/~cs188/textbook/search/informed.html">Berkeley CS188：可容许与目标估计</a></p>
+<h3 id="search-07-overestimate">高估在这里确实会返回错路</h3>
+<p>若把h(Pitesti)改成150，它的f就从415变为 <strong>317+150=467</strong>。Fagaras会生成代价450的目标候选，而该目标会在Pitesti之前被取出。</p>
+<p>前面的独立实验返回450公里，错过418公里。<strong>这证明本次高估会破坏结果，不是说任意一点高估都必然在每个实例上出错。</strong></p>
+<details>
+<summary>为什么把h(goal)=0也写出来，不只写“不高估”</summary>
+<p>如果只写h≤h*而允许任意负值，就可能把目标估成-100。假设S→G代价3，另一条S→A→G代价1+1；将h(S)=0、h(A)=1、h(G)=-100，直达G的f=-97会被先取出，返回3而非2。</p>
+<p>这些h都满足“没有超过真实剩余代价”这个单独上界，却不满足本章的非负、目标0约定。<strong>最优性证明使用f(goal)=g(goal)，必须说明这个前提。</strong></p>
+</details>
 <hr />
-<h2 id="a_1">📐 五、A* 为什么最优（这个论证很短，但看懂了会改变理解）</h2>
+<h2 id="a_1">📐 五、A*为什么能返回最优路线</h2>
+<p>先限定这段证明的使用范围：<strong>h可容许、目标h=0，而且不会把最优路线上的正确候选错误剪掉。</strong></p>
+<p>不查重复的A*树搜索保留这些候选；本页主实验通过“一致h”保证永久闭集不误删；稍后的可重开版本则允许更优g重新进入搜索。</p>
+<p>还要有找到解的终止条件。对无限空间，有限分支和正的单步代价下界是一组常见充分条件；不能仅凭可容许就忽略无限搜索的可能。</p>
 <figure class="dia">
 <svg viewBox="0 0 660 255" xmlns="http://www.w3.org/2000/svg">
-  <text x="330" y="24" text-anchor="middle" font-size="13" fill="var(--fg)">次优的目标 G2 为什么永远轮不到被展开</text>
+  <text x="330" y="24" text-anchor="middle" font-size="13" fill="var(--fg)">次优目标G2为什么不会先于最优目标被取出并返回</text>
   <line x1="99" y1="126" x2="279" y2="91" stroke="var(--done)" stroke-width="2" stroke-dasharray="6 4"/>
   <polygon points="286,90 277,86 279,96" fill="var(--done)"/>
   <line x1="334" y1="85" x2="523" y2="85" stroke="var(--done)" stroke-width="2" stroke-dasharray="6 4"/>
@@ -490,200 +619,312 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <text x="555" y="136" text-anchor="middle" font-size="12" fill="var(--muted)">最优目标</text>
   <text x="555" y="240" text-anchor="middle" font-size="12" fill="var(--muted)">次优目标</text>
 </svg>
-<figcaption>A* 最优性：只要 h 可容许，f(G2) 一定大于 f(n)，队列永远先挑 n</figcaption>
+<figcaption>看绿色路径上的n：在候选未被错误剪掉、h可容许且目标h=0时，它的f不超过最优代价，因此排在次优目标G2前面。</figcaption>
 </figure>
 
-<p>设 $G_2$ 是一个<strong>次优</strong>的目标节点，已经被生成、躺在队列里。设 $G$ 是最优目标。</p>
-<p><strong>关键一步</strong>：最优路径从起点通到 $G$，起点已经展开了、$G$ 还没展开，所以这条路径上<strong>一定存在一个还没被展开、正躺在队列里的节点 $n$</strong>。</p>
-<p>然后四行：</p>
+<h3 id="search-07-proof-intuition">一句话的理由</h3>
+<p><strong>还有一条可能更便宜的路线等着检查时，较贵的目标就不是f最小的候选。</strong></p>
+<details>
+<summary>把这句话写成四行不等式</summary>
+<p>令G表示总代价最小的目标路径，G2表示某条更贵的目标路径。最优路径还没走完时，在它上面取一个仍在frontier中的正确前缀节点n。</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>式子</th>
-<th>理由</th>
+<th>关系</th>
+<th>为什么成立</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>$f(G_2) = g(G_2)$</td>
-<td>目标节点的 $h=0$</td>
+<td>$f(G_2)=g(G_2)$</td>
+<td>目标的h是0</td>
 </tr>
 <tr>
-<td>$\ \ &gt; g(G)$</td>
-<td>$G_2$ 是次优的，走到它更贵</td>
+<td>$g(G_2)&gt;g(G)$</td>
+<td>G2比最优路线更贵</td>
 </tr>
 <tr>
-<td>$\ \ = g(n) + h^*(n)$</td>
-<td>$n$ 在通往 $G$ 的最优路径上</td>
+<td>$g(G)=g(n)+h^*(n)$</td>
+<td>n携带的是这条最优路线的前缀代价</td>
 </tr>
 <tr>
-<td>$\ \ \ge g(n) + h(n) = f(n)$</td>
-<td>⭐ <strong>$h$ 可容许</strong>，$h(n) \le h^*(n)$</td>
+<td>$g(n)+h^*(n)\ge g(n)+h(n)=f(n)$</td>
+<td>h可容许，不高估剩余代价</td>
 </tr>
 </tbody>
 </table></div>
-<p>所以 $f(G_2) &gt; f(n)$：<strong>队列里永远有一个比 $G_2$ 更值得先展开的 $n$。</strong> $G_2$ 会一直排在后面，直到最优的 $G$ 被取出、搜索结束。</p>
-<blockquote>
-<p>⭐ <strong>这个论证给出的结论比「A* 最优」更精确</strong>：
-<strong>次优的目标节点可以被生成，只是永远不会被展开。</strong>
-上面第 5 步那个 $f=450$ 的 Bucharest 就是活的 $G_2$。
-也就是说——<strong>A* 在看到目标之后还会继续搜，直到确信没有更短的路为止。</strong></p>
-</blockquote>
+<p>合起来，$f(G_2)&gt;f(n)$，所以不会先取出G2并把它作为答案。继续这个过程，先返回的是某条最优目标路径。</p>
+<p>这里的关键不只是最后一个不等式：<strong>正确的前缀n必须仍有机会被搜索到。</strong> 下一节正好展示永久闭集如何把它误删。</p>
+</details>
+<p>更精确地说，<strong>次优目标候选可以被生成，但在这些条件下不会先被取出作为返回结果。</strong> 地图里450公里的Bucharest就是这样的候选。</p>
+<p>本页代码对任何目标都直接返回、不生成它的孩子；因此这里刻意区分“取出并返回”和计数器里的“展开”。</p>
 <hr />
-<h2 id="_4">🔺 六、一致性：比可容许更强的那个条件</h2>
-<blockquote>
-<p><strong>一致（consistent，也叫单调）</strong>：对每条边 $n \to n'$，$h(n) \le c(n, n') + h(n')$。</p>
-</blockquote>
-<p>这就是<strong>三角不等式</strong>：从 $n$ 直接估到目标，不该比「先花 $c$ 走到 $n'$、再从 $n'$ 估到目标」更贵。$h_{SLD}$ 是一致的——直线距离在平面上天然满足三角不等式（自己验一条：$h(\text{RimnicuVilcea})=193 \le 97 + 98 = 195$）。</p>
-<p><strong>一致 ⟹ 可容许，反过来不成立。</strong> 一致性还带来一个副作用：<strong>沿任何一条路径 $f$ 单调不减</strong>，所以第一次取出某个状态时它的 $g$ 就已经是最优的了。</p>
-<h3 id="_5">⚠️ 可容许但不一致，会真的出错</h3>
-<p>四个节点的反例：</p>
+<h2 id="_4">🔺 六、一致性：防止永久闭集挡掉好路线</h2>
+<p><strong>一致性要求：直接估计的剩余代价，不比“先走一条边，再从邻居估计”更大。</strong> 本章继续采用非负h、目标h=0的约定。</p>
+<p>$$h(n)\le c(n,n')+h(n')$$</p>
+<ul>
+<li>$c(n,n')$是从n到邻居n′这条边的实际代价。</li>
+<li>这条不等式要对每条有向边都成立，而不是只挑一条方便的边。</li>
+</ul>
+<p>以RimnicuVilcea→Pitesti为例：<strong>193≤97+98=195</strong>。直线距离满足三角不等式，且道路长度不短于两地直线，因此这张h表是一致的。</p>
+<h3 id="search-07-consistency-results">它带来两个结果</h3>
+<ol>
+<li><strong>一致推出可容许</strong>：沿通向目标的路径连续使用这条不等式，最后h(goal)=0，得到h不超过这条路径的代价；最便宜的路径也一样。</li>
+<li><strong>沿一条候选路径，f不下降</strong>：走一步增加的实际代价，至少补上h可能下降的那部分。A*首次取出某个状态时，可以保证该候选的g已是到该状态的最小代价，于是永久关闭它是安全的。</li>
+</ol>
+<p>可容许只比较“到终点的总下界”；一致还检查“每一步之间是否协调”。所以可容许不自动推出一致。<a href="https://artint.info/3e/html/ArtInt3e.Ch3.S7.html">Poole 与 Mackworth：一致性与多路径剪枝</a></p>
+<h3 id="_5">⚠️ 可容许但不一致：不重开版本确实会出错</h3>
+<p>看一个四节点例子。目标是G，边代价如下：</p>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>边</th>
-<th>代价</th>
-<th></th>
-<th>节点</th>
-<th>$h$</th>
-<th>真实 $h^*$</th>
+<th style="text-align: right;">代价</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>S → A</td>
-<td>2</td>
-<td></td>
-<td>S</td>
-<td>0</td>
-<td>7</td>
+<td>S→A</td>
+<td style="text-align: right;">2</td>
 </tr>
 <tr>
-<td>S → B</td>
-<td>4</td>
-<td></td>
-<td>A</td>
-<td><strong>5</strong></td>
-<td>5</td>
+<td>S→B</td>
+<td style="text-align: right;">4</td>
 </tr>
 <tr>
-<td>A → B</td>
-<td>1</td>
-<td></td>
-<td>B</td>
-<td><strong>1</strong></td>
-<td>4</td>
+<td>A→B</td>
+<td style="text-align: right;">1</td>
 </tr>
 <tr>
-<td>B → G</td>
-<td>4</td>
-<td></td>
-<td>G</td>
-<td>0</td>
-<td>0</td>
+<td>B→G</td>
+<td style="text-align: right;">4</td>
 </tr>
 </tbody>
 </table></div>
-<p>$h$ 全部不高估 → <strong>可容许</strong>。但边 A → B 上：$h(A)=5 &gt; c(A,B) + h(B) = 1 + 1 = 2$ → <strong>不一致</strong>。</p>
-<p>带 <code>explored</code> 集合的 A*（也就是<strong>图搜索</strong>）跑一遍：① 展开 S，生成 A（$g{=}2,f{=}7$）和 B（$g{=}4,f{=}5$）。② B 的 $f$ 最小 → 展开 B，<strong>它带着 $g=4$ 被写进 <code>explored</code></strong>，生成 G（$f{=}8$）。③ 展开 A，它想把 B 更新成 $g=3$——但 B 已在 <code>explored</code>，这条更新被直接丢掉 💀。④ 展开 G，返回代价 8。</p>
-<p><strong>真正的最优是 S → A → B → G = 2 + 1 + 4 = 7。A* 给出了 8。</strong></p>
-<p>💀 <strong>这个错为什么阴险</strong>：不报错、不崩溃，返回一条<strong>看起来完全合法的路径</strong>，只是贵了 14%。这类 bug 在真实系统里能活很久——规划器每次都给「能走通但绕远」的方案，没人会怀疑是启发式的性质搞错了。</p>
-<p>两个修法：<strong>要求 $h$ 一致</strong>，或者<strong>允许重开节点</strong>（发现更便宜的 $g$ 时把状态从 <code>explored</code> 拿回 frontier）。</p>
-<blockquote>
-<p>⭐ <strong>一句话记住这条分界</strong>：<strong>树搜索（不查重复）要 $h$ 可容许就够；图搜索（查重复）需要 $h$ 一致。</strong></p>
-</blockquote>
-<hr />
-<h2 id="a_2">📊 七、A* 的性质，和它唯一的死穴</h2>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>维度</th>
-<th>A*</th>
+<th>状态</th>
+<th style="text-align: right;">h</th>
+<th style="text-align: right;">真实最小剩余代价h*</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>完备性</td>
-<td>✅ 是（除非有无穷多个 $f \le C^*$ 的节点）</td>
+<td>S</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">7</td>
 </tr>
 <tr>
-<td>最优性</td>
-<td>✅ <strong>是</strong>（$h$ 可容许；图搜索版要一致）</td>
+<td>A</td>
+<td style="text-align: right;">5</td>
+<td style="text-align: right;">5</td>
 </tr>
 <tr>
-<td>时间</td>
-<td>指数级，但指数里的东西正比于「$h$ 的相对误差 × 解的长度」⭐</td>
+<td>B</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">4</td>
 </tr>
 <tr>
-<td>空间</td>
-<td>❌ <strong>所有生成过的节点都在内存里</strong></td>
+<td>G</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>💀 <strong>A* 是被内存杀死的，不是被时间。</strong> 它跑到一半 OOM，而不是跑得慢。</p>
-</blockquote>
-<p><strong>IDA*</strong>（迭代加深 A*）是标准解法：把第 6 章的迭代加深搬过来，<strong>门槛不再是深度而是 $f$ 值</strong>——跑一轮深度优先，$f$ 超门槛就砍掉；找不到解就把门槛提到「这轮被砍掉的最小 $f$」再来一轮。内存降到线性，在状态数指数增长的问题上和 A* 渐近一样快。</p>
+<p>每行h都没有高估，所以可容许。但在A→B上，<strong>5&gt;1+1</strong>，所以不一致。</p>
+<h3 id="search-07-no-reopen">不重开，会发生什么</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>发生的事</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>展开S：A的g=2、f=7；B的g=4、f=5</td>
+</tr>
+<tr>
+<td>2</td>
+<td>先展开B，把它放入闭集；生成G，g=8、f=8</td>
+</tr>
+<tr>
+<td>3</td>
+<td>展开A，发现经A到B只需g=3；但B已关闭，这条更便宜的候选被丢弃</td>
+</tr>
+<tr>
+<td>4</td>
+<td>取出G，返回8</td>
+</tr>
+</tbody>
+</table></div>
+<p>真正最优路线是 <strong>S→A→B→G，2+1+4=7</strong>。返回8看起来能走通，却贵了约14.3%。错在“永久不再考虑B”这个决定，而不是算术或路径合法性。</p>
+<h3 id="search-07-reopening">两个修法，分别解决什么</h3>
+<ul>
+<li><strong>要求h一致</strong>：第一次展开状态时g已最优，不再需要后来用更低g重开它。这是本页罗马尼亚主实验的保证方式。</li>
+<li><strong>发现更低g时允许重开</strong>：记录到各状态的当前最佳g；发现严格更小的g就更新并重新入队；旧的较贵候选取出时跳过。这能保住被更便宜路线改善的状态。</li>
+</ul>
+<details>
+<summary>独立运行同一反例：不重开得8，重开得7</summary>
+<p>这个小程序用最小堆取f最小项；递增序号保证同f时FIFO。<code>reopen=False</code>只用于展示不一致h加永久闭集的失败。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">heapq</span><span class="w"> </span><span class="kn">import</span> <span class="n">heappop</span><span class="p">,</span> <span class="n">heappush</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">itertools</span><span class="w"> </span><span class="kn">import</span> <span class="n">count</span>
+
+<span class="n">GRAPH</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;S&quot;</span><span class="p">:</span> <span class="p">[(</span><span class="s2">&quot;A&quot;</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;B&quot;</span><span class="p">,</span> <span class="mi">4</span><span class="p">)],</span> <span class="s2">&quot;A&quot;</span><span class="p">:</span> <span class="p">[(</span><span class="s2">&quot;B&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)],</span> <span class="s2">&quot;B&quot;</span><span class="p">:</span> <span class="p">[(</span><span class="s2">&quot;G&quot;</span><span class="p">,</span> <span class="mi">4</span><span class="p">)],</span> <span class="s2">&quot;G&quot;</span><span class="p">:</span> <span class="p">[]}</span>
+<span class="n">H</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;S&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;A&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span> <span class="s2">&quot;B&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;G&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">}</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">astar</span><span class="p">(</span><span class="n">graph</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">goal</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">reopen</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">cost</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="k">for</span> <span class="n">edges</span> <span class="ow">in</span> <span class="n">graph</span><span class="o">.</span><span class="n">values</span><span class="p">()</span> <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">cost</span> <span class="ow">in</span> <span class="n">edges</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;这个例子只处理非负边代价&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">h</span><span class="p">[</span><span class="n">goal</span><span class="p">]</span> <span class="o">!=</span> <span class="mi">0</span> <span class="ow">or</span> <span class="nb">any</span><span class="p">(</span><span class="n">value</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">h</span><span class="o">.</span><span class="n">values</span><span class="p">()):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;这个例子要求非负h，且目标h=0&quot;</span><span class="p">)</span>
+    <span class="n">serial</span> <span class="o">=</span> <span class="n">count</span><span class="p">()</span>
+    <span class="n">frontier</span> <span class="o">=</span> <span class="p">[(</span><span class="n">h</span><span class="p">[</span><span class="n">start</span><span class="p">],</span> <span class="nb">next</span><span class="p">(</span><span class="n">serial</span><span class="p">),</span> <span class="n">start</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="p">[</span><span class="n">start</span><span class="p">])]</span>
+    <span class="n">best_g</span><span class="p">,</span> <span class="n">closed</span><span class="p">,</span> <span class="n">expanded</span> <span class="o">=</span> <span class="p">{</span><span class="n">start</span><span class="p">:</span> <span class="mi">0</span><span class="p">},</span> <span class="nb">set</span><span class="p">(),</span> <span class="p">[]</span>
+    <span class="k">while</span> <span class="n">frontier</span><span class="p">:</span>
+        <span class="n">_</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">path</span> <span class="o">=</span> <span class="n">heappop</span><span class="p">(</span><span class="n">frontier</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">g</span> <span class="o">!=</span> <span class="n">best_g</span><span class="p">[</span><span class="n">state</span><span class="p">]:</span>
+            <span class="k">continue</span>
+        <span class="k">if</span> <span class="n">state</span> <span class="o">==</span> <span class="n">goal</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">path</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">expanded</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">reopen</span> <span class="ow">and</span> <span class="n">state</span> <span class="ow">in</span> <span class="n">closed</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="n">closed</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+        <span class="n">expanded</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">state</span><span class="p">,</span> <span class="n">g</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">nxt</span><span class="p">,</span> <span class="n">cost</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">[</span><span class="n">state</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">reopen</span> <span class="ow">and</span> <span class="n">nxt</span> <span class="ow">in</span> <span class="n">closed</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">new_g</span> <span class="o">=</span> <span class="n">g</span> <span class="o">+</span> <span class="n">cost</span>
+            <span class="k">if</span> <span class="n">new_g</span> <span class="o">&lt;</span> <span class="n">best_g</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">nxt</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="s2">&quot;inf&quot;</span><span class="p">)):</span>
+                <span class="n">best_g</span><span class="p">[</span><span class="n">nxt</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_g</span>
+                <span class="n">heappush</span><span class="p">(</span><span class="n">frontier</span><span class="p">,</span> <span class="p">(</span><span class="n">new_g</span> <span class="o">+</span> <span class="n">h</span><span class="p">[</span><span class="n">nxt</span><span class="p">],</span> <span class="nb">next</span><span class="p">(</span><span class="n">serial</span><span class="p">),</span> <span class="n">nxt</span><span class="p">,</span> <span class="n">new_g</span><span class="p">,</span> <span class="n">path</span> <span class="o">+</span> <span class="p">[</span><span class="n">nxt</span><span class="p">]))</span>
+    <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">expanded</span>
+
+<span class="k">for</span> <span class="n">reopen</span> <span class="ow">in</span> <span class="p">(</span><span class="kc">False</span><span class="p">,</span> <span class="kc">True</span><span class="p">):</span>
+    <span class="n">path</span><span class="p">,</span> <span class="n">cost</span><span class="p">,</span> <span class="n">expanded</span> <span class="o">=</span> <span class="n">astar</span><span class="p">(</span><span class="n">GRAPH</span><span class="p">,</span> <span class="s2">&quot;S&quot;</span><span class="p">,</span> <span class="s2">&quot;G&quot;</span><span class="p">,</span> <span class="n">H</span><span class="p">,</span> <span class="n">reopen</span><span class="o">=</span><span class="n">reopen</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;重开=&quot;</span><span class="p">,</span> <span class="n">reopen</span><span class="p">,</span> <span class="s2">&quot;代价=&quot;</span><span class="p">,</span> <span class="n">cost</span><span class="p">,</span> <span class="s2">&quot;路径=&quot;</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;非目标展开记录：&quot;</span><span class="p">,</span> <span class="n">expanded</span><span class="p">)</span>
+</code></pre></div>
+
+<p>不重开：返回8，展开S、B(g=4)、A。</p>
+<p>允许重开：返回7，展开S、B(g=4)、A、<strong>B(g=3)</strong>。第二次展开B是必要的改善，不应因为“一个状态展开了两遍”就视为错误。</p>
+<p>输入检查没有自动证明h可容许。这里之所以能保证可重开版本的最优性，是因为表中给出了真实h*供核对，且小图满足相应搜索条件；不能把任意模型预测当作已证明的下界。</p>
+</details>
+<p><strong>记住真正的分界：不重开版本用一致性保护闭集；正确重开的版本可以在相应条件下使用可容许但不一致的h。</strong> 不能把“所有图搜索都必须一致”当作不可变规则。</p>
+<hr />
+<h2 id="a_2">📊 七、A*的性质，与低内存的IDA*</h2>
+<h3 id="search-07-properties">先看保证，不背绝对口号</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>有条件的结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>一定找到解吗</td>
+<td>本章有限图正确处理重复状态时，可以找到可达目标；无限空间还需排除无限低f候选等情况</td>
+</tr>
+<tr>
+<td>找到的一定最便宜吗</td>
+<td>需要可容许h、目标0和正确重复处理；不重开版本以一致性作为保证</td>
+</tr>
+<tr>
+<td>一定很快吗</td>
+<td>不保证；h较弱、存在很多等f候选或生成后继很贵，都可能需要大量时间</td>
+</tr>
+<tr>
+<td>内存花在哪里</td>
+<td>frontier、最佳g/闭集、路径或父指针等记录；它们可能很大，并非所有生成过的对象都必须永久保留</td>
+</tr>
+</tbody>
+</table></div>
+<p>更准确的h常有助于排除不可能更好的候选，但搜索规模还受图结构、并列规则和重复状态影响。<strong>不能只用“相对误差×解长”给所有A*问题统一套一个指数时间公式。</strong></p>
+<p>A*可能同时受时间和内存限制。内存是重要瓶颈，不是“只会OOM，绝不会慢”的唯一死因。</p>
+<details>
+<summary>贪婪的指数数量级，在哪个模型下使用</summary>
+<p>若搜索树的最大深度为有限的m、分支上界为b，并把处理定长节点视为常数工作，贪婪最坏可能检查$O(b^m)$个节点，frontier空间也可能达到$O(b^m)$数量级。</p>
+<p>这说明贪婪没有一般的高效保证，不是说它在每个实例上都会检查这么多。带全局去重的有限图可按顶点/边数量另行分析；本页列表扫描、堆操作与路径复制也都有额外成本。</p>
+<p>A*的下界可以排除部分候选，但最坏搜索规模仍可能随解深度指数增长。比较启发式时，还要固定并列规则与是否重开，不能只换h后把不同实现的计数直接相除。</p>
+</details>
+<h3 id="search-07-ida-threshold">IDA*：把深度门槛换成f门槛</h3>
+<p><strong>IDA*用多轮深度优先探索降低搜索记录的内存占用。</strong> 它与第6章IDS的区别在于截止标准。</p>
+<ol>
+<li><strong>首轮门槛设为f(start)=h(start)</strong>，因为起点g=0；从起点开始深度优先检查候选。</li>
+<li><strong>先检查f是否超过门槛</strong>。超过就截止这条分支；没有超过，才检查是否目标，或继续检查后继。</li>
+<li>本轮没有找到解，但有被门槛挡住的候选，就把下轮门槛提高到“本轮被挡住的最小f”，再从起点搜索。</li>
+<li>找到未越界的目标就返回；若本轮既没有解，也没有被挡住的候选，就已穷尽可继续的路线，可报告无解。</li>
+</ol>
+<p>初始门槛与检查顺序不是任意设置：若第一轮就给一个过大的门槛，深度优先找到的第一条路线未必最便宜。逐轮使用最小越界f，是为了不跳过仍可能包含更便宜解的搜索范围。<a href="https://www.cs.cmu.edu/afs/cs/project/jair/pub/volume9/cook98a-html/node2.html">JAIR研究论文：IDA*的门槛更新与空间</a></p>
+<p>一组明确的充分条件是：分支有限、每步代价至少为固定的$\epsilon&gt;0$、h非负可容许且目标h=0。存在解时，按上述规则增加门槛的IDA*能找到最小代价解；正确的路径防环可以避免环上的重复候选。</p>
+<h3 id="search-07-ida-cost">省掉的是搜索记录，不是所有内存</h3>
+<p>理想深度优先实现只保留当前路径、各层迭代信息，搜索空间随深度线性增长；如果另外加载大型模式数据库，那张表的内存必须另外计算。</p>
+<p>代价是重复计算。<strong>只有在各轮工作量增长够快、最后一轮占主导等条件下，前面轮次才主要增加常数倍开销。</strong> 状态数很多，并不单独保证IDA*和带全局去重的A*一样快；重复制状态、缓慢增加的f阈值和昂贵h都可能让它慢得多。<a href="https://artint.info/3e/html/ArtInt3e.Ch3.S7.html">Poole 与 Mackworth：深度优先搜索与全局去重的取舍</a></p>
+<p>下一章的模式数据库会用离线计算改善h；它和低内存搜索可以搭配，但不存在“免费、更准、又总是更快”的保证。</p>
 <hr />
 <h2 id="_6">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>去哪</th>
-<th>为什么</th>
+<th>带着什么区别去看</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><a href="../强化学习基础/03-价值函数与贝尔曼方程.html">强化学习基础 03 · 价值函数与贝尔曼方程</a></td>
-<td>$h(n)$ 和价值函数 $V(s)$ 是同一个东西的两副面孔：都在回答「从这里出发还要付出多少」。差别是 <strong>$h$ 由人手工设计、$V$ 从经验里学</strong>——去那里看它怎么被学出来</td>
+<td>h常估计到目标的剩余代价；V描述策略下或最优策略下的期望回报。比较时需统一代价/回报符号、折扣与转移条件，不按“手写或学习”简单划分；学习得到的h也不自动可容许。</td>
 </tr>
 <tr>
 <td><a href="../强化学习基础/07-探索与利用.html">强化学习基础 07 · 探索与利用</a></td>
-<td>贪婪搜索栽的跟头（只看眼前、被 32 公里坑掉）和那里的「纯贪婪策略陷在局部最优」是同一个病，解法也一样：别只信当下的估计</td>
+<td>贪婪搜索是在已给定图中安排候选顺序；强化学习探索是在收集未知环境反馈。二者都要警惕不可靠估计，但问题和修法不完全一样。</td>
 </tr>
 <tr>
 <td><a href="../代码题拆解/04-二分排序与堆-怎样少看一半.html">代码题拆解 04 · 二分、排序与堆</a></td>
-<td>A* 每一步「取 $f$ 最小的节点」靠的就是最小堆。那一章从「只要前 k 个就不必全排好」这个角度讲同一个 <code>heapq</code></td>
+<td>本页主实验用列表扫描最小f，反例代码用heapq。去那里理解最小堆怎样减少取最小候选的开销，以及为什么还要考虑并列和过期项。</td>
 </tr>
 </tbody>
 </table></div>
 <hr />
 <h2 id="_7">✅ 检查点</h2>
 <ol>
-<li>贪婪的 $f(n)$ 是什么？它展开几个节点、路径多长、比最优多几公里？为什么不完备？</li>
-<li>A* 的 $f(n)$ 是什么？含义一句话怎么说？它展开几个，UCS 几个？</li>
-<li>第 4 步 Bucharest 已在队列里（418），为什么还要展开 417 的 Fagaras？第 5 步那个 $f=450$ 的 Bucharest 印证了第 5 章的哪句话？</li>
-<li>什么叫可容许？$h_{SLD}$ 为什么可容许？$h(\text{Pitesti})$ 被高估成 150 会怎样？</li>
-<li>最优性论证里的 $n$ 是什么节点？哪一步用到了可容许？比「A* 最优」更精确的结论是什么？</li>
-<li>什么叫一致性？和可容许什么关系？反例里图搜索返回多少、最优是多少、错在哪步？</li>
-<li>树搜索和图搜索对 $h$ 的要求分别是什么？A* 的死穴是什么，IDA* 怎么解决的？</li>
+<li>贪婪如何排序？本次地图中展开多少、走多少公里、比最优多多少？为什么不能把树搜索的循环结论直接套给有限图闭集实现？</li>
+<li>A*的g、h、f分别是什么？为什么单位要相同？本次A*与UCS分别展开多少次，路径长度是否相同？</li>
+<li>Bucharest的418候选已经生成，为何还检查Fagaras的417候选？同一Bucharest为何还能有450候选？若两者前驱改变取出顺序，是否必定返回错路？</li>
+<li>什么叫本章的可容许h？目标处取多少？直线距离为什么适用于公里代价？把h(Pitesti)改为150，在本例中发生什么？</li>
+<li>最优性证明中的n是什么？哪里用到可容许？为什么还必须保证正确的最优前缀没有被剪掉？</li>
+<li>一致性检查什么，和可容许有什么关系？原四节点例不重开返回多少、最优多少，哪个操作挡住了更便宜的路线？</li>
+<li>不重开与正确重开版本对h的保证条件有何不同？A*的时间/内存问题是什么，IDA*省掉什么、又付出什么？</li>
 </ol>
 <details>
-<summary>👀 答案</summary>
+<summary>对照答案：先对条件，再对结果</summary>
 <ol>
-<li>$f(n)=h(n)$，只看估计的剩余代价。展开 <strong>3 个</strong>节点、450 公里，比最优的 418 多 32 公里。不完备是因为会陷进循环：Iasi 去 Fagaras 时 Neamt 看着更近，但 Neamt 只连回 Iasi 是死胡同 → Iasi→Neamt→Iasi 无限循环。</li>
-<li>$f(n)=g(n)+h(n)$ = 已经花掉的 + 还要花的估计；一句话是<strong>「经过 $n$ 的那条解总代价大概多少」</strong>。A* 展开 5 个，UCS 12 个，代价都是 418。</li>
-<li>因为 $417 &lt; 418$，<strong>还存在更短解的可能性</strong>——这就是「目标测试必须放在取出时」的理由。$f=450$ 那个印证「同一个状态可以对应树上很多个节点」：两个 Bucharest 节点 $g$ 分别是 418 和 450，450 那个永远不会被展开。</li>
-<li><strong>对所有 $n$ 有 $h(n) \le h^*(n)$，从不高估</strong>。$h_{SLD}$ 可容许是因为两点之间直线最短（178 vs 真实 211、98 vs 真实 101）。高估成 150 则 $f(\text{Pitesti})=467 &gt; 417$，A* 先展开 Fagaras、返回 450 那条路，而且自己不知道错了。</li>
-<li>$n$ 是<strong>最优路径上还没被展开、正躺在队列里的那个节点</strong>；用到可容许的是最后一步 $h(n) \le h^*(n)$。更精确的结论：次优目标可以被「生成」，只是永远不会被「展开」——A* 看到目标后还会继续搜，直到确信没有更短的路。</li>
-<li>一致 = 每条边满足 $h(n) \le c(n,n')+h(n')$（<strong>三角不等式</strong>）；一致 ⟹ 可容许，反之不然。反例里返回 8，真正最优 7；错在第 ② 步：B 带着 $g=4$ 进了 <code>explored</code>，A 想把它改成 $g=3$ 时被丢掉。</li>
-<li><strong>树搜索要可容许就够，图搜索要一致</strong>（或允许重开节点）。死穴是空间——所有生成过的节点都留在内存，是 OOM 死的。IDA* 把门槛从深度换成 $f$ 值，内存降到线性。</li>
+<li>按h最小排序。本次展开3次、450公里，比418多32公里。不查重复的树搜索能反复生成环上的新节点；有限图全局去重会阻止重复展开，不能说它也必然无限循环。贪婪仍不一般保证最小代价。</li>
+<li>g是当前候选已花代价，h是剩余代价估计，f=g+h是经该候选到目标的总估计，必须使用可相加的同一单位。本次A*展开5次，UCS12次，均返回418公里。</li>
+<li>417仍低于418，存在更便宜路线的可能；不能生成目标就停。相同状态可由不同路线到达，所以有g=418与450两个候选。先展开Fagaras不等于出错；h(Pitesti)=100时它先展开，仍返回418。</li>
+<li>对相关状态有$0\le h\le h^*$，目标h=0。公路长度不短于两地直线，因此公里单位下直线距离是下界。改成150使Pitesti的f=467；本次450的目标先被取出，错过418。高估不等于每个实例必错，但失去一般保证。</li>
+<li>n是最优路径上仍可搜索、携带正确前缀代价的候选；最后一步用$h(n)\le h^*(n)$。若错误闭集已删掉该候选，队列里“总有一个这样的n”就未必成立。结论是次优目标可被生成，但不会在满足条件时先被返回。</li>
+<li>一致要求每条边满足$h(n)\le c(n,n')+h(n')$；在本章目标0约定下，一致推出可容许，反之不成立。反例不重开返回8，最优是7；B先以g=4关闭，使后来A带来的g=3被拒绝。</li>
+<li>不重开版本以一致h保证安全关闭；正确记录best_g、改善时重开并跳过过期项的版本，在相应搜索条件下可使用可容许但不一致的h。A*可能耗时也耗内存；IDA*降低搜索记录空间，但重复探索，额外PDB内存也不会消失。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_8">🛑 可以停在这里</h2>
-<p>⚡ <strong>走神救援</strong></p>
-<blockquote>
-<p>⭐ <strong>一个框架只差一行</strong>：已经花掉的加上还要花的估计——<strong>只看前一项是一致代价搜索，只看后一项是贪婪，两个加起来才是 A*</strong>。</p>
-<p>⭐ 三种走法的对照最能说明问题：<strong>贪婪展开的节点最少，但路走远了</strong>；一致代价路最短，<strong>却展开了最多的节点</strong>；⭐ <strong>A* 拿到最短的路，而展开数接近贪婪。</strong> ⚠️ 贪婪<strong>既不完备也不最优</strong>——它会在两个点之间无限打转，⭐ <strong>毛病和深度优先一样：不看已经花了多少。</strong></p>
-<p>⭐⭐ <strong>手算轨迹里有两个必须看清的点</strong>：① <strong>目标节点已经躺在队列里了，A* 仍然先展开另一个估值更小的节点</strong>——⭐ <strong>这就是「目标测试必须放在取出时、而不是生成时」的全部理由</strong>；② <strong>同一个状态可以生成两个节点</strong>，那个更差的<strong>永远不会被展开</strong>。</p>
-<p><strong>可容许就是从不高估</strong>（直线距离天然满足，因为两点之间直线最短）。</p>
-<p>⭐ <strong>最优性论证的骨架</strong>：最优路径上总有一个还没展开的节点在队列里，而任何次优的目标节点的估值都比它大——⭐ <strong>所以次优目标可以被生成，只是永远不会被展开。</strong></p>
-<p>⭐ <strong>一致性比可容许更强</strong>（它是一条三角不等式），⚠️ <strong>可容许推不出一致</strong>。💀 <strong>反例的教训很具体：图搜索用只可容许不一致的启发式会返回次优解</strong>——<strong>因为某个节点带着较差的代价先进了已访问集合，后来更好的那条路想更新它时被直接丢掉了。</strong> ⭐ <strong>一句话：树搜索要可容许，图搜索要一致。</strong></p>
-<p>⭐ 最后：<strong>A* 死于空间</strong>，而把门槛从「深度」换成「估值」就得到内存线性的迭代加深版本。</p>
-</blockquote>
-<p><strong>下一节</strong> 👉 <a href="08-启发式怎么设计.html">08-启发式怎么设计.md</a></p>
+<p><strong>走神救援：先记这四点。</strong></p>
+<ul>
+<li>A*按g+h排序，既看已经花掉的，也看剩余估计。</li>
+<li>可容许是剩余代价下界；本章约定非负、目标0。</li>
+<li>永久闭集需要安全依据；正确重开能保留后来发现的更低g。</li>
+<li>生成目标不等于可以停止；少展开也不等于一定更快或更省全部内存。</li>
+</ul>
+<p><strong>下一节</strong> 👉 <a href="08-启发式怎么设计.html">08-启发式怎么设计.md</a></p></article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
+<button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#h">🧭 一、启发式函数h是什么</a><a href="#_2">🍰 二、贪婪最佳优先：只看剩余估计</a><a href="#a">⭐ 三、A*：在地图上手算每次选择</a><a href="#_3">🧮 四、可容许性：估计不能高估</a><a href="#a_1">📐 五、A*为什么能返回最优路线</a><a href="#_4">🔺 六、一致性：防止永久闭集挡掉好路线</a><a href="#a_2">📊 七、A*的性质，与低内存的IDA*</a><a href="#_6">🔗 这一章连到哪里</a><a href="#_7">✅ 检查点</a><a href="#_8">🛑 可以停在这里</a></nav>
+<button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
+<a href="index.html">回到本模块目录</a></div></aside></div>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="06-无信息搜索.html"><div class="dir">← 上一节</div>🔍 06 · 无信息搜索</a><a class="next" href="08-启发式怎么设计.html"><div class="dir">下一节 →</div>📐 08 · 启发式怎么设计</a></nav>

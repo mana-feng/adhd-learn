@@ -297,9 +297,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#_3">📐 二、那行均方误差是从哪来的</a></li>
 <li><a href="#_4">⚖️ 三、三种目标可以互换，为什么偏偏选噪声</a></li>
 <li><a href="#t">⏰ 四、时间步 t 怎么告诉网络</a></li>
-<li><a href="#_5">🔗 这一章连到哪里</a></li>
-<li><a href="#_6">✅ 检查点</a></li>
-<li><a href="#_7">🛑 可以停在这里</a></li>
+<li><a href="#_6">🔗 这一章连到哪里</a></li>
+<li><a href="#_7">✅ 检查点</a></li>
+<li><a href="#_8">🛑 可以停在这里</a></li>
 </ul>
 </div>
 </details>
@@ -308,7 +308,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>训练扩散模型的损失就是一行均方误差，而它的「标准答案」正是你自己刚加进去的那份噪声。</strong></p>
-<p>上一章停在「估噪声和估原图数学上是同一件事」。这一章补完两问：那行均方误差从哪来，以及既然等价、为什么一律选噪声。</p>
+<p>上一章停在「估噪声和估原图数学上是同一件事」。这一章补完两问：那行均方误差从哪来，以及既然能换算、为什么 DDPM 常用噪声目标。</p>
 <hr />
 <h2 id="_2">🏷️ 一、先破一个误解：标签是你自己造的</h2>
 <p>「扩散模型」听着像某种无监督黑魔法。<strong>它不是。训练一步只有五个动作</strong>：</p>
@@ -320,15 +320,15 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>损失 ‖ε − ε_θ‖²，反传</li>
 </ol>
 <blockquote>
-<p>⭐ <strong>第 2 步采的和第 5 步比的是同一个 ε</strong> —— 不是待估的未知量，是你几行之前亲手 <code>randn</code> 出来的那个张量。所以这从头到尾是<strong>监督回归</strong>：不用蒙特卡洛，不用跑完整条链。</p>
+<p>⭐ <strong>第 2 步采的和第 5 步比的是同一个 ε</strong> —— 不是待估的未知量，是你几行之前亲手 <code>randn</code> 出来的那个张量。所以这从头到尾是<strong>监督回归</strong>：不用生成完整条反向链。随机抽 t 和 ε 本身就是对期望损失的蒙特卡洛估计。</p>
 </blockquote>
-<p>⭐ 也因此<strong>训练数据几乎无限</strong>：同一张图配不同的 t 和 ε，就是一条全新样本。</p>
+<p>⭐ 也因此<strong>可以不断构造新的带噪训练对，但真实数据的多样性仍有限</strong>：同一张图配不同的 t 和 ε，就是一条全新样本。</p>
 <hr />
 <h2 id="_3">📐 二、那行均方误差是从哪来的</h2>
 <p>它是从<strong>变分下界</strong>化简掉下来的。骨架三句：</p>
 <ul>
 <li>x₁…x_T 全是隐变量，log p(x₀) 要对中间状态积分，算不了；改为最大化它的下界 <strong>ELBO</strong>。</li>
-<li>展开后下界是 <strong>T 项 KL 之和</strong>，每项都是「真实的那一步」和「模型走的那一步」的距离。</li>
+<li>对应的负 ELBO 包含终点 KL、<strong>T−1 项反向步 KL</strong>和末端重建项，每项都是「真实的那一步」和「模型走的那一步」的距离。</li>
 <li>⭐ <strong>关键一刀</strong>：两边<strong>都是高斯，方差写死、只有均值要学</strong>。同方差高斯的 KL 等于均值差的平方除以 2σ²，<strong>一串 KL 当场塌成一串平方差</strong>。</li>
 </ul>
 <p>再把上一章 μ̃_t 的形状代进去，x_t 两边抵消，只剩噪声那一项：</p>
@@ -339,13 +339,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>按马尔可夫链把 Jensen 给出的证据下界拆开、用贝叶斯把每步换成以 x₀ 为条件的形式，得</p>
 <p>$$L_{\text{VLB}} = D_{KL}\big(q(x_T|x_0)\|p(x_T)\big) + \sum_{t\ge 2} D_{KL}\big(q(x_{t-1}|x_t,x_0)\|p_\theta(x_{t-1}|x_t)\big) - \log p_\theta(x_0|x_1)$$</p>
 <p>首项无可学参数（扔），末项是收尾重建，中间 T−1 项是全部战场。</p>
-<p><strong>第一刀</strong>：q(x_{t−1} | x_t, x₀) 是高斯，模型那边方差也定成常数 σ_t²，这项 KL 就是 ‖μ̃_t − μ_θ‖² ÷ 2σ_t²。</p>
+<p><strong>第一刀</strong>：q(x_{t−1} | x_t, x₀) 是高斯，模型那边方差也定成常数 σ_t²，这项 KL 中依赖均值的部分是 ‖μ̃_t − μ_θ‖² ÷ 2σ_t²；若双方方差不相等，还包含与均值参数无关的项。</p>
 <p><strong>第二刀</strong>：把 x₀ 用 x_t 和 ε 表示代回上一章那个 μ̃_t，化简后它变成 (1/√α_t)·(x_t − β_t/√(1−ᾱ_t)·ε)；让模型照同一形状写 μ_θ。⭐ <strong>相减时 x_t 抵消</strong>，只剩 ε − ε_θ 乘一个常数。</p>
 <p>⚠️ 「预测噪声」正是在这一刀选定的：吐 x̂₀ 或 μ_θ 也走得完，只是平方差里装的东西不同。</p>
 </details>
 <hr />
 <h2 id="_4">⚖️ 三、三种目标可以互换，为什么偏偏选噪声</h2>
-<p>给我任意一个，都能算出另外两个：</p>
+<p>在换算所需的分母非零时，可在这些目标之间转换；零终点 SNR 要单独处理：</p>
 <p>$$\hat x_0 = \frac{x_t - \sqrt{1-\bar\alpha_t}\,\varepsilon_\theta}{\sqrt{\bar\alpha_t}}, \qquad v = \sqrt{\bar\alpha_t}\,\varepsilon - \sqrt{1-\bar\alpha_t}\,x_0$$</p>
 <p>既然能互换，选哪个应该无所谓才对。<strong>但损失长在哪个量上，梯度就长在哪个量上：</strong></p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 同一份预测误差，换成两种训练目标之后，损失量级差多少</span>
@@ -359,7 +359,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     <span class="n">a</span> <span class="o">=</span> <span class="n">abar</span><span class="p">[</span><span class="n">t</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span>
     <span class="n">eps</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn_like</span><span class="p">(</span><span class="n">x0</span><span class="p">)</span>
     <span class="n">xt</span> <span class="o">=</span> <span class="n">a</span><span class="o">.</span><span class="n">sqrt</span><span class="p">()</span> <span class="o">*</span> <span class="n">x0</span> <span class="o">+</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">a</span><span class="p">)</span><span class="o">.</span><span class="n">sqrt</span><span class="p">()</span> <span class="o">*</span> <span class="n">eps</span>      <span class="c1"># 第 2 章那条闭式加噪</span>
-    <span class="n">eh</span> <span class="o">=</span> <span class="n">eps</span> <span class="o">+</span> <span class="mf">0.1</span> <span class="o">*</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn_like</span><span class="p">(</span><span class="n">eps</span><span class="p">)</span>         <span class="c1"># ⭐ 网络水平固定：ε 上恒差 0.1</span>
+    <span class="n">eh</span> <span class="o">=</span> <span class="n">eps</span> <span class="o">+</span> <span class="mf">0.1</span> <span class="o">*</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn_like</span><span class="p">(</span><span class="n">eps</span><span class="p">)</span>         <span class="c1"># 模拟预测误差：零均值、标准差 0.1，并非训练出的网络</span>
     <span class="n">xh</span> <span class="o">=</span> <span class="p">(</span><span class="n">xt</span> <span class="o">-</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">a</span><span class="p">)</span><span class="o">.</span><span class="n">sqrt</span><span class="p">()</span> <span class="o">*</span> <span class="n">eh</span><span class="p">)</span> <span class="o">/</span> <span class="n">a</span><span class="o">.</span><span class="n">sqrt</span><span class="p">()</span>     <span class="c1"># 同一个预测换算成 x̂₀</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;t=</span><span class="si">{</span><span class="n">t</span><span class="si">:</span><span class="s2">4d</span><span class="si">}</span><span class="s2"> k=</span><span class="si">{</span><span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">a</span><span class="p">)</span><span class="o">.</span><span class="n">sqrt</span><span class="p">()</span><span class="o">/</span><span class="n">a</span><span class="o">.</span><span class="n">sqrt</span><span class="p">()</span><span class="si">:</span><span class="s2">6.2f</span><span class="si">}</span><span class="s2"> |&quot;</span>
           <span class="sa">f</span><span class="s2">&quot; 摆烂猜x0=</span><span class="si">{</span><span class="p">((</span><span class="n">xt</span><span class="o">-</span><span class="n">x0</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="si">:</span><span class="s2">6.4f</span><span class="si">}</span><span class="s2"> 摆烂猜eps=</span><span class="si">{</span><span class="p">(</span><span class="n">eps</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="si">:</span><span class="s2">6.4f</span><span class="si">}</span><span class="s2"> |&quot;</span>
@@ -367,18 +367,78 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <p>真实输出（<strong>摆烂</strong> = 什么都不学的网络：猜 x₀ 就原样吐回输入，猜 ε 就一律说「没加噪」）：</p>
-<div class="codehilite"><pre><span></span><code>t=  10 k=  0.04 | 摆烂猜x0=0.0019 摆烂猜eps=1.0024 | x0-MSE=1.90e-05 eps-MSE=0.0100
-t= 500 k=  3.42 | 摆烂猜x0=1.4401 摆烂猜eps=0.9965 | x0-MSE=1.17e-01 eps-MSE=0.0100
-t= 990 k=142.35 | 摆烂猜x0=1.9877 摆烂猜eps=0.9995 | x0-MSE=2.02e+02 eps-MSE=0.0100
-</code></pre></div>
-
+<section aria-label="相同噪声误差，换算后的损失不同" class="experiment-result" id="experiment-result-8">
+<h3 id="_5">相同噪声误差，换算后的损失不同</h3>
+<p>第一张表是不学习的基线；第二张表人为加入标准差为 0.1 的预测误差。这里没有训练网络。</p>
+<p><strong>不学习的基线（MSE）</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th style="text-align: right;">t</th>
+<th style="text-align: right;">把输入 xₜ 当成 x₀</th>
+<th style="text-align: right;">把噪声预测成 0</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">10</td>
+<td style="text-align: right;">0.0019</td>
+<td style="text-align: right;">1.0024</td>
+</tr>
+<tr>
+<td style="text-align: right;">500</td>
+<td style="text-align: right;">1.4401</td>
+<td style="text-align: right;">0.9965</td>
+</tr>
+<tr>
+<td style="text-align: right;">990</td>
+<td style="text-align: right;">1.9877</td>
+<td style="text-align: right;">0.9995</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>同一份模拟预测，换算到两种目标</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th style="text-align: right;">t</th>
+<th style="text-align: right;">换算系数 k</th>
+<th style="text-align: right;">x₀-MSE</th>
+<th style="text-align: right;">ε-MSE</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">10</td>
+<td style="text-align: right;">0.04</td>
+<td style="text-align: right;">1.90e-05</td>
+<td style="text-align: right;">0.0100</td>
+</tr>
+<tr>
+<td style="text-align: right;">500</td>
+<td style="text-align: right;">3.42</td>
+<td style="text-align: right;">1.17e-01</td>
+<td style="text-align: right;">0.0100</td>
+</tr>
+<tr>
+<td style="text-align: right;">990</td>
+<td style="text-align: right;">142.35</td>
+<td style="text-align: right;">2.02e+02</td>
+<td style="text-align: right;">0.0100</td>
+</tr>
+</tbody>
+</table></div>
+</section>
 <ul>
-<li><strong>① 预测 x₀ 的难度随 t 剧烈摆动，预测 ε 不会。</strong> t=10 时 x_t 和原图几乎一样，摆烂网络只错 <strong>0.0019</strong>（⭐ 损失小 = 梯度小 = <strong>几乎不给学习信号</strong>）；t=990 反过来要错 <strong>1.9877</strong>。而摆烂猜 ε 两头是 <strong>1.0024</strong> 和 <strong>0.9995</strong>，一分钱没占到。</li>
-<li><strong>② 后两列是同一个网络</strong>（ε 上恒差 0.1）：换成 x₀ 口径，损失从 <strong>1.90e-05</strong> 跨到 <strong>202</strong>，七个数量级；ε 口径恒定 <strong>0.0100</strong>。换算比 k = √(1−ᾱ_t) ÷ √ᾱ_t 在 t=990 时是 <strong>142.35</strong>。</li>
+<li>
+<p><strong>先看基线</strong>：t=10 时，把 xₜ 原样当成 x₀ 的 MSE 为 <strong>0.0019</strong>；t=990 时是 <strong>1.9877</strong>。恒预测 ε=0 的 MSE 则约为 1。它们只是两个指定基线，不能证明真实模型在所有 t 上学习噪声都一样容易。</p>
+</li>
+<li>
+<p><strong>再看同一份模拟误差</strong>：ε 误差标准差固定为 0.1，ε-MSE 约为 <strong>0.0100</strong>；换算到 x₀ 后，MSE 从 <strong>1.90e-05</strong> 变成约 <strong>202</strong>。这是换算系数平方造成的时间权重差异，不是实测训练梯度。</p>
+</li>
 </ul>
-<blockquote>
-<p>⭐⭐ <strong>所以选目标不是数学问题，是梯度量级问题。</strong> 对 x₀ 做均方误差，梯度会被少数 t 大的样本吃光；预测 ε 把这条曲线拉平了。</p>
-</blockquote>
+<p><strong>先记结论：能换算，不等于用未加权 MSE 训练时完全一样。</strong> 对同一份 ε 预测，x₀-MSE = $k_t^2$ × ε-MSE；选择目标也改变了各噪声时刻的权重。</p>
+<p>参数梯度还要经过网络的导数，不能只凭一个 loss 数值判断“学不到东西”。DDPM 的简化目标是一种训练选择，而不是所有扩散模型只能预测噪声。依据：<a href="https://arxiv.org/abs/2006.11239">DDPM 原论文</a>。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -389,34 +449,34 @@ t= 990 k=142.35 | 摆烂猜x0=1.9877 摆烂猜eps=0.9995 | x0-MSE=2.02e+02 eps-M
 </thead>
 <tbody>
 <tr>
-<td><strong>ε</strong>（默认）</td>
-<td>各个 t 的损失量级均衡；DDPM / DDIM 默认</td>
-<td>t 接近 0 时反推 x̂₀ 要除以 √ᾱ_t，误差放大 142 倍</td>
+<td><strong>ε</strong></td>
+<td>DDPM 常用；噪声目标的边际方差固定</td>
+<td>t 很大、√ᾱ 很小时，换算 x̂₀ 会放大 ε 误差；本例 t=990 的系数为 142.35</td>
 </tr>
 <tr>
 <td><strong>x₀</strong></td>
-<td>t 大时稳，不用除小数</td>
-<td>t 小时目标几乎等于输入，学不到东西</td>
+<td>直接预测干净样本，不需要从 ε 除以小系数换算</td>
+<td>高噪声时信息少，预测仍然困难；损失权重需要与噪声水平配合</td>
 </tr>
 <tr>
-<td><strong>v</strong>：按噪声水平把 ε 和 x₀ 旋转混合</td>
-<td>⭐ 两头都不塌；少步蒸馏、zero terminal SNR 基本必用</td>
-<td>多一层换算，读代码容易绕晕</td>
+<td><strong>v</strong>：按噪声水平混合 ε 和 x₀</td>
+<td>可避免从 ε 恢复 x₀ 时除以 √ᾱ；用于部分蒸馏和零终点 SNR 方案</td>
+<td>不是所有任务必用；训练、采样换算及损失权重必须对应</td>
 </tr>
 </tbody>
 </table></div>
 <hr />
 <h2 id="t">⏰ 四、时间步 t 怎么告诉网络</h2>
-<p>同一份权重要在 1000 个噪声水平上干活，而 t=10 该做的事（微调纹理）和 t=990 该做的事（从一团雾里定构图）完全不同。<strong>所以 t 必须进网络，而且要送到每一层。</strong></p>
-<p>⚠️ 但不能直接喂那个整数：0~999 的标量信息量太小，尺度也和特征图上的激活值格格不入。</p>
+<p>同一份权重要在 1000 个噪声水平上干活，而 t=10 该做的事（微调纹理）和 t=990 该做的事（从一团雾里定构图）完全不同。<strong>所以网络必须获得噪声水平信息；在多个块中注入时间条件是常见做法。</strong></p>
+<p>直接使用归一化的时间标量并非不允许；常见做法是先把它映射成向量，方便后续层表达不同噪声水平下的行为。<strong>嵌入丰富的是表达形式，不是凭空增加时间信息。</strong></p>
 <p>⭐ 做法和 Transformer 给 token 编位置是<strong>同一个套路</strong>：一组频率各异的正弦余弦把整数摊成高维向量，再过两层小 MLP，加到每个残差块的特征上。</p>
 <p>$$\text{emb}(t)_{2i} = \sin(t\,\omega_i), \quad \text{emb}(t)_{2i+1} = \cos(t\,\omega_i), \quad \omega_i = 10000^{-2i/d}$$</p>
 <p><strong>人话</strong>：低频那几维几百步才转一圈（管「在链条哪一段」），高频那几维一步一变（管「精确第几步」），合起来每个 t 拿到一串独一无二的条纹指纹。好处有二：<strong>相邻的 t 得到相近的向量</strong>，网络能插值，不会把 1000 个时刻当成 1000 个互不相干的类别；而且<strong>不用学</strong>，换 T 也照样算。</p>
-<figure class="dia"><svg viewBox="0 0 700 326" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="整数 t 经过一列不同频率的正弦变成时间嵌入向量，再注入到网络每一层"><text class="dia-t" x="350" y="24" font-size="14" text-anchor="middle" fill="var(--fg)" font-weight="700">t 不是一个数字，要变成一串能被每一层读到的向量</text><rect x="30" y="82" width="96" height="48" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="78" y="106" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">t = 990</text><text class="dia-t" x="78" y="125" font-size="11.5" text-anchor="middle" fill="var(--muted)">一个整数</text><line x1="126" y1="106" x2="177" y2="106" stroke="var(--accent)" stroke-width="2"/><polygon points="186,106 177,101 177,111" fill="var(--accent)"/><polyline points="200,150 203.4,147.616 206.8,145.327 210.2,143.224 213.6,141.392 217,139.902 220.4,138.816 223.8,138.175 227.2,138.005 230.6,138.314 234,139.088 237.4,140.298 240.8,141.894 244.2,143.814 247.6,145.98 251,148.307 254.4,150.7 257.8,153.066 261.2,155.31 264.6,157.342 268,159.082 271.4,160.459 274.8,161.419 278.2,161.924 281.6,161.954 285,161.507 288.4,160.601 291.8,159.273 295.2,157.575 298.6,155.575 302,153.353 305.4,150.997 308.8,148.601 312.2,146.262 315.6,144.071 319,142.116 322.4,140.476 325.8,139.216 329.2,138.385 332.6,138.017 336,138.128" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="200,186 203.4,181.327 206.8,177.392 210.2,174.816 213.6,174.005 217,175.088 220.4,177.894 223.8,181.98 227.2,186.7 230.6,191.31 234,195.082 237.4,197.419 240.8,197.954 244.2,196.601 247.6,193.575 251,189.353 254.4,184.601 257.8,180.071 261.2,176.476 264.6,174.385 268,174.128 271.4,175.745 274.8,178.981 278.2,183.325 281.6,188.092 285,192.528 288.4,195.934 291.8,197.771 295.2,197.75 298.6,195.874 302,192.439 305.4,187.987 308.8,183.222 312.2,178.895 315.6,175.69 319,174.113 322.4,174.412 325.8,176.541 329.2,180.163 332.6,184.707 336,189.455" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="200,222 203.4,213.392 206.8,210.005 210.2,213.894 213.6,222.7 217,231.082 220.4,233.954 223.8,229.575 227.2,220.601 230.6,212.476 234,210.128 237.4,214.981 240.8,224.092 244.2,231.934 247.6,233.75 251,228.439 254.4,219.222 257.8,211.69 261.2,210.412 264.6,216.163 268,225.455 271.4,232.651 274.8,233.386 278.2,227.215 281.6,217.88 285,211.045 288.4,210.854 291.8,217.425 295.2,226.771 298.6,233.223 302,232.867 305.4,225.92 308.8,216.595 312.2,210.549 315.6,211.449 319,218.749 322.4,228.021 325.8,233.641 329.2,232.2 332.6,224.571 336,215.383" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><text class="dia-t" x="268" y="130" font-size="12" text-anchor="middle" fill="var(--accent)" font-weight="700">不同频率的正弦</text><text class="dia-t" x="268" y="250" font-size="11.5" text-anchor="middle" fill="var(--muted)">低频管「大概在哪一段」，高频管「精确是第几步」</text><line x1="346" y1="186" x2="397" y2="186" stroke="var(--accent)" stroke-width="2"/><polygon points="406,186 397,181 397,191" fill="var(--accent)"/><rect x="410" y="150" width="120" height="72" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"/><text class="dia-t" x="470" y="186" font-size="13" text-anchor="middle" fill="var(--accent)" font-weight="700">时间嵌入</text><text class="dia-t" x="470" y="205" font-size="11.5" text-anchor="middle" fill="var(--muted)">一串浮点数</text><line x1="530" y1="186" x2="581" y2="186" stroke="var(--accent)" stroke-width="2"/><polygon points="590,186 581,181 581,191" fill="var(--accent)"/><rect x="594" y="150" width="96" height="72" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="642" y="186" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">每一层</text><text class="dia-t" x="642" y="205" font-size="11.5" text-anchor="middle" fill="var(--muted)">都注入</text><text class="dia-t" x="350" y="292" font-size="12.5" text-anchor="middle" fill="var(--done)" font-weight="700">⭐ 和位置编码是同一个套路：把「第几个」变成一串不同频率的正弦</text><text class="dia-t" x="350" y="314" font-size="12" text-anchor="middle" fill="var(--muted)">⚠️ 只在输入端塞一次不够 —— t 要影响每一层的行为</text></svg><figcaption>看中间那三条**频率不同**的正弦：低频区分「大致在哪一段」，高频区分「精确是第几步」。⭐ 和 Transformer 的位置编码是同一个套路，只是这里编的是时间而不是位置。</figcaption></figure>
+<figure class="dia"><svg viewBox="0 0 700 326" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="整数 t 经过一列不同频率的正弦变成时间嵌入向量，再注入到网络每一层"><text class="dia-t" x="350" y="24" font-size="14" text-anchor="middle" fill="var(--fg)" font-weight="700">t 不是一个数字，要变成一串能被每一层读到的向量</text><rect x="30" y="82" width="96" height="48" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="78" y="106" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">t = 990</text><text class="dia-t" x="78" y="125" font-size="11.5" text-anchor="middle" fill="var(--muted)">一个整数</text><line x1="126" y1="106" x2="177" y2="106" stroke="var(--accent)" stroke-width="2"/><polygon points="186,106 177,101 177,111" fill="var(--accent)"/><polyline points="200,150 203.4,147.616 206.8,145.327 210.2,143.224 213.6,141.392 217,139.902 220.4,138.816 223.8,138.175 227.2,138.005 230.6,138.314 234,139.088 237.4,140.298 240.8,141.894 244.2,143.814 247.6,145.98 251,148.307 254.4,150.7 257.8,153.066 261.2,155.31 264.6,157.342 268,159.082 271.4,160.459 274.8,161.419 278.2,161.924 281.6,161.954 285,161.507 288.4,160.601 291.8,159.273 295.2,157.575 298.6,155.575 302,153.353 305.4,150.997 308.8,148.601 312.2,146.262 315.6,144.071 319,142.116 322.4,140.476 325.8,139.216 329.2,138.385 332.6,138.017 336,138.128" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="200,186 203.4,181.327 206.8,177.392 210.2,174.816 213.6,174.005 217,175.088 220.4,177.894 223.8,181.98 227.2,186.7 230.6,191.31 234,195.082 237.4,197.419 240.8,197.954 244.2,196.601 247.6,193.575 251,189.353 254.4,184.601 257.8,180.071 261.2,176.476 264.6,174.385 268,174.128 271.4,175.745 274.8,178.981 278.2,183.325 281.6,188.092 285,192.528 288.4,195.934 291.8,197.771 295.2,197.75 298.6,195.874 302,192.439 305.4,187.987 308.8,183.222 312.2,178.895 315.6,175.69 319,174.113 322.4,174.412 325.8,176.541 329.2,180.163 332.6,184.707 336,189.455" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="200,222 203.4,213.392 206.8,210.005 210.2,213.894 213.6,222.7 217,231.082 220.4,233.954 223.8,229.575 227.2,220.601 230.6,212.476 234,210.128 237.4,214.981 240.8,224.092 244.2,231.934 247.6,233.75 251,228.439 254.4,219.222 257.8,211.69 261.2,210.412 264.6,216.163 268,225.455 271.4,232.651 274.8,233.386 278.2,227.215 281.6,217.88 285,211.045 288.4,210.854 291.8,217.425 295.2,226.771 298.6,233.223 302,232.867 305.4,225.92 308.8,216.595 312.2,210.549 315.6,211.449 319,218.749 322.4,228.021 325.8,233.641 329.2,232.2 332.6,224.571 336,215.383" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><text class="dia-t" x="268" y="130" font-size="12" text-anchor="middle" fill="var(--accent)" font-weight="700">不同频率的正弦</text><text class="dia-t" x="268" y="250" font-size="11.5" text-anchor="middle" fill="var(--muted)">低频管「大概在哪一段」，高频管「精确是第几步」</text><line x1="346" y1="186" x2="397" y2="186" stroke="var(--accent)" stroke-width="2"/><polygon points="406,186 397,181 397,191" fill="var(--accent)"/><rect x="410" y="150" width="120" height="72" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"/><text class="dia-t" x="470" y="186" font-size="13" text-anchor="middle" fill="var(--accent)" font-weight="700">时间嵌入</text><text class="dia-t" x="470" y="205" font-size="11.5" text-anchor="middle" fill="var(--muted)">一串浮点数</text><line x1="530" y1="186" x2="581" y2="186" stroke="var(--accent)" stroke-width="2"/><polygon points="590,186 581,181 581,191" fill="var(--accent)"/><rect x="594" y="150" width="96" height="72" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="642" y="186" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">每一层</text><text class="dia-t" x="642" y="205" font-size="11.5" text-anchor="middle" fill="var(--muted)">都注入</text><text class="dia-t" x="350" y="292" font-size="12.5" text-anchor="middle" fill="var(--done)" font-weight="700">⭐ 和位置编码是同一个套路：把「第几个」变成一串不同频率的正弦</text><text class="dia-t" x="350" y="314" font-size="12" text-anchor="middle" fill="var(--muted)">⚠️ 只在输入端塞一次不够 —— t 要影响每一层的行为</text></svg><figcaption>看中间那三条<strong>频率不同</strong>的正弦：低频区分「大致在哪一段」，高频区分「精确是第几步」。⭐ 和 Transformer 的位置编码是同一个套路，只是这里编的是时间而不是位置。</figcaption></figure>
 
 <p>⚠️ 代码里它一般叫 <code>timestep_embedding</code> 或 <code>time_mlp</code>；连续时间的实现喂的不是 t 而是噪声水平 σ 或 log-SNR。</p>
 <hr />
-<h2 id="_5">🔗 这一章连到哪里</h2>
+<h2 id="_6">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -427,7 +487,7 @@ t= 990 k=142.35 | 摆烂猜x0=1.9877 摆烂猜eps=0.9995 | x0-MSE=2.02e+02 eps-M
 <tbody>
 <tr>
 <td><a href="../机器学习的数学原理/01b-KL散度.html">数学原理 01b · KL 散度</a></td>
-<td>第二节那串 KL 的地基。⭐ 还补了本章没展开的一条：ELBO 里那项是<strong>反向 KL</strong>，「允许 Q 只挑一个峰蹲着」</td>
+<td>第二节 KL 的基础：先核对谁负责加权、谁在优化；受限近似可能有覆盖或择峰倾向，但遗漏一个峰不等于总惩罚为零</td>
 </tr>
 <tr>
 <td><a href="../机器学习的数学原理/13-EM与高斯混合.html">数学原理 13 · EM 与高斯混合</a></td>
@@ -444,14 +504,14 @@ t= 990 k=142.35 | 摆烂猜x0=1.9877 摆烂猜eps=0.9995 | x0-MSE=2.02e+02 eps-M
 </tbody>
 </table></div>
 <hr />
-<h2 id="_6">✅ 检查点</h2>
+<h2 id="_7">✅ 检查点</h2>
 <ol>
 <li>损失里那个 ε 是从哪来的？为什么说这是监督学习？</li>
 <li>ELBO 展开成一串 KL 之后，是哪个性质让它「塌成」平方差的？</li>
 <li>L_simple 比完整的变分下界少了什么？后果是什么？</li>
 <li>t=10 时，一个「原样吐回输入」的网络在 x₀ 目标上错多少？在 ε 目标上呢？说明什么？</li>
-<li>同一个网络（ε 上恒差 0.1），换成 x₀ 口径后损失跨了多大范围？</li>
-<li>为什么时间步不能直接喂一个整数？</li>
+<li>同一份模拟预测（ε 误差标准差为 0.1），换成 x₀ 口径后损失跨了多大范围？</li>
+<li>时间嵌入解决什么表达问题？它会增加原始时间信息吗？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
@@ -459,13 +519,13 @@ t= 990 k=142.35 | 摆烂猜x0=1.9877 摆烂猜eps=0.9995 | x0-MSE=2.02e+02 eps-M
 <li><strong>是你自己 <code>randn</code> 出来的那份噪声</strong> —— 第 2 步采出、第 3 步拿它造 x_t、第 5 步拿它当标签，同一个张量。标签已知，所以是<strong>监督回归</strong>。</li>
 <li><strong>两边都是高斯，方差写死、只学均值。</strong> 同方差高斯的 KL 等于均值差的平方除以 2σ²；再把 μ_θ 写成和 μ̃_t 同一形状，相减时 x_t 抵消，只剩 ε − ε_θ。</li>
 <li>少了系数 β_t²/(2σ_t²α_t(1−ᾱ_t))。它在 t 小时特别大，<strong>扔掉等于给 t 大的样本更高权重</strong>，而那段决定整体构图。</li>
-<li>x₀ 上 <strong>0.0019</strong>（几乎白送），ε 上 <strong>1.0024</strong>（一分钱没占到）：t 小时预测 x₀ 太容易，<strong>损失小 = 梯度小 = 几乎不给学习信号</strong>。</li>
+<li>t=10 时，复制 xₜ 的 x₀-MSE 是 <strong>0.0019</strong>，恒预测 ε=0 的 MSE 是 <strong>1.0024</strong>。比较的是两个不同的基线，不能仅凭这些数断言参数梯度小或网络学不到东西。</li>
 <li>从 <strong>1.90e-05</strong> 跨到 <strong>202</strong>，七个数量级；ε 口径恒定 <strong>0.0100</strong>。换算比 k 在 t=990 时是 <strong>142.35</strong>。</li>
-<li>0~999 的标量信息量太小，尺度也和激活值对不上。正弦嵌入摊成高维向量：低频维管「在链条哪一段」、高频维管「精确第几步」，相邻 t 向量相近所以能插值。</li>
+<li>时间标量本身可以用；正弦嵌入把不同变化尺度展开成多个特征，方便网络使用。它不会增加原始时间信息，也不保证换调度后无需重新适配。</li>
 </ol>
 </details>
 <hr />
-<h2 id="_7">🛑 可以停在这里</h2>
+<h2 id="_8">🛑 可以停在这里</h2>
 <p>读到这里，你已经能<strong>看懂任意一份扩散训练脚本的核心几行</strong>：<code>t = torch.randint(0, T, (B,))</code> 是每张图各抽各的时刻，<code>noise = torch.randn_like(x0)</code> 就是标签，<code>F.mse_loss(model(x_t, t), noise)</code> 就是 L_simple，而 <code>prediction_type: v_prediction</code> 只是换了参数化、不是换了模型。</p>
 <p><strong>什么时候回来</strong>：改了预测目标却忘了改采样端的换算（第三节）；loss 好看但出图糊（第二节）；想上 zero terminal SNR 却发现 ε 参数化在终点除零（第三节的表）。</p>
 <p>⚡ <strong>走神救援</strong></p>

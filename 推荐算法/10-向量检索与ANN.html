@@ -189,7 +189,13 @@ th,td{min-width:5.2em}
 </style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script><style>
+body.rec-ann-reading .cr-study.cr-has-notes{grid-template-columns:minmax(0,1fr)}
+body.rec-ann-reading .cr-study .cr-notes{grid-template-columns:repeat(2,minmax(0,1fr))}
+body.rec-ann-reading .ov-body table caption{padding:14px;text-align:left;font-size:15px;line-height:1.8;color:var(--muted)}
+body.rec-ann-reading .ann-parameter-table td:first-child code{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+@media(max-width:600px){body.rec-ann-reading .cr-study .cr-notes{grid-template-columns:minmax(0,1fr)}}
+</style></head><body class="overview-reading topic-reading rec-ann-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -202,10 +208,10 @@ th,td{min-width:5.2em}
 <main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
-<li><a href="#_2">😵 先看问题有多难</a></li>
-<li><a href="#ann">🗺️ 四大类 ANN 方法</a></li>
+<li><a href="#_2">先定相似度，再看计算成本</a></li>
+<li><a href="#ann">🗺️ 四种常用检索构件</a></li>
 <li><a href="#hnsw">🕸️ HNSW：图解「多层高速公路」</a></li>
-<li><a href="#_3">🔨 动手：三个工具，够用一辈子</a></li>
+<li><a href="#_3">🔨 动手：两个索引例子</a></li>
 <li><a href="#ann_1">🎛️ 怎么评估你的 ANN 索引</a></li>
 <li><a href="#_4">⚠️ 工业落地的四个真实问题</a></li>
 <li><a href="#_5">🧩 一个容易忽略的点：向量检索 ≠ 只能用于召回</a></li>
@@ -215,312 +221,544 @@ th,td{min-width:5.2em}
 </ul>
 </div>
 </details>
-<h1 id="10-ann">10 · 向量检索与 ANN</h1>
-<p>⏱ <strong>20 分钟</strong> ｜ ⭐ <strong>核心</strong> ｜ 🔨 有代码</p>
-<hr />
+<div class="ov-layout"><article class="ov-body"><h1 id="10-ann">10 · 向量检索与 ANN</h1>
+<p>⏱ <strong>主线阅读约 20 分钟</strong> ｜ ⭐ <strong>核心</strong> ｜ 🔨 有代码；代码实验另留时间</p>
 <h2 id="_1">🎯 一句话</h2>
-<p>有了用户向量和 1 亿个物品向量，怎么在 <strong>10 毫秒</strong>内找出最近的 1000 个？
-答案：<strong>放弃「精确」，接受「差不多」</strong> —— 这就是 ANN（近似最近邻）。</p>
-<figure class="dia" data-fig="ann_layers"><svg viewBox="0 0 760 336" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="分层近似最近邻搜索"><defs><marker id="a5__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker><marker id="a5l__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--link)"/></marker><marker id="a5g__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--done)"/></marker></defs><circle cx="70.0" cy="84" r="6" fill="var(--muted)" opacity=".55"/><circle cx="205.0" cy="84" r="6" fill="var(--muted)" opacity=".55"/><circle cx="340.0" cy="84" r="6" fill="var(--muted)" opacity=".55"/><circle cx="475.0" cy="84" r="6" fill="var(--muted)" opacity=".55"/><circle cx="610.0" cy="84" r="6" fill="var(--muted)" opacity=".55"/><line x1="70.0" y1="84" x2="205.0" y2="84" stroke="var(--border)" stroke-width="1"/><line x1="205.0" y1="84" x2="340.0" y2="84" stroke="var(--border)" stroke-width="1"/><line x1="340.0" y1="84" x2="475.0" y2="84" stroke="var(--border)" stroke-width="1"/><line x1="475.0" y1="84" x2="610.0" y2="84" stroke="var(--border)" stroke-width="1"/><text class="dia-t" x="632" y="88" font-size="11" text-anchor="start" fill="var(--muted)" font-weight="normal">顶层：稀疏，跨度大</text><circle cx="70.0" cy="168" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="124.0" cy="168" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="178.0" cy="168" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="232.0" cy="168" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="286.0" cy="168" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="340.0" cy="168" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="394.0" cy="168" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="448.0" cy="168" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="502.0" cy="168" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="556.0" cy="168" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="610.0" cy="168" r="4.5" fill="var(--muted)" opacity=".55"/><line x1="70.0" y1="168" x2="124.0" y2="168" stroke="var(--border)" stroke-width="1"/><line x1="124.0" y1="168" x2="178.0" y2="168" stroke="var(--border)" stroke-width="1"/><line x1="178.0" y1="168" x2="232.0" y2="168" stroke="var(--border)" stroke-width="1"/><line x1="232.0" y1="168" x2="286.0" y2="168" stroke="var(--border)" stroke-width="1"/><line x1="286.0" y1="168" x2="340.0" y2="168" stroke="var(--border)" stroke-width="1"/><line x1="340.0" y1="168" x2="394.0" y2="168" stroke="var(--border)" stroke-width="1"/><line x1="394.0" y1="168" x2="448.0" y2="168" stroke="var(--border)" stroke-width="1"/><line x1="448.0" y1="168" x2="502.0" y2="168" stroke="var(--border)" stroke-width="1"/><line x1="502.0" y1="168" x2="556.0" y2="168" stroke="var(--border)" stroke-width="1"/><line x1="556.0" y1="168" x2="610.0" y2="168" stroke="var(--border)" stroke-width="1"/><text class="dia-t" x="632" y="172" font-size="11" text-anchor="start" fill="var(--muted)" font-weight="normal">中层</text><circle cx="70.0" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="93.5" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="117.0" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="140.4" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="163.9" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="187.4" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="210.9" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="234.3" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="257.8" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="281.3" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="304.8" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="328.3" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="351.7" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="375.2" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="398.7" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="422.2" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="445.7" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="469.1" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="492.6" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="516.1" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="539.6" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="563.0" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="586.5" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><circle cx="610.0" cy="252" r="4.5" fill="var(--muted)" opacity=".55"/><line x1="70.0" y1="252" x2="93.5" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="93.5" y1="252" x2="117.0" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="117.0" y1="252" x2="140.4" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="140.4" y1="252" x2="163.9" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="163.9" y1="252" x2="187.4" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="187.4" y1="252" x2="210.9" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="210.9" y1="252" x2="234.3" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="234.3" y1="252" x2="257.8" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="257.8" y1="252" x2="281.3" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="281.3" y1="252" x2="304.8" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="304.8" y1="252" x2="328.3" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="328.3" y1="252" x2="351.7" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="351.7" y1="252" x2="375.2" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="375.2" y1="252" x2="398.7" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="398.7" y1="252" x2="422.2" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="422.2" y1="252" x2="445.7" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="445.7" y1="252" x2="469.1" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="469.1" y1="252" x2="492.6" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="492.6" y1="252" x2="516.1" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="516.1" y1="252" x2="539.6" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="539.6" y1="252" x2="563.0" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="563.0" y1="252" x2="586.5" y2="252" stroke="var(--border)" stroke-width="1"/><line x1="586.5" y1="252" x2="610.0" y2="252" stroke="var(--border)" stroke-width="1"/><text class="dia-t" x="632" y="256" font-size="11" text-anchor="start" fill="var(--muted)" font-weight="normal">底层：全部向量</text><line x1="70" y1="84" x2="205" y2="84" stroke="var(--accent)" stroke-width="2.6" marker-end="url(#a5__f1)"/><line x1="205" y1="84" x2="205" y2="168" stroke="var(--accent)" stroke-width="2.6" marker-end="url(#a5__f1)"/><line x1="205" y1="168" x2="313" y2="168" stroke="var(--accent)" stroke-width="2.6" marker-end="url(#a5__f1)"/><line x1="313" y1="168" x2="313" y2="252" stroke="var(--accent)" stroke-width="2.6" marker-end="url(#a5__f1)"/><line x1="313" y1="252" x2="352" y2="252" stroke="var(--accent)" stroke-width="2.6" marker-end="url(#a5__f1)"/><circle cx="352" cy="252" r="8" fill="var(--accent)"/><text class="dia-t" x="366" y="256" font-size="11.5" text-anchor="start" fill="var(--accent)" font-weight="700">找到</text><text class="dia-t" x="340" y="30" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">先在稀疏的顶层大步跳，再逐层下沉细找</text><text class="dia-t" x="340" y="298" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">⭐ 这样只碰了几十个点，而不是全部一亿个 —— 代价是「近似」：</text><text class="dia-t" x="340" y="320" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">它找到的可能是第 2 近而不是第 1 近。工业界普遍接受这个折中</text></svg><figcaption>先在稀疏的顶层大步跳，再逐层下沉细找 —— 只碰几十个点而不是全部一亿个。⚠️ 代价是「<b>近似</b>」：它找到的可能是第 2 近而不是第 1 近，工业界普遍接受这个折中。</figcaption></figure>
-
-<hr />
-<h2 id="_2">😵 先看问题有多难</h2>
-<div class="codehilite"><pre><span></span><code>   用户向量 u (64 维)
-   物品向量 v₁, v₂, ..., v₁₀₀₀₀₀₀₀₀ (各 64 维)
-
-   要找：和 u 点积最大的前 1000 个
-
-   暴力算法：
-     1 亿次点积 × 64 次乘法 = 64 亿次浮点运算
-     单核 CPU ≈ 几秒钟
-     ❌ 超预算 100 倍以上
-</code></pre></div>
-
-<p><strong>ANN 的交易</strong>：牺牲 1–5% 的准确率，换 <strong>100–1000 倍</strong>的速度。</p>
-<blockquote>
-<p>💡 <strong>为什么这个交易划算？</strong>
-召回本来就是「宁滥勿缺」的粗筛，漏掉排名第 998 的物品，对最终结果几乎没影响。
-后面还有粗排和精排会重新把关。</p>
-</blockquote>
-<hr />
-<h2 id="ann">🗺️ 四大类 ANN 方法</h2>
-<div class="panels">
-<div class="panel">
-<div class="ph">①  暴力 Flat</div>
-<ul class="pl"><li>全算一遍，100% 准确</li><li>✅ 精确  ❌ 慢</li><li>👉 物品 &lt; 10 万时直接用它，别折腾</li></ul>
-</div>
-<div class="panel">
-<div class="ph">②  聚类 / 倒排 IVF</div>
-<ul class="pl"><li>先把 1 亿个向量聚成 4096 个簇</li><li>查询时只搜最近的几个簇</li><li>✅ 内存友好、可调  ⚠️ 边界物品可能漏</li></ul>
-</div>
-<div class="panel">
-<div class="ph">③  图索引 HNSW  ⭐ 目前的主流</div>
-<ul class="pl"><li>把向量组织成"多层高速公路网"</li><li>从最上层大步跳，逐层下降精细搜索</li><li>✅ 又快又准（召回率 95%+ 且 亚毫秒）</li><li>❌ 内存占用大、构建慢、不易增删</li></ul>
-</div>
-<div class="panel">
-<div class="ph">④  量化 PQ / OPQ</div>
-<ul class="pl"><li>把 64 维 float32 (256字节) 压成 8 字节</li><li>✅ 内存降 32 倍  ❌ 精度损失</li><li><b>👉 常和 IVF 组合</b>：IVF-PQ，用于超大规模</li></ul>
-</div>
-</div>
-
-<hr />
+<p><strong>向量检索先定义“更相似”，再在质量、延迟和内存之间做取舍。</strong>ANN 是近似最近邻搜索：用较少搜索工作换取可能漏掉真近邻的风险；Flat 则是精确对照。</p>
+<p>把问题具体化：已有用户向量与 <strong>1 亿个 64 维物品向量</strong>，想在 <strong>10 ms</strong> 预算内取 top-1000。这里的预算是例子，不是本章程序已经达到的性能。</p>
+<p>先看<a href="#_2">相似度与算账</a>；想动手可直达<a href="#_3">两个独立索引例子</a>；已有索引但不会比较，去<a href="#ann_1">评估协议与独立 NumPy 入口</a>。</p>
+<figure class="dia" data-fig="ann_layers">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 784" style="max-width:none" role="img" aria-label="人为查询示意：q等于8.2。上层从A到J，再同名下沉；中层从J到F，再同名下沉；底层以ef等于3维护候选，返回距离最小的H和F。不是实际建图或性能测量。">
+<title>查询示意：先找下一层入口，再从底层候选中取 top-k</title>
+<desc>一维节点值为A=0、C=4、F=7、H=9、J=12，距离为节点值与q=8.2之差的绝对值。上层邻接表人为设置，橙色是上层贪心移动及同ID下沉，蓝色是底层发现邻居。最终候选H、F、J，返回k=2的H、F。本例不证明近似搜索总能找到全局最近。</desc>
+<defs>
+<marker id="a5__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker>
+<marker id="a5l__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--link)"/></marker>
+<marker id="a5g__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--done)"/></marker>
+</defs>
+<g class="dia-t" transform="translate(0 64)" fill="var(--fg)" font-size="18">
+<text x="28" y="44" font-size="24" font-weight="700">先找入口，再从候选里选结果</text>
+<rect x="28" y="66" width="788" height="52" rx="10" fill="var(--accent-soft)" stroke="var(--muted)"/>
+<text x="48" y="99" font-weight="700">查询 q = 8.2</text><text x="245" y="99">距离 = |节点数值 − 8.2|　　k = 2，底层 ef = 3</text>
+<text x="28" y="188" font-weight="700">L2</text><text x="28" y="313" font-weight="700">L1</text><text x="28" y="463" font-weight="700">L0</text>
+<text x="215" y="153" fill="var(--accent)">① 先沿邻边从 A 到更近的 J</text>
+<text x="225" y="278" fill="var(--accent)">② 中层从 J 到 F，再以 F 进入底层</text>
+<text x="28" y="398" fill="var(--link)">③ 底层沿邻边发现候选</text>
+<g stroke="var(--muted)" stroke-width="2" fill="none">
+<line data-edge="2:A:J" x1="150" y1="182" x2="750" y2="182"/>
+<line data-edge="1:A:F" x1="150" y1="307" x2="500" y2="307"/><line data-edge="1:F:J" x1="500" y1="307" x2="750" y2="307"/>
+<line data-edge="0:A:C" x1="150" y1="457" x2="350" y2="457"/><line data-edge="0:C:F" x1="350" y1="457" x2="500" y2="457"/><line data-edge="0:F:H" x1="500" y1="457" x2="600" y2="457"/><line data-edge="0:H:J" x1="600" y1="457" x2="750" y2="457"/>
+</g>
+<g stroke="var(--accent)" stroke-width="3" fill="none" marker-end="url(#a5__f1)">
+<line data-route="2:A:J" x1="171" y1="182" x2="728" y2="182"/>
+<line data-descent="J:2:1" x1="750" y1="204" x2="750" y2="285" stroke-dasharray="6 5"/>
+<line data-route="1:J:F" x1="728" y1="307" x2="522" y2="307"/>
+<line data-descent="F:1:0" x1="500" y1="329" x2="500" y2="435" stroke-dasharray="6 5"/>
+</g>
+<text x="775" y="246" fill="var(--accent)" font-size="17">同一个 J</text>
+<text x="525" y="356" fill="var(--accent)" font-size="17">同一个 F</text>
+<g stroke="var(--link)" stroke-width="3" fill="none" marker-end="url(#a5l__f1)">
+<line data-discover="F:C" x1="478" y1="457" x2="372" y2="457"/>
+<line data-discover="F:H" x1="522" y1="457" x2="578" y2="457"/>
+<line data-discover="H:J" x1="622" y1="457" x2="728" y2="457"/>
+</g>
+<g fill="var(--card)" stroke="var(--muted)" stroke-width="2">
+<circle data-layer="2" data-node="A" cx="150" cy="182" r="20"/><circle data-layer="2" data-node="J" cx="750" cy="182" r="20"/>
+<circle data-layer="1" data-node="A" cx="150" cy="307" r="20"/><circle data-layer="1" data-node="F" cx="500" cy="307" r="20"/><circle data-layer="1" data-node="J" cx="750" cy="307" r="20"/>
+<circle data-layer="0" data-node="A" cx="150" cy="457" r="20"/><circle data-layer="0" data-node="C" cx="350" cy="457" r="20"/>
+<circle data-layer="0" data-node="F" cx="500" cy="457" r="20" stroke="var(--done)" stroke-width="3"/><circle data-layer="0" data-node="H" cx="600" cy="457" r="20" stroke="var(--done)" stroke-width="3"/><circle data-layer="0" data-node="J" cx="750" cy="457" r="20"/>
+</g>
+<g text-anchor="middle" font-weight="700">
+<text x="150" y="189">A</text><text x="750" y="189">J</text>
+<text x="150" y="314">A</text><text x="500" y="314">F</text><text x="750" y="314">J</text>
+<text x="150" y="464">A</text><text x="350" y="464">C</text><text x="500" y="464">F</text><text x="600" y="464">H</text><text x="750" y="464">J</text>
+</g>
+<g text-anchor="middle" font-size="17" fill="var(--muted)">
+<text x="150" y="495">值 0</text><text x="350" y="495">值 4</text><text x="500" y="495">值 7</text><text x="600" y="495">值 9</text><text x="750" y="495">值 12</text>
+<text x="150" y="521">距离 8.2</text><text x="350" y="521">距离 4.2</text><text x="500" y="521">距离 1.2</text><text x="600" y="521">距离 0.8</text><text x="750" y="521">距离 3.8</text>
+</g>
+<rect x="80" y="550" width="740" height="65" rx="10" fill="var(--quote-bg)" stroke="var(--muted)"/>
+<text x="100" y="578">发现过 F、C、H、J；ef = 3 最终保留 H、F、J。</text>
+<text x="100" y="602" font-size="17" fill="var(--muted)">C 曾进入候选，后来被更近的 J 替换；ef 不是“访问次数”。</text>
+<line x1="450" y1="615" x2="450" y2="646" stroke="var(--done)" stroke-width="3" marker-end="url(#a5g__f1)"/>
+<rect x="200" y="650" width="500" height="48" rx="10" fill="var(--card)" stroke="var(--done)" stroke-width="2"/>
+<text x="450" y="681" text-anchor="middle" font-weight="700" fill="var(--done)">从保留候选取 k = 2 个：H（0.8）、F（1.2）</text>
+</g>
+</svg>
+<figcaption>看橙色的同名下沉，再看底层蓝色的候选发现。邻接关系是人为构造的教学示意，不是完整 HNSW 建图或性能实测；本例返回 H、F，不代表 ANN 对所有查询都保证全局 top-k。</figcaption>
+</figure>
+<h2 id="_2">先定相似度，再看计算成本</h2>
+<p><strong>最大内积检索（MIPS）按原始点积取分数最大的物品，不等于必须归一化。</strong>模型若使用原始点积打分，物品向量的长度可能就是分数的一部分；改成单位向量会改变目标。只有明确要比较余弦相似度时，才把非零向量单位化后做内积检索。</p>
+<p>单位化就是把每个向量除以自己的长度，让长度变成 1、方向不变。</p>
+<div class="table-scroll"><table><caption>同一个查询 q=(1,0)：归一化可以改变赢家</caption><thead><tr><th scope="col">物品向量</th><th scope="col">原始点积</th><th scope="col">余弦相似度</th></tr></thead><tbody>
+<tr><td>A=(2,2)</td><td>2，原始内积赢家</td><td>约 0.7071</td></tr>
+<tr><td>B=(1,0)</td><td>1</td><td>1，余弦赢家</td></tr></tbody></table></div>
+<p>读这个反例：单位化不是不会改变答案的“清洗”。本章后面的两个索引例子都<strong>明确选择 cosine</strong>；Faiss 通过单位化向量加 IP 实现，hnswlib 通过 cosine 空间查询。</p>
+<p>对两个单位向量，平方 L2 距离等于 <strong>2 − 2 × 内积</strong>，所以精确排序对应；Faiss 的 L2 接口返回平方距离，越小越近，IP 越大越相似。<a href="https://github.com/facebookresearch/faiss/wiki/MetricType-and-distances">Faiss 的距离约定</a>。</p>
+<p>量化重建向量未必仍是单位向量，不能把精确排序关系直接外推成 PQ 的 L2/IP 结果相同。</p>
+<p>零向量的余弦没有定义，本章代码会明确拒绝，而不是假装归一化后就能正常比较。</p>
+<div class="table-scroll"><table><caption>暴力检索的算账：只算一遍点积，不猜墙钟时间</caption><thead><tr><th scope="col">计算项</th><th scope="col">1 亿物品、64 维时</th><th scope="col">尚未包含</th></tr></thead><tbody>
+<tr><td>乘法</td><td>1 亿 × 64 = 64 亿次</td><td>每个点积中的求和</td></tr>
+<tr><td>逐项加法</td><td>1 亿 × 63 = 63 亿次</td><td>top-1000 选择、访存和通信</td></tr>
+<tr><td>原始向量负载</td><td>1 亿 × 64 × 4 字节 = 25.6 GB</td><td>索引、ID、工作区；此处 GB 为十进制</td></tr></tbody></table></div>
+<p>单核、SIMD、批处理、多线程、GPU 和内存带宽都会影响实际时间；不能只凭上述次数就说“几秒钟”或“快 1000 倍”。是否值得建 ANN，还要看查询次数能否摊销建库成本。</p>
+<blockquote><p><strong>近似不是免费漏召回。</strong>ANN 可能漏掉重要候选，不承诺只漏排名靠后的物品。粗排和精排只能处理已经召回的集合，不能恢复没进入候选的物品；“损失 1–5% 换 100–1000 倍速度”不能当成通用保证。</p></blockquote>
+<h2 id="ann">🗺️ 四种常用检索构件：可以组合，不是四选一</h2>
+<div class="table-scroll"><table><caption>先认识各自负责什么，再谈选型</caption><thead><tr><th scope="col">构件</th><th scope="col">减少哪种成本</th><th scope="col">代价与边界</th></tr></thead><tbody>
+<tr><td>① Flat：精确基线</td><td>不建复杂搜索结构，直接比较全部向量</td><td>搜索工作随数据量增加；小库或查询次数少时值得先试。精确近邻不等于业务推荐正确率 100%。</td></tr>
+<tr><td>② IVF：聚类与倒排</td><td>把物品分到桶，只访问选中的若干桶</td><td>可能漏掉未访问桶里的近邻。IVF-Flat 仍存原始向量与 ID，并不自动压缩它们。</td></tr>
+<tr><td>③ HNSW：分层图搜索</td><td>沿邻接关系找候选，避免全库逐项比较</td><td>建图有成本，图也占内存；实际召回率和延迟必须测试。</td></tr>
+<tr><td>④ PQ / OPQ：量化</td><td>PQ 将向量分成子空间，以码本编号存储；OPQ 先学习有利于量化的变换</td><td>引入重建/距离估计误差。可与 IVF 组合为 IVF-PQ；8 字节只是此处选定配置的编码本体。</td></tr></tbody></table></div>
+<p>例如把 1 亿个向量分成 4096 个簇，再查若干簇，是一种 IVF 设置，并非所有规模都应使用 4096。<code>nlist</code> 决定桶数，<code>nprobe</code> 决定本次访问多少桶；桶也不保证等大。下方小例使用 64 个桶，避免直接启动百万点训练。</p>
 <h2 id="hnsw">🕸️ HNSW：图解「多层高速公路」</h2>
-<figure class="dia"><svg viewBox="0 0 700 396" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="HNSW 的三层图结构：第 2 层只有 A 和 Z 两个节点、第 1 层是 A D K P T Z、第 0 层是全部节点，同一节点在多层重复出现，查询自上而下逐层降落"><line x1="16" y1="75" x2="684" y2="75" stroke="var(--border)" stroke-width="1" stroke-dasharray="4 4"/><line x1="16" y1="145" x2="684" y2="145" stroke="var(--border)" stroke-width="1" stroke-dasharray="4 4"/><line x1="165.0" y1="53" x2="165.0" y2="98" stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="3 4" opacity="0.8"/><line x1="675.0" y1="53" x2="675.0" y2="98" stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="3 4" opacity="0.8"/><line x1="165.0" y1="122" x2="165.0" y2="175" stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="3 4" opacity="0.8"/><line x1="226.2" y1="122" x2="226.2" y2="175" stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="3 4" opacity="0.8"/><line x1="369.0" y1="122" x2="369.0" y2="175" stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="3 4" opacity="0.8"/><line x1="471.0" y1="122" x2="471.0" y2="175" stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="3 4" opacity="0.8"/><line x1="552.6" y1="122" x2="552.6" y2="175" stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="3 4" opacity="0.8"/><line x1="675.0" y1="122" x2="675.0" y2="175" stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="3 4" opacity="0.8"/><line x1="178.0" y1="40" x2="662.0" y2="40" stroke="var(--accent)" stroke-width="2"/><text class="dia-t" x="420" y="26" font-size="11.5" text-anchor="middle" fill="var(--muted)">只有少数节点</text><circle cx="165.0" cy="40" r="13" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="165.0" y="45" font-size="13" text-anchor="middle" fill="var(--fg)">A</text><circle cx="675.0" cy="40" r="13" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="675.0" y="45" font-size="13" text-anchor="middle" fill="var(--fg)">Z</text><text class="dia-t" x="16" y="44" font-size="12" text-anchor="start" fill="var(--fg)">第 2 层（稀疏，长跳）</text><line x1="176.0" y1="110" x2="215.2" y2="110" stroke="var(--accent)" stroke-width="1.6" opacity="0.75"/><line x1="237.2" y1="110" x2="358.0" y2="110" stroke="var(--accent)" stroke-width="1.6" opacity="0.75"/><line x1="380.0" y1="110" x2="460.0" y2="110" stroke="var(--accent)" stroke-width="1.6" opacity="0.75"/><line x1="482.0" y1="110" x2="541.6" y2="110" stroke="var(--accent)" stroke-width="1.6" opacity="0.75"/><line x1="563.6" y1="110" x2="664.0" y2="110" stroke="var(--accent)" stroke-width="1.6" opacity="0.75"/><circle cx="165.0" cy="110" r="11" fill="var(--card)" stroke="var(--accent)" stroke-width="1.6"/><text class="dia-t" x="165.0" y="114" font-size="12" text-anchor="middle" fill="var(--fg)">A</text><circle cx="226.2" cy="110" r="11" fill="var(--card)" stroke="var(--accent)" stroke-width="1.6"/><text class="dia-t" x="226.2" y="114" font-size="12" text-anchor="middle" fill="var(--fg)">D</text><circle cx="369.0" cy="110" r="11" fill="var(--card)" stroke="var(--accent)" stroke-width="1.6"/><text class="dia-t" x="369.0" y="114" font-size="12" text-anchor="middle" fill="var(--fg)">K</text><circle cx="471.0" cy="110" r="11" fill="var(--card)" stroke="var(--accent)" stroke-width="1.6"/><text class="dia-t" x="471.0" y="114" font-size="12" text-anchor="middle" fill="var(--fg)">P</text><circle cx="552.6" cy="110" r="11" fill="var(--card)" stroke="var(--accent)" stroke-width="1.6"/><text class="dia-t" x="552.6" y="114" font-size="12" text-anchor="middle" fill="var(--fg)">T</text><circle cx="675.0" cy="110" r="11" fill="var(--card)" stroke="var(--accent)" stroke-width="1.6"/><text class="dia-t" x="675.0" y="114" font-size="12" text-anchor="middle" fill="var(--fg)">Z</text><text class="dia-t" x="16" y="114" font-size="12" text-anchor="start" fill="var(--fg)">第 1 层（中等）</text><line x1="165.0" y1="180" x2="675.0" y2="180" stroke="var(--border)" stroke-width="1.4"/><circle cx="165.0" cy="180" r="4.5" fill="var(--muted)" opacity="0.6"/><text class="dia-t" x="165.0" y="199" font-size="11" text-anchor="middle" fill="var(--muted)">A</text><circle cx="185.4" cy="180" r="4.5" fill="var(--muted)" opacity="0.6"/><text class="dia-t" x="185.4" y="199" font-size="11" text-anchor="middle" fill="var(--muted)">B</text><circle cx="205.8" cy="180" r="4.5" fill="var(--muted)" opacity="0.6"/><text class="dia-t" x="205.8" y="199" font-size="11" text-anchor="middle" fill="var(--muted)">C</text><circle cx="226.2" cy="180" r="4.5" fill="var(--muted)" opacity="0.6"/><text class="dia-t" x="226.2" y="199" font-size="11" text-anchor="middle" fill="var(--muted)">D</text><circle cx="246.6" cy="180" r="4.5" fill="var(--muted)" opacity="0.6"/><text class="dia-t" x="246.6" y="199" font-size="11" text-anchor="middle" fill="var(--muted)">E</text><circle cx="267.0" cy="180" r="4.5" fill="var(--muted)" opacity="0.6"/><text class="dia-t" x="267.0" y="199" font-size="11" text-anchor="middle" fill="var(--muted)">F</text><circle cx="287.4" cy="180" r="4.5" fill="var(--muted)" opacity="0.6"/><text class="dia-t" x="287.4" y="199" font-size="11" text-anchor="middle" fill="var(--muted)">G</text><circle cx="307.8" cy="180" r="4.5" fill="var(--muted)" opacity="0.6"/><text class="dia-t" x="307.8" y="199" font-size="11" text-anchor="middle" fill="var(--muted)">H</text><circle cx="328.2" cy="180" r="4.5" fill="var(--muted)" opacity="0.6"/><text class="dia-t" x="328.2" y="199" font-size="11" text-anchor="middle" fill="var(--muted)">I</text><circle cx="348.6" cy="180" r="4.5" fill="var(--muted)" opacity="0.6"/><text class="dia-t" x="348.6" y="199" font-size="11" text-anchor="middle" fill="var(--muted)">J</text><circle cx="369.0" cy="180" r="4.5" fill="var(--muted)" opacity="0.6"/><text class="dia-t" x="369.0" y="199" font-size="11" text-anchor="middle" fill="var(--muted)">K</text><circle cx="389.4" cy="180" r="4.5" fill="var(--muted)" opacity="0.6"/><text class="dia-t" x="389.4" y="199" font-size="11" text-anchor="middle" fill="var(--muted)">L</text><circle cx="409.8" cy="180" r="4.5" fill="var(--muted)" opacity="0.6"/><text class="dia-t" x="409.8" y="199" font-size="11" text-anchor="middle" fill="var(--muted)">M</text><circle cx="430.2" cy="180" r="4.5" fill="var(--muted)" opacity="0.6"/><text class="dia-t" x="430.2" y="199" font-size="11" text-anchor="middle" fill="var(--muted)">N</text><circle cx="450.6" cy="180" r="4.5" fill="var(--muted)" opacity="0.6"/><text class="dia-t" x="450.6" y="199" font-size="11" text-anchor="middle" fill="var(--muted)">O</text><circle cx="471.0" cy="180" r="4.5" fill="var(--muted)" opacity="0.6"/><text class="dia-t" x="471.0" y="199" font-size="11" text-anchor="middle" fill="var(--muted)">P</text><text class="dia-t" x="573.0" y="199" font-size="11" text-anchor="middle" fill="var(--muted)">...</text><circle cx="675.0" cy="180" r="4.5" fill="var(--muted)" opacity="0.6"/><text class="dia-t" x="675.0" y="199" font-size="11" text-anchor="middle" fill="var(--muted)">Z</text><text class="dia-t" x="16" y="184" font-size="12" text-anchor="start" fill="var(--fg)">第 0 层（全部节点）</text><line x1="16" y1="220" x2="684" y2="220" stroke="var(--border)" stroke-width="1"/><text class="dia-t" x="24" y="246" font-size="12.5" text-anchor="start" fill="var(--fg)" font-weight="700">查询过程（找离 Q 最近的点）：</text><text class="dia-t" x="44" y="272" font-size="12" text-anchor="start" fill="var(--muted)">1. 从第 2 层的入口 A 出发，大步跳到最接近 Q 的节点</text><text class="dia-t" x="44" y="294" font-size="12" text-anchor="start" fill="var(--muted)">2. 下降到第 1 层，在该节点附近继续找更近的</text><text class="dia-t" x="44" y="316" font-size="12" text-anchor="start" fill="var(--muted)">3. 下降到第 0 层，精细搜索邻居</text><text class="dia-t" x="44" y="338" font-size="12" text-anchor="start" fill="var(--muted)">4. 返回 top-k</text><text class="dia-t" x="350" y="378" font-size="12.5" text-anchor="middle" fill="var(--accent)">💡 就像找地址：先看省级地图 → 市级 → 街道</text></svg><figcaption>该看的是那几条虚线：同一个节点（A、D、K、P、T、Z）在多层里<b>重复出现</b> —— 上层就是下层的稀疏采样，这才是「多层高速公路」的字面含义。⭐ 查询顺着虚线一层层往下掉，每降一层搜索范围就收紧一圈。</figcaption></figure>
-
-<p><strong>HNSW 的两个关键参数</strong>：</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>参数</th>
-<th>含义</th>
-<th>调法</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>M</code></td>
-<td>每个节点连几个邻居</td>
-<td>16–48。大 → 准但费内存</td>
-</tr>
-<tr>
-<td><code>efConstruction</code></td>
-<td>建索引时搜索深度</td>
-<td>100–500。大 → 索引质量好但建得慢</td>
-</tr>
-<tr>
-<td><code>efSearch</code></td>
-<td>查询时搜索深度</td>
-<td>⭐ <strong>线上调这个</strong>。大 → 准但慢。这是你的「精度-延迟」旋钮</td>
-</tr>
-</tbody>
-</table></div>
-<hr />
-<h2 id="_3">🔨 动手：三个工具，够用一辈子</h2>
-<h3 id="1faissmeta">工具 1：Faiss（Meta 出品，工业标准）</h3>
-<div class="codehilite"><pre><span></span><code><span class="c1"># pip install faiss-cpu     (GPU 版: faiss-gpu)</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">faiss</span>
+<p><strong>上层是下层节点的稀疏子集；下沉时仍是同一个节点。</strong>高层先沿边寻找更近的入口，再在更密的层继续搜索。这个“更近”是搜索已访问邻居时的比较，不是保证找到该层全局最近点，也没有每层固定缩小一圈半径的规则。</p>
+<figure class="dia">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 614" style="max-width:none" role="img" aria-label="HNSW层级身份示意：L2为A和Z，L1为A、D、K、P、T、Z，L0完整画出A到Z共26个节点。同名虚线都连接实际节点，上层集合是下层的子集。">
+<title>层级身份：同一个字母，代表同一个向量</title>
+<desc>顶层2个节点、中层6个节点、底层26个节点。特别追踪T：它出现在L1和L0，没有出现在L2。虚线表示身份对应，不表示搜索路径。字母的水平间距仅用于排版，不代表向量距离。</desc>
+<g class="dia-t" transform="translate(0 64)" fill="var(--fg)" font-size="20">
+<text x="28" y="44" font-size="25" font-weight="700">同一个字母，代表同一个向量</text>
+<text x="28" y="84" font-size="19" fill="var(--muted)">上层节点必须也出现在下层；虚线只表示身份对应。</text>
+<g fill="var(--quote-bg)" stroke="var(--muted)">
+<rect x="134" y="120" width="803" height="60" rx="10"/><rect x="134" y="245" width="803" height="60" rx="10"/><rect x="134" y="370" width="803" height="60" rx="10"/>
+</g>
+<g font-size="19" font-weight="700"><text x="28" y="156">L2 · 2 个</text><text x="28" y="281">L1 · 6 个</text><text x="28" y="406">L0 · 26 个</text></g>
+<g stroke="var(--muted)" stroke-width="2" stroke-dasharray="6 6">
+<line data-identity="A:2:1" x1="160" y1="166" x2="160" y2="259"/><line data-identity="Z:2:1" x1="910" y1="166" x2="910" y2="259"/>
+<line data-identity="A:1:0" x1="160" y1="291" x2="160" y2="384"/><line data-identity="D:1:0" x1="250" y1="291" x2="250" y2="384"/><line data-identity="K:1:0" x1="460" y1="291" x2="460" y2="384"/><line data-identity="P:1:0" x1="610" y1="291" x2="610" y2="384"/><line data-identity="T:1:0" x1="730" y1="291" x2="730" y2="384" stroke="var(--accent)" stroke-width="3"/><line data-identity="Z:1:0" x1="910" y1="291" x2="910" y2="384"/>
+</g>
+<g fill="var(--card)" stroke="var(--muted)" stroke-width="2">
+<circle data-layer="2" data-node="A" cx="160" cy="150" r="14"/><circle data-layer="2" data-node="Z" cx="910" cy="150" r="14"/>
+<circle data-layer="1" data-node="A" cx="160" cy="275" r="14"/><circle data-layer="1" data-node="D" cx="250" cy="275" r="14"/><circle data-layer="1" data-node="K" cx="460" cy="275" r="14"/><circle data-layer="1" data-node="P" cx="610" cy="275" r="14"/><circle data-layer="1" data-node="T" cx="730" cy="275" r="14" stroke="var(--accent)" stroke-width="3"/><circle data-layer="1" data-node="Z" cx="910" cy="275" r="14"/>
+<circle data-layer="0" data-node="A" cx="160" cy="400" r="14"/><circle data-layer="0" data-node="B" cx="190" cy="400" r="14"/><circle data-layer="0" data-node="C" cx="220" cy="400" r="14"/><circle data-layer="0" data-node="D" cx="250" cy="400" r="14"/><circle data-layer="0" data-node="E" cx="280" cy="400" r="14"/><circle data-layer="0" data-node="F" cx="310" cy="400" r="14"/><circle data-layer="0" data-node="G" cx="340" cy="400" r="14"/><circle data-layer="0" data-node="H" cx="370" cy="400" r="14"/><circle data-layer="0" data-node="I" cx="400" cy="400" r="14"/><circle data-layer="0" data-node="J" cx="430" cy="400" r="14"/><circle data-layer="0" data-node="K" cx="460" cy="400" r="14"/><circle data-layer="0" data-node="L" cx="490" cy="400" r="14"/><circle data-layer="0" data-node="M" cx="520" cy="400" r="14"/><circle data-layer="0" data-node="N" cx="550" cy="400" r="14"/><circle data-layer="0" data-node="O" cx="580" cy="400" r="14"/><circle data-layer="0" data-node="P" cx="610" cy="400" r="14"/><circle data-layer="0" data-node="Q" cx="640" cy="400" r="14"/><circle data-layer="0" data-node="R" cx="670" cy="400" r="14"/><circle data-layer="0" data-node="S" cx="700" cy="400" r="14"/><circle data-layer="0" data-node="T" cx="730" cy="400" r="14" stroke="var(--accent)" stroke-width="3"/><circle data-layer="0" data-node="U" cx="760" cy="400" r="14"/><circle data-layer="0" data-node="V" cx="790" cy="400" r="14"/><circle data-layer="0" data-node="W" cx="820" cy="400" r="14"/><circle data-layer="0" data-node="X" cx="850" cy="400" r="14"/><circle data-layer="0" data-node="Y" cx="880" cy="400" r="14"/><circle data-layer="0" data-node="Z" cx="910" cy="400" r="14"/>
+</g>
+<g text-anchor="middle" font-size="18" font-weight="700">
+<text x="160" y="156">A</text><text x="910" y="156">Z</text>
+<text x="160" y="281">A</text><text x="250" y="281">D</text><text x="460" y="281">K</text><text x="610" y="281">P</text><text x="730" y="281" fill="var(--accent)">T</text><text x="910" y="281">Z</text>
+<text x="160" y="406">A</text><text x="190" y="406">B</text><text x="220" y="406">C</text><text x="250" y="406">D</text><text x="280" y="406">E</text><text x="310" y="406">F</text><text x="340" y="406">G</text><text x="370" y="406">H</text><text x="400" y="406">I</text><text x="430" y="406">J</text><text x="460" y="406">K</text><text x="490" y="406">L</text><text x="520" y="406">M</text><text x="550" y="406">N</text><text x="580" y="406">O</text><text x="610" y="406">P</text><text x="640" y="406">Q</text><text x="670" y="406">R</text><text x="700" y="406">S</text><text x="730" y="406" fill="var(--accent)">T</text><text x="760" y="406">U</text><text x="790" y="406">V</text><text x="820" y="406">W</text><text x="850" y="406">X</text><text x="880" y="406">Y</text><text x="910" y="406">Z</text>
+</g>
+<text x="134" y="478" font-weight="700" fill="var(--accent)">例如 T：在 L1 与 L0 是同一个节点；没有进入 L2。</text>
+<text x="134" y="516" font-size="18" fill="var(--muted)">横向位置仅为排版；字母顺序与向量距离、查询顺序无关。</text>
+</g>
+</svg>
+<figcaption>沿 T 的橙色虚线看：同一向量在多层出现，不是降层后变成另一个节点。底层 A–Z 全部画出；为聚焦身份，本图省略层内邻边，不表示空间被逐层划成更小的区域。</figcaption>
+</figure>
+<div class="table-scroll"><table class="ann-parameter-table"><caption>三个参数：建图质量与查询成本分开调</caption><thead><tr><th scope="col">参数</th><th scope="col">当前作用</th><th scope="col">本章设置与边界</th></tr></thead><tbody>
+<tr><td><code>M</code></td><td>控制图连接的规模</td><td>示例 32；16–48 可作试验起点，不代表所有层每点实际度数恰好 M。更大的图通常更费内存。</td></tr>
+<tr><td><code>efConstruction</code></td><td>建图时使用的搜索候选列表规模</td><td>示例 200；100–500 是可试范围，不是最大跳数。增大可能改善图质量，但也增加构建成本。</td></tr>
+<tr><td><code>efSearch</code> / <code>ef</code></td><td>查询时维护的候选列表规模</td><td>示例 64，覆盖 k=10；上线后可扫这个参数观察近邻 Recall 与延迟。</td></tr></tbody></table></div>
+<p>增删能力要看具体库。hnswlib 支持增量插入、更新既有 ID 和标记删除；标记删除不等于立刻释放全部图内存。Faiss HNSW 的删除支持不同。不能简单概括为“所有 HNSW 都不能增删”。<a href="https://github.com/nmslib/hnswlib">hnswlib 官方接口</a>、<a href="https://raw.githubusercontent.com/nmslib/hnswlib/master/ALGO_PARAMS.md">参数解释</a>。</p>
+<h2 id="_3">🔨 动手：两个索引例子</h2>
+<p>两个索引例子都使用 <strong>12,000 × 64</strong> 的随机物品矩阵、32 个查询、k=10、固定种子与单线程；每一整块都可另存为 Python 文件独立运行。第三个代码入口在<a href="#ann_1">评估一节</a>，只需 NumPy，用小数组检查评估规则。</p>
+<p><strong>CPU 包：</strong>Faiss 的 CPU Python 包为 <code>faiss-cpu</code>，是否有匹配的 wheel 取决于 Python 与平台。<a href="https://pypi.org/project/faiss-cpu/1.15.0/#files">查看 Faiss CPU 文件</a>。</p>
+<p><strong>源码编译：</strong><code>hnswlib 0.8.0</code> 在 PyPI 只有源码包，Windows 安装需要合适的已有 C++ 构建环境。<a href="https://pypi.org/project/hnswlib/0.8.0/#files">查看 hnswlib 文件</a>。</p>
+<p>没有工具链时，可先跳到<a href="#ann_1">NumPy 评估入口</a>；不必为了读这一章安装编译器。</p>
+<p><strong>GPU 是另一个部署选择：</strong>应另查官方支持，不用 <code>pip install faiss-gpu</code> 作通用安装承诺。</p>
+<h3 id="1faissmeta">工具 1：Faiss（Meta 开发的向量检索库）</h3>
+<p><strong>用途：同一数据、同一 cosine 目标，对比四个独立实例，并检查保存回读。</strong>单位化后的 float32 行矩阵送入所有索引；B 和 D 各自训练自己的桶中心，D 再训练 PQ 码本。这里 M=8、nbits=8 表示 8 个子空间、每个 256 个码字，不是 HNSW 的连接数 M=32。</p>
+<p>观察运行时打印的索引名、近邻 Recall 和第一条查询的 ID，以及回读断言是否完成。随机向量没有用户相关性标签；结果不是推荐准确率，也没有测 P99 或一亿规模。不同版本/浮点内核在边界并列处可能不同，不应把单次 ID 列表当固定教材答案。</p>
+<section class="cr-study" aria-label="Faiss：四个独立索引与保存回读">
+<div class="cr-notes">
+<button type="button" class="cr-note" data-code-lines="8-16"><strong>数据入口：本例主动选 cosine</strong><span>拒绝空、非有限与零向量，再转成单位长度的连续 float32；这不是所有 MIPS 都必须做的处理。</span><span class="cr-note-range">定位本段代码 ↗</span></button>
+<button type="button" class="cr-note" data-code-lines="19-29"><strong>返回边界：缺邻居不是物品</strong><span>校验 (32,10) 形状、有效 ID、有限分数和去重；-1 可保留占位，但不会成为命中。</span><span class="cr-note-range">定位本段代码 ↗</span></button>
+<button type="button" class="cr-note" data-code-lines="32-42"><strong>固定小数据与精确基线</strong><span>12,000×64、32 个查询、k=10、固定种子、单线程；exact 独立保存，不被后面的索引覆盖。</span><span class="cr-note-range">定位本段代码 ↗</span></button>
+<button type="button" class="cr-note" data-code-lines="44-65"><strong>三个近似方案分别配置</strong><span>B/D 分别拥有粗量化器并设置 nprobe=16；D 显式 IP 与 8×8-bit PQ，C 的 efSearch=64。</span><span class="cr-note-range">定位本段代码 ↗</span></button>
+<button type="button" class="cr-note" data-code-lines="67-89"><strong>查询、近邻重合与保存回读</strong><span>各实例打印结果；缺邻居仍占 k 的分母。每个索引分别回读并比对结果，临时文件自动清理；未计时。</span><span class="cr-note-range">定位本段代码 ↗</span></button>
+</div>
+<div class="codehilite" data-code-language="python" data-code-title="Faiss：四个独立索引与保存回读"><pre><code><span class="sd">&quot;&quot;&quot;小 CPU cosine 检索例：四个索引、精确基线及保存回读；不是性能基准。&quot;&quot;&quot;</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tempfile</span><span class="w"> </span><span class="kn">import</span> <span class="n">TemporaryDirectory</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">faiss</span>
 
-<span class="n">d</span> <span class="o">=</span> <span class="mi">64</span>                                  <span class="c1"># 向量维度</span>
-<span class="n">n</span> <span class="o">=</span> <span class="mi">1_000_000</span>                           <span class="c1"># 物品数</span>
-<span class="n">item_vecs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">((</span><span class="n">n</span><span class="p">,</span> <span class="n">d</span><span class="p">))</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s1">&#39;float32&#39;</span><span class="p">)</span>
 
-<span class="c1"># ⭐ 关键：内积检索前必须 L2 归一化，这样内积 = 余弦相似度</span>
-<span class="n">faiss</span><span class="o">.</span><span class="n">normalize_L2</span><span class="p">(</span><span class="n">item_vecs</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">unit_rows</span><span class="p">(</span><span class="n">values</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;只接受非空、有限、非零的二维向量；输出连续 float32。&quot;&quot;&quot;</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">ndim</span> <span class="o">!=</span> <span class="mi">2</span> <span class="ow">or</span> <span class="nb">min</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">1</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;向量必须是非空且有限的二维数组&quot;</span><span class="p">)</span>
+    <span class="n">norms</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdims</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">norms</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span> <span class="ow">or</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">norms</span> <span class="o">==</span> <span class="mi">0</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;cosine 不接受零向量或不可表示的范数&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">ascontiguousarray</span><span class="p">(</span><span class="n">x</span> <span class="o">/</span> <span class="n">norms</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
 
-<span class="c1"># ---------- 方案 A：小规模（&lt; 10 万），直接暴力 ----------</span>
-<span class="n">index</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">IndexFlatIP</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>            <span class="c1"># IP = Inner Product</span>
-<span class="n">index</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">item_vecs</span><span class="p">)</span>
 
-<span class="c1"># ---------- 方案 B：中大规模，IVF ----------</span>
-<span class="n">nlist</span> <span class="o">=</span> <span class="mi">4096</span>                            <span class="c1"># 聚类中心数，经验值 ≈ 4*sqrt(n)</span>
-<span class="n">quantizer</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">IndexFlatIP</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
-<span class="n">index</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">IndexIVFFlat</span><span class="p">(</span><span class="n">quantizer</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">nlist</span><span class="p">,</span> <span class="n">faiss</span><span class="o">.</span><span class="n">METRIC_INNER_PRODUCT</span><span class="p">)</span>
-<span class="n">index</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">item_vecs</span><span class="p">)</span>                  <span class="c1"># ⭐ IVF 必须先训练（学聚类中心）</span>
-<span class="n">index</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">item_vecs</span><span class="p">)</span>
-<span class="n">index</span><span class="o">.</span><span class="n">nprobe</span> <span class="o">=</span> <span class="mi">32</span>                       <span class="c1"># ⭐ 查几个簇。这是精度-速度旋钮</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">check_results</span><span class="p">(</span><span class="n">scores</span><span class="p">,</span> <span class="n">ids</span><span class="p">,</span> <span class="n">nq</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">catalog_size</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;-1 表示缺邻居，不能作为物品；有效结果不得重复或越界。&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">scores</span><span class="o">.</span><span class="n">shape</span> <span class="o">!=</span> <span class="p">(</span><span class="n">nq</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span> <span class="ow">or</span> <span class="n">ids</span><span class="o">.</span><span class="n">shape</span> <span class="o">!=</span> <span class="p">(</span><span class="n">nq</span><span class="p">,</span> <span class="n">k</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;返回数组形状不符&quot;</span><span class="p">)</span>
+    <span class="n">valid</span> <span class="o">=</span> <span class="n">ids</span> <span class="o">&gt;=</span> <span class="mi">0</span>
+    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">ids</span> <span class="o">&lt;</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="ow">or</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">ids</span><span class="p">[</span><span class="n">valid</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">catalog_size</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;返回了非法物品 ID&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">scores</span><span class="p">[</span><span class="n">valid</span><span class="p">])</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">FloatingPointError</span><span class="p">(</span><span class="s2">&quot;有效候选的分数不是有限值&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="n">row</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">]))</span> <span class="o">!=</span> <span class="n">np</span><span class="o">.</span><span class="n">count_nonzero</span><span class="p">(</span><span class="n">row</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">)</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">ids</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;同一查询返回了重复物品&quot;</span><span class="p">)</span>
 
-<span class="c1"># ---------- 方案 C：HNSW，追求低延迟 ----------</span>
-<span class="n">index</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">IndexHNSWFlat</span><span class="p">(</span><span class="n">d</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="n">faiss</span><span class="o">.</span><span class="n">METRIC_INNER_PRODUCT</span><span class="p">)</span>
-<span class="n">index</span><span class="o">.</span><span class="n">hnsw</span><span class="o">.</span><span class="n">efConstruction</span> <span class="o">=</span> <span class="mi">200</span>
-<span class="n">index</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">item_vecs</span><span class="p">)</span>
-<span class="n">index</span><span class="o">.</span><span class="n">hnsw</span><span class="o">.</span><span class="n">efSearch</span> <span class="o">=</span> <span class="mi">64</span>                <span class="c1"># ⭐ 线上调这个</span>
 
-<span class="c1"># ---------- 方案 D：超大规模 + 内存紧张，IVF-PQ ----------</span>
-<span class="n">m</span><span class="p">,</span> <span class="n">nbits</span> <span class="o">=</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">8</span>                         <span class="c1"># 分 8 段，每段 8 bit → 8 字节/向量</span>
-<span class="n">index</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">IndexIVFPQ</span><span class="p">(</span><span class="n">quantizer</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">nlist</span><span class="p">,</span> <span class="n">m</span><span class="p">,</span> <span class="n">nbits</span><span class="p">)</span>
-<span class="n">index</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">item_vecs</span><span class="p">)</span>
-<span class="n">index</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">item_vecs</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+    <span class="n">seed</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">nq</span><span class="p">,</span> <span class="n">k</span> <span class="o">=</span> <span class="mi">20260911</span><span class="p">,</span> <span class="mi">12_000</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="mi">10</span>
+    <span class="n">faiss</span><span class="o">.</span><span class="n">omp_set_num_threads</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>
+    <span class="n">items</span> <span class="o">=</span> <span class="n">unit_rows</span><span class="p">(</span><span class="n">rng</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">d</span><span class="p">)))</span>
+    <span class="n">queries</span> <span class="o">=</span> <span class="n">unit_rows</span><span class="p">(</span><span class="n">rng</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="n">nq</span><span class="p">,</span> <span class="n">d</span><span class="p">)))</span>
+    <span class="n">metric</span><span class="p">,</span> <span class="n">nlist</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">METRIC_INNER_PRODUCT</span><span class="p">,</span> <span class="mi">64</span>
 
-<span class="c1"># ---------- 查询（都一样） ----------</span>
-<span class="n">user_vec</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="n">d</span><span class="p">))</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s1">&#39;float32&#39;</span><span class="p">)</span>
-<span class="n">faiss</span><span class="o">.</span><span class="n">normalize_L2</span><span class="p">(</span><span class="n">user_vec</span><span class="p">)</span>
-<span class="n">scores</span><span class="p">,</span> <span class="n">ids</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">user_vec</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Top-10 物品 ID:&quot;</span><span class="p">,</span> <span class="n">ids</span><span class="p">[</span><span class="mi">0</span><span class="p">][:</span><span class="mi">10</span><span class="p">])</span>
+    <span class="c1"># A：精确 cosine 基线；已单位化，IP 分数越大越相似。</span>
+    <span class="n">exact</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">IndexFlatIP</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
+    <span class="n">exact</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">items</span><span class="p">)</span>
 
-<span class="c1"># ---------- 保存 / 加载 ----------</span>
-<span class="n">faiss</span><span class="o">.</span><span class="n">write_index</span><span class="p">(</span><span class="n">index</span><span class="p">,</span> <span class="s2">&quot;items.index&quot;</span><span class="p">)</span>
-<span class="n">index</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">read_index</span><span class="p">(</span><span class="s2">&quot;items.index&quot;</span><span class="p">)</span>
-</code></pre></div>
+    <span class="c1"># B：IVF-Flat；独立 coarse quantizer，不与 D 共享训练状态。</span>
+    <span class="n">ivf_quantizer</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">IndexFlatIP</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
+    <span class="n">ivf</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">IndexIVFFlat</span><span class="p">(</span><span class="n">ivf_quantizer</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">nlist</span><span class="p">,</span> <span class="n">metric</span><span class="p">)</span>
+    <span class="n">ivf</span><span class="o">.</span><span class="n">cp</span><span class="o">.</span><span class="n">seed</span> <span class="o">=</span> <span class="n">seed</span>
+    <span class="n">ivf</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">items</span><span class="p">)</span>
+    <span class="n">ivf</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">items</span><span class="p">)</span>
+    <span class="n">ivf</span><span class="o">.</span><span class="n">nprobe</span> <span class="o">=</span> <span class="mi">16</span>
 
-<h3 id="2hnswlib">工具 2：hnswlib（更轻量，支持增量插入）</h3>
-<div class="codehilite"><pre><span></span><code><span class="c1"># pip install hnswlib</span>
+    <span class="c1"># C：HNSW；不需要聚类训练，但添加物品时需要构建图。</span>
+    <span class="n">hnsw</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">IndexHNSWFlat</span><span class="p">(</span><span class="n">d</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="n">metric</span><span class="p">)</span>
+    <span class="n">hnsw</span><span class="o">.</span><span class="n">hnsw</span><span class="o">.</span><span class="n">efConstruction</span> <span class="o">=</span> <span class="mi">200</span>
+    <span class="n">hnsw</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">items</span><span class="p">)</span>
+    <span class="n">hnsw</span><span class="o">.</span><span class="n">hnsw</span><span class="o">.</span><span class="n">efSearch</span> <span class="o">=</span> <span class="mi">64</span>
+
+    <span class="c1"># D：IVF-PQ；8 段，每段 8 bit，编码本体为 8 字节/向量。</span>
+    <span class="n">pq_quantizer</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">IndexFlatIP</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
+    <span class="n">pq</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">IndexIVFPQ</span><span class="p">(</span><span class="n">pq_quantizer</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">nlist</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="n">metric</span><span class="p">)</span>
+    <span class="n">pq</span><span class="o">.</span><span class="n">cp</span><span class="o">.</span><span class="n">seed</span> <span class="o">=</span> <span class="n">seed</span>
+    <span class="n">pq</span><span class="o">.</span><span class="n">pq</span><span class="o">.</span><span class="n">cp</span><span class="o">.</span><span class="n">seed</span> <span class="o">=</span> <span class="n">seed</span>
+    <span class="n">pq</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">items</span><span class="p">)</span>
+    <span class="n">pq</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">items</span><span class="p">)</span>
+    <span class="n">pq</span><span class="o">.</span><span class="n">nprobe</span> <span class="o">=</span> <span class="mi">16</span>
+
+    <span class="n">baseline_scores</span><span class="p">,</span> <span class="n">baseline_ids</span> <span class="o">=</span> <span class="n">exact</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">queries</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
+    <span class="n">check_results</span><span class="p">(</span><span class="n">baseline_scores</span><span class="p">,</span> <span class="n">baseline_ids</span><span class="p">,</span> <span class="n">nq</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">baseline_ids</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;精确基线必须返回 k 个有效物品&quot;</span><span class="p">)</span>
+    <span class="n">indexes</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;Flat&quot;</span><span class="p">:</span> <span class="n">exact</span><span class="p">,</span> <span class="s2">&quot;IVF-Flat&quot;</span><span class="p">:</span> <span class="n">ivf</span><span class="p">,</span> <span class="s2">&quot;HNSW&quot;</span><span class="p">:</span> <span class="n">hnsw</span><span class="p">,</span> <span class="s2">&quot;IVF-PQ&quot;</span><span class="p">:</span> <span class="n">pq</span><span class="p">}</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;NumPy:&quot;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">__version__</span><span class="p">,</span> <span class="s2">&quot;Faiss:&quot;</span><span class="p">,</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">faiss</span><span class="p">,</span> <span class="s2">&quot;__version__&quot;</span><span class="p">,</span> <span class="s2">&quot;unknown&quot;</span><span class="p">))</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;shape:&quot;</span><span class="p">,</span> <span class="n">items</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="s2">&quot;queries:&quot;</span><span class="p">,</span> <span class="n">nq</span><span class="p">,</span> <span class="s2">&quot;k:&quot;</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="s2">&quot;threads: 1&quot;</span><span class="p">)</span>
+
+    <span class="c1"># 每个实例分别查询和回读；临时目录退出时自动清理。</span>
+    <span class="k">with</span> <span class="n">TemporaryDirectory</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="s2">&quot;ann-demo-&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">folder</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">index</span> <span class="ow">in</span> <span class="n">indexes</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">scores</span><span class="p">,</span> <span class="n">ids</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">queries</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
+            <span class="n">check_results</span><span class="p">(</span><span class="n">scores</span><span class="p">,</span> <span class="n">ids</span><span class="p">,</span> <span class="n">nq</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span>
+            <span class="n">hits</span> <span class="o">=</span> <span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="n">a</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">])</span> <span class="o">&amp;</span> <span class="nb">set</span><span class="p">(</span><span class="n">e</span><span class="p">))</span> <span class="o">/</span> <span class="n">k</span>
+                    <span class="k">for</span> <span class="n">a</span><span class="p">,</span> <span class="n">e</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">ids</span><span class="p">,</span> <span class="n">baseline_ids</span><span class="p">)]</span>
+            <span class="nb">print</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="s2">&quot;Recall@10:&quot;</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">hits</span><span class="p">)),</span> <span class="s2">&quot;Top-10 ID:&quot;</span><span class="p">,</span> <span class="n">ids</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+            <span class="n">path</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">folder</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">name</span> <span class="o">+</span> <span class="s2">&quot;.index&quot;</span><span class="p">))</span>
+            <span class="n">faiss</span><span class="o">.</span><span class="n">write_index</span><span class="p">(</span><span class="n">index</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
+            <span class="n">restored</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">read_index</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+            <span class="n">scores2</span><span class="p">,</span> <span class="n">ids2</span> <span class="o">=</span> <span class="n">restored</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">queries</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">array_equal</span><span class="p">(</span><span class="n">ids</span><span class="p">,</span> <span class="n">ids2</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">scores</span><span class="p">,</span> <span class="n">scores2</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span><span class="n">name</span> <span class="o">+</span> <span class="s2">&quot; 保存回读结果不一致&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;保存回读检查结束；没有测量延迟或一亿规模性能。&quot;</span><span class="p">)</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">main</span><span class="p">()</span>
+
+</code></pre></div></section>
+<div class="table-scroll"><table><caption>本例一次 CPU 实跑：NumPy 2.3.5、Faiss 1.15.0；不是最优参数或性能保证</caption><thead><tr><th scope="col">独立实例</th><th scope="col">本次 Recall@10</th><th scope="col">这能说明什么</th></tr></thead><tbody>
+<tr><td>Flat</td><td>1.0</td><td>与自身精确基线一致。</td></tr><tr><td>IVF-Flat</td><td>0.628125</td><td>只访问 16/64 个桶，此设置会漏近邻。</td></tr><tr><td>HNSW</td><td>0.93125</td><td>本次图搜索接近但没有完全找回精确集合。</td></tr><tr><td>IVF-PQ</td><td>0.234375</td><td>此随机数据、8 字节编码与搜索参数有明显损失，不应直接部署。</td></tr></tbody></table></div>
+<p>四个索引本次保存回读检查均完成。PQ 的低值说明压缩与搜索配置必须验证，不能用“内存省了”替代质量检查；这也不是证明所有 PQ 都只能达到这个水平。这里只运行接口演示，未测延迟、吞吐或一亿规模。</p>
+<p>读完这一块，应该能指出四个对象分别在哪里设置参数。<code>nprobe=16</code> 必须在各个 IVF 实例上设置；<code>IndexIVFPQ</code> 的 metric 也显式传入 IP，不能依赖默认 L2。保存的是每个实例，回读后立刻查询验证；临时文件在程序结束时清理。</p>
+<h3 id="2hnswlib">工具 2：hnswlib（独立的图检索小例）</h3>
+<p><strong>用途：看清另一个库的接口，不能把 Faiss 的调用名照搬过去。</strong>本块自行创建物品、查询和 ID；<code>knn_query</code> 返回的是 labels 在前、distances 在后。cosine 空间的 distance 为 1−cosine，越小越近，和 Faiss IP 的分数方向相反。</p>
+<section class="cr-study" aria-label="hnswlib：独立 cosine 查询与对照">
+<div class="cr-notes">
+<button type="button" class="cr-note" data-code-lines="6-13"><strong>独立输入，不借上一个代码框</strong><span>本块自己的 unit_rows 拒绝非有限/零向量，将各行单位化后转连续 float32。</span><span class="cr-note-range">定位本段代码 ↗</span></button>
+<button type="button" class="cr-note" data-code-lines="16-36"><strong>建图与查询：labels 在前</strong><span>固定容量、种子、单线程与 ef=64；knn_query 返回 labels/distances，并检查形状、合法性、有限性和唯一性。</span><span class="cr-note-range">定位本段代码 ↗</span></button>
+<button type="button" class="cr-note" data-code-lines="38-47"><strong>距离方向与 NumPy 对照</strong><span>cosine distance=1−cosine，越小越近；精确内积越大越近，同分以小 ID 优先。这不是业务准确率。</span><span class="cr-note-range">定位本段代码 ↗</span></button>
+</div>
+<div class="codehilite" data-code-language="python" data-code-title="hnswlib：独立 cosine 查询与对照"><pre><code><span class="sd">&quot;&quot;&quot;独立 hnswlib cosine 小例；不依赖 Faiss 代码块，也不是性能基准。&quot;&quot;&quot;</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">hnswlib</span>
 
-<span class="n">index</span> <span class="o">=</span> <span class="n">hnswlib</span><span class="o">.</span><span class="n">Index</span><span class="p">(</span><span class="n">space</span><span class="o">=</span><span class="s1">&#39;cosine&#39;</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">64</span><span class="p">)</span>
-<span class="n">index</span><span class="o">.</span><span class="n">init_index</span><span class="p">(</span><span class="n">max_elements</span><span class="o">=</span><span class="mi">1_000_000</span><span class="p">,</span> <span class="n">ef_construction</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">M</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
-<span class="n">index</span><span class="o">.</span><span class="n">add_items</span><span class="p">(</span><span class="n">item_vecs</span><span class="p">,</span> <span class="n">ids</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">n</span><span class="p">))</span>
-<span class="n">index</span><span class="o">.</span><span class="n">set_ef</span><span class="p">(</span><span class="mi">64</span><span class="p">)</span>                        <span class="c1"># 查询精度旋钮</span>
 
-<span class="n">labels</span><span class="p">,</span> <span class="n">distances</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">knn_query</span><span class="p">(</span><span class="n">user_vec</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
-</code></pre></div>
+<span class="k">def</span><span class="w"> </span><span class="nf">unit_rows</span><span class="p">(</span><span class="n">values</span><span class="p">):</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">ndim</span> <span class="o">!=</span> <span class="mi">2</span> <span class="ow">or</span> <span class="nb">min</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">1</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;向量必须是非空且有限的二维数组&quot;</span><span class="p">)</span>
+    <span class="n">norms</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdims</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">norms</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span> <span class="ow">or</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">norms</span> <span class="o">==</span> <span class="mi">0</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;cosine 不接受零向量或不可表示的范数&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">ascontiguousarray</span><span class="p">(</span><span class="n">x</span> <span class="o">/</span> <span class="n">norms</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
 
-<h3 id="3">工具 3：向量数据库（要持久化、过滤、分布式时）</h3>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>产品</th>
-<th>特点</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Milvus / Zilliz</strong></td>
-<td>开源，功能全，支持标量过滤，云原生</td>
-</tr>
-<tr>
-<td><strong>Qdrant</strong></td>
-<td>Rust 写的，轻量快，过滤能力强</td>
-</tr>
-<tr>
-<td><strong>Weaviate</strong></td>
-<td>内置多种 embedding 模型</td>
-</tr>
-<tr>
-<td><strong>pgvector</strong></td>
-<td>PostgreSQL 插件。<strong>数据量不大时首选</strong>——省掉一整个新组件</td>
-</tr>
-</tbody>
-</table></div>
-<blockquote>
-<p>🔧 <strong>选型建议</strong>：
-- &lt; 10 万向量 → <code>IndexFlatIP</code>（暴力），别过度设计
-- 10 万 – 1000 万 → <strong>HNSW</strong>（Faiss 或 hnswlib）
-- &gt; 1000 万，内存吃紧 → <strong>IVF-PQ</strong>
-- 需要「过滤 + 持久化 + 分布式」→ 向量数据库
-- 已经有 Postgres → 先试 <strong>pgvector</strong></p>
-</blockquote>
-<hr />
-<h2 id="ann_1">🎛️ 怎么评估你的 ANN 索引</h2>
-<p><strong>唯一重要的指标：Recall@K（相对暴力检索）</strong></p>
-<div class="codehilite"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">measure_recall</span><span class="p">(</span><span class="n">ann_index</span><span class="p">,</span> <span class="n">exact_index</span><span class="p">,</span> <span class="n">queries</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">100</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;ANN 找出的 top-k 里，有多少在暴力检索的 top-k 里&quot;&quot;&quot;</span>
-    <span class="n">_</span><span class="p">,</span> <span class="n">ann_ids</span>   <span class="o">=</span> <span class="n">ann_index</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">queries</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
-    <span class="n">_</span><span class="p">,</span> <span class="n">exact_ids</span> <span class="o">=</span> <span class="n">exact_index</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">queries</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
 
-    <span class="n">recalls</span> <span class="o">=</span> <span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">a</span><span class="p">)</span> <span class="o">&amp;</span> <span class="nb">set</span><span class="p">(</span><span class="n">e</span><span class="p">))</span> <span class="o">/</span> <span class="n">k</span> <span class="k">for</span> <span class="n">a</span><span class="p">,</span> <span class="n">e</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">ann_ids</span><span class="p">,</span> <span class="n">exact_ids</span><span class="p">)]</span>
-    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">recalls</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+    <span class="n">seed</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">nq</span><span class="p">,</span> <span class="n">k</span> <span class="o">=</span> <span class="mi">20260911</span><span class="p">,</span> <span class="mi">12_000</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="mi">10</span>
+    <span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>
+    <span class="n">items</span> <span class="o">=</span> <span class="n">unit_rows</span><span class="p">(</span><span class="n">rng</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">d</span><span class="p">)))</span>
+    <span class="n">queries</span> <span class="o">=</span> <span class="n">unit_rows</span><span class="p">(</span><span class="n">rng</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="n">nq</span><span class="p">,</span> <span class="n">d</span><span class="p">)))</span>
+    <span class="n">ids</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span>
 
-<span class="c1"># 典型目标：Recall@100 ≥ 0.95，同时 P99 延迟 &lt; 10ms</span>
-</code></pre></div>
+    <span class="n">index</span> <span class="o">=</span> <span class="n">hnswlib</span><span class="o">.</span><span class="n">Index</span><span class="p">(</span><span class="n">space</span><span class="o">=</span><span class="s2">&quot;cosine&quot;</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="n">d</span><span class="p">)</span>
+    <span class="n">index</span><span class="o">.</span><span class="n">init_index</span><span class="p">(</span><span class="n">max_elements</span><span class="o">=</span><span class="n">n</span><span class="p">,</span> <span class="n">ef_construction</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">M</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">random_seed</span><span class="o">=</span><span class="n">seed</span><span class="p">)</span>
+    <span class="n">index</span><span class="o">.</span><span class="n">set_num_threads</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">index</span><span class="o">.</span><span class="n">add_items</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">ids</span><span class="o">=</span><span class="n">ids</span><span class="p">,</span> <span class="n">num_threads</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">index</span><span class="o">.</span><span class="n">set_ef</span><span class="p">(</span><span class="mi">64</span><span class="p">)</span>  <span class="c1"># 搜索候选列表规模；本例 64 &gt;= k=10。</span>
+    <span class="n">labels</span><span class="p">,</span> <span class="n">distances</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">knn_query</span><span class="p">(</span><span class="n">queries</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="n">k</span><span class="p">,</span> <span class="n">num_threads</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">labels</span><span class="o">.</span><span class="n">shape</span> <span class="o">!=</span> <span class="p">(</span><span class="n">nq</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span> <span class="ow">or</span> <span class="n">distances</span><span class="o">.</span><span class="n">shape</span> <span class="o">!=</span> <span class="p">(</span><span class="n">nq</span><span class="p">,</span> <span class="n">k</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;返回数组形状不符&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">labels</span> <span class="o">&gt;=</span> <span class="n">n</span><span class="p">)</span> <span class="ow">or</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">labels</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;返回了非法物品 ID&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">distances</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">FloatingPointError</span><span class="p">(</span><span class="s2">&quot;距离不是有限值&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">row</span><span class="p">))</span> <span class="o">!=</span> <span class="n">k</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">labels</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;同一查询返回了重复物品&quot;</span><span class="p">)</span>
 
-<p><strong>调参流程</strong>：
-1. 固定索引类型，画出 <strong>「Recall vs 延迟」曲线</strong>（扫 <code>efSearch</code> 或 <code>nprobe</code>）
-2. 在延迟预算内取 Recall 最高的点
-3. 如果达不到目标，换索引类型或加机器</p>
-<figure class="dia" aria-label="ANN 检索的 Recall 与延迟权衡曲线">
-<svg viewBox="0 0 800 390" role="img" aria-labelledby="ann-curve-title ann-curve-desc" xmlns="http://www.w3.org/2000/svg">
-  <title id="ann-curve-title">Recall@100 随检索延迟上升而提高，但收益递减</title>
-  <desc id="ann-curve-desc">曲线从一毫秒时约零点六的召回率上升到十毫秒后接近饱和。十毫秒、零点九五的位置被标为常见的性价比选择。</desc>
-  <rect x="22" y="22" width="756" height="346" rx="20" fill="var(--card,#fff)" stroke="var(--border,#e2e8f0)" stroke-width="2"/>
-  <text x="60" y="64" font-size="20" font-weight="700" fill="var(--fg,#172033)">调参不是追满分：在延迟预算里找最高 Recall</text>
-  <line x1="126" y1="310" x2="704" y2="310" stroke="var(--muted,#64748b)" stroke-width="2"/>
-  <line x1="126" y1="310" x2="126" y2="98" stroke="var(--muted,#64748b)" stroke-width="2"/>
-  <g font-size="14" fill="var(--muted,#475569)" text-anchor="end">
-    <text x="113" y="314">0.6</text><text x="113" y="261">0.8</text><text x="113" y="208">0.9</text><text x="113" y="155">0.95</text><text x="113" y="102">1.0</text>
-  </g>
-  <g stroke="var(--border,#e2e8f0)" stroke-width="1"><line x1="126" y1="257" x2="704" y2="257"/><line x1="126" y1="204" x2="704" y2="204"/><line x1="126" y1="151" x2="704" y2="151"/><line x1="126" y1="98" x2="704" y2="98"/></g>
-  <path d="M156 300 C184 267 208 255 244 247 S310 222 342 207 S412 175 458 157 S525 137 578 128 S648 122 682 120" fill="none" stroke="var(--link,#2563eb)" stroke-width="6" stroke-linecap="round"/>
-  <line x1="516" y1="310" x2="516" y2="151" stroke="var(--accent,#f97316)" stroke-width="2" stroke-dasharray="7 6"/>
-  <circle cx="516" cy="145" r="8" fill="var(--accent,#f97316)"/>
-  <rect x="536" y="106" width="172" height="55" rx="10" fill="var(--accent-soft,#fff7ed)" stroke="var(--accent,#fdba74)"/>
-  <text x="550" y="129" font-size="14" font-weight="700" fill="var(--fg,#9a3412)">常见性价比点</text>
-  <text x="550" y="148" font-size="13" fill="var(--fg,#9a3412)">Recall≈0.95，10 ms</text>
-  <g font-size="14" fill="var(--muted,#475569)" text-anchor="middle"><text x="156" y="335">1</text><text x="242" y="335">2</text><text x="372" y="335">5</text><text x="516" y="335">10</text><text x="682" y="335">20</text></g>
-  <text x="127" y="86" font-size="15" font-weight="700" fill="var(--fg,#334155)">Recall@100</text>
-  <text x="630" y="365" font-size="15" font-weight="700" fill="var(--fg,#334155)">延迟（ms）</text>
-</svg>
-<figcaption><strong>看橙色点：</strong>继续加检索时间仍会提高 Recall，但提升越来越小；先定 P99 延迟上限，再在上限以内选曲线最高点。</figcaption>
-</figure>
+    <span class="c1"># hnswlib cosine 返回 1-cosine 距离，越小越近。</span>
+    <span class="c1"># exact 使用 float32 内积；同分时以较小 ID 优先。</span>
+    <span class="n">exact_scores</span> <span class="o">=</span> <span class="n">queries</span> <span class="o">@</span> <span class="n">items</span><span class="o">.</span><span class="n">T</span>
+    <span class="n">exact_ids</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">np</span><span class="o">.</span><span class="n">lexsort</span><span class="p">((</span><span class="n">ids</span><span class="p">,</span> <span class="o">-</span><span class="n">row</span><span class="p">))[:</span><span class="n">k</span><span class="p">]</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">exact_scores</span><span class="p">])</span>
+    <span class="n">recall</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">([</span><span class="nb">len</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">a</span><span class="p">)</span> <span class="o">&amp;</span> <span class="nb">set</span><span class="p">(</span><span class="n">e</span><span class="p">))</span> <span class="o">/</span> <span class="n">k</span> <span class="k">for</span> <span class="n">a</span><span class="p">,</span> <span class="n">e</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">labels</span><span class="p">,</span> <span class="n">exact_ids</span><span class="p">)])</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;shape:&quot;</span><span class="p">,</span> <span class="n">items</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="s2">&quot;queries:&quot;</span><span class="p">,</span> <span class="n">nq</span><span class="p">,</span> <span class="s2">&quot;k:&quot;</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="s2">&quot;threads: 1&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Top-10 ID:&quot;</span><span class="p">,</span> <span class="n">labels</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;cosine distance:&quot;</span><span class="p">,</span> <span class="n">distances</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Recall@10:&quot;</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">recall</span><span class="p">))</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;这是固定 toy 数据的近邻重合，不是业务效果或延迟保证。&quot;</span><span class="p">)</span>
 
-<hr />
-<h2 id="_4">⚠️ 工业落地的四个真实问题</h2>
-<h3 id="1">① 向量要多久更新一次？</h3>
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">main</span><span class="p">()</span>
+
+</code></pre></div></section>
+<p>同一组小数据在 <strong>hnswlib 0.8.0</strong> 的一次实跑得到 Recall@10=<strong>0.934375</strong>。这里以 NumPy 精确排序为参照，不能仅靠与上表的小差异就宣称哪个库更优；要固定实现、参数、数值/并列协议并做重复测量。</p>
+<p>本例把 <code>ef</code> 设为 64，大于 k=10。若想支持后续物品增长，还要规划容量或扩容、删除标记、并发读写与持久化；不能把单线程演示直接当线上服务。此处的精确对照用 NumPy，严格同分按较小 ID 排前，细小浮点差异须与下面的评估协议一起理解。</p>
+<h3 id="3">工具 3：向量数据库（需要服务化能力时再考虑）</h3>
+<div class="table-scroll"><table><caption>保留工具地图，但不把产品名当性能结论</caption><thead><tr><th scope="col">工具</th><th scope="col">可以关注的能力</th><th scope="col">先确认的条件</th></tr></thead><tbody>
+<tr><td>Milvus / Zilliz Cloud</td><td>Milvus 是开源向量数据库；Zilliz Cloud 提供托管服务</td><td>过滤、索引类型、部署和运维方式；两者不能都笼统称作开源项目。</td></tr>
+<tr><td>Qdrant</td><td>Rust 实现，提供向量与载荷过滤等服务能力</td><td>用自己的过滤条件和查询负载比较，不用“轻量快”替代测量。</td></tr>
+<tr><td>Weaviate</td><td>可集成外部 API 或自托管 embedding 模型</td><td>集成接口不等于数据库无条件内置所有模型权重；留意推理服务依赖。</td></tr>
+<tr><td>pgvector</td><td>在 PostgreSQL 中保存和检索向量</td><td>已有 Postgres 时值得先试；容量、索引、过滤和服务负载仍须评估。</td></tr></tbody></table></div>
+<p><a href="https://milvus.io/docs/filtered-search.md">Milvus 的过滤执行</a>与<a href="https://docs.weaviate.io/weaviate/model-providers">Weaviate 的模型集成</a>说明了“数据库能力”和“算法本身”是不同层次。</p>
 <ul>
-<li><strong>物品向量</strong>：新物品不断产生。通常「天级全量重建 + 分钟级增量插入」</li>
-<li><strong>用户向量</strong>：必须<strong>实时算</strong>（用户刚看了什么会立刻影响兴趣）→ 线上跑用户塔</li>
+<li><strong>小于 10 万：</strong>可以先试 Flat；不是超过这个数字就一定不能用精确检索。</li>
+<li><strong>10 万到 1000 万、内存较充裕：</strong>HNSW 可列入候选；还要看构建时间、查询次数、更新与过滤。</li>
+<li><strong>超过 1000 万、内存吃紧：</strong>可测试 IVF-PQ；先算完整索引账，再验证压缩后的近邻质量。</li>
+<li><strong>需要过滤、分布式或托管服务：</strong>比较数据库；仅需保存文件时，Faiss 自己已能保存/加载。</li>
+<li><strong>已有 Postgres：</strong>先评估 pgvector 能否满足目标，避免仅为固定数量阈值更换技术栈。</li>
 </ul>
-<h3 id="2">② 怎么做「带条件的检索」？</h3>
-<p>比如「只推 30 天内发布的、类目=数码的」。</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>方案</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>过滤后检索 (Pre-filter)</strong></td>
-<td>先筛出子集再暴力搜。子集小时最好</td>
-</tr>
-<tr>
-<td><strong>检索后过滤 (Post-filter)</strong></td>
-<td>先 ANN 取 top-1000，再过滤。⚠️ 可能过滤完不够数</td>
-</tr>
-<tr>
-<td><strong>分区索引</strong></td>
-<td>按类目/时间分别建索引，查询时只查相关分区 ⭐ 工业常用</td>
-</tr>
-<tr>
-<td><strong>原生过滤</strong></td>
-<td>Milvus/Qdrant 支持在图遍历时带条件</td>
-</tr>
-</tbody>
-</table></div>
-<h3 id="3_1">③ 内存怎么算</h3>
-<section class="visual-block visual-block-compare" aria-label="一亿向量的内存账">
-<p class="visual-block-title">一亿向量的内存账</p>
-<div class="table-scroll"><div class="tw"><table><thead><tr><th>方案</th><th>构成</th><th>约占用</th><th>意味着什么</th></tr></thead><tbody><tr><th>float32 + HNSW</th><td>向量：1 亿 × 64 维 × 4 字节 = 25.6 GB；图结构额外约 25 GB</td><td><strong>约 50 GB</strong></td><td>需要大内存机器或分片</td></tr><tr><th>PQ 压缩</th><td>压成每向量约 8 字节：1 亿 × 8 字节</td><td><strong>约 0.8 GB</strong></td><td>单机也更容易放下</td></tr></tbody></table></div></div>
-<p class="vb-note">读法：索引的“图”几乎和原始向量一样贵；PQ 的价值不只是算得快，而是把部署门槛从几十 GB 拉到不足 1 GB。</p>
-</section>
+<h2 id="ann_1">🎛️ 怎么评估：先固定“什么算对”</h2>
+<p><strong>ANN Recall@K 是近邻集合的重合率，不是用户相关性 Recall。</strong>对同一查询，以相同 metric、相同预处理、相同合法物品集合上的精确 top-k 为参照，算 ANN 找回其中多少个。然后再与延迟、吞吐、内存和更新成本一起看。</p>
+<p>三块是独立入口：Faiss 以自己的 <code>FlatIP</code> 为 exact；hnswlib 例用 float32 点积、严格同分时小 ID 优先；下方评估例用 float64 cosine、同样以小 ID 处理严格同分。不同精度与库的边界结果不必相同；横向比较前，应先统一一个 exact 实现和并列协议。</p>
+<ol>
+<li>固定合法库与 k：此处要求 1 ≤ k ≤ 合法库大小；exact 必须返回 k 个不同的合法 ID。</li>
+<li>保持查询顺序一致。ANN 缺邻居可用 −1 占位，但 −1 不算物品，分母仍为 k。</li>
+<li>本例采用严格 ID 重合；精确分数相同，较小 ID 排前。另一种同距并列结果可能被计为 miss，这不等于距离质量变差。</li>
+<li>空查询、不同形状、重复有效 ID、非法 ID 和非法 k 明确报错。函数只能检查数组，不能替你证明两个结果来自同一过滤条件或同一查询。</li>
+</ol>
+<p>下方第一条查询中 ID 10 与 11 是完全相同的向量。程序同时展示普通缺邻居和边界并列，<strong>人为 ANN 数组只是评估函数的测试夹具，不是某个索引真的返回的结果</strong>。本块不依赖另外两个代码入口。</p>
+<section class="cr-study" aria-label="NumPy：固定候选库的 Recall 协议">
+<div class="cr-notes">
+<button type="button" class="cr-note" data-code-lines="5-15"><strong>合法库与固定 k</strong><span>ID 非负且唯一；k 是整数且不超过库大小，不让候选不足悄悄改变分母。</span><span class="cr-note-range">定位本段代码 ↗</span></button>
+<button type="button" class="cr-note" data-code-lines="18-32"><strong>精确参照与并列协议</strong><span>独立计算合法库的 cosine；拒绝空查询和零向量，严格同分以小 ID 优先。</span><span class="cr-note-range">定位本段代码 ↗</span></button>
+<button type="button" class="cr-note" data-code-lines="35-53"><strong>只计算有效 ID 的重合</strong><span>双方形状相同，exact 必须足量；ANN 的 -1 不计命中、分母仍为 k。查询顺序与过滤语义由调用方保证。</span><span class="cr-note-range">定位本段代码 ↗</span></button>
+<button type="button" class="cr-note" data-code-lines="56-89"><strong>人为夹具检验边界</strong><span>夹具 Recall@2=0.5，严格并列例=0；8 类非法输入应报错。这些数组不是 ANN 索引实测输出。</span><span class="cr-note-range">定位本段代码 ↗</span></button>
+</div>
+<div class="codehilite" data-code-language="python" data-code-title="NumPy：固定候选库的 Recall 协议"><pre><code><span class="sd">&quot;&quot;&quot;独立 NumPy 评估入口：固定合法库、固定 k、严格 ID 重合协议。&quot;&quot;&quot;</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
-<h3 id="4">④ 多路召回怎么合并</h3>
-<p>20 路召回各返回一批，分数不在同一个尺度上，不能直接比大小。</p>
-<p>✅ <strong>常见做法</strong>：
-- 每路按<strong>配额</strong>取 top-N（如每路 200 个），不比较分数
-- 或者做分数归一化后合并
-- 或者干脆交给粗排统一打分（最常见）⭐</p>
-<hr />
-<h2 id="_5">🧩 一个容易忽略的点：向量检索 ≠ 只能用于召回</h2>
-<p>同样的技术也用在：
-- <strong>相似物品推荐</strong>（「相关推荐」位）
-- 去重（新发布的内容和已有内容是否重复）
-- 冷启动：新物品用内容 Embedding 找相似老物品，继承它们的统计特征 ⭐
-- <strong>RAG / 搜索</strong>：完全相同的技术栈</p>
-<hr />
+
+<span class="k">def</span><span class="w"> </span><span class="nf">validate_catalog</span><span class="p">(</span><span class="n">catalog_ids</span><span class="p">,</span> <span class="n">k</span><span class="p">):</span>
+    <span class="n">ids</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">catalog_ids</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">ids</span><span class="o">.</span><span class="n">ndim</span> <span class="o">!=</span> <span class="mi">1</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">issubdtype</span><span class="p">(</span><span class="n">ids</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">integer</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;catalog_ids 必须是一维整数数组&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">ids</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">ids</span><span class="p">))</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">ids</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;合法库 ID 必须非负且唯一&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="p">(</span><span class="nb">bool</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">bool_</span><span class="p">))</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">integer</span><span class="p">)):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;k 必须是整数&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="mi">1</span> <span class="o">&lt;=</span> <span class="n">k</span> <span class="o">&lt;=</span> <span class="nb">len</span><span class="p">(</span><span class="n">ids</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;本协议要求 1 &lt;= k &lt;= 合法库物品数&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">ids</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">exact_cosine</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">queries</span><span class="p">,</span> <span class="n">catalog_ids</span><span class="p">,</span> <span class="n">k</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;全部输入行属于同一个合法库；按分数降序、ID 升序消除严格同分。&quot;&quot;&quot;</span>
+    <span class="n">ids</span> <span class="o">=</span> <span class="n">validate_catalog</span><span class="p">(</span><span class="n">catalog_ids</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
+    <span class="n">x</span><span class="p">,</span> <span class="n">q</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">queries</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">ndim</span> <span class="o">!=</span> <span class="mi">2</span> <span class="ow">or</span> <span class="n">q</span><span class="o">.</span><span class="n">ndim</span> <span class="o">!=</span> <span class="mi">2</span> <span class="ow">or</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">ids</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;物品/查询须为二维，物品行数须匹配 ID&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&lt;</span> <span class="mi">1</span> <span class="ow">or</span> <span class="n">q</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">!=</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="ow">or</span> <span class="n">q</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;维度不一致或查询为空&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">q</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;输入必须有限&quot;</span><span class="p">)</span>
+    <span class="n">xn</span><span class="p">,</span> <span class="n">qn</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">xn</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">or</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">qn</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">xn</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">qn</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;cosine 要求非零且范数有限&quot;</span><span class="p">)</span>
+    <span class="n">scores</span> <span class="o">=</span> <span class="p">(</span><span class="n">q</span> <span class="o">/</span> <span class="n">qn</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">])</span> <span class="o">@</span> <span class="p">(</span><span class="n">x</span> <span class="o">/</span> <span class="n">xn</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">])</span><span class="o">.</span><span class="n">T</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">ids</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">lexsort</span><span class="p">((</span><span class="n">ids</span><span class="p">,</span> <span class="o">-</span><span class="n">row</span><span class="p">))[:</span><span class="n">k</span><span class="p">]]</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">scores</span><span class="p">])</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">recall_at_k</span><span class="p">(</span><span class="n">ann_ids</span><span class="p">,</span> <span class="n">exact_ids</span><span class="p">,</span> <span class="n">catalog_ids</span><span class="p">,</span> <span class="n">k</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;调用方必须保证同一查询顺序、metric、过滤集合与 exact 同分协议。&quot;&quot;&quot;</span>
+    <span class="n">catalog</span> <span class="o">=</span> <span class="n">validate_catalog</span><span class="p">(</span><span class="n">catalog_ids</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
+    <span class="n">ann</span><span class="p">,</span> <span class="n">exact</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">ann_ids</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">exact_ids</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">ann</span><span class="o">.</span><span class="n">ndim</span> <span class="o">!=</span> <span class="mi">2</span> <span class="ow">or</span> <span class="n">exact</span><span class="o">.</span><span class="n">shape</span> <span class="o">!=</span> <span class="n">ann</span><span class="o">.</span><span class="n">shape</span> <span class="ow">or</span> <span class="n">ann</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">!=</span> <span class="n">k</span> <span class="ow">or</span> <span class="n">ann</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;双方必须是相同的非空 (查询数, k) 数组&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">issubdtype</span><span class="p">(</span><span class="n">ann</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">integer</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">issubdtype</span><span class="p">(</span><span class="n">exact</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">integer</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;结果 ID 必须是整数&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">exact</span><span class="p">,</span> <span class="n">catalog</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;exact 必须含 k 个合法物品，不能带 -1&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">ann</span><span class="p">,</span> <span class="n">catalog</span><span class="p">)</span> <span class="o">|</span> <span class="p">(</span><span class="n">ann</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;ANN 仅允许合法 ID 或缺邻居哨兵 -1&quot;</span><span class="p">)</span>
+    <span class="n">per_query</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">a</span><span class="p">,</span> <span class="n">e</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">ann</span><span class="p">,</span> <span class="n">exact</span><span class="p">):</span>
+        <span class="n">valid_a</span> <span class="o">=</span> <span class="n">a</span><span class="p">[</span><span class="n">a</span> <span class="o">!=</span> <span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">e</span><span class="p">))</span> <span class="o">!=</span> <span class="n">k</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">valid_a</span><span class="p">))</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">valid_a</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;同一查询的有效 ID 不得重复&quot;</span><span class="p">)</span>
+        <span class="n">per_query</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">valid_a</span><span class="p">)</span> <span class="o">&amp;</span> <span class="nb">set</span><span class="p">(</span><span class="n">e</span><span class="p">))</span> <span class="o">/</span> <span class="n">k</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">per_query</span><span class="p">))</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+    <span class="c1"># 指定小数组用于测试评估函数；ann 是人为夹具，不是 ANN 模型输出。</span>
+    <span class="n">catalog</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">10</span><span class="p">,</span> <span class="mi">11</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">13</span><span class="p">])</span>
+    <span class="n">items</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([[</span><span class="mf">1.</span><span class="p">,</span> <span class="mf">0.</span><span class="p">],</span> <span class="p">[</span><span class="mf">1.</span><span class="p">,</span> <span class="mf">0.</span><span class="p">],</span> <span class="p">[</span><span class="mf">0.</span><span class="p">,</span> <span class="mf">1.</span><span class="p">],</span> <span class="p">[</span><span class="o">-</span><span class="mf">1.</span><span class="p">,</span> <span class="mf">0.</span><span class="p">]])</span>
+    <span class="n">queries</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([[</span><span class="mf">1.</span><span class="p">,</span> <span class="mf">0.</span><span class="p">],</span> <span class="p">[</span><span class="mf">0.</span><span class="p">,</span> <span class="mf">1.</span><span class="p">]])</span>
+    <span class="n">exact</span> <span class="o">=</span> <span class="n">exact_cosine</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">queries</span><span class="p">,</span> <span class="n">catalog</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+    <span class="n">ann</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([[</span><span class="mi">10</span><span class="p">,</span> <span class="mi">12</span><span class="p">],</span> <span class="p">[</span><span class="mi">12</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">]])</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="n">recall_at_k</span><span class="p">(</span><span class="n">ann</span><span class="p">,</span> <span class="n">exact</span><span class="p">,</span> <span class="n">catalog</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">value</span> <span class="o">==</span> <span class="mf">0.5</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;exact ID:&quot;</span><span class="p">,</span> <span class="n">exact</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span> <span class="s2">&quot;fixture Recall@2:&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+
+    <span class="c1"># ID 10/11 完全同分，本协议指定小 ID 优先；另一种合法距离并列算 miss。</span>
+    <span class="n">tied_exact</span> <span class="o">=</span> <span class="n">exact_cosine</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">queries</span><span class="p">[:</span><span class="mi">1</span><span class="p">],</span> <span class="n">catalog</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">tie_value</span> <span class="o">=</span> <span class="n">recall_at_k</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([[</span><span class="mi">11</span><span class="p">]]),</span> <span class="n">tied_exact</span><span class="p">,</span> <span class="n">catalog</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">tie_value</span> <span class="o">==</span> <span class="mf">0.0</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;strict-ID tie example:&quot;</span><span class="p">,</span> <span class="n">tie_value</span><span class="p">,</span> <span class="s2">&quot;（不代表距离质量变差）&quot;</span><span class="p">)</span>
+
+    <span class="n">bad_calls</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">recall_at_k</span><span class="p">(</span><span class="n">ann</span><span class="p">,</span> <span class="n">exact</span><span class="p">,</span> <span class="n">catalog</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">recall_at_k</span><span class="p">(</span><span class="n">ann</span><span class="p">,</span> <span class="n">exact</span><span class="p">,</span> <span class="n">catalog</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">recall_at_k</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">int</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">int</span><span class="p">),</span> <span class="n">catalog</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">recall_at_k</span><span class="p">(</span><span class="n">ann</span><span class="p">[:</span><span class="mi">1</span><span class="p">],</span> <span class="n">exact</span><span class="p">,</span> <span class="n">catalog</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">recall_at_k</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([[</span><span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">]]),</span> <span class="n">exact</span><span class="p">[:</span><span class="mi">1</span><span class="p">],</span> <span class="n">catalog</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">recall_at_k</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([[</span><span class="mi">10</span><span class="p">,</span> <span class="mi">99</span><span class="p">]]),</span> <span class="n">exact</span><span class="p">[:</span><span class="mi">1</span><span class="p">],</span> <span class="n">catalog</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">recall_at_k</span><span class="p">(</span><span class="n">ann</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([[</span><span class="mi">10</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="p">[</span><span class="mi">12</span><span class="p">,</span> <span class="mi">10</span><span class="p">]]),</span> <span class="n">catalog</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">exact_cosine</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([[</span><span class="mf">0.</span><span class="p">,</span> <span class="mf">0.</span><span class="p">]]),</span> <span class="n">catalog</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span>
+    <span class="p">]</span>
+    <span class="k">for</span> <span class="n">call</span> <span class="ow">in</span> <span class="n">bad_calls</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">call</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span><span class="s2">&quot;非法输入未被拒绝&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;rejected invalid cases:&quot;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">bad_calls</span><span class="p">))</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">main</span><span class="p">()</span>
+
+</code></pre></div></section>
+<p>本块可观察到：精确 ID 为 <strong>[[10,11],[12,10]]</strong>，指定夹具的 Recall@2 为 <strong>0.5</strong>；严格 ID 并列例为 <strong>0.0</strong>，并拒绝 <strong>8</strong> 类非法调用。这些数字只检查评估协议，不证明任何索引快慢或质量。</p>
+<p>生产测量还需固定硬件、线程、并发/批量、预热与查询数。例子目标“Recall@100 ≥ 0.95，P99 ≤ 10 ms”可以作为某次实验预算，不是所有业务的标准。若采用同距容差协议或不同分母，必须另行命名并在对比中保持一致。</p>
+<ol>
+<li>固定索引类型与数据，分别扫 <code>efSearch</code> 或 <code>nprobe</code>，记录每个点的 Recall 与延迟分位。</li>
+<li>在同一个延迟统计量的预算内，选择达到质量要求的配置；同时检查内存、吞吐和有效返回数。</li>
+<li>达不到目标，再比较索引、编码、过滤方案或算力。不能预设每次加参数都按同样幅度改善。</li>
+</ol>
+<figure class="dia">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 704" style="max-width:none" role="img" aria-labelledby="ann-curve-title ann-curve-desc">
+<title id="ann-curve-title">人为教学数据、非实测：在示例10毫秒P99预算内选择候选配置</title>
+<desc id="ann-curve-desc">横轴为示意P99延迟，单位毫秒，线性范围0到20；纵轴为同一k下的Recall@k，线性范围0.5到1.0。人为点A为1和0.60，B为2和0.72，C为5和0.88，D为10和0.95，E为20和0.98。示例预算10毫秒以内D的Recall最高；E超预算。连线只引导读数，不是拟合、基准结果或通用最佳参数。</desc>
+<g class="dia-t" transform="translate(0 64)" fill="var(--fg)" font-size="18">
+<text x="28" y="44" font-size="24" font-weight="700">先画预算线，再比较线左边的候选</text>
+<text x="28" y="84" fill="var(--accent)" font-weight="700">人为教学数据 · 非实测 · 五种配置沿用同一个 k</text>
+<text x="28" y="122">Recall@k</text><text x="460" y="122" fill="var(--accent)">本例预算：P99 ≤ 10 ms</text>
+<g stroke="var(--muted)" stroke-width="1" opacity="0.5">
+<line x1="100" y1="150" x2="790" y2="150"/><line x1="100" y1="210" x2="790" y2="210"/><line x1="100" y1="270" x2="790" y2="270"/><line x1="100" y1="330" x2="790" y2="330"/><line x1="100" y1="390" x2="790" y2="390"/><line x1="100" y1="450" x2="790" y2="450"/>
+</g>
+<path d="M100 140 V450 H805" fill="none" stroke="var(--muted)" stroke-width="2"/>
+<g text-anchor="end" fill="var(--muted)">
+<text data-axis-y="1" x="85" y="157">1.00</text><text data-axis-y="0.9" x="85" y="217">0.90</text><text data-axis-y="0.8" x="85" y="277">0.80</text><text data-axis-y="0.7" x="85" y="337">0.70</text><text data-axis-y="0.6" x="85" y="397">0.60</text><text data-axis-y="0.5" x="85" y="457">0.50</text>
+</g>
+<g text-anchor="middle" fill="var(--muted)">
+<text data-axis-x="0" x="100" y="480">0</text><text data-axis-x="5" x="272.5" y="480">5</text><text data-axis-x="10" x="445" y="480">10</text><text data-axis-x="15" x="617.5" y="480">15</text><text data-axis-x="20" x="790" y="480">20</text>
+</g>
+<line data-budget="10" x1="445" y1="140" x2="445" y2="450" stroke="var(--accent)" stroke-width="2.5" stroke-dasharray="7 5"/>
+<polyline points="134.5,390 169,318 272.5,222 445,180 790,162" fill="none" stroke="var(--link)" stroke-width="3"/>
+<g fill="var(--card)" stroke="var(--link)" stroke-width="3">
+<circle data-config="A" data-p99="1" data-recall="0.60" cx="134.5" cy="390" r="7"/>
+<circle data-config="B" data-p99="2" data-recall="0.72" cx="169" cy="318" r="7"/>
+<circle data-config="C" data-p99="5" data-recall="0.88" cx="272.5" cy="222" r="7"/>
+<circle data-config="D" data-p99="10" data-recall="0.95" cx="445" cy="180" r="9" stroke="var(--accent)" fill="var(--accent-soft)"/>
+<circle data-config="E" data-p99="20" data-recall="0.98" cx="790" cy="162" r="7"/>
+</g>
+<g font-weight="700"><text x="151" y="407">A</text><text x="187" y="330">B</text><text x="290" y="250">C</text><text x="463" y="169" fill="var(--accent)">D</text><text x="807" y="169">E</text></g>
+<text x="100" y="518">示意 P99 延迟（ms）· 线性横轴，越左越快</text>
+<text x="100" y="559" font-size="17" fill="var(--muted)">A (1, 0.60)　B (2, 0.72)　C (5, 0.88)　D (10, 0.95)　E (20, 0.98)</text>
+<text x="100" y="601" fill="var(--accent)" font-weight="700">给定这五点，预算内选 D；E 更准，但超出 10 ms。</text>
+</g>
+</svg>
+<figcaption>看 10 ms 预算线：在给定的五个人为候选点中，D 是预算内 Recall@k 最高的配置。两轴线性，纵轴从 0.50 起；连线只引导读数。这不是实测 P99，也不是所有系统的通用最优点。</figcaption>
+</figure>
+<h2 id="_4">⚠️ 工业落地的四个真实问题</h2>
+<h3 id="1">① 向量多久更新？先看哪些输入会变化</h3>
+<p><strong>更新频率来自时效要求，不是固定日历。</strong>“物品天级全量重建 + 分钟级增量”是一种部署例子；新品可按需加入，量化训练或模型换版则可能需要重建评估。</p>
+<p>用户向量可以每请求计算、按事件刷新、缓存或预计算。若用户塔依赖最新行为，缓存会有时效损失；若只查静态 user-ID embedding，就不必每请求重新跑模型。</p>
+<p>无论多久刷新，用户塔与物品塔的模型/特征版本、归一化、metric 和索引向量必须兼容。<strong>同为 64 维不代表同一个语义坐标系。</strong>更换编码器也可能使旧量化训练分布失效。</p>
+<h3 id="2">② 带条件检索：把合法集合放进评估定义</h3>
+<p>例如只推<strong>近 30 天、类目为数码</strong>的物品。精确参照也必须来自这个集合，不能用全库 top-k 来评判过滤后的返回。</p>
+<div class="table-scroll"><table><caption>过滤顺序不同，漏项和返回数量也不同</caption><thead><tr><th scope="col">方案</th><th scope="col">怎么做</th><th scope="col">边界</th></tr></thead><tbody>
+<tr><td>Pre-filter</td><td>先限定合法子集，再检索</td><td>可用精确或受过滤约束的 ANN，不等于只能暴力；小子集精确扫描可能合适。</td></tr>
+<tr><td>Post-filter</td><td>先取一批候选，例如 top-1000，再过滤</td><td>可能不足 k，甚至为空；多取些候选是缓解，不是补齐或 Recall 保证。</td></tr>
+<tr><td>分区索引</td><td>按类目或其他低基数条件维护分区</td><td>条件组合多时分区会膨胀；还要处理跨区查询与更新。</td></tr>
+<tr><td>原生过滤</td><td>数据库/索引把过滤条件纳入执行计划</td><td>可能先过滤或迭代过滤，不统一等于“图遍历时带条件”。</td></tr></tbody></table></div>
+<p>小反例：全库前两项都不是数码，后过滤便为空，即使第 3、4 项都是合法物品。过滤顺序会改变实际候选覆盖，不能只比较未过滤索引的 Recall。</p>
+<h3 id="3_1">③ 内存怎么算：编码、ID 与图分别列账</h3>
+<div class="table-scroll"><table><caption>一亿个 64 维向量，十进制 GB；不是进程峰值内存</caption><thead><tr><th scope="col">部分</th><th scope="col">计算</th><th scope="col">约占用</th></tr></thead><tbody>
+<tr><td>原始 float32 向量</td><td>1 亿 × 64 × 4 字节</td><td>25.6 GB</td></tr>
+<tr><td>HNSW 底层边槽示例</td><td>M=32、容量约 2M、32 位邻居编号：1 亿 × 64 × 4 字节</td><td>另约 25.6 GB；与向量合计约 51.2 GB，尚未计上层/元数据</td></tr>
+<tr><td>PQ 编码本体</td><td>M=8、nbits=8：1 亿 × 8 字节</td><td>0.8 GB，编码负载相对 256 字节压缩 32 倍</td></tr>
+<tr><td>IVF-PQ 编码 + 64 位 ID</td><td>1 亿 × (8 + 8) 字节</td><td>至少 1.6 GB，另有码本、倒排管理和可能的预计算表</td></tr></tbody></table></div>
+<p><strong>0.8 GB 不能写成完整 IVF-PQ 部署占用。</strong>输入数组、建库工作区、查询工作区和业务元数据也需要内存。原先“约 50 GB”的 HNSW 估算可以理解为上述 M=32 示例的数量级，不是每个实现的固定值。<a href="https://github.com/facebookresearch/faiss/wiki/Faiss-indexes">Faiss 索引的逐项存储组成</a>。</p>
+<h3 id="4">④ 多路召回怎么合并：先候选并集，再统一评判</h3>
+<p>假设 20 路召回各返回一批，不同路的分数不一定可直接比较。</p>
+<ul>
+<li><strong>配额：</strong>每路取 top-200，不直接比较分数；合并去重后最多 4000 个，也可能更少。</li>
+<li><strong>分数处理：</strong>可校准或规范化再融合，但简单缩放不自动保证不同路的分数含义一致。</li>
+<li><strong>统一粗排：</strong>对候选并集重新打分；它仍不能找回所有路都没有召回的物品。</li>
+</ul>
+<h2 id="_5">🧩 向量检索不只用于召回</h2>
+<ul>
+<li><strong>相似物品：</strong>在“相关推荐”位置寻找语义或行为向量近邻。</li>
+<li><strong>去重：</strong>检索相似内容候选，再按业务规则核验；近邻本身不是重复的证明。</li>
+<li><strong>冷启动：</strong>用新物品内容 embedding 找相似旧物品，将其统计作为参考特征；不把旧物品标签无条件复制成新物品事实。</li>
+<li><strong>RAG / 搜索：</strong>可以复用向量索引环节；文本切分、混合召回、权限过滤、重排与生成仍有自己的设计，不是完整技术栈毫无区别。</li>
+</ul>
 <h2 id="xref">🔗 这一章连到哪里</h2>
-<div class="tw"><table class="xref"><thead><tr><th>去哪</th><th>为什么</th></tr></thead><tbody><tr><td><a href="../机器学习的数学原理/05-维度灾难.html">数学原理 05</a></td><td>高维空间里距离会趋同，这正是精确检索没救、只能退而求「近似」的根因</td></tr><tr><td><a href="../机器学习与深度学习基础/06-无监督-聚类与降维.html">ML基础 06</a></td><td>IVF 的倒排桶就是 k-means，PQ 的子空间码本也是聚类</td></tr><tr><td><a href="../智能体工程教程/11-检索与RAG.html">智能体 11</a></td><td>RAG 用的是完全相同的技术栈，只是把物品 Embedding 换成了文本 Embedding</td></tr></tbody></table></div>
-<hr />
+<div class="table-scroll"><table class="xref"><thead><tr><th scope="col">去哪</th><th scope="col">为什么</th></tr></thead><tbody>
+<tr><td><a href="../机器学习的数学原理/05-维度灾难.html">数学原理 05</a></td><td>理解某些高维分布下距离集中及索引效率的困难；这不证明精确检索不可能。Flat 仍是精确基线。</td></tr>
+<tr><td><a href="../机器学习与深度学习基础/06-无监督-聚类与降维.html">ML 基础 06</a></td><td>IVF 的桶来自聚类，PQ 的子空间码本也通过聚类学习；“分桶”和“压缩”要分开。</td></tr>
+<tr><td><a href="../智能体工程教程/11-检索与RAG.html">智能体 11</a></td><td>把向量检索作为 RAG 的一个组件，继续看文本、过滤与生成如何接起来。</td></tr></tbody></table></div>
 <h2 id="_6">✅ 检查点</h2>
 <ol>
-<li>为什么召回可以接受「近似」而不是精确检索？</li>
-<li>HNSW 的核心思想是什么？线上调哪个参数控制精度-延迟？</li>
-<li>用 Faiss 做内积检索前，必须做什么预处理？为什么？</li>
-<li>1000 万向量、内存充裕、追求低延迟 → 选什么索引？</li>
-<li>ANN 索引的核心评估指标是什么？</li>
-<li>用户向量和物品向量的更新频率一样吗？</li>
+<li>为什么可以考虑 ANN？后续粗排/精排能自动补回所有漏召回吗？</li>
+<li>HNSW 的核心关系是什么？线上哪个参数控制搜索候选规模？</li>
+<li>最大内积检索是否必须 L2 归一化？本章 cosine 小例为什么要单位化？</li>
+<li>1000 万向量、内存充裕、追求低延迟，可以先测试什么索引？还缺哪些判断条件？</li>
+<li>ANN Recall@K 的参照与分母是什么？−1、过滤和同分边界怎么处理？</li>
+<li>用户和物品向量一定按固定频率更新吗？同为 64 维就能混用吗？</li>
 </ol>
-<details>
-<summary>👀 答案</summary>
-
-1. 召回本来就是粗筛，漏掉排名靠后的物品对最终结果影响极小，且后面还有粗排精排把关。用 1-5% 的召回率损失换 100-1000 倍速度非常划算。
-2. 多层图结构，上层稀疏用于长距离跳跃，逐层下降精细搜索（像先看省级地图再看街道）。线上调 `efSearch`。
-3. L2 归一化。归一化后内积等价于余弦相似度，避免向量长度影响结果。
-4. HNSW（Faiss IndexHNSWFlat 或 hnswlib）。
-5. Recall@K —— ANN 结果和暴力检索结果的重合比例。目标通常 ≥0.95 且 P99 延迟在预算内。
-6. 不一样。物品向量天级重建+增量插入；用户向量必须线上实时计算，因为用户兴趣随时在变。
-
-</details>
-
-<hr />
+<details><summary>👀 答案</summary>
+<ol>
+<li>ANN 以可能漏真近邻为代价减少搜索工作，是否值得要结合质量、资源与业务评估。后续排序只能重排已有候选，不能自动补回未召回物品。</li>
+<li>上层是下层的稀疏节点子集，同一节点可跨层出现；高层找入口，底层继续搜索。查询时调 <code>efSearch</code>（hnswlib 叫 <code>ef</code>），它是候选列表规模，不是最大跳数。</li>
+<li>不必须。原始 MIPS 可利用物品范数；单位化可能改变赢家。本章主动选择 cosine，因此对非零有限向量单位化，再以 IP 检索；零向量必须单独处理。</li>
+<li>HNSW 是值得先试的候选，不是数量阈值决定的唯一答案。还需测召回、延迟/吞吐、建库/更新、过滤、内存与查询次数；小批量任务也可能更适合 Flat。</li>
+<li>参照为同一查询、metric、预处理和合法库上的 exact top-k；本协议 k 不超过合法库大小，分母固定 k。−1 不算命中；非法形状/ID/空查询拒绝。严格同分按 ID 排序，另一种同距结果可能算 miss，因此必须标明协议。</li>
+<li>不一定。可按请求、事件、缓存或批次刷新，取决于输入变化和时效预算。模型/特征、归一化、metric 与索引版本要兼容；维度相同不代表语义坐标一致。</li>
+</ol></details>
 <h2 id="_7">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>ANN 在搜索质量、延迟和内存之间取舍，先建立精确检索基线。</li><li>固定数据与指标，画出检索质量随搜索成本变化的曲线。</li><li>过滤条件、向量更新与多路分数尺度都可能改变实际返回结果。</li></ul></section>
 </blockquote>
-<p><strong>下一节</strong> 👉 <a href="11-重排与多样性.html">11-重排与多样性.md</a></p>
-<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<p><strong>下一节</strong> 👉 <a href="11-重排与多样性.html">11 · 重排与多样性</a></p>
+</article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航"><button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button><div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">先定相似度，再看计算成本</a><a href="#ann">🗺️ 四种常用检索构件</a><a href="#hnsw">🕸️ HNSW：图解「多层高速公路」</a><a href="#_3">🔨 动手：两个索引例子</a><a href="#ann_1">🎛️ 怎么评估你的 ANN 索引</a><a href="#_4">⚠️ 工业落地的四个真实问题</a><a href="#_5">🧩 一个容易忽略的点：向量检索 ≠ 只能用于召回</a><a href="#xref">🔗 这一章连到哪里</a><a href="#_6">✅ 检查点</a><a href="#_7">🛑 可以停在这里</a></nav><button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p><a href="index.html">回到本模块目录</a></div></aside></div><div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="09-序列推荐.html"><div class="dir">← 上一节</div>⛓️ 09 · 序列推荐</a><a class="next" href="11-重排与多样性.html"><div class="dir">下一节 →</div>🎨 11 · 重排与多样性</a></nav>
 </main>
