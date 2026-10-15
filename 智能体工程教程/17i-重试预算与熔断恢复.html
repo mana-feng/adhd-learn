@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>17i · 重试预算与熔断恢复 · 智能体工程教程</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{
+/* ⭐ 字号阶梯：正文 = 1em（body 18px）。其余一律从这几档取，
+   不要再写 .92 / .94 / .95 这种随手值 —— body 18px 下它们相差不到 0.5px，
+   分不出来，只会让后来的人不知道该抄哪一个。 */
+  --fs-xs:.8em;    /* 角标、方向标签 */
+  --fs-sm:.88em;   /* 代码、图注、注解 */
+  --fs-md:.93em;   /* 略小于正文：表格、面板、目录 —— 站内最常用 */
+  --fs-lg:1.14em;  /* h3 */
+  --fs-xl:1.42em;  /* h2 */
+  --fs-2xl:1.9em;  /* h1 */
+--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:var(--fs-2xl);line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:var(--fs-xl);margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:var(--fs-lg);margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+/* ⭐ 表格横向滚动兜底：`width:100%` 让表格只会挤不会溢出，实测 305px 宽下
+   最窄单元格只剩 40px。给单元格一个 min-width 让它不再无限压缩，超出的由 .tw 兜住。
+   2–4 列的表仍然占满不滚动，只有真挤不下的多列表才出现滚动条。 */
+.tw{overflow-x:auto;margin:1.2em 0;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;margin:0;font-size:var(--fs-md)}
+th,td{min-width:5.2em}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:var(--fs-sm);background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:var(--fs-sm)}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:var(--fs-md)}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:var(--fs-xs);color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:var(--fs-sm);color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:var(--fs-md)}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:var(--fs-xs);
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:var(--fs-md);border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:var(--fs-md)}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:var(--fs-md);line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:var(--fs-md)}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:var(--fs-sm);line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:var(--fs-md);line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:var(--fs-md)}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:var(--fs-lg);opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:var(--fs-sm);
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+/* ⭐ 块公式也要能自己横向滚动：pre/表格/图都有兜底，只有它没有 —— 一条长公式会把整页撑出横向滚动条 */
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:2px 0 6px}
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:var(--fs-xs);
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
+
+.dia-lead{color:var(--muted);font-size:var(--fs-md);margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:var(--fs-sm);margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:var(--fs-md);margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:var(--fs-md);line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.05em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:var(--fs-md);break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #FF4689 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #66D9EF } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #A6E22E } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #A6E22E } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
+<script defer src="../assets/vendor/katex/katex.min.js"></script>
+<script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">17i · 重试预算与熔断恢复</span>
+  <span class="prevnext"><a href="17h-监控窗口与告警复核.html" aria-label="17h · 监控窗口与告警复核">←</a> <a href="18-挑战项目A-手搓Agent框架.html" aria-label="18-挑战项目A-手搓Agent框架">→</a> </span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main>
+<h1 id="17i">17i · 重试预算与熔断恢复</h1>
+<p class="reading-time">⏱ <strong>阅读约 24 分钟</strong> · 动手实践另计</p>
+<blockquote>
+<p>本章保留教学代码、路径说明与历史验证结论；完整实验工程和运行记录未随本站及公开仓库分发。命令用于说明调用方式，复现需自行准备对应实现、数据与环境。</p>
+</blockquote>
+<p>一句话带走：重试要同时受次数、总截止时间和全局预算约束；熔断减少下游调用后，仍要保留没有发出的请求。</p>
+<p>本节接着<a href="17h-监控窗口与告警复核.html">监控窗口与告警复核</a>，把“观察失败”推进到“解释一次受限调用”。入口与权限见<a href="17d-企业助手服务层实战.html">企业助手服务层实战</a>，尝试记录见<a href="17e-请求追踪与脱敏日志.html">请求追踪与脱敏日志</a>。教学实现涉及实验代码（<code>examples/knowledge-assistant/resilience_lab.py</code>）、行为测试（<code>examples/knowledge-assistant/test_resilience_lab.py</code>）和公开场景（<code>examples/knowledge-assistant/evaluation/resilience-cases.json</code>）。</p>
+<h2 id="1">1 · 先看输入请求，再看下游尝试</h2>
+<p><strong>停止点：</strong> 能解释“5 个请求、13 次尝试、1 个成功”，就先停。阅读约二十分钟；动手时间另计。</p>
+<p>示例命令以父项目目录为工作目录。输出目录必须尚不存在，重跑请换编号；已有空目录也拒绝。</p>
+<pre><code class="language-powershell">examples/knowledge-assistant/.venv/Scripts/python.exe -X utf8 examples/knowledge-assistant/resilience_lab.py demo --output examples/knowledge-assistant/.runtime/resilience-first
+examples/knowledge-assistant/.venv/Scripts/python.exe -X utf8 -m unittest discover -s examples/knowledge-assistant -p test_resilience_lab.py -v
+</code></pre>
+<p>在示例 <code>knowledge-assistant</code> 目录内，对应命令为 <code>python resilience_lab.py demo --output .runtime/resilience-first</code>。脚本只回放原创响应，采用模拟时钟，不真的等待，不联网，不调用生成模型。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>文件</th>
+<th>先看什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>summary.json</td>
+<td>原始请求数、尝试数、各终态和源码哈希</td>
+</tr>
+<tr>
+<td>replay-inputs.json</td>
+<td>两种策略共用的到达时刻、操作与响应脚本</td>
+</tr>
+<tr>
+<td>replay-records.json</td>
+<td>每次尝试时间、超时额度、状态转换与机械检查</td>
+</tr>
+</tbody>
+</table></div>
+<details>
+<summary>检查点 1：一次请求重试两次，分母应增加三个请求吗？</summary>
+<p>不应。一个输入请求产生三次下游尝试，请求分母仍为一。调用放大需要另看尝试数。</p>
+</details>
+<h2 id="2">2 · 次数上限挡不住持续过载</h2>
+<p>baseline 每个请求最多尝试三次，没有整批重试预算、总截止时间或熔断。它仍只重试读操作和声明具有幂等契约的写操作。bounded 保留三次上限，增加三秒总截止时间、整批两次额外重试预算、连续两次故障后熔断与三秒冷却。这些都是教学参数。</p>
+<p>初次尝试不消耗重试预算；第二次及之后才消耗。预算由整个 replay 共用，不随新请求补充。用完预算不会自动停止后续初次调用。它也没有实现按时间补充的令牌桶或分布式配额。</p>
+<p>默认第一次退避为 0.25 秒，第二次为 0.5 秒。这里没有随机抖动；同一脚本固定产生同一模拟结果。</p>
+<p><strong>走神救援：</strong> 把“一个请求允许几次”与“这一批还能追加几次”写在纸上，分别填三和二。</p>
+<details>
+<summary>检查点 2：预算为零，是否所有初次调用都被拒绝？</summary>
+<p>不会。预算限制额外重试。初次调用仍由截止时间与熔断状态决定能否发出。</p>
+</details>
+<h2 id="3">3 · 总截止时间从到达开始</h2>
+<p>请求总截止时间为 arrival 加 deadline。顺序执行时，前一个请求占用的时间也会消耗后一个请求的时间。到达时刻相同不代表并发处理；列表顺序就是本实验的队列顺序。</p>
+<p>每次准入只使用当前时刻和剩余额度，然后才消费下一条响应脚本。九秒后才会返回成功的脚本，遇到剩余两秒也记录一次两秒 timeout，不能提前知道它最终成功而跳过尝试。</p>
+<p>模拟传输把本次耗时截到剩余额度；这验证超时模型，不能证明真实套接字被取消，更不能证明远端停止了工作。等候重试后恰好到达截止时间，也不再准入；等待预算不足时立即结束本请求，不把时钟推进到未来。</p>
+<details>
+<summary>检查点 3：总截止两秒，脚本耗时九秒，可以先看脚本再直接判失败吗？</summary>
+<p>不能。先准入一次，交给模拟传输两秒额度，再观察 timeout；记录必须保留这一次实际模拟尝试。</p>
+</details>
+<h2 id="4">4 · 按错误类别决定动作</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>响应</th>
+<th>是否允许重试</th>
+<th>是否计熔断故障</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>200</td>
+<td>已完成</td>
+<td>清零连续故障</td>
+</tr>
+<tr>
+<td>401 / 403</td>
+<td>否</td>
+<td>否</td>
+</tr>
+<tr>
+<td>429</td>
+<td>安全操作且预算允许</td>
+<td>否，单列 rate_limited</td>
+</tr>
+<tr>
+<td>503 / timeout</td>
+<td>安全操作且预算允许</td>
+<td>是</td>
+</tr>
+</tbody>
+</table></div>
+<p>401/403 需要修正身份或权限，重试不会补出授权。429 表示限流，本实验不把它算作服务不可用；它也不清零此前的连续故障。只有成功响应清零。预算耗尽和本地拒发同样不增加熔断故障数。</p>
+<p>Retry-After 支持零到 86400 的非负整数秒，出现时替代默认退避。零有效；负数、bool、小数和日期字符串都拒绝。<a href="https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.3">RFC 9110 §10.2.3</a>还允许 HTTP 日期，这里只实现整数秒子集，不能称为完整 HTTP 头解析。</p>
+<details>
+<summary>检查点 4：429 带 Retry-After=2，当前还剩一秒，是否等待两秒再尝试？</summary>
+<p>不等待。记录 deadline_before_retry 并结束本请求；下一条成功脚本尚未消费。</p>
+</details>
+<h2 id="5">5 · 读与幂等写要分开确认</h2>
+<p>read 可以按上述规则重试，write 遇到可重试错误仍只发一次。idempotent_write 表示调用者已经取得下游幂等契约，允许重试；标签本身不生成幂等键，不实现去重，也不证明某个真实写接口安全。</p>
+<p>例如提交订单后超时，远端可能已经写入。只有确认同一操作标识的重复请求不会再次扣款，才有资格使用幂等写类别。实验使用公开标识和脚本，不发订单、不扣款。</p>
+<p>输入按到达时刻升序；时间为有限非负数，最大十亿秒。单批最多一万请求、每请求最多一百条响应、尝试上限一到十。响应脚本耗尽时重复最后一条，便于描述持续故障；这项约定应与结果一起阅读。</p>
+<details>
+<summary>检查点 5：把 write 改名为 idempotent_write，能证明远端只写一次吗？</summary>
+<p>不能。它只声明实验的操作前提。真实幂等需要下游契约与独立测试，本节没有实现。</p>
+</details>
+<h2 id="6-closedopenhalf_open">6 · closed、open、half_open 的恢复过程</h2>
+<p>closed 正常放行；达到故障阈值后转 open，冷却期内记录 deferred，不调用下游。冷却到期时，下一个符合截止时间的请求转 half_open，只准一次探测，不在同一个请求内重试。</p>
+<p>探测成功后 closed；探测失败后重新 open，并从当前时刻重新计算冷却。探测收到 401/403/429 时也重新 open，表示没有拿到健康证据，但不增加故障计数。正常 closed 中这些响应不触发熔断。</p>
+<p>阈值按连续下游故障尝试计数；一个请求的两次 503 可以打开熔断。全局重试预算在恢复后仍不补充。冷却到期没有请求时，脚本不会主动探测。</p>
+<details>
+<summary>检查点 6：half_open 的一次 503 后，脚本下一条是 200，是否继续试？</summary>
+<p>不继续。探测只允许一次，这次失败重新打开熔断。未来请求再按冷却规则决定是否探测。</p>
+</details>
+<h2 id="7">7 · 用相同输入解释真实回放结果</h2>
+<p>本次证据在演示汇总（<code>examples/knowledge-assistant/validation/resilience-demo-20261012-01/summary.json</code>）与逐项记录（<code>examples/knowledge-assistant/validation/resilience-demo-20261012-01/replay-records.json</code>）。十五个限定测试通过，两个场景机械检查失败数为零。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>同一输入场景</th>
+<th>策略</th>
+<th>请求</th>
+<th>尝试</th>
+<th>completed / failed / deferred</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>持续故障后恢复</td>
+<td>baseline</td>
+<td>5</td>
+<td>13</td>
+<td>1 / 4 / 0</td>
+</tr>
+<tr>
+<td>持续故障后恢复</td>
+<td>bounded</td>
+<td>5</td>
+<td>3</td>
+<td>1 / 1 / 3</td>
+</tr>
+<tr>
+<td>截止、限流与操作类别</td>
+<td>baseline</td>
+<td>5</td>
+<td>9</td>
+<td>2 / 3 / 0</td>
+</tr>
+<tr>
+<td>截止、限流与操作类别</td>
+<td>bounded</td>
+<td>5</td>
+<td>7</td>
+<td>2 / 3 / 0</td>
+</tr>
+</tbody>
+</table></div>
+<p>第一个场景调用放大为 13/5=2.6 与 3/5=0.6。小于一是有请求未发出，不能称为更快完成。两种策略成功占全部输入都是 1/5=0.2；如果删掉三个 deferred 再算比例，会制造改善。第二个场景把阈值提高到五，以单独观察截止时间与两次重试预算；成功比例都是 0.4。</p>
+<details>
+<summary>检查点 7：受限策略 failed 从四降为一，是否成功率提高？</summary>
+<p>没有。三个请求变成 deferred，成功仍只有一个。必须同时展示全部输入分母和未发出的请求。</p>
+</details>
+<h2 id="8">8 · 改一个参数，留下新证据</h2>
+<p>先复制公开场景，在 Python 中调用 replay，把 retry_budget 改为零，再看 attempts 和每个 reason。然后把 recovery 的到达时刻改成三，观察冷却尚未到期时是否继续 deferred。一次只改一个参数，保留两种策略完全相同的输入。</p>
+<p>源码、测试和原始场景的 SHA-256 在 summary 的 source_sha256。它用于定位版本，不是数字签名。CLI 输入或目录错误输出固定 JSON 并退出二，内部错误退出一，不回显输入原文与栈；示例目录由操作者可信地提供，不测试对抗文件系统。</p>
+<p><a href="https://www.yuque.com/aaron-wecc3/dhluml/ysa0iu91yceg43y5">语雀来源</a>提供限流熔断方向；代码、数据与数字为本站原创。<a href="https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/">AWS 重试工程参考</a>解释重试放大过载的风险。本节没有验证生产吞吐、并发探测锁、真实网络取消、随机抖动或多副本状态共享。</p>
+<p><strong>走神救援：</strong> 只问三件事：这次能否安全重试、剩余时间够不够、没有发出的请求记在哪里。答得出来就完成最小目标。</p>
+<details>
+<summary>检查点 8：十五个测试通过，可以替换现有部署重试实现吗？</summary>
+<p>不能直接替换。本节是独立顺序回放，既有 deployment_lab 与 product_lab 没有改动；真实接入需要另验契约和运行边界。</p>
+</details>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="17h-监控窗口与告警复核.html"><div class="dir">← 上一节</div>17h · 监控窗口与告警复核</a><a class="next" href="18-挑战项目A-手搓Agent框架.html"><div class="dir">下一节 →</div>18-挑战项目A-手搓Agent框架</a></nav>
+</main>
+<script>(function(){
+  var KEY="agent-progress", FILE="17i-\u91cd\u8bd5\u9884\u7b97\u4e0e\u7194\u65ad\u6062\u590d.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>

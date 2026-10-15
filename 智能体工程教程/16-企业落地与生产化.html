@@ -285,8 +285,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
   <span class="title">16 · 企业落地</span>
-  <span class="prevnext"><a href="15-安全-沙箱与提示注入.html">←</a>
-  <a href="16b-框架这层皮.html">→</a></span>
+  <span class="prevnext"><a href="15d-多租户隔离矩阵与负向验收.html" aria-label="上一节">←</a> <a href="16b-框架这层皮.html" aria-label="下一节">→</a> </span>
   <button class="js-done-btn">☐ 打卡</button>
   <button id="themeToggle" title="切换深浅色">🌗</button>
 </div></header>
@@ -308,7 +307,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="16">16 · 企业落地与生产化</h1>
-<p>⏱ <strong>22 分钟</strong> ｜ ⭐ <strong>想把 Agent 变成产品/推进到公司里的必看</strong></p>
+<p>⏱ <strong>阅读约 32 分钟</strong> · 动手实践另计</p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
 <p>Demo 到生产之间隔着五件事：<strong>选对场景、算清成本、架构解耦、组织接受、合规过关</strong>。
@@ -589,6 +588,76 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="../Claude博客资料库/智能体构建模式-06-托管Agent大脑双手解耦.html">规模化托管 Agent</a></li>
 </ul>
 <hr />
+
+<!-- second-batch-deployment:start -->
+<h2 id="second-batch-deployment">本地故障与恢复验收</h2>
+<p>一句话带走：重启恢复的是持久化状态；审批仍是执行副作用的必要条件，超时也不能证明远端没有成功。</p>
+<h2 id="_1">先分清教学夹具与真实部署</h2>
+<p>这里用脚本故障注入和业务 SQLite 子进程检查重试与恢复，不代表真实网络、图 checkpoint 或容器重建。执行范围与环境明细保留在本地故障恢复归档中。</p>
+<p>示例分工：<code>test_deployment.py</code> 组织故障测试，<code>deployment_lab.py</code> 提供重试夹具。</p>
+<h2 id="_2">停靠点一：先决定能不能重试</h2>
+<p>夹具最多3次调用，只重试429、503和 TimeoutError。401立即失败。每次仅记录request/operation/run ID、阶段、单次耗时、错误类型与重试次数，不保存异常中的原始私密文本。它是教学夹具，不是模型调用层补丁；真实适配器仍要处理 Retry-After、退避抖动、总截止时间与传输异常分类。副作用必须依赖下游幂等/查询契约；不能因为“可重试”就重复创建工单。</p>
+<p>救援：远端已写入却丢了响应时，先按关联操作号查询、对账，再考虑重试。若下游既不能按操作号幂等也不能查询，停在人工对账，不能许诺恰好一次。</p>
+<h2 id="_3">停靠点二：恢复不提供授权</h2>
+<p>“图恢复成功，但业务仍待审批”应拆开检查：checkpoint 是否载入，由框架记录证明；业务 run 若仍为 pending，执行仍应返回 approval_required、工单数为 0。载入状态不能替代授权。</p>
+<p>救援：保留原DB，核对tenant、subject、fingerprint、审批时限和operation_id；不要通过删DB或补造审批来让恢复变绿。取消只能阻止下一次尝试，不能撤销已经开始的传输或已经提交的远端副作用。</p>
+<h2 id="_4">停靠点三：部署证据分层</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>层次</th>
+<th>验收时应保存的证据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>单机教学契约</td>
+<td>故障注入、拒绝与恢复前后的业务状态；注明模拟了哪一层</td>
+</tr>
+<tr>
+<td>干净容器/挂载权限/镜像摘要</td>
+<td>干净构建记录、镜像摘要、非root写入及重建后数据保留</td>
+</tr>
+<tr>
+<td>云CI</td>
+<td>实际触发的运行记录、环境和结果；配置文件存在不算通过</td>
+</tr>
+<tr>
+<td>协议互通/图checkpoint</td>
+<td>对应协议或框架的独立验收记录</td>
+</tr>
+<tr>
+<td>真实身份/TLS/公网权限</td>
+<td>真实身份、传输与权限负例的执行记录</td>
+</tr>
+<tr>
+<td>GPU容量/QPS/SLO</td>
+<td>固定请求分布与并发下的延迟、吞吐、错误率和资源记录</td>
+</tr>
+<tr>
+<td>备份恢复/机器掉电/磁盘故障</td>
+<td>备份还原、掉电及磁盘故障后的业务一致性记录</td>
+</tr>
+</tbody>
+</table></div>
+<p>这组故障恢复记录只覆盖单机教学契约；容器、云 CI、真实身份与网络、生产容量及机器故障恢复仍未验收。先核对 Docker 与 daemon，再检查业务 DB、checkpoint 分别持久化、非 root 可写及重建后的状态；这些步骤须有实际记录才算完成。</p>
+<p>机制参考：<a href="https://docs.docker.com/engine/storage/bind-mounts/">Docker Bind mounts</a>、<a href="https://docs.docker.com/engine/storage/volumes/">Docker Volumes</a>、<a href="https://docs.python.org/3.12/library/sqlite3.html">Python 3.12 sqlite3</a>。</p>
+<!-- second-batch-deployment:end -->
+
+<!-- eighth-batch-release:start -->
+<h2 id="eighth-batch-release">把发布内容与验证记录对应起来</h2>
+<p><a href="16g-模型版本清单与回滚预检.html">16g · 模型版本清单与回滚预检</a> 用实际文件清单与同题检索结果演示完整性核对及回滚预检。哈希不是签名；预检通过也没有启动模型或切换服务流量。</p>
+<!-- eighth-batch-release:end -->
+
+<!-- tenth-batch-monitor:start -->
+<h2 id="tenth-batch-monitor">窗口告警先核对样本与数据质量</h2>
+<p><a href="17h-监控窗口与告警复核.html">17h · 监控窗口与告警复核</a> 在完整请求归并后选择窗口，分别检查失败率与成功请求P95。低样本与坏事件保留为无法判断，不据此自动扩容或回滚。</p>
+<!-- tenth-batch-monitor:end -->
+
+<!-- eleventh-batch-resilience:start -->
+<h2 id="eleventh-batch-resilience">先把重试预算与调用分母说清楚</h2>
+<p><a href="17i-重试预算与熔断恢复.html">17i · 重试预算与熔断恢复</a> 用合成时钟比较按次数重试和预算控制，核对下游调用放大、等待与熔断恢复。这是策略重放，不代表网络或生产容量验收。</p>
+<!-- eleventh-batch-resilience:end -->
 <h2 id="_14">✅ 检查点</h2>
 <ol>
 <li>选场景的四条标准是什么？共同点是什么？</li>
@@ -626,7 +695,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p><strong>下一节</strong> 👉 <a href="16b-框架这层皮.html">16b-框架这层皮.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
-<nav class="pagenav"><a href="15-安全-沙箱与提示注入.html"><div class="dir">← 上一节</div>🛡️ 15 · 安全与提示注入</a><a class="next" href="16b-框架这层皮.html"><div class="dir">下一节 →</div>🧅 16b · 框架这层皮</a></nav>
+<nav class="pagenav"><a href="15d-多租户隔离矩阵与负向验收.html"><div class="dir">← 上一节</div>15d · 多租户隔离矩阵与负向验收</a><a class="next" href="16b-框架这层皮.html"><div class="dir">下一节 →</div>🧅 16b · 框架这层皮</a></nav>
 </main>
 <script>(function(){
   var KEY="agent-progress", FILE="16-\u4f01\u4e1a\u843d\u5730\u4e0e\u751f\u4ea7\u5316.md";

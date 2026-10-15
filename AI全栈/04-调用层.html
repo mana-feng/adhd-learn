@@ -306,7 +306,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="04">04 · 调用层</h1>
-<p>⏱ <strong>54 分钟</strong> ｜ ⭐ <strong>把「调模型」包成你自己的一个函数</strong> ｜ 🔨 本章代码不联网、不花钱、可直接跑</p>
+<p>⏱ <strong>56 分钟</strong> ｜ ⭐ <strong>把「调模型」包成你自己的一个函数</strong> ｜ 🔨 本章代码不联网、不花钱、可直接跑</p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong><code>client.chat.completions.create()</code> 只是这一层最里面的一行；外面那圈——超时、重试、记账、缓存、可替换——才是它存在的理由。</strong>
@@ -527,8 +527,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <!--MIDSTOP-->
 <blockquote>
-<p>🛑 <strong>读到这里可以停</strong> —— 已经读了约 25 分钟。
-<strong>最后一段还有</strong>（约 27 分钟）：成本记账：<strong>不在这层做，之后就没地方做了</strong> · 缓存：不确定性让它变难了 · 换个栈怎么对应 · 检查点与走神救援
+<p>🛑 <strong>读到这里可以停</strong> —— 已经读了约 26 分钟。
+<strong>最后一段还有</strong>（约 30 分钟）：成本记账：<strong>不在这层做，之后就没地方做了</strong> · 缓存：不确定性让它变难了 · 换个栈怎么对应 · 检查点与走神救援
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
 <hr />
@@ -614,33 +614,42 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># cache.py —— 什么能缓存、key 里必须放什么（可直接跑）</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">hashlib</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># cache.py —— key 隔离身份、权限范围和文档修订（可直接跑）</span>
+<span class="k">import</span> <span class="n">hashlib</span>
+<span class="k">import</span> <span class="n">json</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">cacheable</span><span class="p">(</span><span class="n">temperature</span><span class="p">,</span> <span class="n">stream</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">tools</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;⭐ 判据只有一条：同样的输入，是不是【应该】得到同样的输出。&quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">temperature</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">stream</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">tools</span>
+<span class="k">def</span> <span class="n">cacheable</span><span class="p">(</span><span class="n">temperature</span><span class="p">,</span> <span class="n">stream</span><span class="p">=</span><span class="k">False</span><span class="p">,</span> <span class="n">tools</span><span class="p">=</span><span class="k">None</span><span class="p">)</span><span class="p">:</span>
+    <span class="s2">&quot;&quot;&quot;相同输入应复用同一结果时才考虑缓存；t=0 也不保证模型逐字确定。&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">temperature</span> <span class="p">==</span> <span class="mi">0</span> <span class="k">and</span> <span class="k">not</span> <span class="n">stream</span> <span class="k">and</span> <span class="k">not</span> <span class="n">tools</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">cache_key</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">prompt</span><span class="p">,</span> <span class="n">system</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="n">temperature</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">doc_ids</span><span class="o">=</span><span class="p">()):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;⚠️ 凡是会影响输出的东西都必须进 key —— 漏一个就是把别人的答案发给这个人。&quot;&quot;&quot;</span>
-    <span class="n">blob</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">({</span><span class="s2">&quot;model&quot;</span><span class="p">:</span> <span class="n">model</span><span class="p">,</span> <span class="s2">&quot;system&quot;</span><span class="p">:</span> <span class="n">system</span><span class="p">,</span> <span class="s2">&quot;prompt&quot;</span><span class="p">:</span> <span class="n">prompt</span><span class="p">,</span>
-                       <span class="s2">&quot;temperature&quot;</span><span class="p">:</span> <span class="n">temperature</span><span class="p">,</span>
-                       <span class="s2">&quot;docs&quot;</span><span class="p">:</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">doc_ids</span><span class="p">)},</span>        <span class="c1"># ⭐ 检索到的文档也影响输出</span>
-                      <span class="n">sort_keys</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">blob</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()[:</span><span class="mi">32</span><span class="p">]</span>
+<span class="k">def</span> <span class="n">cache_key</span><span class="p">(</span><span class="p">*</span><span class="p">,</span> <span class="n">tenant_id</span><span class="p">,</span> <span class="n">scope_id</span><span class="p">,</span> <span class="n">permission_version</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">prompt</span><span class="p">,</span>
+              <span class="n">system</span><span class="p">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="n">temperature</span><span class="p">=</span><span class="mi">0.0</span><span class="p">,</span> <span class="n">docs</span><span class="p">=</span><span class="p">(</span><span class="p">)</span><span class="p">)</span><span class="p">:</span>
+    <span class="c1"># 身份与权限字段来自已认证的服务端上下文，不接受模型/请求正文自报。</span>
+    <span class="c1"># scope_id 标识实际可见范围；docs 是最终上下文顺序的 (doc_id, revision)。</span>
+    <span class="n">blob</span> <span class="p">=</span> <span class="n">json</span><span class="p">.</span><span class="n">dumps</span><span class="p">(</span><span class="p">{</span>
+        <span class="s2">&quot;tenant&quot;</span><span class="p">:</span> <span class="n">tenant_id</span><span class="p">,</span> <span class="s2">&quot;scope&quot;</span><span class="p">:</span> <span class="n">scope_id</span><span class="p">,</span> <span class="s2">&quot;permissions&quot;</span><span class="p">:</span> <span class="n">permission_version</span><span class="p">,</span>
+        <span class="s2">&quot;model&quot;</span><span class="p">:</span> <span class="n">model</span><span class="p">,</span> <span class="s2">&quot;system&quot;</span><span class="p">:</span> <span class="n">system</span><span class="p">,</span> <span class="s2">&quot;prompt&quot;</span><span class="p">:</span> <span class="n">prompt</span><span class="p">,</span>
+        <span class="s2">&quot;temperature&quot;</span><span class="p">:</span> <span class="n">temperature</span><span class="p">,</span> <span class="s2">&quot;docs&quot;</span><span class="p">:</span> <span class="n">list</span><span class="p">(</span><span class="n">docs</span><span class="p">)</span><span class="p">,</span>
+    <span class="p">}</span><span class="p">,</span> <span class="n">sort_keys</span><span class="p">=</span><span class="k">True</span><span class="p">,</span> <span class="n">ensure_ascii</span><span class="p">=</span><span class="k">False</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">hashlib</span><span class="p">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">blob</span><span class="p">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span><span class="p">)</span><span class="p">.</span><span class="n">hexdigest</span><span class="p">(</span><span class="p">)</span>
 
 
-<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;能缓存吗：t=0&quot;</span><span class="p">,</span> <span class="n">cacheable</span><span class="p">(</span><span class="mf">0.0</span><span class="p">),</span> <span class="s2">&quot;｜t=0.7&quot;</span><span class="p">,</span> <span class="n">cacheable</span><span class="p">(</span><span class="mf">0.7</span><span class="p">),</span>
-          <span class="s2">&quot;｜带工具&quot;</span><span class="p">,</span> <span class="n">cacheable</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;搜索&quot;</span><span class="p">]))</span>
-    <span class="n">k</span> <span class="o">=</span> <span class="p">[</span><span class="n">cache_key</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="s2">&quot;s&quot;</span><span class="p">,</span> <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;这份合同有什么风险&quot;</span><span class="p">,</span> <span class="n">doc_ids</span><span class="o">=</span><span class="p">[</span><span class="n">d</span><span class="p">])</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="s2">&quot;AB&quot;</span><span class="p">]</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;同问题、不同文档，key 相同吗：&quot;</span><span class="p">,</span> <span class="n">k</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">k</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>   <span class="c1"># ⭐ 必须 False</span>
+<span class="k">if</span> <span class="n">__name__</span> <span class="p">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">base</span> <span class="p">=</span> <span class="n">dict</span><span class="p">(</span><span class="n">tenant_id</span><span class="p">=</span><span class="s2">&quot;A&quot;</span><span class="p">,</span> <span class="n">scope_id</span><span class="p">=</span><span class="s2">&quot;reader:u1&quot;</span><span class="p">,</span> <span class="n">permission_version</span><span class="p">=</span><span class="s2">&quot;p1&quot;</span><span class="p">,</span>
+                <span class="n">model</span><span class="p">=</span><span class="s2">&quot;s&quot;</span><span class="p">,</span> <span class="n">prompt</span><span class="p">=</span><span class="s2">&quot;这份合同有什么风险&quot;</span><span class="p">,</span> <span class="n">docs</span><span class="p">=</span><span class="p">[</span><span class="p">(</span><span class="s2">&quot;contract&quot;</span><span class="p">,</span> <span class="s2">&quot;r1&quot;</span><span class="p">)</span><span class="p">]</span><span class="p">)</span>
+    <span class="n">first</span> <span class="p">=</span> <span class="n">cache_key</span><span class="p">(</span><span class="p">**</span><span class="n">base</span><span class="p">)</span>
+    <span class="n">print</span><span class="p">(</span><span class="s2">&quot;同问题、同文档 id，换租户后相同吗：&quot;</span><span class="p">,</span>
+          <span class="n">first</span> <span class="p">==</span> <span class="n">cache_key</span><span class="p">(</span><span class="p">**</span><span class="p">(</span><span class="n">base</span> <span class="p">|</span> <span class="p">{</span><span class="s2">&quot;tenant_id&quot;</span><span class="p">:</span> <span class="s2">&quot;B&quot;</span><span class="p">}</span><span class="p">)</span><span class="p">)</span><span class="p">)</span>  <span class="c1"># False</span>
+    <span class="n">print</span><span class="p">(</span><span class="s2">&quot;同租户、同文档 id，修订后相同吗：&quot;</span><span class="p">,</span>
+          <span class="n">first</span> <span class="p">==</span> <span class="n">cache_key</span><span class="p">(</span><span class="p">**</span><span class="p">(</span><span class="n">base</span> <span class="p">|</span> <span class="p">{</span><span class="s2">&quot;docs&quot;</span><span class="p">:</span> <span class="p">[</span><span class="p">(</span><span class="s2">&quot;contract&quot;</span><span class="p">,</span> <span class="s2">&quot;r2&quot;</span><span class="p">)</span><span class="p">]</span><span class="p">}</span><span class="p">)</span><span class="p">)</span><span class="p">)</span>  <span class="c1"># False</span>
+    <span class="n">print</span><span class="p">(</span><span class="s2">&quot;权限版本改变后相同吗：&quot;</span><span class="p">,</span>
+          <span class="n">first</span> <span class="p">==</span> <span class="n">cache_key</span><span class="p">(</span><span class="p">**</span><span class="p">(</span><span class="n">base</span> <span class="p">|</span> <span class="p">{</span><span class="s2">&quot;permission_version&quot;</span><span class="p">:</span> <span class="s2">&quot;p2&quot;</span><span class="p">}</span><span class="p">)</span><span class="p">)</span><span class="p">)</span>  <span class="c1"># False</span>
 </code></pre></div>
 
-<p>💀 <strong>key 漏字段是这一节唯一真正危险的错误。</strong> 假设 key 只算 <code>prompt</code>，而提示词模板里拼进了检索到的文档——A 公司和 B 公司都问「这份合同有什么风险」，<strong>B 会拿到 A 的合同摘要</strong>。⚠️ 这类 bug 没有任何报错，缓存命中率还会因此变得很好看。判据：凡是会影响输出的东西（模型、system、温度、文档 id 和版本、租户）都得进 key。</p>
+<p>💀 <strong>缓存命中不等于允许返回。</strong> 两个租户可以都有 <code>contract</code>，同一文档也会从 <code>r1</code> 更新到 <code>r2</code>；只放 id，就会复用别人的摘要或旧版本答案。上面的三个比较都应为 <code>False</code>。模型、system、温度、最终上下文的内容与顺序也必须反映到 key。</p>
+<p>⭐ <code>tenant_id</code>、<code>scope_id</code> 和权限版本由服务端认证与授权结果提供；不同有效可见范围不能共用 scope，授权变化要更新版本。<strong>每次命中后仍要按当前 ACL 复验全部引用文档，并检查修订是否有效</strong>，再返回缓存答案；撤权或版本失效就丢弃命中，不能只靠 TTL 或旧 key 放行。</p>
 <hr />
 <h2 id="_6">🔄 六、换个栈怎么对应</h2>
 <div class="tw"><table>
