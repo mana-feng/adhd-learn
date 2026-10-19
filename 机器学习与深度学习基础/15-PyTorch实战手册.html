@@ -2,8 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>15 · PyTorch 实战手册 · 机器学习与深度学习基础</title>
-<script>(function(){var t=localStorage.getItem('recsys-theme');
-if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script><style>
 @font-face{font-family:"CodeCJK";
  src:url("../assets/code-cjk-mono.woff2") format("woff2");
  font-weight:400;font-style:normal;font-display:swap;}
@@ -280,7 +279,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/guided-lessons.css"><link rel="stylesheet" href="../assets/guided-batch1.css"><script defer src="../assets/guided-batch1.js"></script><script defer src="../assets/guided-lessons.js"></script></head><body class="guided-reading">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/guided-lessons.css"><link rel="stylesheet" href="../assets/guided-batch1.css"><script defer src="../assets/guided-batch1.js"></script><script defer src="../assets/guided-lessons.js"></script>
+
+<link rel="stylesheet" href="../assets/code-reader.css">
+<link rel="stylesheet" href="../assets/reading-tasks.css">
+<link rel="stylesheet" href="../assets/ml-reader.css">
+</head><body class="guided-reading ml-reader">
+<a class="ml-skip-link" href="#ml-main">跳到主要内容</a>
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -288,9 +293,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <span class="prevnext"><a href="14-通往Transformer.html">←</a>
   <a href="16-特征工程基础.html">→</a></span>
   <button class="js-done-btn">☐ 打卡</button>
-  <button id="themeToggle" title="切换深浅色">🌗</button>
+  <button id="themeToggle" type="button" aria-label="切换深浅色" title="切换深浅色">🌗</button>
 </div></header>
-<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<main id="ml-main" tabindex="-1"><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#numpy">🧱 一、张量：会自动求导的 numpy</a></li>
@@ -316,7 +321,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 
 <section class="lesson-full" id="full-lesson" aria-label="完整正文">
-<div class="lesson-divider"><span>继续探索</span><p>原有正文、图解和例子都在下方。按需跳转，不必一次读完。</p></div>
+
 <h2 id="15-pytorch" class="lesson-original-title">15 · PyTorch 实战手册</h2>
 <!-- guided-lesson: pytorch -->
 
@@ -597,15 +602,22 @@ CPU 到 CUDA 传输可测试 <code>pin_memory=True</code>。Windows 多进程加
 <span class="n">scaler</span><span class="o">.</span><span class="n">scale</span><span class="p">(</span><span class="n">loss</span><span class="p">)</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
 <span class="n">scaler</span><span class="o">.</span><span class="n">step</span><span class="p">(</span><span class="n">optimizer</span><span class="p">);</span> <span class="n">scaler</span><span class="o">.</span><span class="n">update</span><span class="p">()</span>
 
-<span class="c1"># 2. 梯度累积（小显存模拟大 batch）</span>
-<span class="n">loss</span> <span class="o">=</span> <span class="n">criterion</span><span class="p">(</span><span class="n">model</span><span class="p">(</span><span class="n">xb</span><span class="p">),</span> <span class="n">yb</span><span class="p">)</span> <span class="o">/</span> <span class="n">accum</span>
-<span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
-<span class="k">if</span> <span class="p">(</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span> <span class="o">%</span> <span class="n">accum</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-    <span class="n">optimizer</span><span class="o">.</span><span class="n">step</span><span class="p">();</span> <span class="n">optimizer</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
+# 2. 梯度累积（独立于上面的 AMP 片段）
+# 前提：criterion 返回逐样本损失的均值；这里不使用 AMP。
+accum = 4; samples = 0
+optimizer.zero_grad()
+for i, (xb, yb) in enumerate(loader):
+    loss = criterion(model(xb), yb) * len(xb)  # 先累计样本损失和
+    loss.backward(); samples += len(xb)
+    if (i + 1) % accum == 0 or i + 1 == len(loader):
+        for p in model.parameters():
+            if p.grad is not None: p.grad.div_(samples)
+        optimizer.step(); optimizer.zero_grad(); samples = 0
 
 <span class="c1"># 3. 编译加速（PyTorch 2.0+）</span>
 <span class="n">model</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
 </code></pre></div>
+<p>按实际样本数平均可覆盖不足一组的尾批；若损失按 token、像素或权重平均，应改用对应分母。BatchNorm、Dropout 等会使累积小批与一次大批的结果不同。使用 AMP 时需先 unscale，再归一化/裁剪，最后 step 和 update。</p>
 
 <hr />
 <!--XREF-->
@@ -668,7 +680,7 @@ CPU 到 CUDA 传输可测试 <code>pin_memory=True</code>。Windows 多进程加
 <aside class="lesson-rail" aria-label="本节学习路线">
 <button type="button" class="lesson-route-toggle" aria-expanded="true" aria-controls="lesson-route">本节学习路线 <span aria-hidden="true">⌄</span></button>
 <div id="lesson-route">
-<p class="lesson-position" aria-live="polite">从第一站开始</p>
+<p class="lesson-position">从第一站开始</p>
 <div class="lesson-track" aria-hidden="true"><span></span></div>
 <nav class="lesson-route-links" aria-label="章节跳转"></nav>
 <div class="lesson-rail-note"><strong>一次只读一张卡片</strong><p>先找到眼前的问题。完整示例和对照表都保留着，需要时再细读。</p></div>
@@ -688,7 +700,7 @@ CPU 到 CUDA 传输可测试 <code>pin_memory=True</code>。Windows 多进程加
                      :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
   document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
     var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
-    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+    var hint=document.querySelector('.donebar .hint');try{localStorage.setItem(KEY,JSON.stringify(p));}catch(e){if(hint){hint.setAttribute('role','status');hint.textContent='浏览器暂时不能保存打卡，可以收藏本页。';}return;}if(hint){hint.setAttribute('role','status');hint.textContent='打卡记录已保存；可在本教程目录查看进度。';}refresh();});});
   refresh();
 
   var tt=document.getElementById('themeToggle');
@@ -697,8 +709,8 @@ CPU 到 CUDA 传输可测试 <code>pin_memory=True</code>。Windows 多进程加
     var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
     var next=dark?'light':'dark';
     document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('recsys-theme',next);});
+    try{localStorage.setItem('recsys-theme',next);}catch(e){}});
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><script defer src="../assets/reading-tasks.js"></script><script src="../assets/ml-reader.js"></script></body></html>

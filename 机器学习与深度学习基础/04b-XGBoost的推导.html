@@ -2,8 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>04b · XGBoost 的推导：从负梯度到闭式解 · 机器学习与深度学习基础</title>
-<script>(function(){var t=localStorage.getItem('recsys-theme');
-if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script><style>
 @font-face{font-family:"CodeCJK";
  src:url("../assets/code-cjk-mono.woff2") format("woff2");
  font-weight:400;font-style:normal;font-display:swap;}
@@ -280,7 +279,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/guided-lessons.css"><script defer src="../assets/guided-lessons.js"></script></head><body class="guided-reading">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/guided-lessons.css"><script defer src="../assets/guided-lessons.js"></script>
+
+<link rel="stylesheet" href="../assets/code-reader.css">
+<link rel="stylesheet" href="../assets/reading-tasks.css">
+<link rel="stylesheet" href="../assets/ml-reader.css">
+</head><body class="guided-reading ml-reader">
+<a class="ml-skip-link" href="#ml-main">跳到主要内容</a>
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -288,9 +293,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <span class="prevnext"><a href="04a-集成学习与GBDT.html">←</a>
   <a href="05-评估与过拟合.html">→</a></span>
   <button class="js-done-btn">☐ 打卡</button>
-  <button id="themeToggle" title="切换深浅色">🌗</button>
+  <button id="themeToggle" type="button" aria-label="切换深浅色" title="切换深浅色">🌗</button>
 </div></header>
-<main>
+<main id="ml-main" tabindex="-1">
 <div class="lesson-layout" data-lesson="xgboost">
 <div class="lesson-content"><section class="lesson-hero" id="lesson-start" data-route="目标与直觉">
   <div><p class="lesson-eyebrow">04B / XGBOOST · 先理解，再推导</p>
@@ -349,7 +354,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <blockquote>
 <p>📍 <strong>你是从哪来的</strong>：<a href="04-决策树与集成学习.html">04 章</a>停在「GBDT 的每棵新树拟合损失函数的<strong>负梯度</strong>」。
 这一章只是接着往下问一句：<strong>负梯度只告诉你往哪个方向走，那到底该走多远？</strong>
-⚠️ <strong>没读过 04 章就先回去</strong>——这里默认你已经知道 Boosting 是串行纠错、GBDT 家族的树都是 CART 回归树、<code>learning_rate</code> 和树数是一对。</p>
+⚠️ <strong>没读过 04a《集成学习与GBDT》就先回去</strong>——这里默认你已经知道 Boosting 是串行纠错、GBDT 家族的树都是 CART 回归树、<code>learning_rate</code> 和树数是一对。</p>
 <p>🎁 <strong>这一章可以跳吗</strong>：<strong>只想会用 → 可以跳</strong>，去 <a href="../Kaggle竞赛方法论/01_数据策略与特征工程.html">Kaggle 第 1 章</a>按模板调参就行。
 <strong>但如果你要面试、或者要自定义损失函数、或者想知道 LightGBM 凭什么快</strong> —— 答案全在这一章，别处没有。</p>
 </blockquote>
@@ -359,7 +364,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <blockquote>
 <p>梯度告诉你<strong>往哪个方向走</strong>，<strong>没告诉你该走多远</strong>。</p>
 </blockquote>
-<p>GBDT 的做法是用 <code>learning_rate</code> 这个人工旋钮把步子统一压小——<strong>小步慢走，绕开了这个问题，而不是解决它</strong>。XGBoost 补上的就是缺的那一半。</p>
+<p>传统 GBDT 可用线搜索/叶子值优化，再用 learning_rate 收缩。这里看 XGBoost 如何用正则化二阶近似统一计算叶子权重和分裂评分。<code></code><strong></strong></p>
 <h3 id="_2">先给直觉：一阶导给方向，二阶导给步长</h3>
 <blockquote>
 <p>⭐ <strong>一句话</strong>：
@@ -381,7 +386,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>$$g_i=\frac{\partial\, l(y_i,\hat y^{(t-1)})}{\partial\, \hat y^{(t-1)}}\ (\text{一阶}),\qquad h_i=\frac{\partial^2 l(y_i,\hat y^{(t-1)})}{\partial\, (\hat y^{(t-1)})^2}\ (\text{二阶})$$</p>
 <p>展开到二阶，再扔掉与 $f_t$ 无关的常数项 $l(y_i,\hat y^{(t-1)})$：</p>
 <p>$$\text{Obj}^{(t)}\approx\sum_{i=1}^{n}\Big[\,g_i\, f_t(x_i)+\tfrac{1}{2}h_i\, f_t(x_i)^2\,\Big]+\gamma T+\frac{1}{2}\lambda\sum_j w_j^2$$</p>
-<p>⭐ <strong>停下来看看这一步换到了什么</strong>：式子里<strong>再也没有 $l$ 了</strong>，只剩 $g_i$、$h_i$ 两串数。也就是说——<strong>你换任何损失函数，只要它二阶可导，后面的推导一个字都不用改</strong>。这就是 XGBoost 能让你自定义 <code>objective</code>（只要求你提供 g 和 h 两个函数）的原因，也是「为什么用二阶展开」最实在的一条回答。</p>
+<p>⭐ <strong>停下来看看这一步换到了什么</strong>：式子里<strong>再也没有 $l$ 了</strong>，只剩 $g_i$、$h_i$ 两串数。也就是说——<strong>对满足支持条件的可加、光滑损失，可套用这个局部二阶形式；叶子最小值还要求 H+λ&gt;0</strong>。这就是 XGBoost 能让你自定义 <code>objective</code>（提供梯度与 Hessian，还需满足凸性等支持约束）的原因，也是「为什么用二阶展开」最实在的一条回答。</p>
 <h3 id="_5">第三步：从「每个样本」归并到「每个叶子」</h3>
 <p>树是<strong>分段常数函数</strong>：落进同一个叶子的样本，输出值完全一样。所以按叶子把样本归并，记 $I_j$ 为落进叶子 $j$ 的样本集合，$G_j=\sum_{i\in I_j}g_i$，$H_j=\sum_{i\in I_j}h_i$：</p>
 <p>$$\text{Obj}^{(t)}=\sum_{j=1}^{T}\Big[\,G_j w_j+\tfrac{1}{2}(H_j+\lambda)w_j^2\,\Big]+\gamma T$$</p>
@@ -394,9 +399,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong>「结构分数」（structure score）就是：给定一棵树长成什么样，它到底有多好——一个数字说了算，越小越好。</strong> XGBoost 里所有关于「要不要这么分」的决定，裁判都是它。</p>
 <p>💡 <strong>拿 MSE 验一下这两个公式</strong>：$l=\frac12(y-\hat y)^2$ 时 $g_i=\hat y_i-y_i$（就是<strong>负残差</strong>），$h_i=1$，于是</p>
 <p>$$w_j^{*}=\frac{\sum_{i\in I_j}(y_i-\hat y_i)}{n_j+\lambda}=\frac{\text{这个叶子里残差的和}}{\text{样本数}+\lambda}$$</p>
-<p>$\lambda=0$ 时就是<strong>残差的平均值</strong>——<strong>正是 GBDT 在做的事</strong>。⭐ <strong>所以在 MSE 下 XGBoost 和 GBDT 是同一个东西</strong>；差别全在别的损失上（logloss、pairwise 排序、Poisson、你自己写的……）。</p>
+<p>$\lambda=0$ 时就是<strong>残差的平均值</strong>——<strong>正是 GBDT 在做的事</strong>。⭐ <strong>在相同树结构、半平方损失且 λ=0 等条件下，两者叶子值都可取残差均值；这不代表正则、分裂、采样等实现完全等价。</strong></p>
 <h3 id="_7">第五步：分裂增益——预剪枝直接长在判据里</h3>
-<p>把一个叶子拆成左右两个，收益就是拿新的结构分数减旧的：</p>
+<p>把一个叶子拆成左右两个，收益就是拿分裂前的目标减分裂后的目标：</p>
 <p>$$\text{Gain}=\frac{1}{2}\left[\frac{G_L^2}{H_L+\lambda}+\frac{G_R^2}{H_R+\lambda}-\frac{(G_L+G_R)^2}{H_L+H_R+\lambda}\right]-\gamma$$</p>
 <p>三点必须读出来：</p>
 <div class="tw"><table>
@@ -421,7 +426,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<figure class="dia"><svg viewBox="0 0 700 428" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="XGBoost 目标函数的六步推导链：从原始目标函数到二阶泰勒展开、按叶子归并、一元二次求顶点、结构分数，最后得到分裂增益公式"><text x="350" y="22" font-size="12.5" text-anchor="middle" fill="var(--fg)" font-weight="700">XGBoost 的推导链：六步，每一步只是把上一步再往前推一格</text><rect x="16" y="36" width="668" height="48" rx="4" fill="var(--card)" stroke="var(--border)" stroke-width="1"/><text x="30" y="55" font-size="11.5" fill="var(--accent)" font-weight="700">① 目标函数：损失 + 正则（叶子数罚 γ，叶子权重罚 λ）</text><text x="30" y="74" font-size="12" fill="var(--fg)">Obj = Σ l( y , ŷ + f(x) ) + γT + ½λ Σ w²</text><polygon points="343,86 357,86 350,96" fill="var(--muted)"/><rect x="16" y="98" width="668" height="48" rx="4" fill="var(--card)" stroke="var(--border)" stroke-width="1"/><text x="30" y="117" font-size="11.5" fill="var(--accent)" font-weight="700">② 对 f 做二阶泰勒展开，扔掉常数项 —— 从此式子里没有 l 了</text><text x="30" y="136" font-size="12" fill="var(--fg)">Obj ≈ Σ [ g·f(x) + ½ h·f(x)² ] + γT + ½λ Σ w²</text><polygon points="343,148 357,148 350,158" fill="var(--muted)"/><rect x="16" y="160" width="668" height="48" rx="4" fill="var(--card)" stroke="var(--border)" stroke-width="1"/><text x="30" y="179" font-size="11.5" fill="var(--accent)" font-weight="700">③ 树是分段常数 → 按叶子归并：Gj = 叶内 g 之和，Hj = 叶内 h 之和</text><text x="30" y="198" font-size="12" fill="var(--fg)">Obj = Σ 叶子 j [ Gj·wj + ½ (Hj+λ)·wj² ] + γT</text><polygon points="343,210 357,210 350,220" fill="var(--muted)"/><rect x="16" y="222" width="668" height="48" rx="4" fill="var(--card)" stroke="var(--border)" stroke-width="1"/><text x="30" y="241" font-size="11.5" fill="var(--accent)" font-weight="700">④ 每个叶子都是一条开口向上的抛物线 → 顶点就是最优</text><text x="30" y="260" font-size="12" fill="var(--fg)">wj* = − Gj / (Hj + λ)　　⭐ 最优叶子权重</text><polygon points="343,272 357,272 350,282" fill="var(--muted)"/><rect x="16" y="284" width="668" height="48" rx="4" fill="var(--card)" stroke="var(--border)" stroke-width="1"/><text x="30" y="303" font-size="11.5" fill="var(--accent)" font-weight="700">⑤ 代回去，得到「这棵树的结构值多少分」</text><text x="30" y="322" font-size="12" fill="var(--fg)">Obj* = − ½ Σ Gj² / (Hj + λ) + γT　　⭐ 结构分数</text><polygon points="343,334 357,334 350,344" fill="var(--muted)"/><rect x="16" y="346" width="668" height="66" rx="4" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.4"/><text x="30" y="364" font-size="11.5" fill="var(--accent)" font-weight="700">⑥ 拆一个叶子的收益 = 拆后分数 − 拆前分数 − 新叶子的入场费 γ</text><text x="30" y="384" font-size="11.5" fill="var(--fg)">Gain = ½ [ GL²/(HL+λ) + GR²/(HR+λ) − (GL+GR)²/(HL+HR+λ) ] − γ</text><text x="30" y="403" font-size="11.5" fill="var(--muted)">⭐ Gain 为负就不分裂 —— 预剪枝直接长在判据里，不是长完再剪</text></svg><figcaption>⭐ 真正要记的是<b>第 ④ 步</b>：一旦按叶子归并，每个叶子就退化成一条抛物线，<b>顶点公式一代，最优叶子权重和结构分数同时掉出来</b>——XGBoost 后面所有工程优化（缺失值默认方向、加权分位数、直方图）都是在给这两个公式提速。</figcaption></figure>
+<figure class="dia" data-ml-diagram="wide" tabindex="0" style="--ml-diagram-width:700px" aria-label="教学图，可在图内左右滚动或使用放大按钮"><p class="ml-diagram-hint">图内可左右滑动；需要时可放大阅读。</p><svg viewBox="0 0 700 428" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="XGBoost 目标函数的六步推导链：从原始目标函数到二阶泰勒展开、按叶子归并、一元二次求顶点、结构分数，最后得到分裂增益公式"><text x="350" y="22" font-size="12.5" text-anchor="middle" fill="var(--fg)" font-weight="700">XGBoost 的推导链：六步，每一步只是把上一步再往前推一格</text><rect x="16" y="36" width="668" height="48" rx="4" fill="var(--card)" stroke="var(--border)" stroke-width="1"/><text x="30" y="55" font-size="11.5" fill="var(--accent)" font-weight="700">① 目标函数：损失 + 正则（叶子数罚 γ，叶子权重罚 λ）</text><text x="30" y="74" font-size="12" fill="var(--fg)">Obj = Σ l( y , ŷ + f(x) ) + γT + ½λ Σ w²</text><polygon points="343,86 357,86 350,96" fill="var(--muted)"/><rect x="16" y="98" width="668" height="48" rx="4" fill="var(--card)" stroke="var(--border)" stroke-width="1"/><text x="30" y="117" font-size="11.5" fill="var(--accent)" font-weight="700">② 对 f 做二阶泰勒展开，扔掉常数项 —— 从此式子里没有 l 了</text><text x="30" y="136" font-size="12" fill="var(--fg)">Obj ≈ Σ [ g·f(x) + ½ h·f(x)² ] + γT + ½λ Σ w²</text><polygon points="343,148 357,148 350,158" fill="var(--muted)"/><rect x="16" y="160" width="668" height="48" rx="4" fill="var(--card)" stroke="var(--border)" stroke-width="1"/><text x="30" y="179" font-size="11.5" fill="var(--accent)" font-weight="700">③ 树是分段常数 → 按叶子归并：Gj = 叶内 g 之和，Hj = 叶内 h 之和</text><text x="30" y="198" font-size="12" fill="var(--fg)">Obj = Σ 叶子 j [ Gj·wj + ½ (Hj+λ)·wj² ] + γT</text><polygon points="343,210 357,210 350,220" fill="var(--muted)"/><rect x="16" y="222" width="668" height="48" rx="4" fill="var(--card)" stroke="var(--border)" stroke-width="1"/><text x="30" y="241" font-size="11.5" fill="var(--accent)" font-weight="700">④ Hj+λ&gt;0 时，每个叶子的二阶近似是开口向上的抛物线 → 顶点就是最优</text><text x="30" y="260" font-size="12" fill="var(--fg)">wj* = − Gj / (Hj + λ)　　⭐ 最优叶子权重</text><polygon points="343,272 357,272 350,282" fill="var(--muted)"/><rect x="16" y="284" width="668" height="48" rx="4" fill="var(--card)" stroke="var(--border)" stroke-width="1"/><text x="30" y="303" font-size="11.5" fill="var(--accent)" font-weight="700">⑤ 代回去，得到「这棵树的结构值多少分」</text><text x="30" y="322" font-size="12" fill="var(--fg)">Obj* = − ½ Σ Gj² / (Hj + λ) + γT　　⭐ 结构分数</text><polygon points="343,334 357,334 350,344" fill="var(--muted)"/><rect x="16" y="346" width="668" height="66" rx="4" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.4"/><text x="30" y="364" font-size="11.5" fill="var(--accent)" font-weight="700">⑥ 分裂增益 = 分裂前目标 − 分裂后目标（已含新增叶成本）</text><text x="30" y="384" font-size="11.5" fill="var(--fg)">Gain = ½ [ GL²/(HL+λ) + GR²/(HR+λ) − (GL+GR)²/(HL+HR+λ) ] − γ</text><text x="30" y="403" font-size="11.5" fill="var(--muted)">⭐ Gain 为负就不分裂 —— 预剪枝直接长在判据里，不是长完再剪</text></svg><figcaption>⭐ 真正要记的是<b>第 ④ 步</b>：一旦按叶子归并，每个叶子就退化成一条抛物线，<b>顶点公式一代，最优叶子权重和结构分数同时掉出来</b>——XGBoost 后面所有工程优化（缺失值默认方向、加权分位数、直方图）都是在给这两个公式提速。</figcaption></figure>
 
 <h3 id="gbdt">和 GBDT 到底差在哪：三条</h3>
 <div class="tw"><table>
@@ -452,10 +457,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </table></div>
 <blockquote>
 <p>⭐ <strong>「为什么二阶收敛更快」的答案在这</strong>：
-一阶方法只知道方向，步长要靠 <code>learning_rate</code> 试；
+传统 GBDT 可在拟合方向后做线搜索或叶子值优化；<code></code>
 二阶方法把<strong>每个叶子的最优步长直接解出来</strong>（$-G_j/(H_j+\lambda)$ 就是一步牛顿法）。
-同样的树数下，走对步长的那个当然降得更多。
-⚠️ <strong>但别把这句话说过头</strong>：<code>learning_rate</code> 在 XGBoost 里<strong>照样要调、默认照样是 0.1</strong>。二阶解出来的是「这一步理论上的最优」，仍然要打个折才不会过拟合。</p>
+二阶近似提供一种候选更新；同样树数下的真实损失和验证效果仍需比较。
+⚠️ <strong>但别把这句话说过头</strong>：<code>learning_rate</code> 在 XGBoost 里<strong>照样要调、这里的 0.1 是示例值；官方 eta 默认值为 0.3，仍应验证调参</strong>。二阶解出来的是「当前正则化二阶近似的最优」，常结合收缩控制更新幅度，但不能保证不会过拟合。</p>
 </blockquote>
 <h3 id="_8">顺带解决的两个工程问题</h3>
 <p><strong>① 缺失值：不填，而是学一个「默认方向」</strong> ⭐</p>
@@ -490,7 +495,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td><strong>速度</strong></td>
 <td>中</td>
-<td><strong>最快</strong> ⭐</td>
+<td><strong>面向速度优化，实际需测量</strong></td>
 <td>中</td>
 </tr>
 <tr>
@@ -501,7 +506,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><strong>类别特征</strong></td>
-<td>需自己编码</td>
+<td>支持原生类别（需相应 dtype/配置），也可编码</td>
 <td>原生支持</td>
 <td><strong>原生且最好</strong> ⭐</td>
 </tr>
@@ -521,7 +526,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </table></div>
 <blockquote>
 <p>🔑 <strong>实用建议</strong>：<strong>大数据/要快 → LightGBM；类别特征多 → CatBoost；不确定 → 先 LightGBM。</strong>
-三者精度差距通常在 0.1–0.5% 以内，<strong>选型不如调参和特征工程重要</strong>。</p>
+三者精度差距依数据、指标和预算而变；在相同划分和预算下比较，不能预设固定差值范围。<strong></strong></p>
 </blockquote>
 <h3 id="_9">有了上一节，这张表就能从「结论」读成「为什么」了</h3>
 <p>⭐ <strong>三者的目标函数是同一个</strong>（都是「二阶展开 + 正则 + 结构分数」那一套）。它们的区别在于<strong>各自在优化训练流程的不同段</strong>：</p>
@@ -561,9 +566,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p><strong>LightGBM 的三板斧（「为什么最快」的答案）</strong>：</p>
+<p><strong>LightGBM 的三板斧（提速机制，不保证所有任务最快）</strong>：</p>
 <ul>
-<li>⭐ <strong>直方图算法</strong>：把连续特征预先分成 255 个 bin（一个 <code>uint8</code> 装得下）。找分裂点的复杂度从「O(样本数 × 特征数)」降到「<strong>O(bin 数 × 特征数)</strong>」，内存也降一个数量级。再加一个<strong>直方图做差</strong>——一个节点的两个孩子，算完左边直接用「父 − 左 = 右」拿到右边，<strong>省掉一半计算</strong>。</li>
+<li>⭐ <strong>直方图算法</strong>：把连续特征分成有限个 bin（数量可配置）<code></code>。找分裂点的候选扫描按 O(bin 数 × 特征数) 计算；构建直方图仍需 O(样本数 × 特征数)，不能把扫描成本当全部训练成本<strong></strong>。再加一个<strong>直方图做差</strong>——一个节点的两个孩子，算完左边直接用「父 − 左 = 右」拿到右边，<strong>省掉一半计算</strong>。</li>
 <li><strong>GOSS（单边梯度采样）</strong>：梯度大的样本 = 还没学好的样本，<strong>全留</strong>；梯度小的随机采一部分，并<strong>把它们的权重放大</strong>补偿（不放大分布就偏了）。</li>
 <li><strong>EFB（互斥特征捆绑）</strong>：one-hot 之后大量特征<strong>不会同时非零</strong>，把这些互斥的特征捆成一个存，特征数直接掉一大截。</li>
 </ul>
@@ -575,7 +580,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <strong>XGBoost 定义了这套框架</strong>（二阶展开 + 正则进目标函数 + 结构分数）；
 <strong>LightGBM 优化「怎么算得更快」</strong>（直方图 + 做差 + GOSS + EFB + leaf-wise）；
 <strong>CatBoost 优化「怎么不泄漏」</strong>（有序目标编码 + ordered boosting + 对称树）。
-三者精度差距通常 0.1–0.5%，<strong>所以才说选型远不如调参和特征工程重要</strong>。</p>
+三者不存在通用的固定精度差距；模型选择、调参和特征工程都需用验证结果比较。<strong></strong></p>
 </blockquote>
 <hr />
 <h2 id="_10">🔗 这一章连到哪里</h2>
@@ -628,7 +633,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <summary>👀 答案</summary>
 <ol>
 <li><strong>一阶导只给方向，二阶导给步长</strong>（梯度下降 vs 牛顿法）。GBDT 是拿负梯度当伪残差、再用<strong>平方误差代理准则</strong>长一棵树去拟合，叶子值靠事后一维线搜索补上——<strong>判据和叶子值不是同一个东西</strong>；XGBoost 直接对真实目标（含正则）二阶展开，<strong>分裂判据和叶子值出自同一个闭式解</strong>。</li>
-<li><strong>只剩 $g_i$ 和 $h_i$，损失函数 $l$ 消失了</strong>。好处：<strong>换任何二阶可导的损失，后面的推导一个字都不用改</strong>——这就是自定义 <code>objective</code> 只要求你提供 g 和 h 两个函数的原因。（另一个好处是按叶子归并后每个叶子是抛物线，<strong>有闭式最优解</strong>。）</li>
+<li><strong>只剩 $g_i$ 和 $h_i$，损失函数 $l$ 消失了</strong>。好处：<strong>对满足可加、光滑、凸性等支持条件的损失，可以复用局部二阶形式；提供 g/h 之外仍需满足约束，闭式最小值要求 H+λ&gt;0。</strong><code></code>（另一个好处是按叶子归并后每个叶子是抛物线，<strong>有闭式最优解</strong>。）</li>
 <li>$w_j^*=-\dfrac{G_j}{H_j+\lambda}$；$\text{Gain}=\frac12\Big[\frac{G_L^2}{H_L+\lambda}+\frac{G_R^2}{H_R+\lambda}-\frac{(G_L+G_R)^2}{H_L+H_R+\lambda}\Big]-\gamma$。<strong>$\gamma$ 是每多一个叶子的入场费</strong>，所以 <strong>Gain 为负就不分裂 = 预剪枝写进了判据</strong>（不是长完再剪）；<strong>$\lambda$ 在分母</strong>，叶子样本少（$H$ 小）时把权重往 0 拽，是天然的收缩。</li>
 <li>$g_i=\hat y_i-y_i$、$h_i=1$，$w_j^*$ 退化成<strong>这个叶子里残差的平均值</strong>（$\lambda=0$ 时）——<strong>正是 GBDT 在做的事</strong>。说明 <strong>MSE 下两者等价，二阶展开的价值全在别的损失函数上</strong>（logloss、pairwise 排序、Poisson、自定义）。</li>
 <li><strong>不填</strong>。每个候选分裂点上把缺失样本全扔左边算一次 Gain、全扔右边再算一次，<strong>哪边 Gain 大就把默认方向定成哪边</strong>——缺失是被当成信息<strong>学</strong>出来的，顺带让稀疏 one-hot 也跑得快。</li>
@@ -647,7 +652,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <aside class="lesson-rail" aria-label="本节学习路线">
 <button type="button" class="lesson-route-toggle" aria-expanded="true" aria-controls="lesson-route">本节学习路线 <span aria-hidden="true">⌄</span></button>
 <div id="lesson-route">
-<p class="lesson-position" aria-live="polite">从第一站开始</p>
+<p class="lesson-position">从第一站开始</p>
 <div class="lesson-track" aria-hidden="true"><span></span></div>
 <nav class="lesson-route-links" aria-label="章节跳转"></nav>
 <div class="lesson-rail-note"><strong>一次只读一张卡片</strong><p>蓝色下划线可以点开解释。关掉窗口，接着原来的位置读。</p></div>
@@ -667,7 +672,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
                      :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
   document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
     var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
-    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+    var hint=document.querySelector('.donebar .hint');try{localStorage.setItem(KEY,JSON.stringify(p));}catch(e){if(hint){hint.setAttribute('role','status');hint.textContent='浏览器暂时不能保存打卡，可以收藏本页。';}return;}if(hint){hint.setAttribute('role','status');hint.textContent='打卡记录已保存；可在本教程目录查看进度。';}refresh();});});
   refresh();
 
   var tt=document.getElementById('themeToggle');
@@ -676,8 +681,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
     var next=dark?'light':'dark';
     document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('recsys-theme',next);});
+    try{localStorage.setItem('recsys-theme',next);}catch(e){}});
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><script defer src="../assets/reading-tasks.js"></script><script src="../assets/ml-reader.js"></script></body></html>
