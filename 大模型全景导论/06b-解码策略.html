@@ -2,8 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>06b · 解码策略：模型是怎么选出下一个词的 · 大模型全景导论</title>
-<script>(function(){var t=localStorage.getItem('recsys-theme');
-if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script><style>
 @font-face{font-family:"CodeCJK";
  src:url("../assets/code-cjk-mono.woff2") format("woff2");
  font-weight:400;font-style:normal;font-display:swap;}
@@ -280,7 +279,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading llm-reader">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -296,7 +295,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#_2">🧭 先接住上一章</a></li>
 <li><a href="#decode">🎲 一步 decode 里到底发生了什么</a></li>
 <li><a href="#greedy">🥇 Greedy：永远选最大的那个</a></li>
-<li><a href="#beam-search">🌲 Beam Search：以及为什么开放式生成不用它</a></li>
+<li><a href="#beam-search">🌲 Beam Search：以及开放式生成的取舍</a></li>
 <li><a href="#top-k-k">✂️ top-k：固定砍到 k 个</a></li>
 <li><a href="#top-p-nucleus-sampling">🎯 top-p 核采样（nucleus sampling）：候选集自适应</a></li>
 <li><a href="#_3">🔗 想再深一层，去哪一套</a></li>
@@ -316,7 +315,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h2 id="_2">🧭 先接住上一章</h2>
 <p><a href="06-推理优化.html">第 6 章推理优化</a>的三大武器（量化 / 批处理 / 投机解码）解决的是「<strong>这一步跑得多快</strong>」。
 这一章解决完全不同的另一件事：「<strong>这一步选哪个词</strong>」。</p>
-<p><strong>两件事是正交的</strong>，但经常被混在一起。分开的办法很简单，看现象：</p>
+<p><strong>两者侧重点不同但会相互影响</strong>，但经常被混在一起。分开的办法很简单，看现象：</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -364,11 +363,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<h2 id="beam-search">🌲 Beam Search：以及为什么开放式生成不用它</h2>
+<h2 id="beam-search">🌲 Beam Search：以及开放式生成的取舍</h2>
 <p>机制：不再只留一条路，而是同时留 <strong>k 条部分序列（beam）</strong>。每一步把每条 beam 的所有可能扩展都算出来，按累计对数概率排序，全局取前 k 条继续。</p>
 <section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">k = 3，第 t 步：</span></div><div class="vb-flow-row"><span class="vb-flow-step">3 条 beam × 每条取若干候选</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">一堆候选序列</span></div><div class="vb-flow-row"><span class="vb-flow-step">按 Σ log p 排序</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">只留前 3 条</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">进入第 t+1 步</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 长度偏好：每多一个词就多乘一个 &lt;1 的概率，总分只会更低</span></div><div class="vb-flow-row"><span class="vb-flow-step">beam search 天然偏爱【短句】</span></div><div class="vb-flow-row"><span class="vb-flow-step">所以要配长度惩罚 length_penalty，把总分除以 长度^α</span></div></div></section>
-<p><strong>它在哪些任务上是对的</strong>：机器翻译、语音识别、OCR、结构化摘要——这些任务<strong>有一个（接近）唯一的正确输出</strong>，"找到概率最高的那条序列"就是任务目标本身。</p>
-<p>⭐ <strong>但开放式生成（聊天、写作、创意）不用它，原因有四条，第一条最根本</strong>：</p>
+<p>Beam search 常用于机器翻译、语音识别等受输入约束的生成任务；翻译与摘要仍可有多种合理答案，序列概率不等于任务质量。</p>
+<p>⭐ <strong>但开放式生成（聊天、写作、创意）常改用采样，原因有四条，第一条最根本</strong>：</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -390,8 +389,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <td>k 条 beam 常常只差一两个词。想要「给我 5 个不同的开头」，beam 给你的是 5 个几乎一样的开头</td>
 </tr>
 <tr>
-<td><strong>成本 k 倍</strong></td>
-<td>k 条 beam = <strong>k 份 KV Cache</strong>，显存和带宽都乘 k。而 decode 本来就卡在带宽上（<a href="06-推理优化.html">第 6 章的第一条铁律</a>：decode 卡在显存带宽，不是算力）</td>
+<td><strong>成本随 beam 数增加</strong></td>
+<td>多条 beam 增加计算与缓存需求；公共前缀是否共享、如何批处理会改变成本，不能固定写成 k 倍。</td>
 </tr>
 </tbody>
 </table></div>
@@ -406,11 +405,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p><strong>它的毛病只有一条：k 是固定数量，但分布形状是变的。</strong></p>
 <section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">分布很尖（&quot;中华人民共和&quot; 后面几乎必然是 &quot;国&quot;）</span></div><div class="vb-flow-row"><span class="vb-flow-step">k=50 会把 49 个荒唐候选硬塞进候选集</span></div><div class="vb-flow-row"><span class="vb-flow-step">分布很平（一个故事的开头，几百个词都合理）</span></div><div class="vb-flow-row"><span class="vb-flow-step">k=50 又把大量合理选项砍掉了</span></div></div></section>
 <h2 id="top-p-nucleus-sampling">🎯 top-p 核采样（nucleus sampling）：候选集自适应</h2>
-<p>按概率<strong>从大到小累加</strong>，累计一超过 p 就停手，只在这个"核"里抽签。</p>
-<p>⭐ <strong>关键优点：候选集大小自己会变。</strong> 分布尖 → 核可能只有 1–2 个；分布平 → 核可以有几百个。这正好补上了 top-k 的毛病，所以它是现在的默认选择（典型值 0.9 / 0.95）。</p>
+<p>按概率<strong>从大到小累加</strong>，累计达到或超过 p 就停手，只在这个"核"里抽签。</p>
+<p>⭐ <strong>关键优点：候选集大小自己会变。</strong> 分布尖 → 核可能只有 1–2 个；分布平 → 核可以有几百个。这正好补上了 top-k 的毛病，它是一种常见采样方式；0.9 / 0.95 是候选配置，并非所有模型的默认值。</p>
 <figure class="dia">
 <svg viewBox="0 0 700 384" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="同一个 logits 分布下，greedy、top-k、top-p、以及先降温再 top-p 各自留下的候选集大小对比">
-  <text class="dia-t" x="12" y="26" font-size="12" fill="var(--muted)">下一个词的概率分布（真实词表 10 万个，这里只画概率最高的 8 个）</text>
+  <text class="dia-t" x="12" y="26" font-size="12" fill="var(--muted)">下一个词的概率分布（教学示例：完整分布只有 8 个候选）</text>
   <rect x="150" y="53" width="44" height="97" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/>
   <rect x="210" y="102" width="44" height="48" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/>
   <rect x="270" y="122" width="44" height="28" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.2"/>
@@ -482,10 +481,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <rect x="570" y="336" width="44" height="20" rx="4" fill="none" stroke="var(--border)" stroke-width="1.1"/>
   <text class="dia-t" x="646" y="350" font-size="11.5" fill="var(--accent)">2 个</text>
 </svg>
-<figcaption>同一个分布，四种解法留下的候选集完全不同。<b>top_k 是固定数量</b>（不看分布形状），<b>top_p 是自适应的</b>。而<b>温度先改分布、截断再切</b>——降温到 T=0.3 后，同样一个 <code>top_p=0.9</code> 只剩 2 个候选（因为「天气」的概率被拉到了 0.89）。</figcaption>
+<figcaption>同一个分布，四种解法留下的候选集完全不同。<b>top_k 是固定数量</b>（不看分布形状），<b>top_p 是自适应的</b>。而<b>温度先改分布、截断再切</b>——降温到 T=0.3 后，同样一个 <code>top_p=0.9</code> 只剩 2 个候选（因为「天气」的概率约为 0.89（按本图分布计算））。</figcaption>
 </figure>
 
-<p>⚠️ <strong><code>top_p = 1.0</code> 不是"安全值"</strong>——它表示完全不截断，长尾里那 0.001% 的怪词有真实机会被抽中。想要"别乱来"应该设 0.9，不是 1.0。</p>
+<p><code>top_p=1.0</code> 表示不做核截断；0.9 会缩小候选集，但不保证事实正确、JSON 合法或安全。应按任务比较，且核对服务的实际处理顺序。</p>
 <h2 id="_3">🔗 想再深一层，去哪一套</h2>
 <div class="tw"><table>
 <thead>
@@ -501,7 +500,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><a href="../AI全栈/05-流式输出.html">AI全栈 05 · 流式输出</a></td>
-<td>流式输出里一个字一个字往外吐 —— 每一个字都走了一遍这一页的四个动作</td>
+<td>流式输出里一个字一个字往外吐 —— 生成单位是 token，不一定是一个字；流式分块也可能包含多个 token</td>
 </tr>
 <tr>
 <td><a href="../强化学习基础/12-RLHF全流程.html">强化学习基础 12 · RLHF全流程</a></td>
@@ -520,8 +519,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <summary>👀 答案</summary>
 <ol>
 <li><strong>① 吐 logits（不是概率）→ ② 温度缩放 → ③ top_k/top_p 截断 → ④ softmax 归一化后抽签</strong>。不独立是因为温度先改分布形状、截断再在改过的分布上切：降温到 0.3 后，同样的 <code>top_p=0.9</code> 从 6 个候选缩到 2 个。</li>
-<li>适合<strong>有唯一正确输出</strong>的任务：机器翻译、语音识别、OCR、结构化摘要。开放式生成不用它的四条：①高概率 ≠ 好文本（人类文本的逐词概率是起伏的，追求"最可能的一句话"得到的是最平庸的一句话）②文本退化（beam 越宽越短越干瘪，这正是核采样被提出来的动机）③多样性塌缩（k 条 beam 只差一两个词）④成本 k 倍 KV Cache。</li>
-<li>top-k 是<strong>固定数量</strong>，不看分布形状——分布尖时塞进 49 个荒唐候选，分布平时又砍掉合理选项；top-p 的候选集大小自适应。<code>top_p = 1.0</code> 表示完全不截断，长尾里那 0.001% 的怪词有真实机会被抽中——想"别乱来"该设 0.9 不是 1.0。</li>
+<li>Beam search 近似搜索高概率序列，常用于受约束的生成任务；开放生成可能缺少多样性或出现退化。翻译也不是唯一解，缓存成本也不固定为 k 倍。</li>
+<li>top-k 固定候选数量，top-p 根据累计概率选择最小集合（达到阈值即可）。top_p=1 不做核截断；任何阈值都不是正确性保证。</li>
 </ol>
 </details>
 <hr />
@@ -533,23 +532,26 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p><strong>下一节</strong> 👉 <a href="06c-解码参数怎么调.html">06c-解码参数怎么调.md</a></p></article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
 <button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
-<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">🧭 先接住上一章</a><a href="#decode">🎲 一步 decode 里到底发生了什么</a><a href="#greedy">🥇 Greedy：永远选最大的那个</a><a href="#beam-search">🌲 Beam Search：以及为什么开放式生成不用它</a><a href="#top-k-k">✂️ top-k：固定砍到 k 个</a><a href="#top-p-nucleus-sampling">🎯 top-p 核采样（nucleus sampling）：候选集自适应</a><a href="#_3">🔗 想再深一层，去哪一套</a><a href="#_4">✅ 检查点</a><a href="#_5">🛑 可以停在这里</a></nav>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">🧭 先接住上一章</a><a href="#decode">🎲 一步 decode 里到底发生了什么</a><a href="#greedy">🥇 Greedy：永远选最大的那个</a><a href="#beam-search">🌲 Beam Search：以及开放式生成的取舍</a><a href="#top-k-k">✂️ top-k：固定砍到 k 个</a><a href="#top-p-nucleus-sampling">🎯 top-p 核采样（nucleus sampling）：候选集自适应</a><a href="#_3">🔗 想再深一层，去哪一套</a><a href="#_4">✅ 检查点</a><a href="#_5">🛑 可以停在这里</a></nav>
 <button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
 <a href="00-怎么用这份导论.html#overview-start">重新选择学习目标</a></div></aside></div>
-<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<p class="content-sources">原始资料：<a href="https://huggingface.co/docs/transformers/main/en/main_classes/text_generation">Transformers Generation</a> · <a href="https://arxiv.org/abs/1904.09751">Neural Text Degeneration</a> · <a href="https://arxiv.org/abs/2309.06180">PagedAttention</a>（核对：2026-10-18；外链仅供追溯，正文可离线阅读）。</p>
+<div class="donebar"><noscript><p class="llm-nojs">JavaScript 未启用：正文、图表与章节链接可读；打卡、续读和弹窗工具不可用。</p></noscript><p class="llm-storage-status" role="status"></p><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="06d-降延迟与三个指标.html"><div class="dir">← 上一节</div>🏎️ 06d · 降延迟与指标</a><a class="next" href="06c-解码参数怎么调.html"><div class="dir">下一节 →</div>🎛️ 06c · 解码参数怎么调</a></nav>
 </main>
 <script>(function(){
   var KEY="overview-progress", FILE="06b-\u89e3\u7801\u7b56\u7565.md";
-  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  var memoryProgress=null;
+  function storageNotice(message){var n=document.querySelector('.llm-storage-status');if(n)n.textContent=message;}
+  function load(){if(memoryProgress!==null)return memoryProgress;try{var p=JSON.parse(localStorage.getItem(KEY));memoryProgress=p&&typeof p==='object'&&!Array.isArray(p)?p:{};}catch(e){memoryProgress={};storageNotice('无法读取浏览器存储；当前页打卡仅本次有效。');}return memoryProgress;}
   function refresh(){var d=!!load()[FILE];
     document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
       b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
                      :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
   document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
     var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
-    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+    try{localStorage.setItem(KEY,JSON.stringify(p));}catch(e){storageNotice('未保存：浏览器存储不可用；当前页打卡仅本次有效。');}refresh();});});
   refresh();
 
   var tt=document.getElementById('themeToggle');
@@ -558,8 +560,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
     var next=dark?'light':'dark';
     document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('recsys-theme',next);});
+    try{try{localStorage.setItem('recsys-theme',next);}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}});
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/llm-reader.css"></body></html>

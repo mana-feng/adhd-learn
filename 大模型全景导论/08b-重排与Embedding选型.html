@@ -2,8 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>08b · 重排与 Embedding 选型 · 大模型全景导论</title>
-<script>(function(){var t=localStorage.getItem('recsys-theme');
-if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script><style>
 @font-face{font-family:"CodeCJK";
  src:url("../assets/code-cjk-mono.woff2") format("woff2");
  font-weight:400;font-style:normal;font-display:swap;}
@@ -280,7 +279,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading llm-reader">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -305,8 +304,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⏱ <strong>26 分钟</strong> ｜ ⭐ <strong>按错误发生的位置决定优化顺序</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p>正确文档已经被召回了、却排在第 15 位被截断 —— 这是 RAG 最常见的失败形态，
-而<strong>重排是修它性价比最高的一步</strong>，是否划算需要用相同任务集比较质量、成本与延迟。
+<p>正确文档已经被召回了、却排在第 15 位被截断 —— 这是 RAG 的一种失败形态，
+而<strong>重排是候选中已有正确证据时可比较的改法</strong>，是否划算需要用相同任务集比较质量、成本与延迟。
 先查故障发生在哪一层：输入前缀、语种、截断或向量版本错了，应先修配置；候选集已有正确资料再比较重排。换 embedding 时还要处理索引迁移。</p>
 <hr />
 <h2 id="_2">🎯 环节三：重排候选集里已有的证据</h2>
@@ -360,11 +359,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </table></div>
 <p>不固定宣称哪一路最准或几毫秒；硬件、候选数、文本长度、模型和批量会改变结果。<a href="https://www.sbert.net/examples/sentence_transformer/applications/retrieve_rerank/README.html">机制与实践依据</a>。</p>
 <p><strong>ColBERT 的机制值得单独说清楚</strong>（它是这三条里最容易讲错的）：</p>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>Cross-Encoder：[问题 + 文档] 拼一起进模型 → 一个分数</p><p>→ 100 条候选 = 100 对输入；可批处理，在线计算量仍随候选增长</p><p>ColBERT：问题编成 Q 个向量，文档编成 D 个向量（每个 token 一个）</p><p>分数 = 对每个【问题 token】，取它和所有【文档 token】里最像的那个</p><p>的相似度，然后全部加起来 ← 这就是 MaxSim</p><p>→ 文档那 D 个向量【可以离线算好存起来】⭐</p><p>→ 在线主要是查询编码与向量交互；延迟收益取决于索引、硬件和候选规模</p><p>⚠️ 代价是存储爆炸：一个块从「1 个向量」变成「几百个向量」，</p><p>索引体积膨胀一个数量级。ColBERTv2 用残差压缩把它压回来一些，</p><p>但仍然远大于单向量索引。</p></div></section>
+<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>Cross-Encoder：[问题 + 文档] 拼一起进模型 → 一个分数</p><p>→ 100 条候选 = 100 对输入；可批处理，在线计算量仍随候选增长</p><p>ColBERT：问题编成 Q 个向量，文档编成 D 个向量（每个 token 一个）</p><p>分数 = 对每个【问题 token】，取它和所有【文档 token】里最像的那个</p><p>的相似度，然后全部加起来 ← 这就是 MaxSim</p><p>→ 文档那 D 个向量【可以离线算好存起来】⭐</p><p>→ 在线主要是查询编码与向量交互；延迟收益取决于索引、硬件和候选规模</p><p>⚠️ 代价是存储爆炸：一个块从「1 个向量」变成「几百个向量」，</p><p>索引体积可能显著增加，依长度与压缩配置而变。ColBERTv2 用残差压缩把它压回来一些，</p><p>需与指定单向量基线实测大小。</p></div></section>
 <blockquote>
 <p>🔑 <strong>按瓶颈选择</strong>：先测简单基线与 Cross-Encoder；需要多向量交互时再评估 ColBERT，需要复杂条件判断时再评估 LLM 重排。三者没有固定的质量排序，ColBERT 也不只是降级方案。</p>
 </blockquote>
-<p>💡 <strong>LLM 重排还有一个更划算的用法</strong>：不当线上重排器，而当<strong>离线评测集的标注器</strong>——让它给 100 个问题的召回结果打分，人再抽查 10%。线上跑不起的成本，离线跑得起。</p>
+<p>💡 <strong>LLM 重排还有一个更划算的用法</strong>：不当线上重排器，而当<strong>离线评测集的标注器</strong>——让它给 100 个问题的召回结果打分，人按风险分层复核；抽查比例依据误差与成本确定。线上跑不起的成本，离线跑得起。</p>
 <hr />
 <h2 id="embedding">🧭 Embedding 选型：从错误证据决定顺序</h2>
 <p>先检查文档是否入库、权限是否正确、模型语种与前缀是否匹配，再比较召回、融合与重排。若正确文档根本没进入候选，重排无法找回它；若已在候选里却排错，再做固定候选的重排对照。不存在所有项目都必须走的“切分、混合、重排、最后换 embedding”顺序。</p>
@@ -383,7 +382,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td>⭐ <strong>领域词汇完全在分布外</strong></td>
-<td>医学、法律、化学式、内部工单代号。通用模型没见过这些词，它们的向量互相挤在一起，可能难以区分，需要领域题集与难负例验证</td>
+<td>医学、法律、化学式、内部工单代号。通用模型没见过这些词，它们的表示可能不能区分业务所需差别，可能难以区分，需要领域题集与难负例验证</td>
 </tr>
 <tr>
 <td>⚠️ <strong>文本长度对不上</strong></td>
@@ -396,12 +395,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <h3 id="768-1024-1536">维度怎么取舍（768 / 1024 / 1536）</h3>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>维度 ↑ → 表达能力略强，但【边际收益递减很快】</p><p>→ 原始向量存储随维度线性增长；ANN 延迟还取决于索引、硬件与过滤</p><p>100 万块 × 1536 维 × 4 字节 = 6.1 GB （还没算索引结构本身）</p><p>100 万块 × 768 维 × 4 字节 = 3.1 GB</p><p>⭐ 判断顺序（不要反过来）：</p><p>先量出 1536 维比 768 维在【你自己那 20 个问题】上高几个点，</p><p>再问这几个点值不值 2 倍存储 + 更慢的检索。</p><p>是否值得，依据业务保留集与资源预算判断。</p></div></section>
+<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>维度 ↑ 不自动保证检索更准；比较同一任务与模型配置</p><p>→ 原始向量存储随维度线性增长；ANN 延迟还取决于索引、硬件与过滤</p><p>100 万块 × 1536 维 × 4 字节 = 6.1 GB （还没算索引结构本身）</p><p>100 万块 × 768 维 × 4 字节 = 3.1 GB</p><p>⭐ 判断顺序（不要反过来）：</p><p>先量出 1536 维比 768 维在【业务保留题集（20 题仅适合初查）】上高几个点，</p><p>再问这几个点值不值 2 倍存储 + 更慢的检索。</p><p>是否值得，依据业务保留集与资源预算判断。</p></div></section>
 <p>💡 <strong>一个常被忽略的选项：MRL（套娃表示）</strong>。有些模型在训练时就让"前 256 维"自己也是一个能用的向量，于是同一份 embedding 可以<strong>截断后粗筛、完整维度精算</strong>，存储和延迟一起省。选型时留意模型卡上有没有这一条。</p>
 <h3 id="mteb">MTEB 榜怎么看（榜首≠对你最好）</h3>
 <ol>
 <li>⭐ <strong>看子任务，不看总分。</strong> MTEB 总分把分类、聚类、语义相似度、检索混在一起平均。你只关心 <strong>Retrieval</strong> 那一栏；中文看 C-MTEB 的检索子集。</li>
-<li><strong>顺手看"参数量"和"维度"两列。</strong> 榜首常是 7B 级的 embedding 模型——它的推理成本可能比你整条检索链路还高。</li>
+<li><strong>顺手看"参数量"和"维度"两列。</strong> 候选可能包括较大的 embedding 模型——它的推理成本可能比你整条检索链路还高。</li>
 <li>⚠️ <strong>榜单会被刷。</strong> 训练数据里混进评测集是这个榜公开的老问题。<strong>一个模型只在榜上好、在你那 20 个问题上不好，信你自己的。</strong></li>
 <li><strong>别忘了迁移成本</strong>：换 embedding 意味着<strong>全库重算向量 + 重建索引</strong>。100 万块重跑一遍是实打实的钱和时间。</li>
 </ol>
@@ -462,7 +461,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="_6">✅ 检查点</h2>
 <ol>
-<li>为什么说重排是性价比最高的一步？</li>
+<li>什么证据说明重排值得比较？</li>
 <li>Cross-Encoder、ColBERT、LLM 重排三条路线的核心差别是什么？应该依据哪些质量、候选规模与资源证据选择？</li>
 <li>ColBERT 的 MaxSim 是怎么算的？它换来了什么、代价是什么？</li>
 <li>什么信号说明“该换 embedding 模型了”？换模型有一条什么运维铁律？</li>
@@ -488,20 +487,23 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">🎯 环节三：重排候选集里已有的证据</a><a href="#embedding">🧭 Embedding 选型：从错误证据决定顺序</a><a href="#_5">🔗 想再深一层，去哪一套</a><a href="#_6">✅ 检查点</a><a href="#_7">🛑 可以停在这里</a></nav>
 <button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
 <a href="00-怎么用这份导论.html#overview-start">重新选择学习目标</a></div></aside></div>
-<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<p class="content-sources">原始资料：<a href="https://docs.ragas.io/en/stable/concepts/metrics/available_metrics/faithfulness/">faithfulness</a>（核对：2026-10-18；外链仅供追溯，正文可离线阅读）。</p>
+<div class="donebar"><noscript><p class="llm-nojs">JavaScript 未启用：正文、图表与章节链接可读；打卡、续读和弹窗工具不可用。</p></noscript><p class="llm-storage-status" role="status"></p><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="08-RAG深水区.html"><div class="dir">← 上一节</div>🔍 08 · RAG 最小闭环</a><a class="next" href="08c-RAG怎么评估.html"><div class="dir">下一节 →</div>🧪 08c · RAG 怎么评估</a></nav>
 </main>
 <script>(function(){
   var KEY="overview-progress", FILE="08b-\u91cd\u6392\u4e0eEmbedding\u9009\u578b.md";
-  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  var memoryProgress=null;
+  function storageNotice(message){var n=document.querySelector('.llm-storage-status');if(n)n.textContent=message;}
+  function load(){if(memoryProgress!==null)return memoryProgress;try{var p=JSON.parse(localStorage.getItem(KEY));memoryProgress=p&&typeof p==='object'&&!Array.isArray(p)?p:{};}catch(e){memoryProgress={};storageNotice('无法读取浏览器存储；当前页打卡仅本次有效。');}return memoryProgress;}
   function refresh(){var d=!!load()[FILE];
     document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
       b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
                      :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
   document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
     var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
-    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+    try{localStorage.setItem(KEY,JSON.stringify(p));}catch(e){storageNotice('未保存：浏览器存储不可用；当前页打卡仅本次有效。');}refresh();});});
   refresh();
 
   var tt=document.getElementById('themeToggle');
@@ -510,8 +512,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
     var next=dark?'light':'dark';
     document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('recsys-theme',next);});
+    try{try{localStorage.setItem('recsys-theme',next);}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}});
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/llm-reader.css"></body></html>

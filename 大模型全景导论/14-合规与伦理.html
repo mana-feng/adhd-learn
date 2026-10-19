@@ -2,8 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>14 · 合规、法律与伦理 · 大模型全景导论</title>
-<script>(function(){var t=localStorage.getItem('recsys-theme');
-if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script><style>
 @font-face{font-family:"CodeCJK";
  src:url("../assets/code-cjk-mono.woff2") format("woff2");
  font-weight:400;font-style:normal;font-display:swap;}
@@ -280,7 +279,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading prose-tables">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading prose-tables llm-reader">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -409,20 +408,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <blockquote>
 <p>🔑 <strong>RAG 那条是企业落地最常翻车的地方</strong>：
 「HR 的薪资表进了知识库，普通员工一问就出来了」——
-<strong>RAG 必须做行级权限过滤，而不是只在应用层挡。</strong></p>
+<strong>RAG 应在检索、上下文组装和返回链路强制核对文档/行/字段权限；不能只隐藏前端入口。</strong></p>
 </blockquote>
-<h3 id="pii">🔨 PII 脱敏的最小可用方案</h3>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
-<span class="n">PATTERNS</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">&quot;PHONE&quot;</span><span class="p">:</span>  <span class="sa">r</span><span class="s2">&quot;1[3-9]\d</span><span class="si">{9}</span><span class="s2">&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;IDCARD&quot;</span><span class="p">:</span> <span class="sa">r</span><span class="s2">&quot;\d</span><span class="si">{17}</span><span class="s2">[\dXx]&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;EMAIL&quot;</span><span class="p">:</span>  <span class="sa">r</span><span class="s2">&quot;[\w.+-]+@[\w-]+\.[\w.]+&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;BANK&quot;</span><span class="p">:</span>   <span class="sa">r</span><span class="s2">&quot;\b\d{16,19}\b&quot;</span><span class="p">,</span>
-<span class="p">}</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">mask</span><span class="p">(</span><span class="n">text</span><span class="p">):</span>
-    <span class="k">for</span> <span class="n">tag</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">PATTERNS</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-        <span class="n">text</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;[</span><span class="si">{</span><span class="n">tag</span><span class="si">}</span><span class="s2">]&quot;</span><span class="p">,</span> <span class="n">text</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">text</span>
+<h3 id="pii">🔨 PII 格式匹配教学例（不构成完整脱敏器）</h3>
+<div class="codehilite" data-code-language="python"><pre><code>import re
+PATTERNS = {
+    &quot;PHONE&quot;:  r&quot;(?&lt;!\d)1[3-9]\d{9}(?!\d)&quot;,
+    &quot;IDCARD&quot;: r&quot;(?&lt;!\d)\d{17}[\dXx](?![\dXx])&quot;,
+    &quot;EMAIL&quot;:  r&quot;[\w.+-]+@[\w-]+\.[\w.]+&quot;,
+    &quot;BANK&quot;:   r&quot;(?&lt;!\d)\d{16,19}(?!\d)&quot;,
+}
+def mask(text):
+    # 长格式优先，一次扫描原文，避免手机号先截断更长号码。
+    order = (&quot;BANK&quot;, &quot;IDCARD&quot;, &quot;PHONE&quot;, &quot;EMAIL&quot;)
+    combined = &quot;|&quot;.join(f&quot;(?P&lt;{tag}&gt;{PATTERNS[tag]})&quot; for tag in order)
+    return re.sub(combined, lambda m: f&quot;[{m.lastgroup}]&quot;, text)
 </code></pre></div>
 
 <p>⚠️ <strong>正则只能挡住"格式明确"的那部分</strong>。姓名、地址、病情描述这类没有固定格式的 PII，正则挡不住——
@@ -663,7 +663,7 @@ NER 也会漏检，本地部署也需控制访问与外发。</p>
 <summary>👀 答案</summary>
 <ol>
 <li>数据<strong>会不会被用于训练</strong>、存储在哪个地域、保留多久。</li>
-<li>①<strong>日志和 tracing</strong>（日志系统权限往往比数据库宽松）②报错信息发到第三方监控 ③RAG 索引没做权限过滤 ④语义缓存串了用户。RAG 那条最常翻车——HR 的薪资表进了知识库，普通员工一问就出来。必须做行级权限过滤，不能只在应用层挡。</li>
+<li>①<strong>日志和 tracing</strong>（日志系统权限往往比数据库宽松）②报错信息发到第三方监控 ③RAG 索引没做权限过滤 ④语义缓存串了用户。RAG 那条最常翻车——HR 的薪资表进了知识库，普通员工一问就出来。应在检索与返回链路按当前身份强制授权，并隔离索引/缓存；实现可采用文档、行或字段级规则。</li>
 <li>正则只能匹配部分显式格式，仍可能误匹配或漏掉变体。姓名、地址等上下文识别更复杂；NER 与本地部署也需测试边界和控制外发。</li>
 <li>三者对应供应商授权、作品保护条件、第三方权利；按地区、用途和人类创作贡献分别确认。</li>
 <li>核对业务角色、具体用途、例外、生效时间及其他适用法律，也不能遗漏通用 AI 模型规则。</li>
@@ -681,20 +681,23 @@ NER 也会漏检，本地部署也需控制访问与外发。</p>
 <div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">🚧 一、数据隐私</a><a href="#_6">⚖️ 二、版权与知识产权</a><a href="#_7">📜 三、监管框架（了解结构即可）</a><a href="#_8">🧑‍⚖️ 四、伦理与产品责任</a><a href="#_9">🗂️ 一份实操检查清单</a><a href="#_10">🔗 和站内其他章的关系</a><a href="#_11">📦 深挖的话要学什么</a><a href="#_12">⚖️ 要不要深挖</a><a href="#_13">💡 一条贯穿全章的工程原则</a><a href="#_14">✅ 检查点</a><a href="#_15">🛑 可以停在这里</a></nav>
 <button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
 <a href="00-怎么用这份导论.html#overview-start">重新选择学习目标</a></div></aside></div>
-<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<p class="content-sources">原始资料：<a href="https://digital-strategy.ec.europa.eu/en/policies/regulatory-framework-ai">regulatory framework ai</a> · <a href="https://www.copyright.gov/ai/">ai</a>（核对：2026-10-18；外链仅供追溯，正文可离线阅读）。</p>
+<div class="donebar"><noscript><p class="llm-nojs">JavaScript 未启用：正文、图表与章节链接可读；打卡、续读和弹窗工具不可用。</p></noscript><p class="llm-storage-status" role="status"></p><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="13-LLMOps.html"><div class="dir">← 上一节</div>🔧 13 · LLMOps</a><a class="next" href="15-数学地基.html"><div class="dir">下一节 →</div>➗ 15 · 数学地基</a></nav>
 </main>
 <script>(function(){
   var KEY="overview-progress", FILE="14-\u5408\u89c4\u4e0e\u4f26\u7406.md";
-  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  var memoryProgress=null;
+  function storageNotice(message){var n=document.querySelector('.llm-storage-status');if(n)n.textContent=message;}
+  function load(){if(memoryProgress!==null)return memoryProgress;try{var p=JSON.parse(localStorage.getItem(KEY));memoryProgress=p&&typeof p==='object'&&!Array.isArray(p)?p:{};}catch(e){memoryProgress={};storageNotice('无法读取浏览器存储；当前页打卡仅本次有效。');}return memoryProgress;}
   function refresh(){var d=!!load()[FILE];
     document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
       b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
                      :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
   document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
     var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
-    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+    try{localStorage.setItem(KEY,JSON.stringify(p));}catch(e){storageNotice('未保存：浏览器存储不可用；当前页打卡仅本次有效。');}refresh();});});
   refresh();
 
   var tt=document.getElementById('themeToggle');
@@ -703,8 +706,8 @@ NER 也会漏检，本地部署也需控制访问与外发。</p>
     var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
     var next=dark?'light':'dark';
     document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('recsys-theme',next);});
+    try{try{localStorage.setItem('recsys-theme',next);}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}});
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/llm-reader.css"></body></html>

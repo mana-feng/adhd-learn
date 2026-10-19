@@ -2,8 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>05b · LoRA：从数据到验收 · 大模型全景导论</title>
-<script>(function(){var t=localStorage.getItem('recsys-theme');
-if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script><style>
 @font-face{font-family:"CodeCJK";
  src:url("../assets/code-cjk-mono.woff2") format("woff2");
  font-weight:400;font-style:normal;font-display:swap;}
@@ -280,7 +279,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading llm-reader">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -291,20 +290,20 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div></header>
 <main>
 <h1 id="05blora">05b｜LoRA：从数据到验收</h1>
-<p class="reading-time">⏱ <strong>阅读约 20 分钟</strong> · 动手实践另计</p>
+<p class="reading-time">⏱ <strong>阅读约 19 分钟</strong> · 动手实践另计</p>
 <blockquote>
-<p>本章保留教学代码、路径说明与历史验证结论；完整实验工程和运行记录未随本站及公开仓库分发。命令用于说明调用方式，复现需自行准备对应实现、数据与环境。</p>
+<p>本章给出数据、训练与保存重载的验收契约。完整实验工程与运行记录未随本站分发；以下命令是调用方式示意，不能在空目录直接运行。需先自行实现对应脚本并准备数据与环境。</p>
 <p>一句话带走：数据能被训练、适配器能被重载、任务真的变好，是三道不同的门。</p>
 </blockquote>
 <p>你看到 loss 下降，很容易想宣布微调成功。先缓一缓：模型也可能只记住了训练集，或者正在学习错误的角色标记。本章陪你把一段虚构设备报修文本变成三个 JSON 字段，留下能检查的证据。</p>
 <p>本章示例目录记作 <code>examples/lora-lab/</code>，使用独立于知识助手的环境。14 条原创英文样本按来源簇划分：训练8条、开发2条、未见验收4条。设备问题映射成 <code>power/noise/network/display</code>，对应 <code>check_power/inspect_mount/check_cable</code>。这是教学练习，不是维修建议，也不能用14题证明生产能力。</p>
-<p><strong>实测边界（2026-10-10）：</strong> 数据和真实 SmolLM2 tokenizer/mask（<code>examples/lora-lab/validation/data-report.json</code>）已验证；训练、反向传播、适配器保存重载、任务提升与QLoRA全部未实跑。最初可用RAM约0.8GiB，后续瞬时探测7.78GiB，但torch/PEFT缺失，训练入口在加载权重前拒绝。没有下载模型权重，更没有用模拟分数填补结果。</p>
+<p><strong>验证边界：</strong> 本页不提供可复核的训练成绩。训练、反向传播、保存重载、任务提升与 QLoRA 均需在自己的环境实跑并记录，不能从以下命令推定已通过。</p>
 <h2 id="token">停止点一：先看模型到底会学哪几个 token</h2>
 <p>原数据练习使用独立环境与 <code>requirements-data.txt</code>，通过 <code>prepare_tokenizer.py</code> 准备 tokenizer，将 <code>LORA_TOKENIZER_DIR</code> 指向 <code>.runtime/tokenizer</code>，再测试并调用：</p>
 <pre><code class="language-powershell">python data.py --data dataset/train.jsonl dataset/dev.jsonl dataset/test.jsonl --tokenizer .runtime/tokenizer --report .runtime/data-report.json
 </code></pre>
 <p>输入契约有 <code>id/source_group/split/messages</code>。来源簇不能跨分割；标准化问题相似度达到0.9也会被拒绝。近重复检查只能抓明显相似，读者仍要人工核查“同一原文改写”这种语义泄漏。</p>
-<p>聊天模板来自真实 tokenizer。编码完整文本一次，通过字符offset找到最终assistant回答，前面角色和上下文标签设为 <code>-100</code>；这些token参与上下文计算，却不直接承担这次loss。报告中的 <code>loss_text</code> 能让你亲眼看到训练目标。这里官方模板的回答末尾是 <code>&lt;|im_end|&gt;</code> 加换行，所以不能假定“最后一个token一定是EOS”。这条假设确实使测试失败过，原日志已保留。</p>
+<p>聊天模板来自真实 tokenizer。编码完整文本一次，通过字符offset找到最终assistant回答，前面角色和上下文标签设为 <code>-100</code>；这些token参与上下文计算，却不直接承担这次loss。报告中的 <code>loss_text</code> 能让你亲眼看到训练目标。这里官方模板的回答末尾是 <code>&lt;|im_end|&gt;</code> 加换行，所以不能假定“最后一个token一定是EOS”。应实际检查模板编码后的结尾与监督边界，不能把换行或角色标记误当作回答。</p>
 <p>任何样本超出256token，整条拒绝。练习选择让人明确缩短样本，而不悄悄截断答案。打开 <code>.runtime/data-report.json</code>，找一条目标，确认用户问题没有混进loss_text，再继续。</p>
 <details>
 <summary>检查点 1：为什么按来源簇分割？</summary>
@@ -320,7 +319,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </details>
 <h2 id="_1">停止点二：资源够，再付训练成本</h2>
 <p>候选基座为 Apache-2.0 的 <code>HuggingFaceTB/SmolLM2-135M-Instruct</code>，锁定commit <code>12fd25f77366fa6b3b4b768ec3050bf629380bac</code>。官方文件元数据报告权重约269MB；这不是训练内存预算。模型卡主要语言为英文，练习也采用英文，不据此宣称中文能力。</p>
-<p><code>requirements.txt</code> 列出候选组合：torch2.5.1、Transformers4.46.3、PEFT0.13.2、accelerate1.1.1；数据环境里的Transformers/tokenizers/Jinja2已实测，训练组合没有本机兼容性验收。先安装到独立环境，再运行：</p>
+<p><code>requirements.txt</code> 列出候选组合：torch2.5.1、Transformers4.46.3、PEFT0.13.2、accelerate1.1.1；这是一组历史候选版本，不是当前环境的兼容性保证。先安装到独立环境，再运行：</p>
 <pre><code class="language-powershell">python train.py --config config.json --data dataset/train.jsonl --output .runtime/adapter
 </code></pre>
 <p>入口先检查全部冻结语料，再检查可用RAM至少4GiB及版本，然后才导入torch、下载精确revision。4GiB只是保守启动门槛，不保证训练峰值够。默认CPU/float32，GPU未核实。不要终止用户进程来凑资源；资源不足就停在已经完成的数据练习。</p>
@@ -356,20 +355,22 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>现在只做一个动作：回看本章对 <code>loss_text</code> 的说明。你能解释它与用户问题的边界，今天的数据停止点就完成了。若环境报缺Jinja2，补数据依赖；若内存、版本或GPU检查失败，记下原始错误并停在这里。不要下载更大的模型“试试看”，不要跳过检查制造成功截图。</p>
 <p>下一条路线：数据分割看<a href="11b-私有评测集怎么建.html">私有评测集怎么建</a>，显存与精度看<a href="../AI基础设施/18-量化.html">量化</a>，偏好优化看<a href="12-对齐与AI安全.html">对齐与 AI 安全</a>；这些路线不能代替本实验的保存重载验收。</p>
 <p>官方来源（查阅2026-10-10）：<a href="https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct">模型卡与许可</a>、<a href="https://huggingface.co/docs/transformers/v4.46.3/chat_templating">Transformers4.46.3聊天模板</a>、<a href="https://huggingface.co/docs/peft/v0.13.0/package_reference/lora">PEFT0.13.0 LoRA接口</a>、<a href="https://huggingface.co/docs/peft/developer_guides/checkpoint">PEFT checkpoint格式</a>。示例代码自行编写，未复制语雀案例或成绩。</p>
-<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="donebar"><noscript><p class="llm-nojs">JavaScript 未启用：正文、图表与章节链接可读；打卡、续读和弹窗工具不可用。</p></noscript><p class="llm-storage-status" role="status"></p><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="05-微调与LoRA.html"><div class="dir">← 上一节</div>05-微调与LoRA</a><a class="next" href="02b-现代LLM架构的四处改动.html"><div class="dir">下一节 →</div>02b-现代LLM架构的四处改动</a></nav>
 </main>
 <script>(function(){
   var KEY="overview-progress", FILE="05b-LoRA\u4ece\u6570\u636e\u5230\u9a8c\u6536.md";
-  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  var memoryProgress=null;
+  function storageNotice(message){var n=document.querySelector('.llm-storage-status');if(n)n.textContent=message;}
+  function load(){if(memoryProgress!==null)return memoryProgress;try{var p=JSON.parse(localStorage.getItem(KEY));memoryProgress=p&&typeof p==='object'&&!Array.isArray(p)?p:{};}catch(e){memoryProgress={};storageNotice('无法读取浏览器存储；当前页打卡仅本次有效。');}return memoryProgress;}
   function refresh(){var d=!!load()[FILE];
     document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
       b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
                      :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
   document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
     var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
-    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+    try{localStorage.setItem(KEY,JSON.stringify(p));}catch(e){storageNotice('未保存：浏览器存储不可用；当前页打卡仅本次有效。');}refresh();});});
   refresh();
 
   var tt=document.getElementById('themeToggle');
@@ -378,8 +379,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
     var next=dark?'light':'dark';
     document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('recsys-theme',next);});
+    try{try{localStorage.setItem('recsys-theme',next);}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}});
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/llm-reader.css"></body></html>

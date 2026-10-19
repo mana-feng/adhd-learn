@@ -2,8 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>10d · CLIP 与对比学习 · 大模型全景导论</title>
-<script>(function(){var t=localStorage.getItem('recsys-theme');
-if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script><style>
 @font-face{font-family:"CodeCJK";
  src:url("../assets/code-cjk-mono.woff2") format("woff2");
  font-weight:400;font-style:normal;font-display:swap;}
@@ -280,7 +279,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading llm-reader">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -305,7 +304,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>CLIP 训出来的不是一个分类器，是一个图片和文字共享的向量空间</strong> ——
 于是可以用文字搜图、图搜图、零样本分类，还能直接复用向量检索那套基础设施。
-⭐ 而它的训练方式，和推荐系统的双塔召回<strong>是同一套东西</strong>，连坑都一样。</p>
+⭐ 而它的训练方式，和推荐系统的双塔召回<strong>是同一套东西</strong>，也需注意采样与假负例。</p>
 <p>⚠️ 这一页是原理层。只做视觉应用的话，<a href="10-多模态.html">上一页</a>就够用了。</p>
 <hr />
 <h3 id="clip">CLIP：图文对齐的地基</h3>
@@ -317,7 +316,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>拿一个 batch 的 N 对（图片，描述）。把 N 张图和 N 段文字各自编码、L2 归一化，得到一个 <strong>N×N 的相似度矩阵</strong>，然后要求<strong>对角线最大</strong>：</p>
 <p>$$\mathcal{L} = -\frac{1}{N}\sum_{i=1}^{N} \log \frac{\exp(\text{sim}(I_i, T_i)/\tau)}{\sum_{j=1}^{N} \exp(\text{sim}(I_i, T_j)/\tau)}$$</p>
 <p>💡 <strong>人话</strong>：<strong>对角线是正确答案，同一个 batch 里其他所有文字都是干扰项。</strong> 这个式子就是"N 选 1 选对"的交叉熵；训练时图找文、文找图各算一次取平均（所以是对称的）。</p>
-<p>⭐ <strong>关键在于负样本是白捡的</strong>：不用专门去采负样本——<strong>同一批次里别人的正样本，就是我的负样本</strong>（in-batch 负采样）。这是对比学习最省事的地方，也正是它对 batch size 极度敏感的原因。</p>
+<p>⭐ <strong>关键在于负样本来自同批数据，但可能包含语义相关的假负例</strong>：不用专门去采负样本——<strong>同一批次里别人的正样本，就是我的负样本</strong>（in-batch 负采样）。这是对比学习最省事的地方，也正是它对 batch size 极度敏感的原因。</p>
 <h4 id="_2">温度系数 τ 到底在干什么</h4>
 <p>$\tau$ 就是<a href="06-推理优化.html">第 6 章解码策略</a>里那个 temperature，只不过用在了训练的 loss 上：</p>
 <div class="tw"><table>
@@ -332,22 +331,22 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td><strong>小</strong>（如 0.01）</td>
 <td>尖锐</td>
-<td>把<strong>最难的那个负样本</strong>的梯度放到极大 → 学得"锋利"，但对错标极敏感、容易训崩</td>
+<td>更强调高相似度候选并改变梯度尺度；对错标和优化配置的敏感性需测量。</td>
 </tr>
 <tr>
 <td><strong>大</strong>（如 0.5）</td>
 <td>平坦</td>
-<td>所有负样本一视同仁 → 训练稳，但区分度不够，向量都挤在一起</td>
+<td>权重更平坦，但有限温度不代表完全等权，也不保证训练稳定或表示坍塌</td>
 </tr>
 </tbody>
 </table></div>
-<p>⭐ CLIP 的做法是<strong>把 τ 当成可学习参数</strong>（存它的对数，并夹住上限防止训练时自己跑飞）——<strong>它重要到值得让模型自己学</strong>。</p>
+<p>⭐ CLIP 的做法是<strong>学习分数缩放参数 logit_scale = log(1/τ)</strong>（原论文限制的是 exp(logit_scale) 不超过 100；具体实现需核对）——<strong>它重要到值得让模型自己学</strong>。</p>
 <h4 id="batch-size">为什么 batch size 对对比学习特别重要</h4>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">batch = 256</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">每张图面对 255 个干扰项</span></div><div class="vb-flow-row"><span class="vb-flow-step">batch = 32768</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">每张图面对 32767 个干扰项 ⭐ CLIP 用的就是这个量级</span></div><div class="vb-flow-row"><span class="vb-flow-step">干扰项越多</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">这道多选题越难</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">学到的向量必须分得越开</span></div><div class="vb-flow-row"><span class="vb-flow-step">这是对比学习【最直接的效果杠杆】，比改网络结构管用</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 代价是显存：N×N 相似度矩阵 + N 份激活，batch 一大就必须多卡</span></div><div class="vb-flow-row"><span class="vb-flow-step">（把各卡的特征 all-gather 到一起再算 loss，通信量还不小）</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">batch = 256</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">每张图面对 255 个干扰项</span></div><div class="vb-flow-row"><span class="vb-flow-step">batch = 32768</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">每张图面对 32767 个干扰项 ⭐ CLIP 用的就是这个量级</span></div><div class="vb-flow-row"><span class="vb-flow-step">干扰项越多</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">这道多选题越难</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">学到的向量必须分得越开</span></div><div class="vb-flow-row"><span class="vb-flow-step">这是对比学习【最直接的效果杠杆】，收益需与数据和结构改动分别比较</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 代价是显存：N×N 相似度矩阵 + N 份激活，batch 一大就必须多卡</span></div><div class="vb-flow-row"><span class="vb-flow-step">（把各卡的特征 all-gather 到一起再算 loss，通信量还不小）</span></div></div></section>
 <p>⚠️ <strong>SigLIP 就是冲着这一条来的</strong>：它把 softmax 对比损失换成<strong>逐对的 sigmoid 二分类损失</strong>——每一对图文自己判断"配不配"，不再需要对整行做归一化。于是不必凑齐全局负样本，小 batch 也能训、多卡通信也省了。现在很多新模型的视觉编码器用的是 SigLIP 而不是 CLIP。</p>
 <h4 id="_3">⭐ 一条跨板块的连线（这一章最值钱的一句）</h4>
 <blockquote>
-<p><strong>CLIP 的训练方式，和推荐系统的双塔召回是同一个东西。</strong></p>
+<p><strong>CLIP 的训练方式，和推荐系统的双塔召回使用相同的缩放数学形式，但作用阶段不同。</strong></p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -362,11 +361,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td>in-batch 负采样（别人的正样本当我的负样本）</td>
-<td>一模一样</td>
+<td>可类比，但具体损失与采样分布需核对</td>
 </tr>
 <tr>
 <td>温度系数 τ</td>
-<td>一模一样（那边建议从 <strong>0.05</strong> 开始调）</td>
+<td>可类比，但具体损失与采样分布需核对（那边建议从 <strong>0.05</strong> 开始调）</td>
 </tr>
 <tr>
 <td>图文进同一空间 → 用文字搜图</td>
@@ -374,9 +373,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>连<strong>坑</strong>都一样：热门样本会被过度当成负样本（推荐那边用 <strong>LogQ 校正</strong> 修）、负样本选错会训废、batch 越大越好。</p>
+<p>连<strong>坑</strong>都一样：热门样本会被过度当成负样本（推荐那边用 <strong>LogQ 校正</strong> 修）、负样本选错会训废、batch 增大并非总有收益，仍需检查假负例、数据和资源。</p>
 <p>🔗 <a href="../推荐算法/08-深度学习推荐模型.html">推荐算法第 8 章</a>有一段可跑的「双塔 + In-batch 负采样」代码——
-<strong>把"用户"换成"图片"、"物品"换成"文字"，那就是 CLIP 的训练循环。</strong> 想动手复现对比学习，去那一节抄。</p>
+<strong>把"用户"换成"图片"、"物品"换成"文字"，可帮助理解训练骨架；实际还需图文编码器、预处理、归一化和双向目标。</strong> 想动手复现对比学习，去那一节抄。</p>
 </blockquote>
 <h3 id="llava-vs-q-former">🔌 LLaVA vs Q-Former：投影层的两条路线</h3>
 <p>三段式里中间那一层有两种主流实现，<strong>差别在于视觉 token 有没有被压过</strong>：</p>
@@ -396,22 +395,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <td><strong>LLaVA</strong></td>
 <td>一个 MLP（最早的版本就是一层线性）</td>
 <td><strong>等于 ViT 的 patch 数</strong>（几百个）</td>
-<td>✅ 简单、训得快、细节不丢<br>❌ 吃 token</td>
+<td>✅ 结构简单，通常保留较多视觉位置；不保证细节无损<br>❌ 吃 token</td>
 </tr>
 <tr>
 <td><strong>查询压缩</strong></td>
 <td><strong>BLIP-2 的 Q-Former</strong></td>
 <td>一个小 Transformer，带一组<strong>可学习的 query 向量</strong>，用交叉注意力去"问"视觉特征</td>
 <td><strong>等于 query 个数</strong>（比如固定 32 个）</td>
-<td>✅ token 少、多图/长上下文友好<br>❌ 结构复杂、压缩必然丢细节（<strong>OCR 和小字场景最明显</strong>）</td>
+<td>✅ token 少、多图/长上下文友好<br>❌ 结构复杂、压缩可能形成信息瓶颈，细节表现需测量（<strong>例如可单测 OCR 和小字场景</strong>）</td>
 </tr>
 </tbody>
 </table></div>
-<p><strong>LLaVA 的两阶段训练</strong>（"多模态模型怎么训"这道题的标准答案）：</p>
+<p>原始 LLaVA 的两阶段训练示例（不是所有 VLM 的统一配方）：</p>
 <section class="visual-block visual-block-flow" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">阶段一：只训投影层 ← 视觉编码器和 LLM 全部冻住</span></div><div class="vb-flow-row"><span class="vb-flow-step">数据：大量【图片</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">简短描述】</span></div><div class="vb-flow-row"><span class="vb-flow-step">目标：把视觉向量对齐到 LLM 的词空间</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 这一阶段本质上就是在训一个「翻译器」</span></div><div class="vb-flow-row"><span class="vb-flow-step">阶段二：训投影层 + LLM ← 视觉编码器仍然冻住</span></div><div class="vb-flow-row"><span class="vb-flow-step">数据：【图片 + 多轮指令问答】</span></div><div class="vb-flow-row"><span class="vb-flow-step">从&quot;能描述图片&quot;变成&quot;能按指令回答关于图片的问题&quot;</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 视觉编码器（CLIP / SigLIP 的那个 ViT）通常全程不解冻，</span></div><div class="vb-flow-row"><span class="vb-flow-step">或只在最后小幅解冻 —— 它的表征是几亿图文对训出来的，</span></div><div class="vb-flow-row"><span class="vb-flow-step">随便动会把好不容易对齐的空间破坏掉</span></div></div></section>
 <blockquote>
-<p>🔑 <strong>为什么 LLaVA 这条"看起来太简单"的路线赢了</strong>：Q-Former 那一坨结构要单独预训练，而 MLP 投影层<strong>几乎没有超参</strong>、几个小时就训完，效果还不差。
-⭐ 现在的主流做法是「<strong>LLaVA 式直接投影 + 想省 token 时在 ViT 输出上做池化或切图</strong>」——把复杂度留在<strong>数据和分辨率策略</strong>上，而不是留在结构上。</p>
+<p>直接投影与查询压缩各有取舍，不能用“赢家”概括。池化可能减少视觉位置；高分辨率切图通常增加输入位置以保留细节。训练耗时与效果依模型、数据及硬件而变。</p>
 </blockquote>
 <hr />
 <h2 id="_4">🔗 想再深一层，去哪一套</h2>
@@ -425,7 +423,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td><a href="../推荐算法/08-深度学习推荐模型.html">推荐算法 08 · 深度学习推荐模型</a></td>
-<td>⭐⭐ <strong>这一页最值钱的一条连线</strong>：CLIP 和双塔召回是同一套东西 —— 图文编码器 ↔ 用户塔/物品塔、in-batch 负采样、温度系数 τ（那边从 0.05 开始调），连坑都一样（热门样本被过度当负样本要做 LogQ 校正）</td>
+<td>⭐⭐ <strong>这一页最值钱的一条连线</strong>：CLIP 与双塔召回共享表示匹配的思路 —— 图文编码器 ↔ 用户塔/物品塔、in-batch 负采样、温度系数 τ（那边从 0.05 开始调），也需注意采样与假负例（是否需 LogQ 校正取决于采样分布和损失，不能机械搬用）</td>
 </tr>
 <tr>
 <td><a href="../推荐算法/10-向量检索与ANN.html">推荐算法 10 · 向量检索与 ANN</a></td>
@@ -433,7 +431,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><a href="06c-解码参数怎么调.html">06c · 解码参数怎么调</a></td>
-<td>这一页的温度系数 τ，和你调 API 的 <code>temperature</code> 是同一个东西 —— 那一页讲它落在采样上是什么样</td>
+<td>这一页的温度系数 τ，和你调 API 的 <code>temperature</code> 使用相同的缩放数学形式，但作用阶段不同 —— 那一页讲它落在采样上是什么样</td>
 </tr>
 <tr>
 <td><a href="../机器学习与深度学习基础/05-评估与过拟合.html">机器学习与深度学习基础 05 · 评估与过拟合</a></td>
@@ -456,11 +454,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <summary>👀 答案</summary>
 <ol>
 <li>让<strong>图片和文字进入同一个向量空间</strong>。可以用文字搜图、图搜图、零样本分类，且能复用同一套向量检索基础设施。</li>
-<li>一个 batch 的 N 对图文编码后得到 <strong>N×N 相似度矩阵</strong>，InfoNCE 要求对角线最大——本质是“N 选 1 选对”的交叉熵（图找文、文找图各算一次取平均）。负样本是白捡的：同一批次里别人的正样本就是我的负样本（in-batch 负采样）。</li>
-<li><strong>τ 小（0.01）→ 分布尖锐</strong>，最难的负样本梯度极大，学得锋利但对错标极敏感、容易训崩；τ 大（0.5）→ 分布平坦，所有负样本一视同仁，训得稳但区分度不够、向量挤在一起。CLIP 把它做成可学习参数（存对数值并夹住上限），说明它重要到值得让模型自己学。</li>
+<li>一个 batch 的 N 对图文编码后得到 <strong>N×N 相似度矩阵</strong>，InfoNCE 要求对角线最大——本质是“N 选 1 选对”的交叉熵（图找文、文找图各算一次取平均）。负样本来自同批数据，但可能包含语义相关的假负例：同一批次里别人的正样本就是我的负样本（in-batch 负采样）。</li>
+<li>对固定相似度，小 τ 使 softmax 更尖锐并改变梯度尺度，大 τ 使它更平坦；不能直接推断训崩或坍塌。CLIP 学习 log(1/τ)，论文约束的是指数后的分数乘数不超过 100。</li>
 <li>因为负样本就是 batch 里的其他样本：<strong>batch=256 只有 255 个干扰项，batch=32768 有 32767 个</strong>（CLIP 用的量级）。干扰项越多多选题越难，向量必须分得越开——这是对比学习最直接的效果杠杆。代价是显存（N×N 矩阵，得多卡 all-gather）。SigLIP 把 softmax 对比损失换成逐对的 sigmoid 二分类，每对自己判“配不配”，不再需要对整行归一化，于是小 batch 也能训。</li>
-<li><strong>推荐算法第 8 章的双塔召回。</strong> 对应关系：图片/文本编码器 ↔ 用户塔/物品塔；in-batch 负采样一模一样；温度系数 τ 一模一样（那边从 0.05 开始调）；图文进同一空间用文字搜图 ↔ 用户物品进同一空间做 ANN 召回。连坑都一样（热门样本被过度当负样本 → LogQ 校正、负样本选错会训废、batch 越大越好）。</li>
-<li><strong>LLaVA 是一个 MLP 直接投影</strong>，视觉 token 数 = ViT 的 patch 数（几百个）——简单、训得快、细节不丢，但吃 token；Q-Former 是一个带可学习 query 的小 Transformer，用交叉注意力把视觉特征压成固定个数（比如 32 个）——省 token、多图友好，但结构复杂且压缩必然丢细节，OCR 和小字场景最明显。主流赢家是 LLaVA 这条：MLP 几乎没有超参、几小时训完。</li>
+<li><strong>推荐算法第 8 章的双塔召回。</strong> 对应关系：图片/文本编码器 ↔ 用户塔/物品塔；in-batch 负采样可类比，但具体损失与采样分布需核对；温度系数 τ 可类比，但具体损失与采样分布需核对（那边从 0.05 开始调）；图文进同一空间用文字搜图 ↔ 用户物品进同一空间做 ANN 召回。也需注意采样与假负例（采样偏差需结合具体损失处理，LogQ 不能无条件照搬、负样本选错会训废、batch 增大并非总有收益，仍需检查假负例、数据和资源）。</li>
+<li>直接投影在本页例子中保留较多视觉位置；BLIP-2 的 Q-Former 用一组查询提取视觉信息（论文为 32 个查询）。二者有长度、结构与训练取舍，不保证某一路细节无损或必然更优。</li>
 <li><strong>阶段一只训投影层</strong>（视觉编码器和 LLM 全冻），用【图片 → 简短描述】把视觉向量对齐到 LLM 的词空间，本质是训一个“翻译器”；阶段二训投影层 + LLM（视觉编码器仍冻），用【图片 + 多轮指令问答】做指令微调。视觉编码器不解冻是因为它的表征是几亿图文对训出来的，随便动会破坏好不容易对齐的空间。</li>
 </ol>
 </details>
@@ -474,20 +472,23 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_4">🔗 想再深一层，去哪一套</a><a href="#_5">✅ 检查点</a><a href="#_6">🛑 可以停在这里</a></nav>
 <button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
 <a href="00-怎么用这份导论.html#overview-start">重新选择学习目标</a></div></aside></div>
-<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<p class="content-sources">原始资料：<a href="https://arxiv.org/html/2103.00020v1">CLIP</a> · <a href="https://arxiv.org/abs/2303.15343">SigLIP</a> · <a href="https://arxiv.org/abs/2304.08485">LLaVA</a> · <a href="https://arxiv.org/abs/2301.12597">BLIP-2</a>（核对：2026-10-18；外链仅供追溯，正文可离线阅读）。</p>
+<div class="donebar"><noscript><p class="llm-nojs">JavaScript 未启用：正文、图表与章节链接可读；打卡、续读和弹窗工具不可用。</p></noscript><p class="llm-storage-status" role="status"></p><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="10-多模态.html"><div class="dir">← 上一节</div>🖼️ 10 · 多模态：视觉理解</a><a class="next" href="10b-图像生成.html"><div class="dir">下一节 →</div>🎨 10b · 图像生成</a></nav>
 </main>
 <script>(function(){
   var KEY="overview-progress", FILE="10d-CLIP\u4e0e\u5bf9\u6bd4\u5b66\u4e60.md";
-  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  var memoryProgress=null;
+  function storageNotice(message){var n=document.querySelector('.llm-storage-status');if(n)n.textContent=message;}
+  function load(){if(memoryProgress!==null)return memoryProgress;try{var p=JSON.parse(localStorage.getItem(KEY));memoryProgress=p&&typeof p==='object'&&!Array.isArray(p)?p:{};}catch(e){memoryProgress={};storageNotice('无法读取浏览器存储；当前页打卡仅本次有效。');}return memoryProgress;}
   function refresh(){var d=!!load()[FILE];
     document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
       b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
                      :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
   document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
     var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
-    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+    try{localStorage.setItem(KEY,JSON.stringify(p));}catch(e){storageNotice('未保存：浏览器存储不可用；当前页打卡仅本次有效。');}refresh();});});
   refresh();
 
   var tt=document.getElementById('themeToggle');
@@ -496,8 +497,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
     var next=dark?'light':'dark';
     document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('recsys-theme',next);});
+    try{try{localStorage.setItem('recsys-theme',next);}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}});
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/llm-reader.css"></body></html>

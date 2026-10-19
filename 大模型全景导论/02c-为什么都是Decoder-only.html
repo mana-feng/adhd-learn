@@ -2,8 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>02c · 选读：模型怎样逐个 token 生成 · 大模型全景导论</title>
-<script>(function(){var t=localStorage.getItem('recsys-theme');
-if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script><style>
 @font-face{font-family:"CodeCJK";
  src:url("../assets/code-cjk-mono.woff2") format("woff2");
  font-weight:400;font-style:normal;font-display:swap;}
@@ -280,7 +279,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading llm-reader">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -307,9 +306,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>可选专题：想弄清因果遮罩与自回归时进入。token 不等于一个汉字，也不一定等于一个单词。</p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p>聊天模型的基本工作不是“先想好整段答案再写”，而是：<strong>看见左边已经出现的 token，猜下一个 token；猜完，把它放回左边，再猜一次。</strong> 这就是 Decoder-only 和自回归生成。</p>
+<p>聊天模型的基本工作不是“先想好整段答案再写”，而是：<strong>看见左边已经出现的 token，猜下一个 token；猜完，把它放回左边，再猜一次。</strong> 这是常见因果 Decoder-only 模型的自回归生成方式。</p>
 <h2 id="_2">因果遮罩：不许偷看答案</h2>
-<p>训练时，完整句子明明就在眼前。若模型能看右边，它只会抄答案，学不会预测。所以我们给注意力加一条规则：当前位置只能看自己左边的位置。</p>
+<p>训练时，完整句子明明就在眼前。若模型能看右边，它只会抄答案，学不会预测。所以我们给注意力加一条规则：位置 i 可以看自己和左边的位置（j ≤ i），再用位置 i 的输出预测第 i+1 个 token；不能看到右边的目标 token。</p>
 <figure class="dia"><svg viewBox="0 0 760 230" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="因果遮罩只允许模型看到左侧内容"><text class="dia-t" x="380" y="27" text-anchor="middle" font-size="16" fill="var(--fg)" font-weight="700">预测第 4 个 token 时，模型能看哪里？</text><g font-family="PingFang SC,Microsoft YaHei,sans-serif" font-size="14" text-anchor="middle"><text x="190" y="63" fill="var(--muted)">已出现：猫</text><text x="330" y="63" fill="var(--muted)">追</text><text x="470" y="63" fill="var(--muted)">老鼠</text><text x="610" y="63" fill="var(--accent)">？下一个</text><rect x="126" y="82" width="92" height="52" rx="10" fill="var(--accent-soft)" stroke="var(--done)" stroke-width="2"/><rect x="266" y="82" width="92" height="52" rx="10" fill="var(--accent-soft)" stroke="var(--done)" stroke-width="2"/><rect x="406" y="82" width="92" height="52" rx="10" fill="var(--accent-soft)" stroke="var(--done)" stroke-width="2"/><rect x="546" y="82" width="92" height="52" rx="10" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/><text x="172" y="114" fill="var(--fg)">✓ 可看</text><text x="312" y="114" fill="var(--fg)">✓ 可看</text><text x="452" y="114" fill="var(--fg)">✓ 可看</text><text x="592" y="114" fill="var(--accent)">正在猜</text><rect x="296" y="174" width="296" height="30" rx="8" fill="var(--accent-soft)"/><text x="444" y="195" fill="var(--accent)">右边还不存在，所以绝不允许看</text></g></svg><figcaption>绿格是可用线索；橙格是正在预测的位置。训练和使用时都遵守同一条规则。</figcaption></figure>
 
 <h2 id="_3">生成就是一个小循环</h2>
@@ -322,20 +321,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>这解释了两个现象：它会慢慢往外吐字；而且前面生成错一个词，后面会顺着这个错误继续写。</p>
 <h3 id="_4">训练时其实不是一个字一个字算</h3>
 <p>生成必须串行，但训练可以并行。训练样本例如“猫追老鼠很快”，会同时要求模型完成四道题：看“猫”猜“追”、看“猫追”猜“老鼠”、看“猫追老鼠”猜“很”……</p>
-<p>因果遮罩保证每个位置只能使用自己左边的信息，于是这些题可以在一张矩阵里同时算出来，又不会泄题。这就是为什么训练能把 GPU 跑得很满，而在线生成仍要等前一个 token 出来。</p>
+<p>因果遮罩保证每个位置只能使用自己及左边的信息，于是这些题可以在一张矩阵里同时算出来，又不会泄题。这就是为什么训练能把 GPU 跑得很满，而在线生成仍要等前一个 token 出来。</p>
 <h3 id="_5">“选下一个词”也不是总选概率最高</h3>
 <p>若每次都选最高概率，回答会更稳定，却很容易模板化和重复。实际生成还会使用 temperature、top-p 等规则：它们不是让模型突然更懂，而是在已经给出的概率分布里控制“保守还是多样”。这部分在推理优化的解码专题会细讲。</p>
 <h2 id="decoder-only">为什么叫 Decoder-only</h2>
 <p>“Decoder-only”不是说它没有理解能力，而是说整套网络都遵守左看规则。它用同一种结构完成两件事：读你的问题时根据前文更新向量；写回答时继续预测下一个 token。规模足够大后，这个简单目标会逼它学到语法、事实关联、代码模式和部分推理套路。</p>
 <p>早期还有 Encoder-only 和 Encoder-Decoder 两条常见路线。它们不是“错误版本”：Encoder 很适合理解、分类、抽取；Encoder-Decoder 很适合输入与输出结构明显不同的翻译、摘要等任务。Decoder-only 在通用聊天模型里流行，是因为它用一个统一的“续写”目标就能吸收各种文本和代码，也天然匹配开放式生成。</p>
 <h2 id="kv-cache">这和 KV Cache 有什么关系？</h2>
-<figure class="dia" data-fig="kv_cache_scale"><svg viewBox="0 0 740 326" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="70B 模型在不同上下文长度下的 KV Cache 显存比较"><defs><marker id="a4__f2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker><marker id="a4l__f2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--link)"/></marker><marker id="a4d__f2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--danger,#e5534b)"/></marker></defs><text class="dia-t" x="360" y="31" font-size="14" text-anchor="middle" fill="var(--fg)" font-weight="700">同一个 70B 模型：上下文长度会把 KV Cache 推过模型权重</text><text class="dia-t" x="34" y="87" font-size="12" text-anchor="start" fill="var(--fg)" font-weight="600">模型权重（FP16）</text><rect x="265" y="70" width="430" height="28" rx="8" fill="var(--quote-bg)" stroke="var(--border)"/><rect x="265" y="70" width="230" height="28" rx="8" fill="var(--muted)" opacity=".82"/><text class="dia-t" x="710" y="89" font-size="12.5" text-anchor="end" fill="var(--muted)" font-weight="700">140 GB</text><text class="dia-t" x="34" y="153" font-size="12" text-anchor="start" fill="var(--fg)" font-weight="600">KV Cache · 10,000 token</text><rect x="265" y="136" width="430" height="28" rx="8" fill="var(--quote-bg)" stroke="var(--border)"/><rect x="265" y="136" width="43" height="28" rx="8" fill="var(--link)" opacity=".82"/><text class="dia-t" x="710" y="155" font-size="12.5" text-anchor="end" fill="var(--link)" font-weight="700">26 GB</text><text class="dia-t" x="34" y="219" font-size="12" text-anchor="start" fill="var(--fg)" font-weight="600">KV Cache · 100,000 token</text><rect x="265" y="202" width="430" height="28" rx="8" fill="var(--quote-bg)" stroke="var(--border)"/><rect x="265" y="202" width="430" height="28" rx="8" fill="var(--accent)" opacity=".82"/><text class="dia-t" x="710" y="221" font-size="12.5" text-anchor="end" fill="var(--accent)" font-weight="700">260 GB</text><text class="dia-t" x="360" y="282" font-size="13" text-anchor="middle" fill="var(--accent)" font-weight="700">100k token 时：KV Cache = 260 GB，已经是 FP16 权重的约 1.9 倍</text><text class="dia-t" x="360" y="303" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">GQA 的作用：让多个注意力头共享 K/V，把这块缓存显著缩小</text></svg><figcaption>这张图对应紧接着的算账：上下文从 1 万涨到 10 万，KV Cache 从 <b>26 GB</b> 线性涨到 <b>260 GB</b>。⭐ GQA 让多个头共享 K/V，就是为了把这根最长的橙色条压下来。</figcaption></figure>
+<figure class="dia" data-fig="kv_cache_scale"><svg viewBox="0 0 740 326" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="70B 模型在不同上下文长度下的 KV Cache 显存比较"><defs><marker id="a4__f2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker><marker id="a4l__f2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--link)"/></marker><marker id="a4d__f2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--danger,#e5534b)"/></marker></defs><text class="dia-t" x="360" y="31" font-size="14" text-anchor="middle" fill="var(--fg)" font-weight="700">假设 MHA 配置：长上下文的 KV 可能超过权重</text><text class="dia-t" x="34" y="87" font-size="12" text-anchor="start" fill="var(--fg)" font-weight="600">模型权重（FP16）</text><rect x="265" y="70" width="430" height="28" rx="8" fill="var(--quote-bg)" stroke="var(--border)"/><rect x="265" y="70" width="230" height="28" rx="8" fill="var(--muted)" opacity=".82"/><text class="dia-t" x="710" y="89" font-size="12.5" text-anchor="end" fill="var(--muted)" font-weight="700">140 GB</text><text class="dia-t" x="34" y="153" font-size="12" text-anchor="start" fill="var(--fg)" font-weight="600">KV Cache · 10,000 token</text><rect x="265" y="136" width="430" height="28" rx="8" fill="var(--quote-bg)" stroke="var(--border)"/><rect x="265" y="136" width="43" height="28" rx="8" fill="var(--link)" opacity=".82"/><text class="dia-t" x="710" y="155" font-size="12.5" text-anchor="end" fill="var(--link)" font-weight="700">26 GB</text><text class="dia-t" x="34" y="219" font-size="12" text-anchor="start" fill="var(--fg)" font-weight="600">KV Cache · 100,000 token</text><rect x="265" y="202" width="430" height="28" rx="8" fill="var(--quote-bg)" stroke="var(--border)"/><rect x="265" y="202" width="430" height="28" rx="8" fill="var(--accent)" opacity=".82"/><text class="dia-t" x="710" y="221" font-size="12.5" text-anchor="end" fill="var(--accent)" font-weight="700">260 GB</text><text class="dia-t" x="360" y="282" font-size="13" text-anchor="middle" fill="var(--accent)" font-weight="700">100k token 时：KV Cache = 260 GB，已经是 FP16 权重的约 1.9 倍</text><text class="dia-t" x="360" y="303" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">GQA 的作用：让多个注意力头共享 K/V，把这块缓存显著缩小</text></svg><figcaption>这里是教学算例，假设 80 层、64 个 KV 头、头维 128、FP16（2 字节）、batch=1，不代表所有 70B 模型。每 token 缓存为 2×80×64×128×2 = 2,621,440 字节（约 2.62 MB）。这张图据此算账：上下文从 1 万涨到 10 万，KV Cache 从 <b>26 GB</b> 线性涨到 <b>260 GB</b>。⭐ GQA 让多个头共享 K/V，就是为了把这根最长的橙色条压下来。</figcaption></figure>
 
 <p>每次生成新 token 时，前面的内容没有变，没必要从头再算一遍。模型会把过去 token 的 K 和 V 暂存起来，这就是 KV Cache。</p>
 <blockquote>
 <p><strong>好处</strong>：生成更快。<strong>代价</strong>：上下文越长，缓存越占显存。它是部署与长上下文问题的桥梁，等需要关心速度和显存时再深入。</p>
 </blockquote>
 <p>可以把一次请求分成两段：<strong>Prefill</strong> 是先读完整个问题并建立缓存，决定首字要等多久；<strong>Decode</strong> 是之后逐 token 生成，每一步只计算新 token，但都要读取越来越长的缓存，决定每秒能吐多少字。现代模型常用 GQA，让多个注意力头共享较少的 K/V 头，以减轻缓存压力；但“长上下文会吃显存”这条基本约束仍在。</p>
+<p>需要估算部署显存时，接着看 <a href="06-推理优化.html#_4">06 · 显存怎么估</a>，把 KV 缓存、模型权重与运行开销分开计算。</p>
 <h2 id="_6">✅ 检查点</h2>
 <ul>
 <li>因果遮罩的目的：防止训练时偷看右边答案。</li>
@@ -380,20 +380,23 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">因果遮罩：不许偷看答案</a><a href="#_3">生成就是一个小循环</a><a href="#decoder-only">为什么叫 Decoder-only</a><a href="#kv-cache">这和 KV Cache 有什么关系？</a><a href="#_6">✅ 检查点</a><a href="#_7">🔗 想再深一层，去哪一套</a><a href="#_8">🛑 可以停在这里</a></nav>
 <button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
 <a href="00-怎么用这份导论.html#overview-start">重新选择学习目标</a></div></aside></div>
-<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<p class="content-sources">原始资料：<a href="https://arxiv.org/html/1706.03762v7">Attention Is All You Need</a>（核对：2026-10-18；外链仅供追溯，正文可离线阅读）。</p>
+<div class="donebar"><noscript><p class="llm-nojs">JavaScript 未启用：正文、图表与章节链接可读；打卡、续读和弹窗工具不可用。</p></noscript><p class="llm-storage-status" role="status"></p><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="02b-现代LLM架构的四处改动.html"><div class="dir">← 上一节</div>🔩 02b · 选读：训练稳定</a><a class="next" href="02e-SwiGLU与RoPE.html"><div class="dir">下一节 →</div>🚪 02e · 选读：SwiGLU</a></nav>
 </main>
 <script>(function(){
   var KEY="overview-progress", FILE="02c-\u4e3a\u4ec0\u4e48\u90fd\u662fDecoder-only.md";
-  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  var memoryProgress=null;
+  function storageNotice(message){var n=document.querySelector('.llm-storage-status');if(n)n.textContent=message;}
+  function load(){if(memoryProgress!==null)return memoryProgress;try{var p=JSON.parse(localStorage.getItem(KEY));memoryProgress=p&&typeof p==='object'&&!Array.isArray(p)?p:{};}catch(e){memoryProgress={};storageNotice('无法读取浏览器存储；当前页打卡仅本次有效。');}return memoryProgress;}
   function refresh(){var d=!!load()[FILE];
     document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
       b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
                      :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
   document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
     var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
-    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+    try{localStorage.setItem(KEY,JSON.stringify(p));}catch(e){storageNotice('未保存：浏览器存储不可用；当前页打卡仅本次有效。');}refresh();});});
   refresh();
 
   var tt=document.getElementById('themeToggle');
@@ -402,8 +405,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
     var next=dark?'light':'dark';
     document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('recsys-theme',next);});
+    try{try{localStorage.setItem('recsys-theme',next);}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}});
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/llm-reader.css"></body></html>

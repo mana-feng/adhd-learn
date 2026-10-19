@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>06d · 降延迟，以及三个指标怎么权衡 · 大模型全景导论</title>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{
+/* ⭐ 字号阶梯：正文 = 1em（body 18px）。其余一律从这几档取，
+   不要再写 .92 / .94 / .95 这种随手值 —— body 18px 下它们相差不到 0.5px，
+   分不出来，只会让后来的人不知道该抄哪一个。 */
+  --fs-xs:.8em;    /* 角标、方向标签 */
+  --fs-sm:.88em;   /* 代码、图注、注解 */
+  --fs-md:.93em;   /* 略小于正文：表格、面板、目录 —— 站内最常用 */
+  --fs-lg:1.14em;  /* h3 */
+  --fs-xl:1.42em;  /* h2 */
+  --fs-2xl:1.9em;  /* h1 */
+--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:var(--fs-2xl);line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:var(--fs-xl);margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:var(--fs-lg);margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+/* ⭐ 表格横向滚动兜底：`width:100%` 让表格只会挤不会溢出，实测 305px 宽下
+   最窄单元格只剩 40px。给单元格一个 min-width 让它不再无限压缩，超出的由 .tw 兜住。
+   2–4 列的表仍然占满不滚动，只有真挤不下的多列表才出现滚动条。 */
+.tw{overflow-x:auto;margin:1.2em 0;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;margin:0;font-size:var(--fs-md)}
+th,td{min-width:5.2em}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:var(--fs-sm);background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:var(--fs-sm)}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:var(--fs-md)}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:var(--fs-xs);color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:var(--fs-sm);color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:var(--fs-md)}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:var(--fs-xs);
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:var(--fs-md);border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:var(--fs-md)}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:var(--fs-md);line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:var(--fs-md)}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:var(--fs-sm);line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:var(--fs-md);line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:var(--fs-md)}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:var(--fs-lg);opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:var(--fs-sm);
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+/* ⭐ 块公式也要能自己横向滚动：pre/表格/图都有兜底，只有它没有 —— 一条长公式会把整页撑出横向滚动条 */
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:2px 0 6px}
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:var(--fs-xs);
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
+
+.dia-lead{color:var(--muted);font-size:var(--fs-md);margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:var(--fs-sm);margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:var(--fs-md);margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:var(--fs-md);line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.05em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:var(--fs-md);break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #FF4689 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #66D9EF } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #A6E22E } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #A6E22E } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
+<script defer src="../assets/vendor/katex/katex.min.js"></script>
+<script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading prose-tables llm-reader">
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">06d · 降延迟与指标</span>
+  <span class="prevnext"><a href="06-推理优化.html">←</a>
+  <a href="06b-解码策略.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#_2">⚡ 武器三：投机解码（降低延迟）</a></li>
+<li><a href="#_3">🧰 其他常用手段</a></li>
+<li><a href="#_4">🎯 三个指标，别只盯一个</a></li>
+<li><a href="#_5">🔗 想再深一层，去哪一套</a></li>
+<li><a href="#_6">📦 深挖的话要学什么</a></li>
+<li><a href="#_7">⚖️ 要不要深挖</a></li>
+<li><a href="#_8">✅ 检查点</a></li>
+<li><a href="#_9">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<div class="ov-layout"><article class="ov-body"><h1 id="06d">06d · 降延迟，以及三个指标怎么权衡</h1>
+<!-- bounded-prose-tables -->
+
+<p>⏱ <strong>26 分钟</strong> ｜ ⭐ <strong>显存和吞吐都够了，用户还是觉得慢的时候看这页</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong>先弄清用户在等哪一段，再决定怎么优化。</strong> 本页比较投机解码、前缀缓存和调度；TTFT、TPOT、吞吐常有取舍，但不是永远只能改善一个。</p>
+<hr />
+<h2 id="_2">⚡ 武器三：投机解码（降低延迟）</h2>
+<p>有时目标模型一次验证多个候选，比逐个生成更省总时间。它利用的是特定负载下尚有余量的计算能力，<strong>不是无条件“白赚”</strong>。</p>
+<ol>
+<li><strong>提草稿</strong>：小模型或其他提议器先给出若干候选，例如 5 个 token。</li>
+<li><strong>做验证</strong>：目标模型在一次前向中计算这些位置的条件概率。</li>
+<li><strong>接受与修正</strong>：按接受—拒绝规则保留前缀；拒绝时用修正后的分布采样，再继续。不是简单判断“小模型的词是否与大模型猜的一样”。</li>
+</ol>
+<p><strong>看一笔假想时间账</strong>：常规平均每个 token 用 10 ms；一次投机轮含草稿和验证共 20 ms，平均接受 3 个草稿 token，再产生 1 个额外 token，相当于 5 ms/token。若同样 20 ms 平均只前进 1 个 token，就反而更慢。</p>
+<p>“每步搬 140 GB”只可能对应特定 70B、每参数 2 字节的权重规模，不是所有模型的每步固定搬运量。批处理、精度、KV 访问与硬件都会改变时间账。</p>
+<p><a href="https://arxiv.org/abs/2211.17192">投机解码原论文</a> 给出保持目标采样分布的接受规则。正确算法下的分布等价，不等于浮点实现或每次输出逐位相同；实现边界见 <a href="https://docs.vllm.ai/en/latest/features/speculative_decoding/">vLLM 说明</a>。</p>
+<p><strong>变体仍保留</strong>：Medusa 多预测头、EAGLE 特征草稿、n-gram 查表。它们的草稿成本与验证方式不同，不能把其中一种的无损或加速结论自动套给全部变体。</p>
+<blockquote>
+<p><strong>与 06b 的分工</strong>：速度、显存、服务容量先看本页；输出随机性、复读和采样参数看 <a href="06b-解码策略.html">06b · 解码策略</a>。</p>
+<p>两者会相互影响：解码策略可能改变投机接受率；动态 batch 与数值归约也会影响复现。T=0 本身不构成逐位一致保证。</p>
+</blockquote>
+<hr />
+<h2 id="_3">🧰 其他常用手段</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>手段</th>
+<th>想改善什么</th>
+<th>需要核对</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GQA/MQA</td>
+<td>共享 K/V 头，减少 KV 占用</td>
+<td>模型的 Q/KV 头配置；见 <a href="02-Transformer原理.html">Transformer</a> 与 <a href="../AI基础设施/16-KV-Cache.html">基础设施 16</a></td>
+</tr>
+<tr>
+<td>Prefix Caching</td>
+<td>复用相同前缀的计算</td>
+<td>共享长度、缓存是否仍在、隔离与计费规则</td>
+</tr>
+<tr>
+<td>FlashAttention</td>
+<td>减少注意力的显存读写</td>
+<td>序列长度、后端、硬件与当前瓶颈</td>
+</tr>
+<tr>
+<td>张量并行</td>
+<td>跨卡分摊权重和计算</td>
+<td>通信开销；放不下也可考虑量化、其他并行或卸载，不是只有这一种方案</td>
+</tr>
+<tr>
+<td>算子融合 / CUDA Graph</td>
+<td>减少部分执行与启动开销</td>
+<td>算子支持、形状变化和实现条件</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="prefix-caching">🚨 Prefix Caching：三种容易损失共享前缀的写法</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>写法</th>
+<th>为什么可能少命中</th>
+<th>可以怎样调整</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>开头插入当前时间</td>
+<td>每次变化点太靠前</td>
+<td>在语义允许时把动态信息后移</td>
+</tr>
+<tr>
+<td>每次重排工具定义</td>
+<td>相同工具变成不同 token 序列</td>
+<td>使用稳定且符合权限的顺序</td>
+</tr>
+<tr>
+<td>最前面写用户或会话 ID</td>
+<td>不同用户能共享的前缀变短</td>
+<td>区分公共前缀与私有上下文；同一用户仍可能命中</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>可尝试的顺序</strong>：固定系统规则、稳定工具定义、较少变化的资料，然后是会话相关内容、动态信息和当前问题。不要为了缓存把权限信息丢掉或打乱必要的时间关系。</p>
+<p>相同前缀按实现中的 token/块匹配，不是“任意一个字符变化就让全部缓存失效”。变化之前的块仍可能复用，用户私有缓存也并不等于“没缓存”。</p>
+<p><a href="https://docs.vllm.ai/en/latest/features/automatic_prefix_caching/">前缀缓存说明</a> 指出，它主要节约共享前缀的 prefill，不直接缩短后续每个 token 的生成。Agent 保留共同历史时有机会获益；裁剪、摘要、工具变更会改变这个机会。</p>
+<hr />
+<h2 id="_4">🎯 三个指标，别只盯一个</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>读者可以观察什么</th>
+<th>不能代替什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TTFT，首 token 延迟</td>
+<td>提交后多久看到第一个 token</td>
+<td>整个答案或工具动作的完成时间</td>
+</tr>
+<tr>
+<td>TPOT，每输出 token 的时间</td>
+<td>后续生成是否流畅</td>
+<td>不是每个汉字的固定时间，也不覆盖首 token 前等待</td>
+</tr>
+<tr>
+<td>吞吐</td>
+<td>单位时间完成的 token 或请求量</td>
+<td>必须声明计数口径，不能直接等同于能服务多少用户</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>批量变大可能提高吞吐，也可能增加排队和生成延迟。</strong> 是否发生、发生多少取决于调度、负载与硬件；先测延迟—吞吐曲线，不把它当成永不改变的三角定律。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>优先看什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>对话产品</td>
+<td>TTFT、流式速度和整个答案的尾延迟一起看</td>
+</tr>
+<tr>
+<td>有人在等待的 Agent</td>
+<td>工具链与端到端任务延迟，不应因叫 Agent 就只追吞吐</td>
+</tr>
+<tr>
+<td>无人等待的离线批处理</td>
+<td>截止时间、完成量、成本与质量</td>
+</tr>
+<tr>
+<td>代码补全</td>
+<td>建议何时完整可用，不能只看 TPOT</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>流式输出能更早展示部分结果</strong>，但不自动降低总生成时长。还要核对答案是否完整、用户是否受打断、审核是否在敏感内容展示前完成。</p>
+<hr />
+<h2 id="_5">🔗 想再深一层，去哪一套</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>去哪</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../AI基础设施/19-投机解码.html">AI基础设施 19 · 投机解码</a></td>
+<td>⭐ 武器三的完整展开：接受-拒绝规则、加速比公式、哪些负载可能获益</td>
+</tr>
+<tr>
+<td><a href="../模型上线之后/18-成本与容量.html">模型上线之后 18 · 成本与容量</a></td>
+<td>⭐ 省下来的算力怎么换算成容量：排队、超时、雪崩</td>
+</tr>
+<tr>
+<td><a href="../智能体工程教程/04-上下文工程.html">智能体工程教程 04 · 上下文工程</a></td>
+<td>Prefix Caching 为什么对 Agent 特别值钱 —— 理解稳定内容与会话变化怎样影响前缀复用</td>
+</tr>
+<tr>
+<td><a href="../AI全栈/05-流式输出.html">AI全栈 05 · 流式输出</a></td>
+<td>如何接起流式链路，同时处理取消、结束与错误</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="_6">📦 深挖的话要学什么</h2>
+<p>先选一个正在遇到的瓶颈，不必把下面七条当作必修顺序。每条都保留原来的学习主题，并给出可进入的下一站。</p>
+<h3 id="deep-06d-roofline">判断瓶颈：Roofline 与算术强度</h3>
+<ul>
+<li><strong>下一站</strong>：<a href="../AI基础设施/04-Roofline与MFU.html">AI 基础设施 04 · Roofline 与 MFU</a>，配合 <a href="../AI基础设施/03-显存与带宽墙.html">03 · 显存与带宽墙</a>。</li>
+<li><strong>看什么</strong>：计算量与搬运量的比例，以及硬件的算力、带宽上限。</li>
+<li><strong>带走什么</strong>：对当前负载提出瓶颈假设，再用测量验证；不能仅凭“prefill / decode”两个名字断定瓶颈。</li>
+</ul>
+<h3 id="deep-06d-quant">降低存储与计算代价：量化</h3>
+<ul>
+<li><strong>下一站</strong>：<a href="../AI基础设施/18-量化.html">AI 基础设施 18 · 量化</a>。</li>
+<li><strong>看什么</strong>：对称/非对称、per-tensor/per-channel/per-group、离群值、GPTQ 与 AWQ、KV Cache 量化，以及 PTQ 和 QAT。</li>
+<li><strong>验收</strong>：同时比较业务质量、显存、延迟和吞吐。分组大小、重要权重比例和是否值得 QAT 都不是脱离模型的固定答案。</li>
+</ul>
+<h3 id="deep-06d-engine">选择服务引擎</h3>
+<ul>
+<li><strong>下一站</strong>：<a href="../AI基础设施/20-推理服务化.html">AI 基础设施 20 · 推理服务化</a>。</li>
+<li><strong>看什么</strong>：vLLM、SGLang、TensorRT-LLM、TGI 等方案的支持范围与部署条件。</li>
+<li><strong>验收</strong>：在相同模型、精度、请求长度和并发下比较。不要沿用“引擎固定差 20–50%”这样的通用比例。</li>
+</ul>
+<h3 id="deep-06d-schedule">调度与显存管理</h3>
+<ul>
+<li><strong>下一站</strong>：<a href="../AI基础设施/17-连续批处理与PagedAttention.html">AI 基础设施 17 · 连续批处理与 PagedAttention</a>。</li>
+<li><strong>看什么</strong>：连续批处理、分页管理、分块预填充、prefill/decode 分离。</li>
+<li><strong>额外代价</strong>：分离部署会增加 KV 传输；对照实际网络与显存带宽，不把“约 1/60”当成所有机器的常数。</li>
+</ul>
+<h3 id="deep-06d-spec">让投机解码真正获益</h3>
+<ul>
+<li><strong>下一站</strong>：<a href="../AI基础设施/19-投机解码.html">AI 基础设施 19 · 投机解码</a>。</li>
+<li><strong>看什么</strong>：接受率、草稿成本、验证开销和草稿长度；再比较 Medusa、EAGLE 与 n-gram 路线。</li>
+<li><strong>验收</strong>：测同一负载下的总耗时与输出质量。草稿成本低、接受率高是有利因素，不是固定的 1/10 或 0.85 准入线。</li>
+</ul>
+<h3 id="deep-06d-measure">把优化换算成产品指标</h3>
+<ul>
+<li><strong>下一站</strong>：<a href="../AI基础设施/20-推理服务化.html">服务化 20</a> 的压测部分，与 <a href="../AI基础设施/23-可观测性与成本.html">23 · 可观测性与成本</a>。</li>
+<li><strong>看什么</strong>：TTFT、TPOT、吞吐与尾延迟；先定服务目标，再画延迟—吞吐曲线。</li>
+<li><strong>产出</strong>：一张注明模型、硬件、流量与价格口径的压测记录，而不是只有一个“快几倍”。</li>
+</ul>
+<h3 id="deep-06d-practice">完成一次部署与压测</h3>
+<ul>
+<li><strong>下一站</strong>：<a href="../AI基础设施/24-实战与挑战项目.html">实战项目 24</a>，参数背景见 <a href="../AI基础设施/17-连续批处理与PagedAttention.html">17</a> 和 <a href="../AI基础设施/20-推理服务化.html">20</a>。</li>
+<li><strong>操作范围</strong>：按当前版本核对分块预填充、前缀缓存与 KV 精度开关；一次只改一个变量。</li>
+<li><strong>补环境</strong>：容器入门已有 <a href="../AI全栈/14-容器化与部署.html">AI 全栈 14</a>；具体引擎仍要对照它的官方安装与兼容性说明。</li>
+</ul>
+<p><strong>前置按需补</strong>：理解第 2 章的注意力和 KV；部署时再补 Linux/GPU。只看延迟指标，不必先会全部工程工具。</p>
+<hr />
+<h2 id="_7">⚖️ 要不要深挖</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>你的情况</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>只用 API，量不大</td>
+<td>⛔ 不用。知道 Prefix Caching 会用就行</td>
+</tr>
+<tr>
+<td>API 账单开始肉疼</td>
+<td>🟡 先做提示词优化和缓存，再考虑自建</td>
+</tr>
+<tr>
+<td>数据不能出内网 / 有合规要求</td>
+<td>✅ <strong>必须</strong>，配合第 7 章</td>
+</tr>
+<tr>
+<td>有稳定的大流量，自建更划算</td>
+<td>✅ <strong>必须</strong>，这块直接省真金白银</td>
+</tr>
+<tr>
+<td>做 AI 基础设施 / 平台岗</td>
+<td>✅ 核心技能</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>🔑 <strong>我的判断</strong>：这块<strong>工程性极强、几乎不涉及数学</strong>，对有后端背景的人上手很快。
+价值判断很简单：<strong>看你的账单</strong>。如果每月 API 花费还不够租一张 GPU，就别折腾自建。
+有明显共享前缀时，可以先小规模试缓存；仍要测质量、命中与实际费用，不能承诺所有场景都值得。</p>
+</blockquote>
+<hr />
+<h2 id="_8">✅ 检查点</h2>
+<ol>
+<li>投机解码什么时候能加速，什么时候可能更慢？</li>
+<li>三种前缀写法怎样影响共享？为什么不能笼统说命中率归零？</li>
+<li>TTFT、TPOT、吞吐分别观察什么？有人等待的 Agent 应看什么？</li>
+<li>流式输出改变了哪段等待，又没有保证什么？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li>只有草稿与验证开销小于省掉的逐 token 工作时才获益；接受率低或原来已充分利用算力时可能更慢。保持目标分布依赖正确的接受与修正规则。</li>
+<li>变化点越靠前，可共享前缀往往越短；工具顺序、时间和身份字段会影响它。变化前的完整块、同一用户的私有缓存仍可能命中。</li>
+<li>TTFT 看第一个 token，TPOT 看后续 token 速度，吞吐看单位时间工作量。交互式 Agent 还要看工具与整个任务完成的延迟。</li>
+<li>用户可能更早看到部分结果；它不保证总时长更短，也不自动解决内容审核和最终答案质量。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_9">🛑 可以停在这里</h2>
+<p>⚠️ <strong>什么时候回来</strong>：你已经知道该优化哪个指标了，但<strong>输出本身有问题</strong> —— 一会儿飘一会儿复读、同样的输入两次结果不一样。先检查解码策略，也要排查量化、实现与模型版本变化，从 06b 进去。</p>
+<p>⚡ <strong>走神救援</strong></p>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>TTFT 看多久出现首个结果，TPOT 看后续生成速度，吞吐看单位时间完成多少工作。</li><li>投机解码与前缀缓存利用可复用的计算，是否有效要结合命中率和负载测量。</li><li>先明确产品最在乎哪个指标，再比较优化后的代价与收益。</li></ul></section>
+
+<p><strong>下一节</strong> 👉 <a href="06b-解码策略.html">06b-解码策略.md</a></p></article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
+<button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">⚡ 武器三：投机解码（降低延迟）</a><a href="#_3">🧰 其他常用手段</a><a href="#_4">🎯 三个指标，别只盯一个</a><a href="#_5">🔗 想再深一层，去哪一套</a><a href="#_6">📦 深挖的话要学什么</a><a href="#_7">⚖️ 要不要深挖</a><a href="#_8">✅ 检查点</a><a href="#_9">🛑 可以停在这里</a></nav>
+<button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
+<a href="00-怎么用这份导论.html#overview-start">重新选择学习目标</a></div></aside></div>
+<p class="content-sources">原始资料：<a href="https://docs.vllm.ai/en/latest/design/prefix_caching/">prefix_caching</a>（核对：2026-10-18；外链仅供追溯，正文可离线阅读）。</p>
+<div class="donebar"><noscript><p class="llm-nojs">JavaScript 未启用：正文、图表与章节链接可读；打卡、续读和弹窗工具不可用。</p></noscript><p class="llm-storage-status" role="status"></p><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="06-推理优化.html"><div class="dir">← 上一节</div>⚡ 06 · 推理优化：省显存</a><a class="next" href="06b-解码策略.html"><div class="dir">下一节 →</div>🎲 06b · 解码策略</a></nav>
+</main>
+<script>(function(){
+  var KEY="overview-progress", FILE="06d-\u964d\u5ef6\u8fdf\u4e0e\u4e09\u4e2a\u6307\u6807.md";
+  var memoryProgress=null;
+  function storageNotice(message){var n=document.querySelector('.llm-storage-status');if(n)n.textContent=message;}
+  function load(){if(memoryProgress!==null)return memoryProgress;try{var p=JSON.parse(localStorage.getItem(KEY));memoryProgress=p&&typeof p==='object'&&!Array.isArray(p)?p:{};}catch(e){memoryProgress={};storageNotice('无法读取浏览器存储；当前页打卡仅本次有效。');}return memoryProgress;}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    try{localStorage.setItem(KEY,JSON.stringify(p));}catch(e){storageNotice('未保存：浏览器存储不可用；当前页打卡仅本次有效。');}refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    try{try{localStorage.setItem('recsys-theme',next);}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/llm-reader.css"></body></html>

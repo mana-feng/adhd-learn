@@ -2,8 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>10 · 多模态：视觉理解（VLM） · 大模型全景导论</title>
-<script>(function(){var t=localStorage.getItem('recsys-theme');
-if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script><style>
 @font-face{font-family:"CodeCJK";
  src:url("../assets/code-cjk-mono.woff2") format("woff2");
  font-weight:400;font-style:normal;font-display:swap;}
@@ -280,7 +279,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading llm-reader">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -305,8 +304,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⏱ <strong>20 分钟</strong> ｜ ⭐ <strong>图片进模型之后变成什么，以及什么时候不该用 VLM</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p>多模态的共同思想只有一句：<strong>万物皆 token</strong> —— 图像、音频、视频都被切成 token 之后，
-就都能交给同一个 Transformer 处理。</p>
+<p>多模态模型把不同输入变成可计算的表示，再学习它们之间的关系。表示可以是连续向量或离散 token；编码器、融合方式与生成目标因架构而异。</p>
 <hr />
 <h2 id="_2">🧭 先选你要做哪个模态</h2>
 <p>⚠️ <strong>这三页互不依赖，直接跳到你要的那一页就行</strong>，不必顺着读。</p>
@@ -386,11 +384,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>💡 <strong>核心洞察</strong>：<strong>图片被翻译成了「视觉单词」，和文字并排放进同一个上下文。</strong>
 所以做文本应用时的那一整套（上下文管理、提示词、工具，本站《智能体工程教程》讲的就是这些）全部适用。</p>
-<p>📌 <strong>这张图有名字</strong>：这套「ViT → 投影层 → LLM」的结构就是 LLaVA，也是目前开源多模态模型的默认长相。
-另一条路线（BLIP-2 的 <strong>Q-Former</strong>）改的只有中间那一层——两者的差别在 <a href="10d-CLIP与对比学习.html">10d · CLIP 与对比学习</a> 那一页。</p>
+<p>📌 <strong>这张图有名字</strong>：这套「ViT → 投影层 → LLM」可用 LLaVA 作为例子，不代表全部多模态架构。
+另一条路线（BLIP-2 的 <strong>Q-Former</strong>）采用查询瓶颈，训练目标和冻结策略也有差异——两者的差别在 <a href="10d-CLIP与对比学习.html">10d · CLIP 与对比学习</a> 那一页。</p>
 <p>⚠️ <strong>实用推论</strong>：一张高分辨率图可能消耗 <strong>1000+ token</strong>。多图对话烧 token 极快——上下文预算意识（智能体第 4 章）在这里更重要。</p>
 <h3 id="token">💰 图片的 token 账（做视觉应用前先算这笔）</h3>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>图片 token 数 ≈ (宽/patch) × (高/patch)，patch 通常 14~16 像素</p><p>512×512 → 约 1,000 token</p><p>1024×1024 → 约 4,000 token ⭐ 翻倍分辨率 = 4 倍 token</p><p>一段 10 张图的对话 → 轻松几万 token</p><p>💡 所以主流做法是【先缩放到模型的最优分辨率】再传</p><p>盲目传原图 = 白烧几倍的钱</p></div></section>
+<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>不缩放、不压缩且使用16像素patch时，patch数=(宽/16)×(高/16)</p><p>512×512 → 1,024 个patch（条件化算例）</p><p>1024×1024 → 4,096 个patch（条件化算例） ⭐ 翻倍分辨率 = 4 倍 token</p><p>实际视觉序列长度与计费还取决于缩放、切图、池化、查询压缩及服务规则</p><p>💡 所以主流做法是【先缩放到模型的最优分辨率】再传</p><p>先核对处理器规则，再比较分辨率、细节保留与费用</p></div></section>
 <h3 id="vlm_1">⚠️ VLM 的三个常见误判（知道了能省很多调试时间）</h3>
 <div class="tw"><table>
 <thead>
@@ -409,18 +407,17 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td><strong>需要精确空间关系</strong></td>
 <td>"左边第三个"经常说错</td>
-<td>ViT 的 patch 化削弱了精确位置感</td>
+<td>分辨率、位置表示、训练目标与数据均可能影响表现</td>
 </tr>
 <tr>
 <td><strong>需要计数</strong></td>
-<td>超过 5~6 个就不准</td>
+<td>数量、遮挡与分辨率变化都需单独评测</td>
 <td>和文本模型数字母是同类问题——<strong>给工具，别让它数</strong></td>
 </tr>
 </tbody>
 </table></div>
 <blockquote>
-<p>🔑 <strong>一条通用建议</strong>：<strong>VLM 擅长"理解这张图在说什么"，不擅长"精确读出图里的每个数"。</strong>
-需要精确的场景（发票、表格、图纸），<strong>用 OCR + VLM 组合</strong>，别只靠 VLM。</p>
+<p>需要精确的场景（发票、表格、图纸），比较 OCR、VLM 与规则/人工复核组合，并逐字段核对原图；不能把组合本身当正确性保证。</p>
 </blockquote>
 <h2 id="_4">🔗 和站内其他章的关系</h2>
 <p>左列有的来自日常用 LLM 的经验，有的在站内别的板块讲过——<strong>碰上过哪几条就从哪几条接进来，一条没碰过也不影响读这一章</strong>。</p>
@@ -474,7 +471,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td><a href="../机器学习与深度学习基础/12-CNN.html">ML基础 12</a></td>
-<td>视觉编码器的前身：卷积在看什么、为什么后来被 ViT 取代</td>
+<td>视觉编码器的前身：卷积在看什么、与 ViT 的不同归纳偏置及适用条件</td>
 </tr>
 <tr>
 <td><a href="../机器学习与深度学习基础/14-通往Transformer.html">ML基础 14</a></td>
@@ -482,7 +479,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><a href="../推荐算法/08-深度学习推荐模型.html">推荐算法 08</a></td>
-<td>⭐ <strong>想动手复现 CLIP 的对比学习，就去那一节抄代码</strong>——它有一段可跑的「双塔 + In-batch 负采样」，把"用户"换成"图片"、"物品"换成"文字"就是 CLIP 的训练循环；温度系数怎么调、LogQ 校正怎么修热门样本，也都在那里</td>
+<td>可借双塔理解图文对比学习的骨架；实际还需图文编码器、配对数据、预处理、双向损失及假负例检查。</td>
 </tr>
 <tr>
 <td><a href="../推荐算法/10-向量检索与ANN.html">推荐算法 10</a></td>
@@ -490,7 +487,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><a href="06c-解码参数怎么调.html">06c · 解码参数怎么调</a></td>
-<td>τ 和你调 API 的 <code>temperature</code> 是同一个东西；那一页讲它落在<strong>采样</strong>上是什么样、以及为什么它和 <code>top_p</code> 不是两个独立开关</td>
+<td>二者都缩放分数，但 CLIP 的 τ 用在训练损失，采样温度用在生成分布，数值不能直接照搬。</td>
 </tr>
 <tr>
 <td><a href="../扩散模型/index.html">扩散模型（整套 11 页）</a></td>
@@ -509,13 +506,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <summary>👀 答案</summary>
 <ol>
 <li><strong>视觉编码器（ViT，把图切 patch 当词）→ 投影层 → 语言模型</strong>。投影层把视觉向量翻译成 LLM 能理解的 token 空间。</li>
-<li>就是一串“<strong>视觉单词</strong>”，和文字并排放在同一个上下文里。分辨率翻倍 → token 变 4 倍（512×512 约 1000，1024×1024 约 4000）。所以要先缩放到模型最优分辨率再传，盲目传原图是白烧钱。</li>
-<li>①<strong>密集小字/表格读错</strong>（分辨率压缩后细节丢失 → 切图分块传）②精确空间关系说不准（patch 化削弱位置感）③计数超过 5~6 个就不准。需要精确时用 OCR + VLM 组合——VLM 擅长“理解图在说什么”，不擅长“精确读出每个数”。</li>
+<li>在本页 LLaVA 式例子中，连续视觉向量投影后接入上下文，不是文字词表 ID。仅在固定 patch、无缩放/压缩的算例里，宽高各翻倍使 patch 数变为 4 倍；实际输入长度与费用看处理器。</li>
+<li>①<strong>密集小字/表格读错</strong>（分辨率压缩后细节丢失 → 切图分块传）②精确空间关系说不准（分辨率、表示与训练目标等共同影响）③计数数量、遮挡与分辨率变化都需单独评测。需要精确时用 OCR + VLM 组合——VLM 擅长“理解图在说什么”，不擅长“精确读出每个数”。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_6">🛑 可以停在这里</h2>
-<p>到这里你已经能设计一个视觉应用了：知道图片进去变成什么、要花多少 token、以及<strong>什么时候不该用 VLM</strong>（精确读数交给 OCR）。</p>
+<p>到这里你有了评估视觉应用输入与风险的概念入口：知道图片进去变成什么、要花多少 token、以及<strong>什么时候不该用 VLM</strong>（精确读数交给 OCR）。</p>
 <p>⚠️ <strong>什么时候看下一页</strong>：你想知道「图片和文字为什么能进同一个向量空间」，或者要自己训 / 微调一个 VLM。那是原理层，做应用不必先看。</p>
 <p>⚡ <strong>走神救援</strong></p>
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>视觉输入需要经过编码与对接，才能参与语言模型的上下文。</li><li>识别大意与精确读数是不同任务，小字、计数和空间关系要单独验证。</li><li>从图像、语音或视频的真实需求分路，并把分辨率、时长与成本一起评估。</li></ul></section>
@@ -525,20 +522,23 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">🧭 先选你要做哪个模态</a><a href="#vlm">🖼️ 一、视觉理解（VLM）</a><a href="#_4">🔗 和站内其他章的关系</a><a href="#_5">✅ 检查点</a><a href="#_6">🛑 可以停在这里</a></nav>
 <button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
 <a href="00-怎么用这份导论.html#overview-start">重新选择学习目标</a></div></aside></div>
-<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<p class="content-sources">原始资料：<a href="https://arxiv.org/abs/2010.11929">ViT</a> · <a href="https://arxiv.org/abs/2304.08485">LLaVA</a> · <a href="https://arxiv.org/abs/2301.12597">BLIP-2</a>（核对：2026-10-18；外链仅供追溯，正文可离线阅读）。</p>
+<div class="donebar"><noscript><p class="llm-nojs">JavaScript 未启用：正文、图表与章节链接可读；打卡、续读和弹窗工具不可用。</p></noscript><p class="llm-storage-status" role="status"></p><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="09-推理范式.html"><div class="dir">← 上一节</div>🧩 09 · 推理范式</a><a class="next" href="10d-CLIP与对比学习.html"><div class="dir">下一节 →</div>🧲 10d · CLIP 与对比学习</a></nav>
 </main>
 <script>(function(){
   var KEY="overview-progress", FILE="10-\u591a\u6a21\u6001.md";
-  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  var memoryProgress=null;
+  function storageNotice(message){var n=document.querySelector('.llm-storage-status');if(n)n.textContent=message;}
+  function load(){if(memoryProgress!==null)return memoryProgress;try{var p=JSON.parse(localStorage.getItem(KEY));memoryProgress=p&&typeof p==='object'&&!Array.isArray(p)?p:{};}catch(e){memoryProgress={};storageNotice('无法读取浏览器存储；当前页打卡仅本次有效。');}return memoryProgress;}
   function refresh(){var d=!!load()[FILE];
     document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
       b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
                      :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
   document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
     var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
-    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+    try{localStorage.setItem(KEY,JSON.stringify(p));}catch(e){storageNotice('未保存：浏览器存储不可用；当前页打卡仅本次有效。');}refresh();});});
   refresh();
 
   var tt=document.getElementById('themeToggle');
@@ -547,8 +547,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
     var next=dark?'light':'dark';
     document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('recsys-theme',next);});
+    try{try{localStorage.setItem('recsys-theme',next);}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}});
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/llm-reader.css"></body></html>

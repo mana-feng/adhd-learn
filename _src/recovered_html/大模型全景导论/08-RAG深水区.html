@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>08 · RAG：先搭出一个能用的 · 大模型全景导论</title>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{
+/* ⭐ 字号阶梯：正文 = 1em（body 18px）。其余一律从这几档取，
+   不要再写 .92 / .94 / .95 这种随手值 —— body 18px 下它们相差不到 0.5px，
+   分不出来，只会让后来的人不知道该抄哪一个。 */
+  --fs-xs:.8em;    /* 角标、方向标签 */
+  --fs-sm:.88em;   /* 代码、图注、注解 */
+  --fs-md:.93em;   /* 略小于正文：表格、面板、目录 —— 站内最常用 */
+  --fs-lg:1.14em;  /* h3 */
+  --fs-xl:1.42em;  /* h2 */
+  --fs-2xl:1.9em;  /* h1 */
+--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:var(--fs-2xl);line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:var(--fs-xl);margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:var(--fs-lg);margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+/* ⭐ 表格横向滚动兜底：`width:100%` 让表格只会挤不会溢出，实测 305px 宽下
+   最窄单元格只剩 40px。给单元格一个 min-width 让它不再无限压缩，超出的由 .tw 兜住。
+   2–4 列的表仍然占满不滚动，只有真挤不下的多列表才出现滚动条。 */
+.tw{overflow-x:auto;margin:1.2em 0;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;margin:0;font-size:var(--fs-md)}
+th,td{min-width:5.2em}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:var(--fs-sm);background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:var(--fs-sm)}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:var(--fs-md)}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:var(--fs-xs);color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:var(--fs-sm);color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:var(--fs-md)}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:var(--fs-xs);
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:var(--fs-md);border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:var(--fs-md)}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:var(--fs-md);line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:var(--fs-md)}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:var(--fs-sm);line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:var(--fs-md);line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:var(--fs-md)}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:var(--fs-lg);opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:var(--fs-sm);
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+/* ⭐ 块公式也要能自己横向滚动：pre/表格/图都有兜底，只有它没有 —— 一条长公式会把整页撑出横向滚动条 */
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:2px 0 6px}
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:var(--fs-xs);
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
+
+.dia-lead{color:var(--muted);font-size:var(--fs-md);margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:var(--fs-sm);margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:var(--fs-md);margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:var(--fs-md);line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.05em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:var(--fs-md);break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #FF4689 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #66D9EF } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #A6E22E } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #A6E22E } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
+<script defer src="../assets/vendor/katex/katex.min.js"></script>
+<script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading llm-reader">
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">08 · RAG 最小闭环</span>
+  <span class="prevnext"><a href="07b-开源生态怎么选.html">←</a>
+  <a href="08b-重排与Embedding选型.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#_2">😅 先看差距有多大</a></li>
+<li><a href="#_3">🧱 环节一：切分（最被低估的一环）</a></li>
+<li><a href="#_6">🔍 环节二：混合检索（别只用向量）</a></li>
+<li><a href="#_7">🔗 和站内其他章的关系</a></li>
+<li><a href="#_8">✅ 检查点</a></li>
+<li><a href="#_9">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<div class="ov-layout"><article class="ov-body"><h1 id="08-rag">08 · RAG：先搭出一个能用的</h1>
+<p>这一页只解决一个问题：<strong>怎样让回答用上正确的资料，而不是只凭模型的记忆。</strong> 不需要先学推荐系统，也不要求先训练模型。</p>
+<h2 id="_1">🎯 一句话</h2>
+<p>RAG 把<strong>检索资料</strong>和<strong>依据资料生成回答</strong>接在一起。先找到证据，再检查回答是否忠实使用了证据；两边都可能出错。</p>
+<figure class="dia" data-fig="rag_flow"><svg viewBox="0 0 680 316" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="RAG 检索增强生成流程"><defs><marker id="a4__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker><marker id="a4l__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--link)"/></marker><marker id="a4d__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--danger,#e5534b)"/></marker></defs><rect x="30" y="96" width="118" height="52" rx="9" fill="var(--card)" stroke="var(--muted)" stroke-width="1.9"/><text class="dia-t" x="89.0" y="127.0" font-size="12.5" text-anchor="middle" fill="var(--fg)" font-weight="700">用户问题</text><rect x="186" y="96" width="118" height="52" rx="9" fill="var(--card)" stroke="var(--link)" stroke-width="1.9"/><text class="dia-t" x="245.0" y="118" font-size="12.5" text-anchor="middle" fill="var(--fg)" font-weight="700">向量化</text><text class="dia-t" x="245.0" y="135" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">同一个嵌入模型</text><rect x="342" y="96" width="128" height="52" rx="9" fill="var(--accent-soft)" stroke="var(--link)" stroke-width="1.9"/><text class="dia-t" x="406.0" y="118" font-size="12.5" text-anchor="middle" fill="var(--fg)" font-weight="700">向量库检索</text><text class="dia-t" x="406.0" y="135" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">取 top-K 相似块</text><rect x="508" y="96" width="128" height="52" rx="9" fill="var(--card)" stroke="var(--link)" stroke-width="1.9"/><text class="dia-t" x="572.0" y="118" font-size="12.5" text-anchor="middle" fill="var(--fg)" font-weight="700">重排 Rerank</text><text class="dia-t" x="572.0" y="135" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">精排一次</text><rect x="342" y="214" width="128" height="52" rx="9" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.9"/><text class="dia-t" x="406.0" y="236" font-size="12.5" text-anchor="middle" fill="var(--fg)" font-weight="700">拼进提示词</text><text class="dia-t" x="406.0" y="253" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">问题 + 检索到的块</text><rect x="508" y="214" width="128" height="52" rx="9" fill="var(--card)" stroke="var(--accent)" stroke-width="1.9"/><text class="dia-t" x="572.0" y="236" font-size="12.5" text-anchor="middle" fill="var(--fg)" font-weight="700">模型生成</text><text class="dia-t" x="572.0" y="253" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">带引用</text><rect x="186" y="214" width="118" height="52" rx="9" fill="var(--card)" stroke="var(--muted)" stroke-width="1.9"/><text class="dia-t" x="245.0" y="236" font-size="12.5" text-anchor="middle" fill="var(--fg)" font-weight="700">文档库</text><text class="dia-t" x="245.0" y="253" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">离线切块+嵌入</text><line x1="148" y1="122" x2="186" y2="122" stroke="var(--link)" stroke-width="2.2" marker-end="url(#a4l__f1)"/><line x1="304" y1="122" x2="342" y2="122" stroke="var(--link)" stroke-width="2.2" marker-end="url(#a4l__f1)"/><line x1="470" y1="122" x2="508" y2="122" stroke="var(--link)" stroke-width="2.2" marker-end="url(#a4l__f1)"/><path d="M572 148 L572 182 L406 182 L406 214" fill="none" stroke="var(--accent)" stroke-width="2.2" marker-end="url(#a4__f1)"/><line x1="470" y1="240" x2="508" y2="240" stroke="var(--accent)" stroke-width="2.2" marker-end="url(#a4__f1)"/><path d="M245 214 L245 182 L342 182" fill="none" stroke="var(--muted)" stroke-width="1.6" stroke-dasharray="5 4"/><text class="dia-t" x="340" y="32" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">RAG 不是「让模型记住文档」，是「每次把相关的那几段塞给它」</text><text class="dia-t" x="340" y="56" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">检索提供证据；生成、上下文组装与权限同样影响结果</text><text class="dia-t" x="340" y="300" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">⭐ 排查 RAG 效果差，先检查「证据是否找到并进入模型」——而不是先去换更大的模型</text></svg><figcaption>蓝色是检索链路，橙色是生成链路。先核对检索回来的块是否包含正确证据，再检查生成的回答是否忠实使用它。<b>检索正确不代表回答一定正确</b>；要区分资料缺失、组装截断和生成错误。</figcaption></figure>
+
+<section class="ov-entry">
+<p><strong>先带走这个判断方法：</strong></p>
+<ul>
+<li>没找到正确资料：查文档解析、切分、检索。</li>
+<li>找到了却没放进提示词：查排序、截断和上下文组装。</li>
+<li>已经放进去了却答错：查生成、引用和拒答规则。</li>
+</ul>
+<p>想直接动手，可以进入<a href="../智能体工程教程/11b-文档入库与数据治理.html">11b 文档入库实验</a>；已有文档库则进入<a href="../智能体工程教程/11c-检索评测与调优实验.html">11c 检索评测实验</a>。</p>
+</section>
+<h2 id="_2">😅 先看差距有多大</h2>
+<p><strong>最小系统也有两段：入库时准备资料，提问时取回资料。</strong> 不是每问一次都重新切整套文档。</p>
+<figure class="dia ov-example">
+<svg viewBox="0 0 760 380" role="img" aria-labelledby="rag-two-lanes-title rag-two-lanes-desc">
+<title id="rag-two-lanes-title">RAG 的入库与问答两阶段</title>
+<desc id="rag-two-lanes-desc">入库阶段从文档到切分、建立索引。问答阶段从问题到检索，索引向检索提供候选片段，然后组装证据并生成带来源的回答。</desc>
+<defs><marker id="rag-two-lanes-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8" fill="var(--accent,#d65d0e)"/></marker></defs>
+<g font-family="system-ui,sans-serif" font-size="18" fill="var(--fg,#292524)">
+<text x="24" y="30" font-weight="700">入库时：先准备可检索的资料</text>
+<g fill="var(--card,#fff)" stroke="var(--border,#d6d3d1)" stroke-width="2">
+<rect x="24" y="55" width="170" height="76" rx="12"/><rect x="280" y="55" width="180" height="76" rx="12"/><rect x="546" y="55" width="190" height="76" rx="12"/>
+<rect x="24" y="235" width="130" height="82" rx="12"/><rect x="190" y="235" width="154" height="82" rx="12"/><rect x="380" y="235" width="156" height="82" rx="12"/><rect x="572" y="235" width="164" height="82" rx="12"/>
+</g>
+<text x="109" y="87" text-anchor="middle">文档</text><text x="109" y="114" text-anchor="middle">保留来源</text>
+<text x="370" y="87" text-anchor="middle">解析与切分</text><text x="370" y="114" text-anchor="middle">保留完整证据</text>
+<text x="641" y="87" text-anchor="middle">建立索引</text><text x="641" y="114" text-anchor="middle">向量 / 词项</text>
+<text x="24" y="202" font-weight="700">提问时：找到证据，再组织回答</text>
+<text x="89" y="282" text-anchor="middle">问题</text><text x="267" y="269" text-anchor="middle">检索</text><text x="267" y="297" text-anchor="middle">取回候选</text>
+<text x="458" y="269" text-anchor="middle">组装上下文</text><text x="458" y="297" text-anchor="middle">证据 + 问题</text>
+<text x="654" y="269" text-anchor="middle">模型回答</text><text x="654" y="297" text-anchor="middle">附上来源</text>
+<text x="24" y="357" font-size="16">看弯折箭头：检索会用到提前建立的索引。</text>
+</g>
+<g fill="none" stroke="var(--accent,#d65d0e)" stroke-width="2.5" marker-end="url(#rag-two-lanes-arrow)">
+<path d="M194 93 H274"/><path d="M460 93 H540"/><path d="M641 131 V160 H360 V250 H350"/>
+<path d="M154 276 H184"/><path d="M344 276 H374"/><path d="M536 276 H566"/>
+</g>
+</svg>
+<figcaption>上排只在资料入库或更新时执行；下排为一次问答。索引是两排之间的连接，不是另一份答案。</figcaption>
+</figure>
+
+<h3 id="ov-08-1">最小版：先观察资料能否找对</h3>
+<ol>
+<li>把文档切成块，保存原文、文档名和位置。</li>
+<li>把块变成向量并存入索引；问题也用匹配的模型变成向量。</li>
+<li>取回候选块，把它们和问题一起交给生成模型。</li>
+<li>检查答案和引用是否对应原文。</li>
+</ol>
+<p>“每 500 字一块、先取 5 块”可以是<strong>试验配置</strong>，不是质量标准，也不意味着一小时就能达到某个分数。</p>
+<h3 id="ov-08-2">从最小版走向实际使用：按失败点加能力</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>你观察到的失败</th>
+<th>可以尝试的环节</th>
+<th>怎样知道有没有改善</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PDF 表格被读乱、图片信息丢失</td>
+<td>文档解析，保留表格与图片的来源信息</td>
+<td>人工抽查解析结果是否忠实</td>
+</tr>
+<tr>
+<td>切出的块缺背景或主题混杂</td>
+<td>按结构/语义切分、补上下文</td>
+<td>看正确证据能否完整进入候选</td>
+</tr>
+<tr>
+<td>问法与资料用词不同</td>
+<td>意图识别、查询改写/扩展、混合检索、多路索引</td>
+<td>对固定问题集比较召回</td>
+</tr>
+<tr>
+<td>正确资料已在候选里，但排得靠后</td>
+<td>Cross-Encoder：同时阅读问题与候选，再重排</td>
+<td>看正确证据能否进入最终前几名</td>
+</tr>
+<tr>
+<td>候选很多，模型输入装不下</td>
+<td>上下文组装与压缩</td>
+<td>压缩后关键条件、数值、来源是否仍在</td>
+</tr>
+<tr>
+<td>引用了资料却编出结论</td>
+<td>引用溯源、事实一致性检查、允许拒答</td>
+<td>逐项核对回答中的主张与证据</td>
+</tr>
+<tr>
+<td>今天有效，更新后退步</td>
+<td>评测与失败样本回流</td>
+<td>固定评测集的变化及新失败类型</td>
+</tr>
+</tbody>
+</table></div>
+<p>“粗选 100 块、重排后留 10 块”也是参数例子。<strong>不是把表中所有环节都加上，系统就自动更好。</strong></p>
+<p>推荐系统里的召回、排序、ANN 向量索引可以帮助理解检索这半边。但 RAG 还要处理证据组装、回答忠实度、引用和权限，不能说两者完全相同。</p>
+<h2 id="_3">🧱 环节一：切分（最被低估的一环）</h2>
+<p><strong>切分的目标不是把字数切齐，而是让每块仍能回答一个局部问题。</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>它解决什么</th>
+<th>要留意什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>固定长度</td>
+<td>快速做出可比较的基线，如每 500 字一块</td>
+<td>可能切断句子、表格或条件；不是天然错误</td>
+</tr>
+<tr>
+<td>按结构</td>
+<td>利用标题、章节、段落、函数边界</td>
+<td>短小节与长小节可能仍需不同处理</td>
+</tr>
+<tr>
+<td>语义切分</td>
+<td>在主题变化处尝试分段</td>
+<td>要检验切分边界，不能只信相似度分数</td>
+</tr>
+<tr>
+<td>重叠窗口</td>
+<td>让边界附近的信息在相邻块重复出现</td>
+<td>可试 10–20% 重叠，但会增加存储与重复候选</td>
+</tr>
+<tr>
+<td>父子块</td>
+<td>用小块检索，取关联的大块作为上下文</td>
+<td>大块也会占输入预算，必须保留父子关系</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="contextual-retrieval">⭐ 上下文检索（Contextual Retrieval）</h3>
+<p><strong>给孤立片段补上它属于哪份资料、在谈什么，再建立索引。</strong> 补充说明必须能由原文支持。</p>
+<div class="ov-start-grid">
+<section class="ov-example"><h3>原始块</h3><p>“该季度收入增长 3%。”</p><p>只看这句，不知道哪个公司、哪个季度；相关问题可能难以匹配。</p></section>
+<section class="ov-example"><h3>补充上下文后</h3><p>“本段出自 ACME 公司 2024 Q2 财报，讨论季度业绩。该季度收入增长 3%。”</p><p>公司与季度变得明确，但仍需保留原文位置，核查补充说明没有编造信息。</p></section>
+</div>
+
+<p>Anthropic 的特定实验中，top-20 检索失败率的相对下降为：上下文向量 <strong>35%</strong>；再加上下文 BM25 <strong>49%</strong>；再加重排 <strong>67%</strong>。这些数值依赖其数据与配置，不是你的知识库必然获得的提升。<a href="https://www.anthropic.com/engineering/contextual-retrieval">原始实验与条件</a></p>
+<p>代价也要计入：入库时生成说明；资料变化后更新说明与索引；检查说明是否可靠。</p>
+<h3 id="_4">📏 块大小怎么定（一个实用的起点）</h3>
+<p><strong>先试结构完整的块，再比较大小。以下字数是候选配置，不是通用阈值。</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>候选或文档类型</th>
+<th>从哪里开始试</th>
+<th>观察什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>较短块，如少于 200 字</td>
+<td>检查是否还保留问题所需的条件</td>
+<td>检索到了，是否仍缺信息而答不了</td>
+</tr>
+<tr>
+<td>较长块，如超过 2000 字</td>
+<td>检查是否混入多个主题、是否被模型截断</td>
+<td>关键内容有没有被淹没或截掉</td>
+</tr>
+<tr>
+<td>通用文档</td>
+<td>可试 300–800 字，再与更短/更长档比较</td>
+<td>固定问题集上的召回与回答质量</td>
+</tr>
+<tr>
+<td>技术文档</td>
+<td>代码块、函数、小节边界</td>
+<td>不把说明和对应代码拆散</td>
+</tr>
+<tr>
+<td>条款类文档</td>
+<td>完整条款及其定义、交叉引用</td>
+<td>不把前提、例外与结论切开</td>
+</tr>
+<tr>
+<td>FAQ</td>
+<td>一问一答起步</td>
+<td>一条答案是否依赖别处的信息</td>
+</tr>
+</tbody>
+</table></div>
+<p>不要把 embedding 理解成“几个主题取平均后一定落到没人区”。<strong>文本向量是模型学习出的表示，不是语义的字面算术平均。</strong> 多主题、模型输入长度限制、前缀或语种不匹配，都可能影响检索。</p>
+<p>可以先收集 <strong>20 个真实问题</strong>测三档，作为找问题的小样本。记录应找到的证据，比较 Recall@K，也检查最终回答；20 题还不足以证明生产环境可靠。</p>
+<h3 id="_5">🔗 高维向量的一个反直觉陷阱</h3>
+<p><a href="../机器学习的数学原理/05-维度灾难.html">数学页的 500 维实验</a>使用随机点，展示特定分布下的距离集中。<strong>学习到的文本向量不是均匀随机点</strong>，不能由此推出“必须加 BM25”“必须重排”或“换 embedding 无效”。</p>
+<p>型号混淆，比较词项检索；同义表达漏召回，检查 embedding 的语种、前缀和截断；正确资料已有但靠后，再测重排。方法是否值得增加，要看<a href="../智能体工程教程/11c-检索评测与调优实验.html">本地消融实验</a>。</p>
+<h2 id="_6">🔍 环节二：混合检索（别只用向量）</h2>
+<section id="comparison-repair-27">
+<div class="tw"><table>
+<thead>
+<tr>
+<th>方式</th>
+<th>常见优势</th>
+<th>不能保证什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>向量检索</td>
+<td>匹配用词不同但意思相近的表达</td>
+<td>不保证区分相似型号、细小数字差异</td>
+</tr>
+<tr>
+<td>BM25 词项检索</td>
+<td>利用查询词与文档词的匹配及稀有程度</td>
+<td>不保证精确命中，也不会自动理解所有同义词</td>
+</tr>
+</tbody>
+</table></div>
+</section>
+<section class="ov-example">
+<p><strong>同一个问题：“XR-2000 的功率是多少？”</strong></p>
+<p>向量检索可能把 XR-3000 的说明书排得很靠前。BM25 可能借助型号词项改善排序，但结果仍受分词、字段和文档内容影响；严格型号约束还可以用字段过滤或精确匹配规则。</p>
+<p>先分别做两路基线，确认它们是否互补，再决定融合。</p>
+</section>
+<h3 id="ov-08-3">两路结果怎么合并：RRF</h3>
+<p><strong>不用直接比较两种检索分数，而是让每份资料按名次获得贡献，再相加。</strong></p>
+<section class="ov-formula" data-formula="rrf">
+<p>$$\operatorname{RRF}(d)=\sum_{r\in R(d)}\frac{1}{k+\operatorname{rank}_r(d)}$$</p>
+<p>这里 $d$ 是一个候选块；$R(d)$ 是返回过它的检索器集合。本例名次从 1 开始，未返回的那一路贡献 0；$k=60$ 是演示用的平滑常数，<strong>不是取回 60 个块</strong>。</p>
+</section>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>手算例子（不是实际检索结果）</th>
+<th>向量路名次</th>
+<th>BM25 路名次</th>
+<th>RRF 分数，取 k=60</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>块 A</td>
+<td>1</td>
+<td>3</td>
+<td>1/61 + 1/63 ≈ 0.03227</td>
+</tr>
+<tr>
+<td>块 B</td>
+<td>2</td>
+<td>未返回</td>
+<td>1/62 ≈ 0.01613</td>
+</tr>
+</tbody>
+</table></div>
+<p>这个例子中 A 排在 B 前。<strong>融合排名仍不等于答案正确</strong>：还要看候选里的证据，以及生成模型如何使用它。</p>
+<h2 id="_7">🔗 和站内其他章的关系</h2>
+<p>以前没有学过搜索或推荐，也可以直接从本页开始。下表是补充入口，不是先修清单。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>已有知识或希望补的知识</th>
+<th>在这里可以怎样使用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../推荐算法/06-工业架构-召回粗排精排重排.html">推荐算法 06：召回、粗排、精排、重排</a></td>
+<td>理解候选逐步筛选；RAG 不一定需要同样的全部阶段</td>
+</tr>
+<tr>
+<td><a href="../推荐算法/08-深度学习推荐模型.html">推荐算法 08：双塔与交叉模型</a></td>
+<td>对照 embedding 检索与 Cross-Encoder 重排</td>
+</tr>
+<tr>
+<td><a href="../推荐算法/12-评估与AB实验.html">推荐算法 12：Recall@K / NDCG</a></td>
+<td>评估检索和排序；另需评估回答忠实度</td>
+</tr>
+<tr>
+<td><a href="../推荐算法/10-向量检索与ANN.html">推荐算法 10：ANN 向量检索</a></td>
+<td>理解近似最近邻索引与速度/召回权衡</td>
+</tr>
+<tr>
+<td><a href="../智能体工程教程/11-检索与RAG.html">智能体工程 11：检索与 RAG</a></td>
+<td>连接工程实现，再进入入库和评测实验</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="_8">✅ 检查点</h2>
+<ol>
+<li>RAG 为什么不能只用“搜索系统”概括？哪里可能出错？</li>
+<li>块太大或太小分别可能造成什么问题？为什么不能简单说 embedding 是“语义平均”？</li>
+<li>为什么随机点的距离集中不能证明所有文本向量检索都会失败？</li>
+<li>混合检索可能改善什么？怎样证明值得增加一路检索？</li>
+<li>Contextual Retrieval 改了哪里？原实验的百分比能否直接当成业务承诺？</li>
+<li>RRF 中的 k 和 top-k 是一回事吗？</li>
+</ol>
+<details>
+<summary>展开核对，不要求背术语</summary>
+<ol>
+<li>它把检索与生成连接起来。证据没找对、被截掉、被模型误用，都可能导致错误。</li>
+<li>短块可能丢条件，长块可能混主题或被截断；文本向量是学习到的表示，不是主题的字面平均。</li>
+<li>随机点实验的分布条件不同，应检查真实失败样本与输入配置。</li>
+<li>两路可能补足型号匹配、同义表达等盲区；固定问题集比较单路、融合和最终回答，同时看延迟与成本。</li>
+<li>建索引前给块补可核验的上下文。35% / 49% / 67% 是特定实验的相对变化，不能直接推广。</li>
+<li>不是。本式 k 是平滑常数；top-k 通常指取回多少个候选。</li>
+</ol>
+</details>
+<h2 id="_9">🛑 可以停在这里</h2>
+<p>你现在应能说出：<strong>先检查证据在哪一步丢失，再选择对应的改法。</strong> 读懂本页不等于已经做出可靠系统，还需要实现、评测和权限检查。</p>
+<p>正确资料已被召回但排得靠后，再看<a href="08b-重排与Embedding选型.html">08b 重排与选型</a>。想判断是否真的变好，去<a href="08c-RAG怎么评估.html">08c RAG 怎么评估</a>。</p>
+<p>⚡ <strong>走神救援</strong></p>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>RAG 要找对证据，也要忠实使用证据。</li><li>先看失败样本，再选择切分、检索、排序或生成上的改法。</li><li>数字是实验配置或有条件的结果，不是通用质量保证。</li></ul></section>
+
+<p><strong>下一节</strong> 👉 <a href="08b-重排与Embedding选型.html">08b-重排与Embedding选型.md</a></p></article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
+<button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">😅 先看差距有多大</a><a href="#_3">🧱 环节一：切分（最被低估的一环）</a><a href="#_6">🔍 环节二：混合检索（别只用向量）</a><a href="#_7">🔗 和站内其他章的关系</a><a href="#_8">✅ 检查点</a><a href="#_9">🛑 可以停在这里</a></nav>
+<button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
+<a href="00-怎么用这份导论.html#overview-start">重新选择学习目标</a></div></aside></div>
+<p class="content-sources">原始资料：<a href="https://www.anthropic.com/engineering/contextual-retrieval">contextual retrieval</a>（核对：2026-10-18；外链仅供追溯，正文可离线阅读）。</p>
+<div class="donebar"><noscript><p class="llm-nojs">JavaScript 未启用：正文、图表与章节链接可读；打卡、续读和弹窗工具不可用。</p></noscript><p class="llm-storage-status" role="status"></p><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="07b-开源生态怎么选.html"><div class="dir">← 上一节</div>🧰 07b · 开源生态怎么选</a><a class="next" href="08b-重排与Embedding选型.html"><div class="dir">下一节 →</div>🎯 08b · 重排与选型</a></nav>
+</main>
+<script>(function(){
+  var KEY="overview-progress", FILE="08-RAG\u6df1\u6c34\u533a.md";
+  var memoryProgress=null;
+  function storageNotice(message){var n=document.querySelector('.llm-storage-status');if(n)n.textContent=message;}
+  function load(){if(memoryProgress!==null)return memoryProgress;try{var p=JSON.parse(localStorage.getItem(KEY));memoryProgress=p&&typeof p==='object'&&!Array.isArray(p)?p:{};}catch(e){memoryProgress={};storageNotice('无法读取浏览器存储；当前页打卡仅本次有效。');}return memoryProgress;}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    try{localStorage.setItem(KEY,JSON.stringify(p));}catch(e){storageNotice('未保存：浏览器存储不可用；当前页打卡仅本次有效。');}refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    try{try{localStorage.setItem('recsys-theme',next);}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/llm-reader.css"></body></html>
