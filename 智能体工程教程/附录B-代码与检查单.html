@@ -2,8 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>附录 B · 代码与检查单 · 智能体工程教程</title>
-<script>(function(){var t=localStorage.getItem('recsys-theme');
-if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script><style>
 @font-face{font-family:"CodeCJK";
  src:url("../assets/code-cjk-mono.woff2") format("woff2");
  font-weight:400;font-style:normal;font-display:swap;}
@@ -280,7 +279,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="agent-engineering-reader agent-engineering-lesson">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -288,7 +287,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <span class="prevnext"><a href="附录A-术语速查卡.html">←</a>
   <a href="附录C-全链路故障排查手册.html">→</a></span>
   <button class="js-done-btn">☐ 打卡</button>
-  <button id="themeToggle" title="切换深浅色">🌗</button>
+  <button id="themeToggle" title="切换深浅色" aria-label="切换深浅色">🌗</button>
 </div></header>
 <main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
@@ -309,14 +308,14 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </details>
 <h1 id="b">附录 B · 代码与检查单</h1>
 <blockquote>
-<p>📌 需要什么 <code>Ctrl+F</code> 搜，复制粘贴。<strong>不要通读。</strong></p>
+<p>📌 按主题查找。各代码块是独立示例或接口骨架，不应整页串接执行；先读依赖和未实现项。只有第 01 节的假模型循环无需凭证即可直接运行。<code></code><strong></strong></p>
 </blockquote>
 <hr />
 <h2 id="_1">📦 环境</h2>
 <div class="codehilite" data-code-language="bash"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>anthropic<span class="w">          </span><span class="c1"># 官方 SDK</span>
 pip<span class="w"> </span>install<span class="w"> </span>requests<span class="w">           </span><span class="c1"># 第 17 节项目一</span>
 pip<span class="w"> </span>install<span class="w"> </span>pytest<span class="w">             </span><span class="c1"># 第 17 节项目二</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">ANTHROPIC_API_KEY</span><span class="o">=</span>...<span class="w">   </span><span class="c1"># Windows: setx ANTHROPIC_API_KEY &quot;...&quot;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">ANTHROPIC_API_KEY</span><span class="o">=</span>...<span class="w">   </span><span class="c1"># Windows PowerShell 当前会话：$env:ANTHROPIC_API_KEY="..."（使用自己的凭证，不写入仓库或日志）</span>
 </code></pre></div>
 
 <p>零成本开发：先用第 1 节的 <code>MockModel</code> 把逻辑跑通，再换真模型。</p>
@@ -341,34 +340,45 @@ pip<span class="w"> </span>install<span class="w"> </span>pytest<span class="w">
 </code></pre></div>
 
 <h2 id="tool-use-api">🔌 接官方 tool use API</h2>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">anthropic</span>
-<span class="n">client</span> <span class="o">=</span> <span class="n">anthropic</span><span class="o">.</span><span class="n">Anthropic</span><span class="p">()</span>
+<div class="codehilite" data-code-language="python"><pre><code>import anthropic
+client = anthropic.Anthropic()
 
-<span class="n">TOOLS</span> <span class="o">=</span> <span class="p">[{</span>
-    <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;search_logs&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;在服务日志中搜索匹配的行。返回匹配行及前后各2行上下文。&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;input_schema&quot;</span><span class="p">:</span> <span class="p">{</span>
-        <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;object&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;properties&quot;</span><span class="p">:</span> <span class="p">{</span>
-            <span class="s2">&quot;pattern&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;string&quot;</span><span class="p">,</span> <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;正则或关键词&quot;</span><span class="p">},</span>
-            <span class="s2">&quot;max_lines&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;integer&quot;</span><span class="p">,</span> <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;最多返回行数，默认50&quot;</span><span class="p">},</span>
-        <span class="p">},</span>
-        <span class="s2">&quot;required&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;pattern&quot;</span><span class="p">],</span>
-    <span class="p">},</span>
-<span class="p">}]</span>
+TOOLS = [{
+    &quot;name&quot;: &quot;search_logs&quot;,
+    &quot;description&quot;: &quot;在服务日志中搜索匹配的行。返回匹配行及前后各2行上下文。&quot;,
+    &quot;input_schema&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;properties&quot;: {
+            &quot;pattern&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;正则或关键词&quot;},
+            &quot;max_lines&quot;: {&quot;type&quot;: &quot;integer&quot;, &quot;description&quot;: &quot;最多返回行数，默认50&quot;},
+        },
+        &quot;required&quot;: [&quot;pattern&quot;],
+    },
+}]
 
-<span class="k">def</span><span class="w"> </span><span class="nf">agent_turn</span><span class="p">(</span><span class="n">messages</span><span class="p">):</span>
-    <span class="n">resp</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">messages</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
-        <span class="n">model</span><span class="o">=</span><span class="s2">&quot;claude-sonnet-5&quot;</span><span class="p">,</span> <span class="n">max_tokens</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span>
-        <span class="n">tools</span><span class="o">=</span><span class="n">TOOLS</span><span class="p">,</span> <span class="n">messages</span><span class="o">=</span><span class="n">messages</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">resp</span><span class="o">.</span><span class="n">stop_reason</span> <span class="o">==</span> <span class="s2">&quot;tool_use&quot;</span><span class="p">:</span>
-        <span class="n">block</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">b</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">resp</span><span class="o">.</span><span class="n">content</span> <span class="k">if</span> <span class="n">b</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;tool_use&quot;</span><span class="p">)</span>
-        <span class="n">result</span> <span class="o">=</span> <span class="n">dispatch</span><span class="p">(</span><span class="n">block</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">block</span><span class="o">.</span><span class="n">input</span><span class="p">)</span>
-        <span class="n">messages</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;assistant&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">resp</span><span class="o">.</span><span class="n">content</span><span class="p">})</span>
-        <span class="n">messages</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="p">[{</span>
-            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;tool_result&quot;</span><span class="p">,</span> <span class="s2">&quot;tool_use_id&quot;</span><span class="p">:</span> <span class="n">block</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">result</span><span class="p">}]})</span>
-        <span class="k">return</span> <span class="kc">None</span>                                <span class="c1"># 继续循环</span>
-    <span class="k">return</span> <span class="n">resp</span><span class="o">.</span><span class="n">content</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">text</span>                    <span class="c1"># 最终答案</span>
+def agent_turn(messages):
+    resp = client.messages.create(
+        model=&quot;claude-sonnet-5&quot;, max_tokens=2048,
+        tools=TOOLS, messages=messages)
+    if resp.stop_reason == &quot;tool_use&quot;:
+        calls = [b for b in resp.content if b.type == &quot;tool_use&quot;]
+        if not calls:
+            raise ValueError(&quot;tool_use 停止却没有调用块&quot;)
+        messages.append({&quot;role&quot;: &quot;assistant&quot;, &quot;content&quot;: resp.content})
+        results = []
+        for block in calls:  # 一轮可能有多个调用，不能只处理第一个
+            try:
+                result = str(dispatch(block.name, block.input))  # 自行实现白名单与参数/权限校验
+                failed = False
+            except Exception:
+                result, failed = &quot;工具失败；请检查参数或转人工。&quot;, True
+            results.append({&quot;type&quot;: &quot;tool_result&quot;, &quot;tool_use_id&quot;: block.id,
+                            &quot;content&quot;: result, &quot;is_error&quot;: failed})
+        messages.append({&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: results})
+        return None
+    if resp.stop_reason != &quot;end_turn&quot;:
+        raise RuntimeError(f&quot;本轮未完成：{resp.stop_reason}&quot;)
+    return &quot;&quot;.join(b.text for b in resp.content if b.type == &quot;text&quot;)
 </code></pre></div>
 
 <h2 id="tool-18-a">🏷️ @tool 装饰器（第 18 节挑战 A）</h2>
@@ -414,7 +424,7 @@ pip<span class="w"> </span>install<span class="w"> </span>pytest<span class="w">
             <span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;【历史摘要】</span><span class="se">\n</span><span class="si">{</span><span class="n">summary</span><span class="si">}</span><span class="se">\n\n</span><span class="s2">请继续。&quot;</span><span class="p">}]</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">est_tokens</span><span class="p">(</span><span class="n">messages</span><span class="p">):</span>
-    <span class="k">return</span> <span class="nb">sum</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">m</span><span class="p">[</span><span class="s2">&quot;content&quot;</span><span class="p">])</span> <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">messages</span><span class="p">)</span> <span class="o">//</span> <span class="mi">3</span>   <span class="c1"># 粗估，够用</span>
+    <span class="k">return</span> <span class="nb">sum</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">m</span><span class="p">[</span><span class="s2">&quot;content&quot;</span><span class="p">])</span> <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">messages</span><span class="p">)</span> <span class="o">//</span> <span class="mi">3</span>   <span class="c1"># 仅占用近似；中文和不同 tokenizer 误差另测，不能当累计消费预算</span>
 </code></pre></div>
 
 <h2 id="agent-413">🌿 子 Agent（第 4、13 节）</h2>
@@ -426,67 +436,107 @@ pip<span class="w"> </span>install<span class="w"> </span>pytest<span class="w">
 </code></pre></div>
 
 <h2 id="7">👮 好的工具错误信息（第 7 节）</h2>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">calculator</span><span class="p">(</span><span class="n">expression</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;计算数学表达式。只支持数字和 + - * / ** ( )&quot;&quot;&quot;</span>
-    <span class="n">ALLOWED</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="s2">&quot;0123456789+-*/(). &quot;</span><span class="p">)</span>
-    <span class="n">bad</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">expression</span><span class="p">)</span> <span class="o">-</span> <span class="n">ALLOWED</span>
-    <span class="k">if</span> <span class="n">bad</span><span class="p">:</span>
-        <span class="k">return</span> <span class="p">(</span><span class="sa">f</span><span class="s2">&quot;错误：不支持字符 </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">bad</span><span class="p">)</span><span class="si">}</span><span class="s2">。&quot;</span>
-                <span class="sa">f</span><span class="s2">&quot;只支持数字和 + - * / ** ( )。&quot;</span>
-                <span class="sa">f</span><span class="s2">&quot;示例：calculator(expression=&#39;3.14 * 2**2&#39;)&quot;</span><span class="p">)</span>
-    <span class="k">try</span><span class="p">:</span>
-        <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="n">expression</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;__builtins__&quot;</span><span class="p">:</span> <span class="p">{}},</span> <span class="p">{}))</span>
-    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;计算失败：</span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">。请检查括号是否配对。&quot;</span>
+<div class="codehilite" data-code-language="python"><pre><code>def calculator(expression: str) -&gt; str:
+    &quot;&quot;&quot;有界的四则/幂运算教学解释器；不执行 Python 代码。&quot;&quot;&quot;
+    import ast, math, operator
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub,
+           ast.Mult: operator.mul, ast.Div: operator.truediv, ast.Pow: operator.pow}
+    def number(value):
+        if type(value) not in (int, float) or not math.isfinite(value) or abs(value) &gt; 1e12:
+            raise ValueError(&quot;只接受绝对值不超过 1e12 的有限实数&quot;)
+        return value
+    def visit(node, depth=0):
+        if depth &gt; 32:
+            raise ValueError(&quot;表达式嵌套过深&quot;)
+        if isinstance(node, ast.Constant):
+            return number(node.value)
+        if isinstance(node, ast.UnaryOp) and type(node.op) in (ast.UAdd, ast.USub):
+            value = visit(node.operand, depth + 1)
+            return number(value if isinstance(node.op, ast.UAdd) else -value)
+        if isinstance(node, ast.BinOp) and type(node.op) in ops:
+            left, right = visit(node.left, depth + 1), visit(node.right, depth + 1)
+            if isinstance(node.op, ast.Pow) and abs(right) &gt; 10:
+                raise ValueError(&quot;指数绝对值上限为 10&quot;)
+            return number(ops[type(node.op)](left, right))
+        raise ValueError(&quot;只支持数字和 + - * / ** ( )，不支持名称、属性或函数&quot;)
+    try:
+        if not isinstance(expression, str) or len(expression) &gt; 160:
+            raise ValueError(&quot;expression 应为不超过 160 字符的字符串&quot;)
+        tree = ast.parse(expression, mode=&quot;eval&quot;)
+        if sum(1 for _ in ast.walk(tree)) &gt; 64:
+            raise ValueError(&quot;表达式节点过多&quot;)
+        return str(visit(tree.body))
+    except (ValueError, SyntaxError, ArithmeticError, RecursionError) as exc:
+        return f&quot;计算出错：{exc}。示例：3.14 * 2**2&quot;
 </code></pre></div>
 
 <h2 id="1520">🛡️ 环境层硬边界（第 15、20 节）</h2>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Guard</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;确定性规则。模型碰不到这里——这才叫硬边界&quot;&quot;&quot;</span>
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">whitelist</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;user_alice&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;user_bob&quot;</span><span class="p">}}</span>   <span class="c1"># 运行时不可变更</span>
+<div class="codehilite" data-code-language="python"><pre><code>class Guard:
+    &quot;&quot;&quot;本地预检；actor 来自可信认证上下文，不来自模型参数。&quot;&quot;&quot;
+    def __init__(self):
+        self.whitelist = {&quot;user_alice&quot;: frozenset({&quot;user_bob&quot;})}
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">check_transfer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">actor</span><span class="p">,</span> <span class="n">to_u</span><span class="p">,</span> <span class="n">amt</span><span class="p">):</span>
-        <span class="k">if</span> <span class="n">to_u</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">whitelist</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">actor</span><span class="p">,</span> <span class="nb">set</span><span class="p">()):</span>
-            <span class="k">return</span> <span class="kc">False</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;拒绝：</span><span class="si">{</span><span class="n">to_u</span><span class="si">}</span><span class="s2"> 不在白名单收款人中&quot;</span>
-        <span class="k">if</span> <span class="n">amt</span> <span class="o">&gt;</span> <span class="mi">1000</span><span class="p">:</span>
-            <span class="k">return</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;需要用户二次确认&quot;</span>
-        <span class="k">return</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;ok&quot;</span>
+    def check_transfer(self, actor, to_u, amt):
+        if not isinstance(actor, str) or not isinstance(to_u, str):
+            return False, &quot;拒绝：身份或收款账户类型错误&quot;
+        if to_u not in self.whitelist.get(actor, ()):
+            return False, &quot;拒绝：收款账户未授权&quot;
+        if type(amt) is not int or amt &lt;= 0:
+            return False, &quot;拒绝：金额必须是正整数分&quot;
+        if amt &gt; 1000:
+            return False, &quot;需要服务端独立审批；本例不实现批准后的执行&quot;
+        return True, &quot;ok&quot;
 
-<span class="k">def</span><span class="w"> </span><span class="nf">transfer</span><span class="p">(</span><span class="n">actor</span><span class="p">,</span> <span class="n">to_u</span><span class="p">,</span> <span class="n">amt</span><span class="p">,</span> <span class="n">guard</span><span class="p">,</span> <span class="n">confirmed</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
-    <span class="n">ok</span><span class="p">,</span> <span class="n">reason</span> <span class="o">=</span> <span class="n">guard</span><span class="o">.</span><span class="n">check_transfer</span><span class="p">(</span><span class="n">actor</span><span class="p">,</span> <span class="n">to_u</span><span class="p">,</span> <span class="n">amt</span><span class="p">)</span>
-    <span class="k">if</span> <span class="ow">not</span> <span class="n">ok</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">confirmed</span><span class="p">:</span>
-        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;转账被拒：</span><span class="si">{</span><span class="n">reason</span><span class="si">}</span><span class="s2">&quot;</span>      <span class="c1"># 模型说破天也没用</span>
-    <span class="o">...</span>
+def transfer(actor, to_u, amt, guard, confirmed=False):
+    # 保留旧参数以展示：模型填写的布尔值不改变任何授权判断。
+    ok, reason = guard.check_transfer(actor, to_u, amt)
+    if not ok:
+        return f&quot;转账被拒：{reason}&quot;
+    return &quot;仅预检通过；本例未转账。余额、幂等和真实审批见 12b。&quot;
 </code></pre></div>
 
 <blockquote>
 <p>⚠️ 反例：把「不许转给白名单外的人」写进系统提示词——<strong>那是软防御，不是硬边界</strong>。</p>
 </blockquote>
 <h2 id="1419">📏 评测循环（第 14、19 节）</h2>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">defaultdict</span>
+<div class="codehilite" data-code-language="python"><pre><code>from collections import defaultdict
 
-<span class="k">def</span><span class="w"> </span><span class="nf">evaluate</span><span class="p">(</span><span class="n">agent</span><span class="p">,</span> <span class="n">tasks</span><span class="p">,</span> <span class="n">code_scorer</span><span class="p">,</span> <span class="n">runs</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
-    <span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
-    <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tasks</span><span class="p">:</span>
-        <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">runs</span><span class="p">):</span>
-            <span class="n">out</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">t</span><span class="p">[</span><span class="s2">&quot;input&quot;</span><span class="p">])</span>
-            <span class="n">score</span><span class="p">,</span> <span class="n">note</span> <span class="o">=</span> <span class="n">code_scorer</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">t</span><span class="p">[</span><span class="s2">&quot;reference&quot;</span><span class="p">])</span>
-            <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="n">t</span><span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">],</span> <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="n">t</span><span class="p">[</span><span class="s2">&quot;type&quot;</span><span class="p">],</span>
-                            <span class="s2">&quot;score&quot;</span><span class="p">:</span> <span class="n">score</span><span class="p">,</span> <span class="s2">&quot;note&quot;</span><span class="p">:</span> <span class="n">note</span><span class="p">})</span>
-    <span class="k">return</span> <span class="n">results</span>
+def evaluate(agent, tasks, code_scorer, runs=1):
+    if type(runs) is not int or runs &lt;= 0 or not tasks:
+        raise ValueError(&quot;需要非空题集与正整数 runs&quot;)
+    results = []
+    for task in tasks:
+        for attempt in range(runs):
+            row = {&quot;id&quot;: task[&quot;id&quot;], &quot;type&quot;: task[&quot;type&quot;], &quot;attempt&quot;: attempt,
+                   &quot;score&quot;: 0.0, &quot;status&quot;: &quot;failed&quot;}
+            try:
+                out = agent.run(task[&quot;input&quot;])
+                row[&quot;score&quot;], row[&quot;note&quot;] = code_scorer(out, task[&quot;reference&quot;])
+                row[&quot;status&quot;] = &quot;completed&quot;
+            except Exception as exc:
+                row[&quot;error_type&quot;] = type(exc).__name__  # 不记录可能含隐私的异常原文
+            results.append(row)  # 异常与超时也留在全部题次分母
+    return results
 
-<span class="k">def</span><span class="w"> </span><span class="nf">summarize</span><span class="p">(</span><span class="n">results</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;⭐ 必须分维度看，总分会骗人&quot;&quot;&quot;</span>
-    <span class="n">by</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
-    <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
-        <span class="n">by</span><span class="p">[</span><span class="n">r</span><span class="p">[</span><span class="s2">&quot;type&quot;</span><span class="p">]]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">r</span><span class="p">[</span><span class="s2">&quot;score&quot;</span><span class="p">])</span>
-    <span class="k">return</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="nb">sum</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="o">/</span><span class="nb">len</span><span class="p">(</span><span class="n">v</span><span class="p">),</span> <span class="mi">3</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">by</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+def summarize(results):
+    if not results:
+        raise ValueError(&quot;结果不能为空&quot;)
+    by = defaultdict(list)
+    for row in results:
+        by[row[&quot;type&quot;]].append(row[&quot;score&quot;])
+    return {kind: round(sum(scores) / len(scores), 3) for kind, scores in by.items()}
 
-<span class="k">def</span><span class="w"> </span><span class="nf">pass_hat_k</span><span class="p">(</span><span class="n">results_per_task</span><span class="p">,</span> <span class="n">k</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;k 次全部成功的比例。面向用户的 Agent 该看这个&quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="nb">sum</span><span class="p">(</span><span class="nb">all</span><span class="p">(</span><span class="n">s</span> <span class="o">==</span> <span class="mf">1.0</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">scores</span><span class="p">[:</span><span class="n">k</span><span class="p">])</span>
-               <span class="k">for</span> <span class="n">scores</span> <span class="ow">in</span> <span class="n">results_per_task</span><span class="o">.</span><span class="n">values</span><span class="p">())</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">results_per_task</span><span class="p">)</span>
+def pass_hat_k(results_per_task, k):
+    &quot;&quot;&quot;每题取前 k 次，计算全部成功的题目比例；不足 k 次不可计作成功。&quot;&quot;&quot;
+    if type(k) is not int or k &lt;= 0 or not results_per_task:
+        raise ValueError(&quot;需要非空结果与正整数 k&quot;)
+    for scores in results_per_task.values():
+        if len(scores) &lt; k:
+            raise ValueError(&quot;每道题必须保留至少 k 次结果，包括失败与超时&quot;)
+        if any(type(s) not in (int, float) or not 0 &lt;= s &lt;= 1 for s in scores[:k]):
+            raise ValueError(&quot;分数须为 0 到 1 的有限数值，未知先补完或单列&quot;)
+    return sum(all(s == 1.0 for s in scores[:k])
+               for scores in results_per_task.values()) / len(results_per_task)
 </code></pre></div>
 
 <h2 id="llm-rubric">🧪 LLM 评委 rubric 模板</h2>
@@ -500,12 +550,12 @@ pip<span class="w"> </span>install<span class="w"> </span>pytest<span class="w">
 
 <span class="s2">参考解：</span><span class="si">{reference}</span>
 <span class="s2">实际输出：</span><span class="si">{output}</span><span class="s2">&quot;&quot;&quot;</span>
-<span class="c1"># ⭐ 用前先校准：让它给参考解打分，应该接近满分，否则评委坏了</span>
+<span class="c1"># ⭐ 用前以人工确认的正确、错误与边界答案校准；参考解得高分只是正向控制，还要能识别错误</span>
 </code></pre></div>
 
 <hr />
 <h2 id="_2">📋 上生产检查单</h2>
-<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>【架构】</p><p>☐ 做过降级测试，有数据证明当前复杂度必要（第6节）</p><p>☐ 能说清为什么用工作流/Agent、为什么用这种多Agent模式</p><p>☐ 多Agent的15倍token溢价对得起它的价值</p><p>【上下文】</p><p>☐ 系统提示词砍到最小，删掉了为旧模型写的补丁</p><p>☐ 长任务有压缩机制，且摘要保留关键事实</p><p>☐ 工具超过20个上了Tool Search</p><p>☐ 大量阅读类任务派给了子Agent</p><p>【工具】</p><p>☐ 工具按意图分组，不是API的一比一镜像</p><p>☐ 返回里没有模型用不上的字段</p><p>☐ 错误信息是可行动的（告诉模型怎么改）</p><p>☐ 危险操作做了防呆</p><p>【验证】</p><p>☐ Agent有能自己跑的验证（测试/编译/lint）</p><p>☐ 验证者不是干活的那个Agent</p><p>☐ 主观标准转成了可回答的rubric条目</p><p>【评测】</p><p>☐ 至少20个来自真实失败的任务，每个有参考解</p><p>☐ 评分器评产出不评路径，同时验证权限、审批、预算与副作用约束</p><p>☐ 读过转录，人工核对过评分器</p><p>☐ 明确该看pass@k还是pass^k</p><p>☐ 对小于3个百分点的差距保持怀疑</p><p>【安全】</p><p>☐ 做过威胁建模：Agent被完全控制最坏会怎样</p><p>☐ 至少一道环境层硬边界（代码里的if，不是提示词）</p><p>☐ 高危动作权限分离（能写≠能部署）</p><p>☐ 只在高危动作要确认，避免审批疲劳</p><p>☐ 外部内容当不可信数据处理</p><p>【运维】</p><p>☐ 有max_steps/超时/预算三道护栏，且优雅退出</p><p>☐ 状态可从出错点恢复，不用从头重跑</p><p>☐ 有结构化trace能回放决策路径</p><p>☐ 部署不打断运行中的Agent（彩虹部署）</p><p>【长期】</p><p>☐ 日历上有&quot;模型升级后重审harness&quot;的提醒</p><p>☐ 定期问：我可以停止做什么？</p></div></section>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>【架构】</p><p>☐ 做过降级测试，有数据证明当前复杂度必要（第6节）</p><p>☐ 能说清为什么用工作流/Agent、为什么用这种多Agent模式</p><p>☐ 多Agent的实测额外成本与协调开销对得起价值</p><p>【上下文】</p><p>☐ 系统提示词砍到最小，删掉了为旧模型写的补丁</p><p>☐ 长任务有压缩机制，且摘要保留关键事实</p><p>☐ 工具超过20个上了Tool Search</p><p>☐ 大量阅读类任务派给了子Agent</p><p>【工具】</p><p>☐ 工具按意图分组，不是API的一比一镜像</p><p>☐ 返回里没有模型用不上的字段</p><p>☐ 错误信息是可行动的（告诉模型怎么改）</p><p>☐ 危险操作做了防呆</p><p>【验证】</p><p>☐ Agent有能自己跑的验证（测试/编译/lint）</p><p>☐ 验证者不是干活的那个Agent</p><p>☐ 主观标准转成了可回答的rubric条目</p><p>【评测】</p><p>☐ 至少20个来自真实失败的任务，每个有参考解</p><p>☐ 评分器评产出不评路径，同时验证权限、审批、预算与副作用约束</p><p>☐ 读过转录，人工核对过评分器</p><p>☐ 明确该看pass@k还是pass^k</p><p>☐ 对小于3个百分点的差距保持怀疑</p><p>【安全】</p><p>☐ 做过威胁建模：Agent被完全控制最坏会怎样</p><p>☐ 至少一道环境层硬边界（代码里的if，不是提示词）</p><p>☐ 高危动作权限分离（能写≠能部署）</p><p>☐ 只在高危动作要确认，避免审批疲劳</p><p>☐ 外部内容当不可信数据处理</p><p>【运维】</p><p>☐ 有max_steps/超时/预算三道护栏，且优雅退出</p><p>☐ 状态可从出错点恢复，不用从头重跑</p><p>☐ 有结构化trace能回放决策路径</p><p>☐ 部署不打断运行中的Agent（彩虹部署）</p><p>【长期】</p><p>☐ 日历上有&quot;模型升级后重审harness&quot;的提醒</p><p>☐ 定期问：我可以停止做什么？</p></div></section>
 <hr />
 <h2 id="_3">🐛 常见问题速查</h2>
 <div class="tw"><table>
@@ -581,20 +631,22 @@ pip<span class="w"> </span>install<span class="w"> </span>pytest<span class="w">
 </table></div>
 <hr />
 <p>👉 <a href="index.html">回到首页</a></p>
-<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="donebar"><noscript><style>body.agent-engineering-reader :is(.js-done-btn,#themeToggle){display:none}</style><p class="ae-nojs">JavaScript 未启用：正文、图表与章节链接可读；打卡、续读和弹窗工具不可用。</p></noscript><p class="ae-storage-status" role="status"></p><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="附录A-术语速查卡.html"><div class="dir">← 上一节</div>📖 附录A · 术语速查</a><a class="next" href="附录C-全链路故障排查手册.html"><div class="dir">下一节 →</div>🧰 附录C · 全链路排查</a></nav>
 </main>
 <script>(function(){
   var KEY="agent-progress", FILE="\u9644\u5f55B-\u4ee3\u7801\u4e0e\u68c0\u67e5\u5355.md";
-  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  var memoryProgress=null, memoryOnly=false;
+  function storageNotice(message){var n=document.querySelector('.ae-storage-status');if(n)n.textContent=message;}
+  function load(){if(memoryOnly)return memoryProgress||{};var raw;try{raw=localStorage.getItem(KEY);}catch(e){memoryOnly=true;memoryProgress=memoryProgress||{};storageNotice('无法读取浏览器存储；当前页打卡仅本次有效。');return memoryProgress;}try{var p=JSON.parse(raw);memoryProgress=p&&typeof p==='object'&&!Array.isArray(p)?p:{};}catch(e){memoryProgress={};storageNotice('打卡数据格式损坏；本次从空白进度开始。');}return memoryProgress;}
   function refresh(){var d=!!load()[FILE];
     document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
       b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
                      :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
   document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
     var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
-    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+    memoryProgress=p;if(!memoryOnly){try{localStorage.setItem(KEY,JSON.stringify(p));storageNotice('');}catch(e){memoryOnly=true;}}if(memoryOnly)storageNotice('未保存：浏览器存储不可用；当前页打卡仅本次有效。');refresh();});});
   refresh();
 
   var tt=document.getElementById('themeToggle');
@@ -603,8 +655,8 @@ pip<span class="w"> </span>install<span class="w"> </span>pytest<span class="w">
     var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
     var next=dark?'light':'dark';
     document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('recsys-theme',next);});
+    try{localStorage.setItem('recsys-theme',next);}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}});
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/agent-engineering-reader.css"></body></html>

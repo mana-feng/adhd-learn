@@ -2,8 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>11g · 缓存与索引一致性实验 · 智能体工程教程</title>
-<script>(function(){var t=localStorage.getItem('recsys-theme');
-if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script><style>
 @font-face{font-family:"CodeCJK";
  src:url("../assets/code-cjk-mono.woff2") format("woff2");
  font-weight:400;font-style:normal;font-display:swap;}
@@ -280,18 +279,18 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><style id="ae-figure-styles">.ae-figure{width:100%;min-width:320px;max-width:360px;height:auto;--ae-bg:#faf9f6;--ae-card:#fff;--ae-fg:#292a33;--ae-muted:#555965;--ae-line:#bfc3cb;--ae-accent:#0b609e;--ae-soft:#eaf3fa;--ae-warn:#98400a;--ae-warnbg:#fff1df;--ae-ok:#21653b;--ae-okbg:#eaf6ee;color:var(--ae-fg);font-family:"Microsoft YaHei","PingFang SC",sans-serif} .ae-figure[data-theme="dark"], [data-theme="dark"] .ae-figure{width:100%;min-width:320px;max-width:360px;height:auto;--ae-bg:#191a1f;--ae-card:#252730;--ae-fg:#f1efea;--ae-muted:#bfc5d2;--ae-line:#707887;--ae-accent:#87c6ff;--ae-soft:#203344;--ae-warn:#ffc58a;--ae-warnbg:#3d2b1d;--ae-ok:#97dfad;--ae-okbg:#20382b} @media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .ae-figure:not([data-theme="light"]),:root.ae-figure:not([data-theme="light"]){--ae-bg:#191a1f;--ae-card:#252730;--ae-fg:#f1efea;--ae-muted:#bfc5d2;--ae-line:#707887;--ae-accent:#87c6ff;--ae-soft:#203344;--ae-warn:#ffc58a;--ae-warnbg:#3d2b1d;--ae-ok:#97dfad;--ae-okbg:#20382b}} .ae-figure .bg{fill:var(--ae-bg)} .ae-figure .card{fill:var(--ae-card);stroke:var(--ae-line)} .ae-figure .soft{fill:var(--ae-soft);stroke:var(--ae-accent)} .ae-figure .warn{fill:var(--ae-warnbg);stroke:var(--ae-warn)} .ae-figure .ok{fill:var(--ae-okbg);stroke:var(--ae-ok)} .ae-figure text{fill:var(--ae-fg)} .ae-figure .title{font-size:21px;font-weight:700} .ae-figure .body{font-size:18px} .ae-figure .strong{font-size:18px;font-weight:700} .ae-figure .small{font-size:16px;fill:var(--ae-muted)} .ae-figure .number{font-size:24px;font-weight:700} .ae-figure .arrow{fill:none;stroke:var(--ae-accent);stroke-width:2} .ae-figure .attempt{fill:var(--ae-accent)} .ae-figure .request{fill:var(--ae-card);stroke:var(--ae-line);stroke-width:2} .ae-figure .success{fill:var(--ae-ok);stroke:var(--ae-ok)} .ae-figure .deferred{fill:var(--ae-warnbg);stroke:var(--ae-warn);stroke-width:2;stroke-dasharray:4 2}</style></head><body class="agent-engineering-reader agent-engineering-lesson">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
   <span class="title">11g · 缓存与索引一致性实验</span>
   <span class="prevnext"><a href="11f-查询改写与多轮检索实验.html" aria-label="11f · 查询改写与多轮检索实验">←</a> <a href="11h-重排与上下文预算实验.html" aria-label="11h · 重排与上下文预算实验">→</a> </span>
   <button class="js-done-btn">☐ 打卡</button>
-  <button id="themeToggle" title="切换深浅色">🌗</button>
+  <button id="themeToggle" title="切换深浅色" aria-label="切换深浅色">🌗</button>
 </div></header>
 <main>
 <h1 id="11g">11g · 缓存与索引一致性实验</h1>
-<p class="reading-time">⏱ <strong>阅读约 30 分钟</strong> · 动手实践另计</p>
+<p class="reading-time">⏱ <strong>阅读约 32 分钟</strong> · 动手实践另计</p>
 <blockquote>
 <p>本章保留教学代码、路径说明与历史验证结论；完整实验工程和运行记录未随本站及公开仓库分发。命令用于说明调用方式，复现需自行准备对应实现、数据与环境。</p>
 </blockquote>
@@ -401,6 +400,73 @@ python cache_lab.py
 </details>
 <h2 id="_6">先建完整快照，再切指针</h2>
 <p>发布顺序是：读取完整可见语料并计算指纹；编码全部片段并校验；在一个 SQLite 写事务内再次核对语料、插入完整快照、更新活动指针并提交。这样不会出现“指针已经是新版，向量只写了一半”。</p>
+<!-- ae-snapshot-publish-gate:start -->
+<figure class="ae-lesson-figure" data-agent-engineering-figure="ae-snapshot-publish-gate" id="ae-snapshot-publish-gate" style="margin:28px 0;max-width:100%">
+<div class="ae-figure-frame" tabindex="0" role="region" aria-label="发布索引时怎样避免半个版本可见？；窄屏可横向滚动，聚焦后可用左右方向键" style="overflow-x:auto;max-width:100%;overscroll-behavior-x:contain;display:grid;grid-template-columns:minmax(320px,1fr);justify-items:center">
+<svg xmlns="http://www.w3.org/2000/svg" class="ae-figure" width="360" height="776" viewBox="0 0 360 776" role="img" aria-labelledby="ae-snapshot-publish-gate-title ae-snapshot-publish-gate-desc">
+
+<title id="ae-snapshot-publish-gate-title">发布新快照时，怎样避免看到半个版本？</title><desc id="ae-snapshot-publish-gate-desc">先在事务外计算候选快照 S2，再在同一 SQLite 写事务内重新核对当前语料、插入完整快照 S2、切换活动指针并提交。失败则回滚，旧指针仍指 S1。旧指针保留只证明发布未切换，S1 若与当前权限或语料不符仍不可作答。这里只表示同库事务，不表示外部向量库或断电恢复已验证。</desc>
+
+<defs><marker id="ae-snapshot-publish-gate-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L8 4L0 8Z" fill="var(--ae-accent)"/></marker></defs>
+
+<rect class="bg" width="360" height="776" rx="14"/>
+
+<text x="24" y="34" class="title" text-anchor="start">怎样避免发布半个索引版本？</text>
+
+<text x="24" y="61" class="small" text-anchor="start">S1 / S2 是快照标识，不是原文修订号</text>
+
+<rect x="12" y="80" width="336" height="100" rx="12" class="card"/>
+
+<text x="28" y="111" class="strong" text-anchor="start">① 先准备候选 S2</text>
+
+<text x="28" y="140" class="body" text-anchor="start">读取可见语料 → 计算并校验全部向量</text>
+
+<text x="28" y="166" class="small" text-anchor="start">此时活动指针仍指 S1</text>
+
+<path d="M180 188V214" class="arrow" marker-end="url(#ae-snapshot-publish-gate-arrow)"/>
+
+<rect x="12" y="226" width="336" height="176" rx="12" class="soft"/>
+
+<text x="28" y="257" class="strong" text-anchor="start">② 以下步骤放在同一写事务</text>
+
+<text x="28" y="291" class="body" text-anchor="start">重新核对完整可见语料是否变化</text>
+
+<text x="28" y="323" class="body" text-anchor="start">插入完整 S2，再切活动指针 → S2</text>
+
+<text x="28" y="355" class="strong" text-anchor="start">全部成功 → COMMIT</text>
+
+<text x="28" y="385" class="small" text-anchor="start">期间检查失败 / 异常 → ROLLBACK</text>
+
+<path d="M180 410V436" class="arrow" marker-end="url(#ae-snapshot-publish-gate-arrow)"/>
+
+<rect x="12" y="448" width="336" height="83" rx="12" class="ok"/>
+
+<text x="28" y="479" class="strong" text-anchor="start">提交成功：S2 整体可见</text>
+
+<text x="28" y="509" class="body" text-anchor="start">不会先切指针、再补剩余向量</text>
+
+<rect x="12" y="549" width="336" height="118" rx="12" class="warn"/>
+
+<text x="28" y="580" class="strong" text-anchor="start">回滚：旧指针仍指 S1</text>
+
+<text x="28" y="610" class="body" text-anchor="start">保留旧指针 ≠ 允许旧证据回答</text>
+
+<text x="28" y="640" class="body" text-anchor="start">仍须符合当前语料、修订与权限</text>
+
+<text x="24" y="706" class="small" text-anchor="start">同库 SQLite 事务示意；外部向量库</text>
+
+<text x="24" y="732" class="small" text-anchor="start">需要另外设计发布与恢复协议。</text>
+
+<text x="24" y="758" class="small" text-anchor="start">未验证断电、硬重启或磁盘损坏。</text>
+
+</svg>
+
+
+</div>
+<figcaption style="font-size:16px;line-height:1.8;margin-top:14px">S1/S2 是索引快照标识。完整快照与活动指针在同一 SQLite 事务内发布；回滚留下旧指针，但不授予旧证据继续作答的资格。 窄屏可在图内左右滑动查看完整图示。</figcaption>
+</figure>
+<!-- ae-snapshot-publish-gate:end -->
+
 <p>向量计算在事务之前，期间语料可能改变。事务内核对负责发现这个窗口；变化时明确抛出 <code>corpus_changed_before_publish</code>。进入写事务后，另一个 core 写入者不能同时提交改动。</p>
 <p><code>before_publish</code> 故障钩子在新快照插入后、指针切换前抛出异常。真实 SQLite rollback 后，新快照不留存，旧指针不变。demo 失败前后都是两个快照、一个指针、三条证据；测试还读取指针确认其未变化。</p>
 <p>但是保留旧指针不等于允许旧快照作答。当前原文可能已是修订 2，旧快照仍代表修订 1；不匹配时必须拒绝或成功重建。旧快照是诊断和回滚材料，不能绕过当前权限与修订。</p>
@@ -440,20 +506,22 @@ python cache_lab.py
 <p>打开 JSON 后先比较前两步 key/snapshot/corpus，再找新增轨道舱后 corpus 为什么改变，最后核对失败前后计数与测试中的旧指针。完成这些即可结束本章，外部服务与更大模型留待独立实验。</p>
 <h2 id="_11">来源与采用范围</h2>
 <p><a href="https://www.yuque.com/aaron-wecc3/dhluml/rps6ak3gensgi9yx">模型版本管理系统的实现要点</a>提供版本、元数据、回滚和权限问题；<a href="https://www.yuque.com/aaron-wecc3/dhluml/gwh01p5q6v48lxvt">向量数据库选型对比</a>引出持久化、精确扫描、ANN 与规模验证的区分。这里转换为本地原创实验，不复刻公司案例、收益数字或产品容量断言；SQLite 原理按上述官方文档校核。</p>
-<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="donebar"><noscript><style>body.agent-engineering-reader :is(.js-done-btn,#themeToggle){display:none}</style><p class="ae-nojs">JavaScript 未启用：正文、图表与章节链接可读；打卡、续读和弹窗工具不可用。</p></noscript><p class="ae-storage-status" role="status"></p><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="11f-查询改写与多轮检索实验.html"><div class="dir">← 上一节</div>11f · 查询改写与多轮检索实验</a><a class="next" href="11h-重排与上下文预算实验.html"><div class="dir">下一节 →</div>11h · 重排与上下文预算实验</a></nav>
 </main>
 <script>(function(){
   var KEY="agent-progress", FILE="11g-\u7f13\u5b58\u4e0e\u7d22\u5f15\u4e00\u81f4\u6027\u5b9e\u9a8c.md";
-  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  var memoryProgress=null, memoryOnly=false;
+  function storageNotice(message){var n=document.querySelector('.ae-storage-status');if(n)n.textContent=message;}
+  function load(){if(memoryOnly)return memoryProgress||{};var raw;try{raw=localStorage.getItem(KEY);}catch(e){memoryOnly=true;memoryProgress=memoryProgress||{};storageNotice('无法读取浏览器存储；当前页打卡仅本次有效。');return memoryProgress;}try{var p=JSON.parse(raw);memoryProgress=p&&typeof p==='object'&&!Array.isArray(p)?p:{};}catch(e){memoryProgress={};storageNotice('打卡数据格式损坏；本次从空白进度开始。');}return memoryProgress;}
   function refresh(){var d=!!load()[FILE];
     document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
       b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
                      :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
   document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
     var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
-    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+    memoryProgress=p;if(!memoryOnly){try{localStorage.setItem(KEY,JSON.stringify(p));storageNotice('');}catch(e){memoryOnly=true;}}if(memoryOnly)storageNotice('未保存：浏览器存储不可用；当前页打卡仅本次有效。');refresh();});});
   refresh();
 
   var tt=document.getElementById('themeToggle');
@@ -462,8 +530,8 @@ python cache_lab.py
     var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
     var next=dark?'light':'dark';
     document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('recsys-theme',next);});
+    try{localStorage.setItem('recsys-theme',next);}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}});
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/agent-engineering-reader.css"></body></html>

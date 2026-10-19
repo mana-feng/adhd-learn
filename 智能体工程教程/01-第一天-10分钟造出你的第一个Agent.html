@@ -2,8 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>01 · 第一天：10 分钟造出你的第一个 Agent · 智能体工程教程</title>
-<script>(function(){var t=localStorage.getItem('recsys-theme');
-if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script><style>
 @font-face{font-family:"CodeCJK";
  src:url("../assets/code-cjk-mono.woff2") format("woff2");
  font-weight:400;font-style:normal;font-display:swap;}
@@ -280,14 +279,14 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="agent-engineering-reader agent-engineering-lesson">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
   <span class="title">01 · 10分钟造个Agent</span>
   <span class="prevnext"><a href="00b-学习路线与实验状态.html" aria-label="上一节">←</a> <a href="02-模型与effort-选对大脑.html" aria-label="下一节">→</a> </span>
   <button class="js-done-btn">☐ 打卡</button>
-  <button id="themeToggle" title="切换深浅色">🌗</button>
+  <button id="themeToggle" title="切换深浅色" aria-label="切换深浅色">🌗</button>
 </div></header>
 <main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
@@ -303,7 +302,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="01-10-agent">01 · 第一天：10 分钟造出你的第一个 Agent</h1>
-<p>⏱ <strong>26 分钟</strong>（读完全章；其中动手那段约 10 分钟）｜ ⭐ <strong>核心</strong> ｜ 🔨 必须动手 ｜ 不需要 API Key</p>
+<p class="reading-time">⏱ <strong>阅读参考约 35 分钟</strong> · 动手实践另计；可分段完成</p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>Agent = 大模型 + 工具 + 一个 while 循环。</strong> 就这三样。这一节你徒手把它写出来，看清里面没有任何魔法。</p>
@@ -327,7 +326,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <div class="panel">
 <div class="ph">③-B 如果是最终答案 → 结束</div>
 <ul class="pl"><li><b>退出循环</b>，把答案返回给用户</li></ul>
-<div class="pt">💡 整个循环只有这一个出口 —— 模型说"完成了"，程序才停。</div>
+<div class="pt">💡 正常结束由模型给出最终答案；外层程序仍可因步数、超时、预算或取消而停止。</div>
 </div>
 </div>
 
@@ -335,91 +334,127 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="agent-api-key">🔨 动手：完整的 Agent（能跑，不用 API Key）</h2>
 <p>下面的代码里有一个「假模型」——它按剧本演出一个真模型的行为，让你<strong>零成本看清循环的每一步</strong>。复制运行：</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># -*- coding: utf-8 -*-</span>
-<span class="sd">&quot;&quot;&quot;一个最小但完整的 Agent。MockModel 让你不用 API Key 就能跑通全部机制。&quot;&quot;&quot;</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">json</span><span class="o">,</span><span class="w"> </span><span class="nn">os</span>
+<div class="codehilite" data-code-language="python"><pre><code># -*- coding: utf-8 -*-
+&quot;&quot;&quot;一个最小工具循环。MockModel 让你不用 API Key 就能跑通全部机制。&quot;&quot;&quot;
+import json, os
 
-<span class="c1"># ============ 第 1 步：定义工具 ============</span>
-<span class="c1"># 工具 = 一个函数 + 一段给模型看的说明书</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">calculator</span><span class="p">(</span><span class="n">expression</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;计算数学表达式&quot;&quot;&quot;</span>
-    <span class="k">try</span><span class="p">:</span>
-        <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="n">expression</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;__builtins__&quot;</span><span class="p">:</span> <span class="p">{}},</span> <span class="p">{}))</span>
-    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;计算出错：</span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">。请检查表达式，只支持 + - * / ** ()&quot;</span>
+# ============ 第 1 步：定义工具 ============
+# 工具 = 一个函数 + 一段给模型看的说明书
+def calculator(expression: str) -&gt; str:
+    &quot;&quot;&quot;有界的四则/幂运算教学解释器；不执行 Python 代码。&quot;&quot;&quot;
+    import ast, math, operator
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub,
+           ast.Mult: operator.mul, ast.Div: operator.truediv, ast.Pow: operator.pow}
+    def number(value):
+        if type(value) not in (int, float) or not math.isfinite(value) or abs(value) &gt; 1e12:
+            raise ValueError(&quot;只接受绝对值不超过 1e12 的有限实数&quot;)
+        return value
+    def visit(node, depth=0):
+        if depth &gt; 32:
+            raise ValueError(&quot;表达式嵌套过深&quot;)
+        if isinstance(node, ast.Constant):
+            return number(node.value)
+        if isinstance(node, ast.UnaryOp) and type(node.op) in (ast.UAdd, ast.USub):
+            value = visit(node.operand, depth + 1)
+            return number(value if isinstance(node.op, ast.UAdd) else -value)
+        if isinstance(node, ast.BinOp) and type(node.op) in ops:
+            left, right = visit(node.left, depth + 1), visit(node.right, depth + 1)
+            if isinstance(node.op, ast.Pow) and abs(right) &gt; 10:
+                raise ValueError(&quot;指数绝对值上限为 10&quot;)
+            return number(ops[type(node.op)](left, right))
+        raise ValueError(&quot;只支持数字和 + - * / ** ( )，不支持名称、属性或函数&quot;)
+    try:
+        if not isinstance(expression, str) or len(expression) &gt; 160:
+            raise ValueError(&quot;expression 应为不超过 160 字符的字符串&quot;)
+        tree = ast.parse(expression, mode=&quot;eval&quot;)
+        if sum(1 for _ in ast.walk(tree)) &gt; 64:
+            raise ValueError(&quot;表达式节点过多&quot;)
+        return str(visit(tree.body))
+    except (ValueError, SyntaxError, ArithmeticError, RecursionError) as exc:
+        return f&quot;计算出错：{exc}。示例：3.14 * 2**2&quot;
 
-<span class="k">def</span><span class="w"> </span><span class="nf">list_files</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;列出目录下的文件&quot;&quot;&quot;</span>
-    <span class="k">try</span><span class="p">:</span>
-        <span class="n">items</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">listdir</span><span class="p">(</span><span class="n">path</span><span class="p">)[:</span><span class="mi">20</span><span class="p">]</span>
-        <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">items</span><span class="p">)</span> <span class="k">if</span> <span class="n">items</span> <span class="k">else</span> <span class="s2">&quot;（空目录）&quot;</span>
-    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;读取失败：</span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span>
+def list_files(path: str = &quot;.&quot;) -&gt; str:
+    &quot;&quot;&quot;列出目录下的文件&quot;&quot;&quot;
+    try:
+        from pathlib import Path
+        if Path(path).resolve() != Path.cwd().resolve():
+            return &quot;读取失败：本练习只允许当前目录。请使用 path=&#x27;.&#x27;&quot;
+        items = sorted(os.listdir(path))
+        shown = &quot;\n&quot;.join(items[:20]) if items else &quot;（空目录）&quot;
+        return shown + (f&quot;\n[已截断：共 {len(items)} 项，只显示前 20 项]&quot; if len(items) &gt; 20 else &quot;&quot;)
+    except Exception as e:
+        return f&quot;读取失败：{e}&quot;
 
-<span class="n">TOOLS</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;calculator&quot;</span><span class="p">:</span> <span class="n">calculator</span><span class="p">,</span> <span class="s2">&quot;list_files&quot;</span><span class="p">:</span> <span class="n">list_files</span><span class="p">}</span>
+TOOLS = {&quot;calculator&quot;: calculator, &quot;list_files&quot;: list_files}
 
-<span class="n">TOOL_DESCRIPTIONS</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;你可以使用以下工具：</span>
-<span class="s2">- calculator(expression): 计算数学表达式，如 &quot;23*7+1&quot;</span>
-<span class="s2">- list_files(path): 列出目录下的文件</span>
+TOOL_DESCRIPTIONS = &quot;&quot;&quot;你可以使用以下工具：
+- calculator(expression): 计算数学表达式，如 &quot;23*7+1&quot;
+- list_files(path): 列出目录下的文件
 
-<span class="s2">需要用工具时，只输出一行 JSON：{&quot;tool&quot;: &quot;工具名&quot;, &quot;args&quot;: </span><span class="si">{参数}</span><span class="s2">}</span>
-<span class="s2">不需要工具时，直接输出答案。&quot;&quot;&quot;</span>
+需要用工具时，只输出一行 JSON：{&quot;tool&quot;: &quot;工具名&quot;, &quot;args&quot;: {参数}}
+不需要工具时，直接输出答案。&quot;&quot;&quot;
 
-<span class="c1"># ============ 第 2 步：模型（先用假的） ============</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">MockModel</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;按剧本扮演一个真模型：先查文件、再算数、最后总结。</span>
-<span class="sd">    换成真模型时，只需要替换这个类（见文末）。&quot;&quot;&quot;</span>
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">script</span> <span class="o">=</span> <span class="p">[</span>
-            <span class="s1">&#39;{&quot;tool&quot;: &quot;list_files&quot;, &quot;args&quot;: {&quot;path&quot;: &quot;.&quot;}}&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;{&quot;tool&quot;: &quot;calculator&quot;, &quot;args&quot;: {&quot;expression&quot;: &quot;365 * 24&quot;}}&#39;</span><span class="p">,</span>
-            <span class="s2">&quot;根据工具结果：当前目录的文件已列出，一年有 8760 小时。任务完成。&quot;</span><span class="p">,</span>
-        <span class="p">]</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">=</span> <span class="mi">0</span>
+# ============ 第 2 步：模型（先用假的） ============
+class MockModel:
+    &quot;&quot;&quot;按剧本扮演一个真模型：先查文件、再算数、最后总结。
+    换成真模型时，只需要替换这个类（见文末）。&quot;&quot;&quot;
+    def __init__(self):
+        self.script = [
+            &#x27;{&quot;tool&quot;: &quot;list_files&quot;, &quot;args&quot;: {&quot;path&quot;: &quot;.&quot;}}&#x27;,
+            &#x27;{&quot;tool&quot;: &quot;calculator&quot;, &quot;args&quot;: {&quot;expression&quot;: &quot;365 * 24&quot;}}&#x27;,
+            &quot;根据工具结果：当前目录的文件已列出，一年有 8760 小时。任务完成。&quot;,
+        ]
+        self.step = 0
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">chat</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">):</span>
-        <span class="n">reply</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">script</span><span class="p">[</span><span class="nb">min</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">script</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)]</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">+=</span> <span class="mi">1</span>
-        <span class="k">return</span> <span class="n">reply</span>
+    def chat(self, messages):
+        reply = self.script[min(self.step, len(self.script) - 1)]
+        self.step += 1
+        return reply
 
-<span class="c1"># ============ 第 3 步：那个循环 ============</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">run_agent</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">user_task</span><span class="p">,</span> <span class="n">max_steps</span><span class="o">=</span><span class="mi">10</span><span class="p">):</span>
-    <span class="n">messages</span> <span class="o">=</span> <span class="p">[</span>
-        <span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">TOOL_DESCRIPTIONS</span><span class="p">},</span>
-        <span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">user_task</span><span class="p">},</span>
-    <span class="p">]</span>
-    <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_steps</span><span class="p">):</span>
-        <span class="n">reply</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">chat</span><span class="p">(</span><span class="n">messages</span><span class="p">)</span>
-        <span class="n">messages</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;assistant&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">reply</span><span class="p">})</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">【第 </span><span class="si">{</span><span class="n">step</span><span class="o">+</span><span class="mi">1</span><span class="si">}</span><span class="s2"> 轮】模型说：</span><span class="si">{</span><span class="n">reply</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+# ============ 第 3 步：那个循环 ============
+def run_agent(model, user_task, max_steps=10):
+    messages = [
+        {&quot;role&quot;: &quot;system&quot;, &quot;content&quot;: TOOL_DESCRIPTIONS},
+        {&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: user_task},
+    ]
+    for step in range(max_steps):
+        reply = model.chat(messages)
+        messages.append({&quot;role&quot;: &quot;assistant&quot;, &quot;content&quot;: reply})
+        print(f&quot;\n【第 {step+1} 轮】模型说：{reply}&quot;)
 
-        <span class="c1"># 判断：是工具调用，还是最终答案？</span>
-        <span class="k">try</span><span class="p">:</span>
-            <span class="n">call</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">reply</span><span class="p">)</span>
-            <span class="k">assert</span> <span class="s2">&quot;tool&quot;</span> <span class="ow">in</span> <span class="n">call</span>
-        <span class="k">except</span> <span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">JSONDecodeError</span><span class="p">,</span> <span class="ne">AssertionError</span><span class="p">):</span>
-            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">✅ 模型给出最终答案，循环结束。&quot;</span><span class="p">)</span>
-            <span class="k">return</span> <span class="n">reply</span>
+        # 判断：是工具调用，还是最终答案？
+        try:
+            call = json.loads(reply)
+        except json.JSONDecodeError:
+            print(&quot;\n✅ 模型给出最终答案，循环结束。&quot;)
+            return reply
 
-        <span class="c1"># 执行工具，把结果塞回对话</span>
-        <span class="n">tool_fn</span> <span class="o">=</span> <span class="n">TOOLS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">call</span><span class="p">[</span><span class="s2">&quot;tool&quot;</span><span class="p">])</span>
-        <span class="n">result</span> <span class="o">=</span> <span class="n">tool_fn</span><span class="p">(</span><span class="o">**</span><span class="n">call</span><span class="p">[</span><span class="s2">&quot;args&quot;</span><span class="p">])</span> <span class="k">if</span> <span class="n">tool_fn</span> <span class="k">else</span> <span class="sa">f</span><span class="s2">&quot;错误：没有 </span><span class="si">{</span><span class="n">call</span><span class="p">[</span><span class="s1">&#39;tool&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> 这个工具&quot;</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;       工具返回：</span><span class="si">{</span><span class="n">result</span><span class="p">[:</span><span class="mi">80</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="n">messages</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;工具返回结果：</span><span class="se">\n</span><span class="si">{</span><span class="n">result</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">})</span>
+        # JSON 不等于合法调用。错误对象回填后，模型可以修正。
+        if not isinstance(call, dict) or not isinstance(call.get(&quot;tool&quot;), str) or not isinstance(call.get(&quot;args&quot;), dict):
+            messages.append({&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: &quot;调用无效：需要 tool 字符串和 args 对象。&quot;})
+            continue
+        # 执行工具，把结果塞回对话
+        tool_fn = TOOLS.get(call[&quot;tool&quot;])
+        try:
+            result = tool_fn(**call[&quot;args&quot;]) if tool_fn else f&quot;错误：没有 {call[&#x27;tool&#x27;]} 这个工具&quot;
+        except (TypeError, ValueError):
+            result = &quot;参数错误：请按工具说明核对参数名称、类型和范围。&quot;
+        print(f&quot;       工具返回：{result[:80]}&quot;)
+        messages.append({&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: f&quot;工具返回结果：\n{result}&quot;})
 
-    <span class="k">return</span> <span class="s2">&quot;达到最大步数，强制停止。&quot;</span>  <span class="c1"># ⭐ 护栏：永远要有最大步数</span>
+    return &quot;达到最大步数，强制停止。&quot;  # ⭐ 护栏：永远要有最大步数
 
-<span class="c1"># ============ 跑起来 ============</span>
-<span class="n">run_agent</span><span class="p">(</span><span class="n">MockModel</span><span class="p">(),</span> <span class="s2">&quot;看看当前目录有什么文件，然后告诉我一年有多少小时&quot;</span><span class="p">)</span>
+# ============ 跑起来 ============
+run_agent(MockModel(), &quot;看看当前目录有什么文件，然后告诉我一年有多少小时&quot;)
 </code></pre></div>
 
 <p>你会看到：模型（假的）第 1 轮要求列文件 → 程序执行并回填 → 第 2 轮要求算数 → 回填 → 第 3 轮给出答案退出。</p>
-<p><strong>恭喜，这就是一个 Agent 的全部骨架。</strong> 大约 60 行。</p>
+<p><strong>恭喜，这就是一个 Agent 的全部骨架。</strong> 这里为算术范围和调用错误增加了校验；重点仍是“提出调用 → 执行 → 回填”的三步。</p>
 <hr />
 <h2 id="_3">🔍 五个值得盯着看的细节</h2>
 <ol>
 <li><strong><code>messages</code> 是唯一的状态</strong>。模型没有记忆，每轮都把完整历史发过去。这就是为什么「上下文」是一切的核心约束（第 4 节）</li>
-<li><strong>工具结果以 <code>user</code> 角色回填</strong>。模型看到的世界 = 对话历史里的文字。工具返回什么文字，模型就「感知」到什么</li>
+<li><strong>本练习使用自定义文本协议，工具结果以 <code>user</code> 角色回填；原生 tool use API 要使用对应的工具结果块与调用 ID。外部结果始终是数据，不能升级为新指令</strong>。模型看到的世界 = 对话历史里的文字。工具返回什么文字，模型就「感知」到什么</li>
 <li><strong><code>max_steps</code> 护栏</strong>。没有它，一个犯轴的模型能无限循环烧钱。真实系统还会加超时、预算上限</li>
 <li><strong>工具的错误信息写给模型看</strong>。<code>calculator</code> 出错时返回的是「请检查表达式，只支持…」——这是在教模型怎么改，不是给人看的报错（第 7 节展开）</li>
 <li><strong><code>TOOL_DESCRIPTIONS</code> 是提示词</strong>。工具说明书写得好不好，直接决定模型用不用得对（第 7 节的核心命题）</li>
@@ -427,25 +462,27 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="api-key">🔌 换成真模型（有 API Key 再做，没有就跳过）</h2>
 <p>只需替换 <code>MockModel</code>：</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># pip install anthropic</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">anthropic</span>
+<div class="codehilite" data-code-language="python"><pre><code># pip install anthropic
+import anthropic
 
-<span class="k">class</span><span class="w"> </span><span class="nc">ClaudeModel</span><span class="p">:</span>
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">client</span> <span class="o">=</span> <span class="n">anthropic</span><span class="o">.</span><span class="n">Anthropic</span><span class="p">()</span>  <span class="c1"># 读环境变量 ANTHROPIC_API_KEY</span>
+class ClaudeModel:
+    def __init__(self):
+        self.client = anthropic.Anthropic()  # 读环境变量 ANTHROPIC_API_KEY
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">chat</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">):</span>
-        <span class="n">system</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">m</span><span class="p">[</span><span class="s2">&quot;content&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">messages</span> <span class="k">if</span> <span class="n">m</span><span class="p">[</span><span class="s2">&quot;role&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;system&quot;</span><span class="p">)</span>
-        <span class="n">rest</span> <span class="o">=</span> <span class="p">[</span><span class="n">m</span> <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">messages</span> <span class="k">if</span> <span class="n">m</span><span class="p">[</span><span class="s2">&quot;role&quot;</span><span class="p">]</span> <span class="o">!=</span> <span class="s2">&quot;system&quot;</span><span class="p">]</span>
-        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">messages</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
-            <span class="n">model</span><span class="o">=</span><span class="s2">&quot;claude-sonnet-5&quot;</span><span class="p">,</span>
-            <span class="n">max_tokens</span><span class="o">=</span><span class="mi">1024</span><span class="p">,</span>
-            <span class="n">system</span><span class="o">=</span><span class="n">system</span><span class="p">,</span>
-            <span class="n">messages</span><span class="o">=</span><span class="n">rest</span><span class="p">,</span>
-        <span class="p">)</span>
-        <span class="k">return</span> <span class="n">resp</span><span class="o">.</span><span class="n">content</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">text</span>
+    def chat(self, messages):
+        system = next(m[&quot;content&quot;] for m in messages if m[&quot;role&quot;] == &quot;system&quot;)
+        rest = [m for m in messages if m[&quot;role&quot;] != &quot;system&quot;]
+        resp = self.client.messages.create(
+            model=&quot;claude-sonnet-5&quot;,
+            max_tokens=1024,
+            system=system,
+            messages=rest,
+        )
+        if resp.stop_reason != &quot;end_turn&quot;:
+            raise RuntimeError(f&quot;本轮未正常结束：{resp.stop_reason}&quot;)
+        return &quot;&quot;.join(b.text for b in resp.content if b.type == &quot;text&quot;)
 
-<span class="n">run_agent</span><span class="p">(</span><span class="n">ClaudeModel</span><span class="p">(),</span> <span class="s2">&quot;当前目录里有几个 py 文件？&quot;</span><span class="p">)</span>
+run_agent(ClaudeModel(), &quot;列出当前目录前 20 项；若截断请说明，不能据此统计全部文件。&quot;)
 </code></pre></div>
 
 <blockquote>
@@ -481,6 +518,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <hr />
+<p>本次核查依据（2026-10-20）：<a href="https://docs.python.org/3/library/ast.html">Python AST</a>；<a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/implement-tool-use">原生工具消息</a>。机制说明与本页教学运行分别验收。</p>
 <h2 id="_5">✅ 检查点</h2>
 <ol>
 <li>Agent 的三要素是什么？</li>
@@ -503,20 +541,22 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>模型提出下一步，程序执行工具并把结果加入历史，再继续循环。</li><li>模型的记忆来自程序提供的上下文，不是自动保存的一切经历。</li><li>退出条件之外还要有步数、超时与预算限制；工具报错应帮助下一轮修正。</li></ul></section>
 
 <p><strong>下一节</strong> 👉 <a href="02-模型与effort-选对大脑.html">02-模型与effort-选对大脑.md</a></p>
-<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="donebar"><noscript><style>body.agent-engineering-reader :is(.js-done-btn,#themeToggle){display:none}</style><p class="ae-nojs">JavaScript 未启用：正文、图表与章节链接可读；打卡、续读和弹窗工具不可用。</p></noscript><p class="ae-storage-status" role="status"></p><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="00b-学习路线与实验状态.html"><div class="dir">← 上一节</div>00b · 学习路线与实验状态</a><a class="next" href="02-模型与effort-选对大脑.html"><div class="dir">下一节 →</div>🎛️ 02 · 模型与 effort</a></nav>
 </main>
 <script>(function(){
   var KEY="agent-progress", FILE="01-\u7b2c\u4e00\u5929-10\u5206\u949f\u9020\u51fa\u4f60\u7684\u7b2c\u4e00\u4e2aAgent.md";
-  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  var memoryProgress=null, memoryOnly=false;
+  function storageNotice(message){var n=document.querySelector('.ae-storage-status');if(n)n.textContent=message;}
+  function load(){if(memoryOnly)return memoryProgress||{};var raw;try{raw=localStorage.getItem(KEY);}catch(e){memoryOnly=true;memoryProgress=memoryProgress||{};storageNotice('无法读取浏览器存储；当前页打卡仅本次有效。');return memoryProgress;}try{var p=JSON.parse(raw);memoryProgress=p&&typeof p==='object'&&!Array.isArray(p)?p:{};}catch(e){memoryProgress={};storageNotice('打卡数据格式损坏；本次从空白进度开始。');}return memoryProgress;}
   function refresh(){var d=!!load()[FILE];
     document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
       b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
                      :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
   document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
     var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
-    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+    memoryProgress=p;if(!memoryOnly){try{localStorage.setItem(KEY,JSON.stringify(p));storageNotice('');}catch(e){memoryOnly=true;}}if(memoryOnly)storageNotice('未保存：浏览器存储不可用；当前页打卡仅本次有效。');refresh();});});
   refresh();
 
   var tt=document.getElementById('themeToggle');
@@ -525,8 +565,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
     var next=dark?'light':'dark';
     document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('recsys-theme',next);});
+    try{localStorage.setItem('recsys-theme',next);}catch(e){storageNotice('主题已切换；无法保存，关闭页面后可能不保留。');}});
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/agent-engineering-reader.css"></body></html>
