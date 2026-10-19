@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>04 · 从序列到结构：换一个没有对称性的预测目标 · 科学问题怎么变成模型</title>
-<script>(function(){var t=localStorage.getItem('recsys-theme');
-if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+<title>04 · 从序列到结构：用不变目标比较几何 · 科学问题怎么变成模型</title>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');
+if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script><style>
 @font-face{font-family:"CodeCJK";
  src:url("../assets/code-cjk-mono.woff2") format("woff2");
  font-weight:400;font-style:normal;font-display:swap;}
@@ -280,7 +280,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="scientific-modeling-reader">
+<a class="sc-skip-link" href="#sc-main">跳到正文</a>
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -288,9 +289,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <span class="prevnext"><a href="03-蛋白质语言模型.html">←</a>
   <a href="05-等变与不变.html">→</a></span>
   <button class="js-done-btn">☐ 打卡</button>
-  <button id="themeToggle" title="切换深浅色">🌗</button>
+  <button id="themeToggle" title="切换深浅色" aria-label="切换深浅色">🌗</button>
 </div></header>
-<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<main id="sc-main" tabindex="-1"><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">🎯 一、为什么不能忽略坐标框架</a></li>
@@ -305,7 +306,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ul>
 </div>
 </details>
-<h1 id="04">04 · 从序列到结构：换一个没有对称性的预测目标</h1>
+<h1 id="04">04 · 从序列到结构：用不变目标比较几何</h1>
 <p>⏱ <strong>24 分钟</strong> ｜ ⭐ <strong>先处理整体旋转和平移，再比较预测结构</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
@@ -313,8 +314,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>本章先学一种办法：比较对旋转和平移不变的距离。预测坐标同样可行，只是需要合适的对齐、损失或等变结构。</p>
 <hr />
 <h2 id="_2">🎯 一、为什么不能忽略坐标框架</h2>
-<p>分类问题输出一个类别，回归输出一个数，都是<strong>唯一确定</strong>的。
-而结构不是：把整个分子<strong>旋转 30 度、再平移 10 埃</strong>，它还是同一个分子、同一个答案。</p>
+<p>以固定标签的普通回归为对照：结构任务中的<strong>整体位置和朝向可能是任意的</strong>。如果任务没有外部参考系，把整组坐标旋转、平移后，应仍代表同一构象；若有外场、受体或固定边界，就要一起变换相关环境，不能只转分子。</p>
 <p>于是麻烦来了：</p>
 <blockquote>
 <p>💀 <strong>同一个正确答案有无穷多组坐标，而 MSE 只认其中一组。</strong>
@@ -324,8 +324,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>问题是<strong>损失是否对应你真正要比较的结构</strong>，而不是“坐标一定不能预测”。可先对齐再比较，也可使用局部坐标框架下的损失与等变模型。对齐在退化构型下可能有数值问题，但不能笼统说它必然不平滑或不能批量计算。</p>
 <hr />
 <h2 id="_3">📏 二、于是先预测距离</h2>
-<p>⭐ <strong>距离矩阵对旋转平移天然不变。</strong> 两个原子隔多远，你怎么转怎么挪它都不变。</p>
-<div class="tw"><table>
+<p>⭐ 对<strong>固定的原子身份与排列</strong>，距离矩阵对整体旋转和平移不变。重排原子会同时重排矩阵行列；距离相同也仍可能对应镜像。</p>
+<div class="tw" tabindex="0" role="region" aria-label="表格：📏 二、于是先预测距离；可左右滚动"><table>
 <thead>
 <tr>
 <th></th>
@@ -359,11 +359,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐⭐ <strong>这就是全站可复用的那招</strong>：
 <strong>当输出空间带着一个对称性、而你的损失函数不认它时，
 改用对这一对称性不变的目标，并核对是否丢失其他必要信息。</strong></p>
-<p>更省的做法是只预测<strong>接触图</strong>（距离小于某个阈值就算 1），
-把回归变成二分类 —— 信息少了，但更好学，早期的方法大多从这里入手。</p>
+<p>更省信息的目标是接触图：在指定原子或残基代表点上，用距离阈值定义接触。阈值和代表点必须报告；二值化丢掉了距离细节，是否更容易学习要看任务与模型。</p>
 <hr />
 <h2 id="_4">🔄 三、距离真的够吗：跑一遍</h2>
 <p>「几乎是」这个说法要验一下。下面从坐标算出距离矩阵，<strong>再只用距离矩阵</strong>把坐标恢复出来：</p>
+<p><strong>运行方式：</strong>程序需 Python 与 NumPy；输入坐标为合成随机点。 将完整代码保存为 <code>experiment.py</code>，在已安装依赖的环境执行 <code>python experiment.py</code>。本轮 CPU 复跑环境为 Python 3.12.14、NumPy 2.3.5；末位浮点数不要求跨环境逐位一致。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
@@ -402,7 +402,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <section aria-label="距离一致，坐标仍可能不同" class="experiment-result" id="experiment-result-17">
 <h3 id="_5">距离一致，坐标仍可能不同</h3>
 <p>先比较距离误差，再比较对齐误差。以下是原稿在当前环境可复现的一次结果；特征向量的符号选择会影响坐标朝向。</p>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格：距离一致，坐标仍可能不同；可左右滚动"><table>
 <thead>
 <tr>
 <th>比较方式</th>
@@ -424,7 +424,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格：距离一致，坐标仍可能不同；可左右滚动"><table>
 <thead>
 <tr>
 <th>第 0 个原子</th>
@@ -450,7 +450,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </table></div>
 <p>本次恢复结果可用旋转和平移对齐；距离矩阵一般还允许镜像，不能据此排除手性歧义。</p>
 </section>
-<figure class="dia"><svg viewBox="0 0 760 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="同一个三角形的两个朝向，坐标各不相同，但三条边的距离逐个相同"><line x1="70.0" y1="190.0" x2="196.0" y2="164.8" stroke="var(--fg)" stroke-width="2.2"/><line x1="70.0" y1="190.0" x2="120.4" y2="89.2" stroke="var(--fg)" stroke-width="2.2"/><line x1="196.0" y1="164.8" x2="120.4" y2="89.2" stroke="var(--fg)" stroke-width="2.2"/><circle cx="70.0" cy="190.0" r="6" fill="var(--fg)"/><text class="dia-t" x="70.0" y="194.0" font-size="11" text-anchor="middle" fill="var(--card)" font-weight="700">1</text><circle cx="196.0" cy="164.8" r="6" fill="var(--fg)"/><text class="dia-t" x="196.0" y="168.8" font-size="11" text-anchor="middle" fill="var(--card)" font-weight="700">2</text><circle cx="120.4" cy="89.2" r="6" fill="var(--fg)"/><text class="dia-t" x="120.4" y="93.2" font-size="11" text-anchor="middle" fill="var(--card)" font-weight="700">3</text><text class="dia-t" x="148" y="38" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">朝向 A</text><text class="dia-t" x="148" y="216" font-size="11.5" text-anchor="middle" fill="var(--muted)">1: (0.0, 0.0)</text><text class="dia-t" x="148" y="234" font-size="11.5" text-anchor="middle" fill="var(--muted)">2: (3.0, 0.6)</text><text class="dia-t" x="148" y="252" font-size="11.5" text-anchor="middle" fill="var(--muted)">3: (1.2, 2.4)</text><line x1="358.8" y1="169.0" x2="416.5" y2="54.2" stroke="var(--accent)" stroke-width="2.2"/><line x1="358.8" y1="169.0" x2="310.4" y2="67.2" stroke="var(--accent)" stroke-width="2.2"/><line x1="416.5" y1="54.2" x2="310.4" y2="67.2" stroke="var(--accent)" stroke-width="2.2"/><circle cx="358.8" cy="169.0" r="6" fill="var(--accent)"/><text class="dia-t" x="358.8" y="173.0" font-size="11" text-anchor="middle" fill="var(--card)" font-weight="700">1</text><circle cx="416.5" cy="54.2" r="6" fill="var(--accent)"/><text class="dia-t" x="416.5" y="58.2" font-size="11" text-anchor="middle" fill="var(--card)" font-weight="700">2</text><circle cx="310.4" cy="67.2" r="6" fill="var(--accent)"/><text class="dia-t" x="310.4" y="71.2" font-size="11" text-anchor="middle" fill="var(--card)" font-weight="700">3</text><text class="dia-t" x="378" y="38" font-size="13" text-anchor="middle" fill="var(--accent)" font-weight="700">朝向 B（转了 52 度）</text><text class="dia-t" x="378" y="216" font-size="11.5" text-anchor="middle" fill="var(--muted)">1: (1.4, 0.5)</text><text class="dia-t" x="378" y="234" font-size="11.5" text-anchor="middle" fill="var(--muted)">2: (2.8, 3.2)</text><text class="dia-t" x="378" y="252" font-size="11.5" text-anchor="middle" fill="var(--muted)">3: (0.2, 2.9)</text><line x1="238" y1="120" x2="282" y2="120" stroke="var(--muted)" stroke-width="2"/><polygon points="292,120 280,115 280,125" fill="var(--muted)"/><text class="dia-t" x="265" y="110" font-size="11.5" text-anchor="middle" fill="var(--muted)">旋转</text><rect x="530" y="52" width="196" height="150" rx="10" fill="var(--card)" stroke="var(--done)" stroke-width="2"/><text class="dia-t" x="628" y="78" font-size="13" text-anchor="middle" fill="var(--done)" font-weight="700">三条边的长度</text><text class="dia-t" x="628" y="108" font-size="12.5" text-anchor="middle" fill="var(--fg)">1&#8211;2 ： 3.0594</text><text class="dia-t" x="628" y="132" font-size="12.5" text-anchor="middle" fill="var(--fg)">1&#8211;3 ： 2.6833</text><text class="dia-t" x="628" y="156" font-size="12.5" text-anchor="middle" fill="var(--fg)">2&#8211;3 ： 2.5456</text><text class="dia-t" x="628" y="186" font-size="12" text-anchor="middle" fill="var(--done)" font-weight="700">A 和 B 的距离相同</text><text class="dia-t" x="380" y="288" font-size="12.5" text-anchor="middle" fill="var(--danger,#e5534b)" font-weight="700">坐标框架不同 → 应先对齐，再比较坐标误差</text><text class="dia-t" x="380" y="312" font-size="12.5" text-anchor="middle" fill="var(--done)" font-weight="700">距离不随整体旋转平移改变 → 可比较距离误差</text></svg><figcaption>对比左右两栏<b>底下那六个坐标数字</b>和右框里<b>那三个长度</b>：同一个形状转个身，坐标全变、距离一个没动。⭐ 这就是「换一个对该对称性不变的目标，并检查丢失的信息」——把无穷多种合法答案，压成唯一的一种。</figcaption></figure>
+<figure class="dia" tabindex="0" role="region" aria-label="图解：距离一致，坐标仍可能不同；可左右滚动"><svg viewBox="0 0 760 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="同一个三角形的两个朝向，坐标各不相同，但三条边的距离逐个相同"><line x1="70.0" y1="190.0" x2="196.0" y2="164.8" stroke="var(--fg)" stroke-width="2.2"/><line x1="70.0" y1="190.0" x2="120.4" y2="89.2" stroke="var(--fg)" stroke-width="2.2"/><line x1="196.0" y1="164.8" x2="120.4" y2="89.2" stroke="var(--fg)" stroke-width="2.2"/><circle cx="70.0" cy="190.0" r="6" fill="var(--fg)"/><text class="dia-t" x="70.0" y="194.0" font-size="11" text-anchor="middle" fill="var(--card)" font-weight="700">1</text><circle cx="196.0" cy="164.8" r="6" fill="var(--fg)"/><text class="dia-t" x="196.0" y="168.8" font-size="11" text-anchor="middle" fill="var(--card)" font-weight="700">2</text><circle cx="120.4" cy="89.2" r="6" fill="var(--fg)"/><text class="dia-t" x="120.4" y="93.2" font-size="11" text-anchor="middle" fill="var(--card)" font-weight="700">3</text><text class="dia-t" x="148" y="38" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">朝向 A</text><text class="dia-t" x="148" y="216" font-size="11.5" text-anchor="middle" fill="var(--muted)">1: (0.0, 0.0)</text><text class="dia-t" x="148" y="234" font-size="11.5" text-anchor="middle" fill="var(--muted)">2: (3.0, 0.6)</text><text class="dia-t" x="148" y="252" font-size="11.5" text-anchor="middle" fill="var(--muted)">3: (1.2, 2.4)</text><line x1="358.8" y1="169.0" x2="416.5" y2="54.2" stroke="var(--accent)" stroke-width="2.2"/><line x1="358.8" y1="169.0" x2="310.4" y2="67.2" stroke="var(--accent)" stroke-width="2.2"/><line x1="416.5" y1="54.2" x2="310.4" y2="67.2" stroke="var(--accent)" stroke-width="2.2"/><circle cx="358.8" cy="169.0" r="6" fill="var(--accent)"/><text class="dia-t" x="358.8" y="173.0" font-size="11" text-anchor="middle" fill="var(--card)" font-weight="700">1</text><circle cx="416.5" cy="54.2" r="6" fill="var(--accent)"/><text class="dia-t" x="416.5" y="58.2" font-size="11" text-anchor="middle" fill="var(--card)" font-weight="700">2</text><circle cx="310.4" cy="67.2" r="6" fill="var(--accent)"/><text class="dia-t" x="310.4" y="71.2" font-size="11" text-anchor="middle" fill="var(--card)" font-weight="700">3</text><text class="dia-t" x="378" y="38" font-size="13" text-anchor="middle" fill="var(--accent)" font-weight="700">朝向 B（转了 52 度）</text><text class="dia-t" x="378" y="216" font-size="11.5" text-anchor="middle" fill="var(--muted)">1: (1.4, 0.5)</text><text class="dia-t" x="378" y="234" font-size="11.5" text-anchor="middle" fill="var(--muted)">2: (2.8, 3.2)</text><text class="dia-t" x="378" y="252" font-size="11.5" text-anchor="middle" fill="var(--muted)">3: (0.2, 2.9)</text><line x1="238" y1="120" x2="282" y2="120" stroke="var(--muted)" stroke-width="2"/><polygon points="292,120 280,115 280,125" fill="var(--muted)"/><text class="dia-t" x="265" y="110" font-size="11.5" text-anchor="middle" fill="var(--muted)">旋转</text><rect x="530" y="52" width="196" height="150" rx="10" fill="var(--card)" stroke="var(--done)" stroke-width="2"/><text class="dia-t" x="628" y="78" font-size="13" text-anchor="middle" fill="var(--done)" font-weight="700">三条边的长度</text><text class="dia-t" x="628" y="108" font-size="12.5" text-anchor="middle" fill="var(--fg)">1&#8211;2 ： 3.0594</text><text class="dia-t" x="628" y="132" font-size="12.5" text-anchor="middle" fill="var(--fg)">1&#8211;3 ： 2.6833</text><text class="dia-t" x="628" y="156" font-size="12.5" text-anchor="middle" fill="var(--fg)">2&#8211;3 ： 2.5456</text><text class="dia-t" x="628" y="186" font-size="12" text-anchor="middle" fill="var(--done)" font-weight="700">A 和 B 的距离相同</text><text class="dia-t" x="380" y="288" font-size="12.5" text-anchor="middle" fill="var(--danger,#e5534b)" font-weight="700">坐标框架不同 → 应先对齐，再比较坐标误差</text><text class="dia-t" x="380" y="312" font-size="12.5" text-anchor="middle" fill="var(--done)" font-weight="700">距离不随整体旋转平移改变 → 可比较距离误差</text></svg><figcaption>同一组固定标签的点旋转后，坐标会改变，点间距离不变。图中坐标仅显示一位小数；右框距离由未舍入几何计算，不能直接用显示坐标逐位复算。距离消除了整体位置和朝向，也保留镜像歧义，见后面的反例。</figcaption></figure>
 
 <p><strong>把三项误差分开看</strong>：</p>
 <ul>
@@ -464,6 +464,29 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 ② 真实场景里预测出的距离矩阵<strong>带噪、还不一定自洽</strong>（不满足三角不等式），
 恢复出来的构型没有这里这么干净。</p>
 <hr />
+
+<figure class="dia sm-figure" id="sm04-distance-mirror" data-scientific-figure="sm04-distance-mirror" tabindex="0" role="region" aria-label="图解：距离一致，坐标仍可能不同；可左右滚动">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 954" role="img" aria-labelledby="sm-distance-mirror-title sm-distance-mirror-desc" class="sm-distance-mirror">
+<title id="sm-distance-mirror-title">距离相同仍有镜像歧义</title>
+<desc id="sm-distance-mirror-desc">四个固定标签的点A零零零、B一零零、C零二零、D零零三；镜像只令B的x变成负一。AB、AC、AD、BC、BD、CD分别为1、2、3、根号5、根号10、根号13，两构型完全相同。列向量B减A、C减A、D减A构成的行列式由正6变成负6。旋转和平移不能改变其符号，因此不能将固定标签的两构型重合。这是手工几何例子，不是分子实验。</desc>
+<style>
+.sm-distance-mirror text{font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;fill:var(--fg,#2a2a33);font-size:18px}
+.sm-distance-mirror .title{font-size:24px;font-weight:700}
+.sm-distance-mirror .strong{font-size:20px;font-weight:700}
+.sm-distance-mirror .muted{fill:var(--muted,#60616c)}
+.sm-distance-mirror .accent{fill:var(--accent,#b84d0a);font-weight:700}
+.sm-distance-mirror .card{fill:var(--card,#fff);stroke:var(--border,#d6d2c9);stroke-width:1.5}
+.sm-distance-mirror .highlight{fill:var(--accent-soft,#fff0e6);stroke:var(--accent,#b84d0a);stroke-width:1.6}
+.sm-distance-mirror .edge{fill:none;stroke:var(--muted,#60616c);stroke-width:2}
+.sm-distance-mirror .arrow{fill:none;stroke:var(--accent,#b84d0a);stroke-width:3;marker-end:url(#sm-distance-mirror-arrow)}
+.sm-distance-mirror .node{fill:var(--card,#fff);stroke:var(--fg,#2a2a33);stroke-width:2}
+</style>
+<defs><marker id="sm-distance-mirror-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M1 1L8 5L1 9" fill="none" stroke="var(--accent,#b84d0a)" stroke-width="1.8"/></marker></defs>
+<rect x="1" y="1" width="478" height="952" rx="16" fill="var(--bg,#faf9f6)" stroke="var(--border,#d6d2c9)"/>
+<text x="24" y="39" class="title">距离一样，为什么还分左右？</text><text x="24" y="70" class="muted">四个固定标签的三维点；坐标单位任意</text><rect x="16" y="94" width="216" height="384" rx="12" class="card"/><rect x="248" y="94" width="216" height="384" rx="12" class="card"/><text x="32" y="126" class="strong">原构型 X</text><text x="264" y="126" class="strong">镜像 X′</text><path d="M132 252L194 252" class="edge"/><path d="M132 252L87 298" class="edge"/><path d="M132 252L132 158" class="edge"/><path d="M194 252L87 298" class="edge"/><path d="M194 252L132 158" class="edge"/><path d="M87 298L132 158" class="edge"/><circle cx="132" cy="252" r="5" class="node"/><text x="141" y="244" class="accent">A</text><circle cx="194" cy="252" r="5" class="node"/><text x="203" y="244" class="accent">B</text><circle cx="87" cy="298" r="5" class="node"/><text x="96" y="290" class="accent">C</text><circle cx="132" cy="158" r="5" class="node"/><text x="141" y="150" class="accent">D</text><text x="30" y="350">A (0, 0, 0)</text><text x="30" y="382">B (1, 0, 0)</text><text x="30" y="414">C (0, 2, 0)</text><text x="30" y="446">D (0, 0, 3)</text><path d="M364 252L302 252" class="edge"/><path d="M364 252L319 298" class="edge"/><path d="M364 252L364 158" class="edge"/><path d="M302 252L319 298" class="edge"/><path d="M302 252L364 158" class="edge"/><path d="M319 298L364 158" class="edge"/><circle cx="364" cy="252" r="5" class="node"/><text x="373" y="244" class="accent">A</text><circle cx="302" cy="252" r="5" class="node"/><text x="311" y="244" class="accent">B</text><circle cx="319" cy="298" r="5" class="node"/><text x="328" y="290" class="accent">C</text><circle cx="364" cy="158" r="5" class="node"/><text x="373" y="150" class="accent">D</text><text x="262" y="350">A (0, 0, 0)</text><text x="262" y="382">B (−1, 0, 0)</text><text x="262" y="414">C (0, 2, 0)</text><text x="262" y="446">D (0, 0, 3)</text><text x="24" y="510" class="muted">镜像操作：只把 x 坐标变号</text><rect x="16" y="532" width="448" height="134" rx="12" class="card"/><text x="32" y="562" class="strong">六条距离逐一相同</text><text x="32" y="598">AB = 1</text><text x="246" y="598">BC = √5</text><text x="32" y="630">AC = 2</text><text x="246" y="630">BD = √10</text><text x="32" y="658">AD = 3</text><text x="246" y="658">CD = √13</text><rect x="16" y="688" width="448" height="138" rx="12" class="highlight"/><text x="32" y="720" class="strong">有向行列式保留差别</text><text x="32" y="754">s = det[B−A, C−A, D−A]</text><text x="32" y="791">原构型：s = +6</text><text x="252" y="791">镜像：s = −6</text><text x="24" y="862" class="strong">固定 A、B、C、D 的对应关系：</text><text x="24" y="895">只做旋转和平移，无法让两者重合。</text><text x="24" y="930" class="muted">示意投影不按比例；距离由上方坐标计算。</text>
+</svg>
+
+<figcaption>只看六条距离，两组带固定标签的点完全一样；有向行列式却从 +6 变成 −6。距离表示消除了整体朝向，也消除了这个镜像差别。手工几何示意，不是分子实验。</figcaption></figure>
 <h2 id="_6">🧬 四、距离信息从哪来</h2>
 <p>回到 <a href="03-蛋白质语言模型.html">03 章</a>：共进化统计可能提供接触线索，但不能把两列强相关直接当成距离矩阵的一格。还需要区分间接依赖，并用真实结构验证。</p>
 <p>⚠️ 而 03 章也验过那个坑：<strong>互信息会把间接相关误报成接触</strong>
@@ -481,21 +504,17 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>端到端的梯度</strong> —— 中间表示为最终目标服务，而不是为某个中间指标。</li>
 </ol>
 <blockquote>
-<p>🗓️ <strong>具体是哪一代模型、当前最好的是什么，请去查最新的。</strong>
-⭐ 不会过期的是这三条思路本身，以及第 2 条和第 1 节那个矛盾的关系 ——
-<strong>要么换一个没有对称性的目标（第 2 节），要么把对称性内建进网络（第 5 节第 2 条）。</strong>
-这两条路解决的是同一个问题。</p>
+<p>本节以 <a href="https://www.nature.com/articles/s41586-021-03819-2">AlphaFold2</a> 说明这三种思路；其他架构可能不同。<strong>不变目标、几何结构约束与对齐损失可以组合</strong>，都要检查是否保留了任务需要的手性和环境信息。</p>
 </blockquote>
 <hr />
 <h2 id="_8">⚠️ 六、拿到预测结构之后</h2>
 <p><strong>① 置信度不是均匀的。</strong> 低置信度可能与无序、多构象或模型不确定性有关；不能据此断言某区域必然无序，也不能保证所有无序区域一定低分。需要结合任务和实验信息解释。</p>
 <p><strong>② 预测结构不等于实验结构。</strong> 骨架大致对，不代表侧链朝向、结合口袋的细节能直接用。
 ⚠️ 拿它去做对接和虚拟筛选时，误差会被放大。</p>
-<p><strong>③ 对分布外的序列不可靠。</strong> 和 <a href="03-蛋白质语言模型.html">03 章</a>第五节同一条：
-数据库里全是演化产物，<strong>你设计出来的序列不在那个分布里</strong>。</p>
+<p><strong>③ 适用范围要按序列和任务检查。</strong> 新设计序列可能超出训练覆盖，也可能与已知家族相近；预测是否可靠不能只由“是否人工设计”决定。结构、功能与实验条件需要分别验证。</p>
 <hr />
 <h2 id="_9">🔗 这一章连到哪里</h2>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格：🔗 这一章连到哪里；可左右滚动"><table>
 <thead>
 <tr>
 <th>去哪</th>
@@ -505,7 +524,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td><a href="05-等变与不变.html">05 · 等变与不变</a></td>
-<td>⭐⭐ <strong>同一个问题的另一条路</strong>。这一章：换一个对旋转不变的<strong>预测目标</strong>绕开对称性；那一章：把等变性<strong>内建进网络结构</strong>。第 5 节第 2 条就是那一章的入口</td>
+<td>05 比较几何特征、增强与等变结构；它们可与距离目标和对齐损失组合，先按输出类型选择</td>
 </tr>
 <tr>
 <td><a href="03-蛋白质语言模型.html">03 · 蛋白质语言模型</a></td>
@@ -513,7 +532,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><a href="07-评测的坑.html">07 · 评测的坑</a></td>
-<td>⚠️ 结构预测的评估同样受同源泄漏影响：测试蛋白在训练集里有近亲，指标就是虚的</td>
+<td>若目标是未见家族，测试蛋白与训练集近亲重叠可能高估这种外推能力；应报告划分与覆盖范围</td>
 </tr>
 <tr>
 <td><a href="../机器学习的数学原理/05b-PCA的推导.html">机器学习的数学原理 05b · PCA 的推导</a></td>
@@ -535,10 +554,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <summary>👀 答案</summary>
 <ol>
 <li>同一结构旋转平移后坐标会变，未对齐的 MSE 会把坐标框架差异当成错误。可通过对齐、框架不变损失、距离目标或适当的等变结构处理，不能说坐标预测本身错误。</li>
-<li><strong>距离对旋转平移天然不变</strong>，同一个结构只有一种表示，可以直接上 MSE。代价是<strong>大小变成平方级</strong>（$N \times N$ 而不是 $N \times 3$）。</li>
+<li>对固定原子顺序，距离消除整体旋转和平移的影响；可比较距离误差，但还要检查镜像和几何自洽性。大小由 $N\times3$ 增至 $N\times N$，交换原子顺序也会交换矩阵行列。</li>
 <li>本次距离误差 <strong>1.07e-14</strong>、未对齐坐标误差 <strong>23.145</strong>、刚体对齐后 <strong>8.88e-15</strong>。说明本次可恢复到相同形状；距离矩阵通常仍存在镜像歧义。</li>
 <li>①<strong>分不出镜像</strong>（照镜子所有距离不变），而手性是真实的；②真实预测出的距离矩阵<strong>带噪且不一定自洽</strong>（不满足三角不等式），恢复的构型没有实验里这么干净。</li>
-<li>①序列表示和结构表示<strong>互相更新</strong>（不是单向流水线）②<strong>等变性内建进结构模块</strong>③端到端的梯度。⭐ 第 2 条和第 2 节是同一个问题的两条路：<strong>要么换一个没有对称性的目标，要么把对称性内建进网络</strong>。</li>
+<li>以 AlphaFold2 为例：序列/MSA 与成对表示更新、结构模块处理几何、端到端损失共同训练。距离等不变目标和几何结构约束可以组合使用；不是互斥的两条路线，具体架构仍有差异。</li>
 <li><strong>不一定。</strong> 低置信度可能来自无序、多构象或预测困难，不能单凭低分判断原因；结合局部结构、任务需求和实验信息。</li>
 </ol>
 </details>
@@ -559,14 +578,25 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </main>
 <script>(function(){
   var KEY="sci-progress", FILE="04-\u4ece\u5e8f\u5217\u5230\u7ed3\u6784.md";
-  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  var memoryProgress=null;
+  function storageNote(message){var n=document.querySelector('.donebar .hint');if(n){n.setAttribute('role','status');n.textContent=message;}}
+  function load(){if(memoryProgress!==null)return memoryProgress;
+    try{var value=JSON.parse(localStorage.getItem(KEY));
+      if(value===null)return {};
+      if(typeof value==='object'&&!Array.isArray(value))return value;
+      storageNote('旧进度格式无法读取；本页仍可阅读和打卡。');return {};
+    }catch(e){storageNote('当前浏览器无法读取进度；本页仍可阅读和打卡。');return {};}}
+
   function refresh(){var d=!!load()[FILE];
     document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
       b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
                      :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
   document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
     var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
-    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+    memoryProgress=p;
+    try{localStorage.setItem(KEY,JSON.stringify(p));storageNote('打卡记录已写入当前浏览器。');}
+    catch(e){storageNote('本页打卡仅本次有效：浏览器无法保存，刷新或关闭后不会保留。');}
+    refresh();});});
   refresh();
 
   var tt=document.getElementById('themeToggle');
@@ -575,8 +605,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
     var next=dark?'light':'dark';
     document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('recsys-theme',next);});
+    try{localStorage.setItem('recsys-theme',next);}catch(e){storageNote('主题已切换；当前浏览器无法保存，下次打开可能恢复默认。');}});
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/scientific-modeling-reader.css">
+<script src="../assets/scientific-modeling-reader.js"></script>
+</body></html>

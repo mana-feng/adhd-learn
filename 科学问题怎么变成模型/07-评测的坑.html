@@ -2,8 +2,8 @@
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>07 · 评测的坑：先确定要推广到谁 · 科学问题怎么变成模型</title>
-<script>(function(){var t=localStorage.getItem('recsys-theme');
-if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');
+if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script><style>
 @font-face{font-family:"CodeCJK";
  src:url("../assets/code-cjk-mono.woff2") format("woff2");
  font-weight:400;font-style:normal;font-display:swap;}
@@ -280,7 +280,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="scientific-modeling-reader">
+<a class="sc-skip-link" href="#sc-main">跳到正文</a>
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -288,9 +289,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <span class="prevnext"><a href="06-小数据这一关.html">←</a>
   <a href="08-数据实验模型飞轮.html">→</a></span>
   <button class="js-done-btn">☐ 打卡</button>
-  <button id="themeToggle" title="切换深浅色">🌗</button>
+  <button id="themeToggle" title="切换深浅色" aria-label="切换深浅色">🌗</button>
 </div></header>
-<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<main id="sc-main" tabindex="-1"><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">🧬 一、为什么这里的样本不独立</a></li>
@@ -312,20 +313,19 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>互联网数据也可能存在同用户、重复内容等依赖；不是只有科学数据需要检查。先定义部署目标，再决定哪些相关样本不能跨集。</p>
 <hr />
 <h2 id="_2">🧬 一、为什么这里的样本不独立</h2>
-<p>蛋白质序列数据库里，大量条目是<strong>同源</strong>的：来自不同物种、但由同一个祖先演化而来，
-序列相似度常常在 60%–90% 以上。化合物库同理 —— 一个母核衍生出几十个类似物。</p>
+<p>蛋白数据库可能包含大量共同祖先衍生的序列，化合物库也可能围绕同一母核成簇。<strong>同源不等于某个固定的相同率范围</strong>；实际依赖与覆盖应检查数据来源、比对和家族定义。</p>
 <p>⚠️ 这不是数据脏，<strong>这是数据本来的样子</strong>。数据库收录的就是「已经被研究过的那些」，
 而研究本身就倾向于成簇进行：找到一个有意思的蛋白，接着测它的一堆同源物。</p>
-<p>于是你手上那一万条数据，<strong>有效独立样本数可能只有几百</strong>。</p>
+<p>于是原始条目数可能远大于独立信息量；相关性还受家族、批次与重复测定影响。不能把一万条统一折算为几百个有效样本，需要针对指标和相关结构估计波动。</p>
 <blockquote>
-<p>⭐ <strong>一句话判据</strong>：如果随便抽两条样本，它们相似到「知道一条就能猜出另一条的标签」，
-那这两条就不该被划分到两边去。</p>
+<p>⭐ <strong>先写清未来要预测谁，再决定什么不能跨集。</strong> 新家族外推需要隔离相关家族；同家族中的新序列是另一目标。样本相似不等于必须在所有任务中放到同一边。</p>
 </blockquote>
 <hr />
 <h2 id="_3">🧪 二、把这件事跑出来</h2>
 <p>下面这段用合成数据复现这个坑：40 个「家族」，每族一条原型序列，
 族内成员是原型的小扰动（12% 位点突变）。<strong>标签由家族原型决定</strong> ——
 也就是说真信号在<strong>家族层面</strong>，不在单条序列层面。</p>
+<p><strong>运行方式：</strong>程序需 Python 与 NumPy；家族标签由生成机制提供，不会运行真实序列聚类工具。 将完整代码保存为 <code>experiment.py</code>，在已安装依赖的环境执行 <code>python experiment.py</code>。本轮 CPU 复跑环境为 Python 3.12.14、NumPy 2.3.5；末位浮点数不要求跨环境逐位一致。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
@@ -382,7 +382,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <section aria-label="同一个模型，两种泛化问题" class="experiment-result" id="experiment-result-21">
 <h3 id="_4">同一个模型，两种泛化问题</h3>
 <p>随机划分测试已见家族中的新序列；分组划分测试未见家族。先确定实际要解决哪一种问题，再选择划分。</p>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格：同一个模型，两种泛化问题；可左右滚动"><table>
 <thead>
 <tr>
 <th>划分方式</th>
@@ -403,33 +403,25 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>两项 R² 差 <strong>1.906</strong>。随机划分中，<strong>100%</strong> 的测试序列在训练集中有同一家族的样本。</p>
 <p>负 R² 表示本次平方误差大于以<strong>测试集均值</strong>作常数预测的误差；这不等于已经实测了“预测训练集均值”的基线。</p>
 </section>
-<figure class="dia"><svg viewBox="0 0 760 344" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="左右两个面板各有四个家族圈：左边随机划分，每个圈里训练和测试的点混在一起；右边按家族划分，每个圈整圈同色"><text class="dia-t" x="196" y="40" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">随机划分（默认做法）</text><circle cx="118" cy="108" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="139.0" cy="108.0" r="6" fill="var(--done)"/><circle cx="128.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="107.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="97.0" cy="108.0" r="6" fill="var(--done)"/><circle cx="107.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="128.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="274" cy="108" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="295.0" cy="108.0" r="6" fill="var(--done)"/><circle cx="284.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="263.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="253.0" cy="108.0" r="6" fill="var(--done)"/><circle cx="263.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="284.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="118" cy="204" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="139.0" cy="204.0" r="6" fill="var(--done)"/><circle cx="128.5" cy="222.2" r="6" fill="var(--accent)"/><circle cx="107.5" cy="222.2" r="6" fill="var(--accent)"/><circle cx="97.0" cy="204.0" r="6" fill="var(--done)"/><circle cx="107.5" cy="185.8" r="6" fill="var(--accent)"/><circle cx="128.5" cy="185.8" r="6" fill="var(--accent)"/><circle cx="274" cy="204" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="295.0" cy="204.0" r="6" fill="var(--done)"/><circle cx="284.5" cy="222.2" r="6" fill="var(--accent)"/><circle cx="263.5" cy="222.2" r="6" fill="var(--accent)"/><circle cx="253.0" cy="204.0" r="6" fill="var(--done)"/><circle cx="263.5" cy="185.8" r="6" fill="var(--accent)"/><circle cx="284.5" cy="185.8" r="6" fill="var(--accent)"/><text class="dia-t" x="196" y="264" font-size="12.5" text-anchor="middle" fill="var(--danger,#e5534b)" font-weight="700">测试集 100% 有同族兄弟在训练集</text><text class="dia-t" x="196" y="290" font-size="13.5" text-anchor="middle" fill="var(--danger,#e5534b)" font-weight="700">测试 R² = 0.707</text><text class="dia-t" x="196" y="312" font-size="12" text-anchor="middle" fill="var(--muted)">看着像个能用的模型</text><line x1="380" y1="30" x2="380" y2="322" stroke="var(--border)" stroke-width="1.4"/><text class="dia-t" x="566" y="40" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">按家族划分</text><circle cx="488" cy="108" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="509.0" cy="108.0" r="6" fill="var(--accent)"/><circle cx="498.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="477.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="467.0" cy="108.0" r="6" fill="var(--accent)"/><circle cx="477.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="498.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="644" cy="108" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="665.0" cy="108.0" r="6" fill="var(--accent)"/><circle cx="654.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="633.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="623.0" cy="108.0" r="6" fill="var(--accent)"/><circle cx="633.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="654.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="488" cy="204" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="509.0" cy="204.0" r="6" fill="var(--accent)"/><circle cx="498.5" cy="222.2" r="6" fill="var(--accent)"/><circle cx="477.5" cy="222.2" r="6" fill="var(--accent)"/><circle cx="467.0" cy="204.0" r="6" fill="var(--accent)"/><circle cx="477.5" cy="185.8" r="6" fill="var(--accent)"/><circle cx="498.5" cy="185.8" r="6" fill="var(--accent)"/><circle cx="644" cy="204" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="665.0" cy="204.0" r="6" fill="var(--done)"/><circle cx="654.5" cy="222.2" r="6" fill="var(--done)"/><circle cx="633.5" cy="222.2" r="6" fill="var(--done)"/><circle cx="623.0" cy="204.0" r="6" fill="var(--done)"/><circle cx="633.5" cy="185.8" r="6" fill="var(--done)"/><circle cx="654.5" cy="185.8" r="6" fill="var(--done)"/><text class="dia-t" x="566" y="264" font-size="12.5" text-anchor="middle" fill="var(--done)" font-weight="700">构造上就是 0%</text><text class="dia-t" x="566" y="290" font-size="13.5" text-anchor="middle" fill="var(--done)" font-weight="700">测试 R² = &#8722;1.199</text><text class="dia-t" x="566" y="312" font-size="12" text-anchor="middle" fill="var(--muted)">还不如直接猜均值</text><circle cx="470" cy="336" r="5" fill="var(--accent)"/><text class="dia-t" x="482" y="340" font-size="11.5" fill="var(--muted)">训练集</text><circle cx="556" cy="336" r="5" fill="var(--done)"/><text class="dia-t" x="568" y="340" font-size="11.5" fill="var(--muted)">测试集</text><text class="dia-t" x="20" y="340" font-size="12" fill="var(--fg)" font-weight="700">虚线圈 = 一个同源家族</text></svg><figcaption>只看<b>每个虚线圈里有没有两种颜色</b>：左边每个家族都被切开了，测试集里的每一条在训练集里都躺着一个几乎一样的兄弟 —— 模型<b>只要记住就能拿高分</b>。⭐ 右边整圈同色，才是在问「没见过的家族你行不行」。⚠️ 两边是<b>同一份数据、同一个模型、同一套超参</b>。</figcaption></figure>
+<figure class="dia" tabindex="0" role="region" aria-label="图解：同一个模型，两种泛化问题；可左右滚动"><svg viewBox="0 0 760 344" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="左右两个面板各有四个家族圈：左边随机划分，每个圈里训练和测试的点混在一起；右边按家族划分，每个圈整圈同色"><text class="dia-t" x="196" y="40" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">随机划分：族内新序列</text><circle cx="118" cy="108" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="139.0" cy="108.0" r="6" fill="var(--done)"/><circle cx="128.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="107.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="97.0" cy="108.0" r="6" fill="var(--done)"/><circle cx="107.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="128.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="274" cy="108" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="295.0" cy="108.0" r="6" fill="var(--done)"/><circle cx="284.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="263.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="253.0" cy="108.0" r="6" fill="var(--done)"/><circle cx="263.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="284.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="118" cy="204" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="139.0" cy="204.0" r="6" fill="var(--done)"/><circle cx="128.5" cy="222.2" r="6" fill="var(--accent)"/><circle cx="107.5" cy="222.2" r="6" fill="var(--accent)"/><circle cx="97.0" cy="204.0" r="6" fill="var(--done)"/><circle cx="107.5" cy="185.8" r="6" fill="var(--accent)"/><circle cx="128.5" cy="185.8" r="6" fill="var(--accent)"/><circle cx="274" cy="204" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="295.0" cy="204.0" r="6" fill="var(--done)"/><circle cx="284.5" cy="222.2" r="6" fill="var(--accent)"/><circle cx="263.5" cy="222.2" r="6" fill="var(--accent)"/><circle cx="253.0" cy="204.0" r="6" fill="var(--done)"/><circle cx="263.5" cy="185.8" r="6" fill="var(--accent)"/><circle cx="284.5" cy="185.8" r="6" fill="var(--accent)"/><text class="dia-t" x="196" y="264" font-size="12.5" text-anchor="middle" fill="var(--danger,#e5534b)" font-weight="700">测试集 100% 有同族兄弟在训练集</text><text class="dia-t" x="196" y="290" font-size="13.5" text-anchor="middle" fill="var(--danger,#e5534b)" font-weight="700">测试 R² = 0.707</text><text class="dia-t" x="196" y="312" font-size="12" text-anchor="middle" fill="var(--muted)">评估同家族内的新序列</text><line x1="380" y1="30" x2="380" y2="322" stroke="var(--border)" stroke-width="1.4"/><text class="dia-t" x="566" y="40" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">按家族：未见家族</text><circle cx="488" cy="108" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="509.0" cy="108.0" r="6" fill="var(--accent)"/><circle cx="498.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="477.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="467.0" cy="108.0" r="6" fill="var(--accent)"/><circle cx="477.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="498.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="644" cy="108" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="665.0" cy="108.0" r="6" fill="var(--accent)"/><circle cx="654.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="633.5" cy="126.2" r="6" fill="var(--accent)"/><circle cx="623.0" cy="108.0" r="6" fill="var(--accent)"/><circle cx="633.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="654.5" cy="89.8" r="6" fill="var(--accent)"/><circle cx="488" cy="204" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="509.0" cy="204.0" r="6" fill="var(--accent)"/><circle cx="498.5" cy="222.2" r="6" fill="var(--accent)"/><circle cx="477.5" cy="222.2" r="6" fill="var(--accent)"/><circle cx="467.0" cy="204.0" r="6" fill="var(--accent)"/><circle cx="477.5" cy="185.8" r="6" fill="var(--accent)"/><circle cx="498.5" cy="185.8" r="6" fill="var(--accent)"/><circle cx="644" cy="204" r="36" fill="none" stroke="var(--border)" stroke-width="1.4" stroke-dasharray="4 4"/><circle cx="665.0" cy="204.0" r="6" fill="var(--done)"/><circle cx="654.5" cy="222.2" r="6" fill="var(--done)"/><circle cx="633.5" cy="222.2" r="6" fill="var(--done)"/><circle cx="623.0" cy="204.0" r="6" fill="var(--done)"/><circle cx="633.5" cy="185.8" r="6" fill="var(--done)"/><circle cx="654.5" cy="185.8" r="6" fill="var(--done)"/><text class="dia-t" x="566" y="264" font-size="12.5" text-anchor="middle" fill="var(--done)" font-weight="700">构造上就是 0%</text><text class="dia-t" x="566" y="290" font-size="13.5" text-anchor="middle" fill="var(--done)" font-weight="700">测试 R² = &#8722;1.199</text><text class="dia-t" x="566" y="312" font-size="12" text-anchor="middle" fill="var(--muted)">低于测试集均值参照</text><circle cx="470" cy="336" r="5" fill="var(--accent)"/><text class="dia-t" x="482" y="340" font-size="11.5" fill="var(--muted)">训练集</text><circle cx="556" cy="336" r="5" fill="var(--done)"/><text class="dia-t" x="568" y="340" font-size="11.5" fill="var(--muted)">测试集</text><text class="dia-t" x="20" y="340" font-size="12" fill="var(--fg)" font-weight="700">虚线圈 = 一个同源家族</text></svg><figcaption>示意圈表示合成家族。随机划分允许同族跨集，按家族划分让测试家族从训练集中消失；两边使用同一数据、模型与超参数，回答不同泛化目标。负 R² 的参照是当前测试标签的均值，并非本例另行运行过的训练集均值常数基线。</figcaption></figure>
 
 <p>⭐ <strong><code>R² = 0.707</code> 看起来是个像样的模型；<code>R² = −1.199</code> 意味着它平方误差还大于以测试集均值作常数预测的误差。</strong>
 同一份数据、同一个模型、同一套超参 —— <strong>只改了怎么切</strong>。</p>
 <blockquote>
-<p>⚠️ <strong>你的数值会不同，要看的是两者的差距。</strong> 我换了六组设置复核过：
-正则化从 1 加到 100、家族数从 40 加到 100、突变率从 5% 到 25%、换随机种子 ——
-<strong>随机划分的 R² 恒在 0.66–0.85 之间，按家族划分的 R² 恒为负数</strong>（−0.25 到 −1.36）。
-⭐ 这个差距<strong>不是某组超参下的巧合</strong>。</p>
+<p>⚠️ <strong>本轮复跑确认上表，并另把同一分组划分的 lam 从 1 改为 100，R² 由 −1.199 变为 −0.248。</strong> 原稿提过多组设置，但未保留每组完整参数和逐项输出，本页不沿用那段范围作为已复核证据。当前结论只覆盖已展示的生成机制与划分。</p>
 </blockquote>
 <hr />
 <h2 id="_5">🚨 三、为什么正则化救不了它</h2>
-<p>一个自然的反应是「加大正则化就好了」。上面那组复核里，
-把 <code>lam</code> 从 1 加到 100，按家族划分的 R² 从 −1.20 抬到 −0.25 —— <strong>抬上去了，但还是负的</strong>。</p>
-<p>⭐ <strong>原因不在模型复杂度，在于训练集里根本没有测试家族的信息。</strong>
-标签由家族原型决定，而那 10 个测试家族的原型模型一次都没见过。
-正则化能防止过拟合，防不了「要预测的东西压根不在训练分布里」。</p>
+<p>把上面同一分组评估的 <code>lam</code> 从 1 改为 100，本轮复跑 R² 从 −1.199 提高到 −0.248。正则强度在本例有帮助，但不能用它把一个划分目标变成另一个。</p>
+<p>⭐ <strong>未见家族评估还受到分布变化与可迁移关系的限制。</strong> 本例未向模型提供测试家族原型，当前特征、模型和样本条件下外推很差；不能据此证明所有家族外推都不可能，或正则化与模型选择永远无用。</p>
 <p>⚠️ 所以看到「按组划分后指标暴跌」时，<strong>不要第一时间去调模型</strong> —— 先接受这个数字，
 它估计的是对该分组规则下未见家族的泛化，不一定代表所有部署场景。</p>
 <hr />
 <h2 id="_6">🔧 四、正确的划分怎么做</h2>
 <ol>
-<li><strong>先聚类，再划分。</strong> 按序列相似度把数据聚成簇，<strong>整簇整簇地分配</strong>到训练/验证/测试。
-   🗓️ 工具层面常用 CD-HIT、MMseqs2 这类序列聚类程序（版本和参数会变，用之前查它们的当前文档）。</li>
-<li><strong>阈值要说清楚。</strong> 「30% 相似度以下才算不同簇」和「90% 以下」是两个完全不同的难度，
-   ⭐ <strong>报告指标时必须同时报这个阈值</strong>，否则数字之间不可比。</li>
-<li><strong>验证集也要按组切。</strong> 只把测试集按组切、验证集还是随机切，调参那一步照样会泄漏。</li>
+<li><strong>需要新家族外推时，先定义组，再整组划分。</strong> 可使用已有家族标签，或用 CD-HIT、MMseqs2 等按比对关系聚类；工具和版本需记录，实际运行前查<a href="https://github.com/soedinglab/MMseqs2/wiki#clustering-criteria">官方聚类条件</a>。</li>
+<li><strong>报告相同率定义、阈值、覆盖度和聚类方法。</strong> 30% 与 90% 阈值可能构造不同难度；代表序列聚类并不自动保证任意跨簇序列都低于阈值。若要求严格隔离，还要检查跨集合的最近邻。</li>
+<li><strong>验证划分也要匹配目标。</strong> 新家族外推的调参也应按组验证；随机验证可能偏向选择家族内表现好的模型，即使组测试仍保留独立，也不能说该测试已自动发生直接泄漏。</li>
 <li>⚠️ <strong>用别人的公开划分之前，先问它是怎么划的。</strong> 公开 benchmark 一样可能带这个坑。</li>
 </ol>
 <blockquote>
@@ -437,31 +429,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <a href="../数据这一关/14-数据泄漏的七种来源.html">数据这一关 · 14 数据泄漏的七种来源</a> 的
 <strong>④ 分组泄漏</strong>讲的就是这件事：同一个用户的多条记录被随机切散，
 随机切 AUC <strong>0.706</strong>、按用户 <code>GroupKFold</code> 切只剩 <strong>0.564</strong> —— 那 0.14 是「认人」不是「预测」。</p>
-<p>⭐⭐ <strong>唯一的区别是「组」给没给你</strong>：那边 <code>user_id</code> 是现成的一列，
-一行 <code>len(set(uid_train) &amp; set(uid_test))</code> 就能验，期望是 0；</p>
-<p>而这里<strong>没有这一列</strong> —— 「哪些序列算同一组」得你自己按相似度聚出来，
-<strong>连阈值定在哪都是你的决定</strong>。这才是科学数据上真正难的那一半。</p>
+<p>两者都要检查不该跨集的组是否重叠。用户数据可能有 <code>user_id</code>，科学数据也可能有家族标签；没有可靠标签时，才需要结合相似度和领域条件定义组。</p>
+<p><strong>组的定义本身也是建模选择。</strong> 应记录来源、阈值与覆盖度，并检查它是否对应需要预测的新家族、批次或时间；组不重叠只是其中一项检查。</p>
 </blockquote>
 <hr />
 <h2 id="_7">🪤 五、另外三个坑</h2>
-<h3 id="_8">只有成功的实验进了数据库</h3>
-<p>发表和录入本身是有筛选的：做出来没效果的分子、表达失败的突变体，大多不会进公开库。
-⚠️ 于是你的「负样本」不是真正的负样本，而是<strong>没被记录的那一类被整体删掉了</strong>。</p>
-<p>⭐ 这就是<a href="../数据这一关/15-采样偏差与幸存者偏差.html">数据这一关 · 15 采样偏差与幸存者偏差</a>
-讲的那件事：<strong>你手上的数据只包含「活下来的」那部分，而失败的那部分根本没进样本。</strong>
-用它训出来的模型会系统性高估效果，<strong>而且从数据本身看不出问题</strong>。</p>
+<h3 id="_8">成功实验可能更容易被收录</h3>
+<p>发表和录入可能偏向成功、易测或常被研究的对象；不同数据库的收录规则不同，不能统一说只有成功实验。<strong>未测或未记录不等于真阴性</strong>，需保留测定状态和缺失原因。</p>
+<p>这种选择可能使训练与目标总体不匹配，是否高估以及高估多少要验证。可先查实验日志、失败记录和纳入标准，再考虑额外采样或偏差校正；不能假设只凭现有表就能完整识别或消除偏差。见<a href="../数据这一关/15-采样偏差与幸存者偏差.html">采样偏差与幸存者偏差</a>。</p>
 <h3 id="_9">测试集太小，指标根本分不出差别</h3>
-<p>科学数据的测试集常常只有一两百条 —— 而按家族划分之后，<strong>有效独立样本数还要再打一个折</strong>。
-⚠️ 站内<a href="../大模型全景导论/11-评测体系.html">大模型全景导论 · 11 评测体系</a>算过一笔同类的账：
-<strong>100 题只能分辨约 8 个百分点，想分辨 3 个点要约 700 题。</strong>
-⭐ 你的测试集如果只有 40 个独立家族，「A 比 B 高 2 个点」这句话大概率没有意义。</p>
+<p>测试不确定性取决于指标、分组相关性和模型差值。<strong>40 个独立家族或 2 个点差异，本身不足以下显著性结论。</strong> 可按家族重复划分或重采样，对同一测试对象上的模型差值报告区间；二分类正确率的样本量例子不能直接套到 R²。参见<a href="../大模型全景导论/11-评测体系.html">评测体系</a>，但应核对其统计假设。</p>
 <h3 id="_10">指标选错</h3>
-<p>阳性样本占 3% 时，一个「全都预测阴性」的模型准确率就有 97%。
-⭐ 极不平衡的数据上看准确率没有意义，该看的是 AUPRC 这类对正类敏感的指标，
-或者干脆报「排名前 N 里有几个真阳性」—— <strong>因为下游真正要做的就是「挑 N 个去做实验」</strong>。</p>
+<p>阳性占 3% 时，全预测阴性的准确率是 97%，所以<strong>准确率不能单独说明筛选价值</strong>。可报告 PR 曲线、明确计算方式的 AP/AUPRC，以及 top-N 命中数、召回率与实验成本；这些指标也受阳性率和标签完整性影响。</p>
 <hr />
 <h2 id="_11">🔗 这一章连到哪里</h2>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格：🔗 这一章连到哪里；可左右滚动"><table>
 <thead>
 <tr>
 <th>去哪</th>
@@ -471,11 +453,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td><a href="../数据这一关/14-数据泄漏的七种来源.html">数据这一关 14 · 数据泄漏的七种来源</a></td>
-<td>⭐ <strong>它的 ④ 分组泄漏和这一章是同一个机制</strong>：那边同一个用户的记录跨集，随机切 AUC 0.706、<code>GroupKFold</code> 按用户切只剩 0.564。⭐⭐ <strong>差别在「组」是不是现成的</strong> —— 那边 <code>user_id</code> 是一列，一行 <code>len(set(uid_train) &amp; set(uid_test))</code> 就能验；这里没有这一列，<strong>「哪些序列算同一组」本身就是个要你来定的建模决策</strong></td>
+<td>与本章共享分组依赖机制；科学数据可能已有家族标签，也可能需要按相似度定义组。检查组间重叠和跨集近邻</td>
 </tr>
 <tr>
 <td><a href="../数据这一关/15-采样偏差与幸存者偏差.html">数据这一关 15 · 采样偏差与幸存者偏差</a></td>
-<td>「只有成功的实验进了数据库」的完整版，以及查出偏了之后的逆倾向加权</td>
+<td>核对收录与失败记录；偏差校正也需要明确的缺失机制假设</td>
 </tr>
 <tr>
 <td><a href="../数据这一关/13-评测集也是数据.html">数据这一关 13 · 评测集也是数据</a></td>
@@ -483,7 +465,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><a href="../机器学习与深度学习基础/05-评估与过拟合.html">机器学习与深度学习基础 05 · 评估与过拟合</a></td>
-<td>交叉验证的基本功。⚠️ 这里要用的是<strong>按组的</strong>交叉验证，不是普通的 K 折</td>
+<td>交叉验证基础；是否按组、按时间或随机，应由预测目标决定</td>
 </tr>
 </tbody>
 </table></div>
@@ -492,9 +474,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ol>
 <li>为什么随机划分不能证明对新家族的泛化？它能回答什么问题？</li>
 <li>实验里两种划分的 R² 各是多少？「负的 R²」意味着什么？</li>
-<li>加大正则化能不能救回按家族划分的指标？为什么？</li>
+<li>本例增大正则化后，分组 R² 怎样变化？为什么不能用调参代替正确的评测目标？</li>
 <li>正确的划分要做哪四件事？为什么验证集也要按组切？</li>
-<li>「只有成功的实验进了数据库」会造成什么后果？它对应站内哪一章讲的问题？</li>
+<li>若成功实验更易被收录，会怎样影响数据？未记录样本能直接当阴性吗？</li>
 <li>测试集只有 40 个独立家族时，「A 比 B 高 2 个点」这句话可信吗？</li>
 </ol>
 <details>
@@ -502,9 +484,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ol>
 <li>随机划分可能让训练与测试共享家族特征，本例 <strong>100%</strong> 的测试序列都有同族训练样本。它可评估相应分布中的新序列，却不能替代未见家族评估；划分必须对应实际目标。</li>
 <li><strong>随机划分 R² = 0.707，按家族划分 R² = −1.199</strong>，两种评估相差 1.906。负的 R² 意味着模型<strong>平方误差还大于以测试集均值作常数预测的误差</strong>。</li>
-<li><strong>不能。</strong> <code>lam</code> 从 1 加到 100，按家族划分只从 −1.20 抬到 −0.25，<strong>仍然是负的</strong>。因为问题不在模型复杂度，而在于<strong>训练集里根本没有测试家族的信息</strong> —— 正则化防得了过拟合，防不了「要预测的东西不在训练分布里」。</li>
-<li>①按相似度聚类再整簇分配 ②报告时必须同时报相似度阈值 ③<strong>验证集也要按组切</strong>（否则调参那一步照样泄漏）④用别人的公开划分前先问它是怎么划的。</li>
-<li>负样本不是真正的负样本，而是「没被记录的那一类被整体删掉了」，模型会<strong>系统性高估效果、而且从数据本身看不出来</strong>。对应<a href="../数据这一关/15-采样偏差与幸存者偏差.html">数据这一关 15 · 采样偏差与幸存者偏差</a>。</li>
+<li>本例 lam 从 1 到 100，将分组 R² 从 −1.199 提高到 −0.248，但仍低于测试均值参照。正则化可改善拟合，却不能替代目标匹配的划分；本例也不能证明所有模型都无法外推。</li>
+<li>① 按目标定义组并整组分配；② 报告相同率、覆盖度、阈值和聚类方式，必要时查跨集近邻；③ 调参验证也匹配目标；④ 核对公开划分的来源与规则。</li>
+<li>未测、未记录与实测阴性不同。选择性收录可能造成采样偏差，但方向和程度要检查，不能断言所有库都只含成功样本。见<a href="../数据这一关/15-采样偏差与幸存者偏差.html">数据这一关 15</a>。</li>
 <li>不能仅凭 40 个家族或 2 个点下结论。需要明确指标、家族大小和相关性，用按家族的重复划分或重采样估计差值的不确定性；二分类比例的样本量例子不能直接套到 R²。</li>
 </ol>
 </details>
@@ -524,14 +506,25 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </main>
 <script>(function(){
   var KEY="sci-progress", FILE="07-\u8bc4\u6d4b\u7684\u5751.md";
-  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  var memoryProgress=null;
+  function storageNote(message){var n=document.querySelector('.donebar .hint');if(n){n.setAttribute('role','status');n.textContent=message;}}
+  function load(){if(memoryProgress!==null)return memoryProgress;
+    try{var value=JSON.parse(localStorage.getItem(KEY));
+      if(value===null)return {};
+      if(typeof value==='object'&&!Array.isArray(value))return value;
+      storageNote('旧进度格式无法读取；本页仍可阅读和打卡。');return {};
+    }catch(e){storageNote('当前浏览器无法读取进度；本页仍可阅读和打卡。');return {};}}
+
   function refresh(){var d=!!load()[FILE];
     document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
       b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
                      :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
   document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
     var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
-    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+    memoryProgress=p;
+    try{localStorage.setItem(KEY,JSON.stringify(p));storageNote('打卡记录已写入当前浏览器。');}
+    catch(e){storageNote('本页打卡仅本次有效：浏览器无法保存，刷新或关闭后不会保留。');}
+    refresh();});});
   refresh();
 
   var tt=document.getElementById('themeToggle');
@@ -540,8 +533,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
     var next=dark?'light':'dark';
     document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('recsys-theme',next);});
+    try{localStorage.setItem('recsys-theme',next);}catch(e){storageNote('主题已切换；当前浏览器无法保存，下次打开可能恢复默认。');}});
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/scientific-modeling-reader.css">
+<script src="../assets/scientific-modeling-reader.js"></script>
+</body></html>

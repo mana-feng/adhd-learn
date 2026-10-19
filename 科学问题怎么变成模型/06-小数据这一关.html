@@ -2,8 +2,8 @@
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>06 · 小数据这一关 · 科学问题怎么变成模型</title>
-<script>(function(){var t=localStorage.getItem('recsys-theme');
-if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');
+if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script><style>
 @font-face{font-family:"CodeCJK";
  src:url("../assets/code-cjk-mono.woff2") format("woff2");
  font-weight:400;font-style:normal;font-display:swap;}
@@ -280,7 +280,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="scientific-modeling-reader">
+<a class="sc-skip-link" href="#sc-main">跳到正文</a>
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -288,9 +289,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <span class="prevnext"><a href="05-等变与不变.html">←</a>
   <a href="07-评测的坑.html">→</a></span>
   <button class="js-done-btn">☐ 打卡</button>
-  <button id="themeToggle" title="切换深浅色">🌗</button>
+  <button id="themeToggle" title="切换深浅色" aria-label="切换深浅色">🌗</button>
 </div></header>
-<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<main id="sc-main" tabindex="-1"><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">💸 一、先认清这个比例</a></li>
@@ -309,13 +310,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>这 16 维表示由 <strong>4000 条无标签合成序列</strong>的 PCA 得到，一个标签都没用。它演示“先学表示、再拟合小头”，不等于测量了真实蛋白语言模型的预训练收益。</p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>在这里，标注贵得离谱，而无标注数据几乎免费。</strong>
-一条标注意味着一次真实的实验 —— 几天、几千块；而序列数据库里躺着几亿条没有标签的序列。
-⭐ 整章只讲一件事：<strong>怎么把便宜的那一半，换成贵的那一半。</strong></p>
+<p>在本章关心的场景中，<strong>标签来自成本较高的实验，未标注序列较容易取得</strong>。具体成本和规模因实验而异；未标注数据仍需清理、存储和计算。本章用合成实验比较是否能先学表示，再用少量标签拟合预测头。</p>
 <hr />
 <h2 id="_2">💸 一、先认清这个比例</h2>
-<p>普通 ML 里「数据多」通常意味着标注也多。这里完全不是：</p>
-<div class="tw"><table>
+<p>这里先区分原始序列数量和可用标签数量。下表是本章关注的成本情形，不是所有科学项目的统一报价：</p>
+<div class="tw" tabindex="0" role="region" aria-label="表格：💸 一、先认清这个比例；可左右滚动"><table>
 <thead>
 <tr>
 <th></th>
@@ -331,13 +330,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td>单条成本</td>
-<td>接近 0</td>
-<td>几百到几千元，几天到几周</td>
+<td>既有公共数据获取成本较低；整理与计算仍有成本</td>
+<td>可能含试剂、设备与等待时间，需按具体测定估算</td>
 </tr>
 <tr>
 <td>量级</td>
-<td>亿级</td>
-<td>⚠️ <strong>常常是两位数到三位数</strong></td>
+<td>大型公共数据库可很大；实际可用范围要筛选</td>
+<td>项目初期可能只有几十到几百条，也有高通量数据集</td>
 </tr>
 </tbody>
 </table></div>
@@ -347,8 +346,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <strong>在只有几十条标签的情况下，怎么让那几亿条无标签数据也出力。</strong></p>
 <hr />
 <h2 id="_3">🧊 二、把这件事跑出来</h2>
-<p>最有效的一招是<strong>冻结</strong>：先用无标注数据学出一个表示，
-然后<strong>只在它上面训一个很小的头</strong>。下面这段把它和「直接用原始特征」对照：</p>
+<p>一个值得先测的基线是冻结表示：先用无标签数据学习表示，再只拟合小头。下面将 PCA 的 16 维固定表示与原始特征对照，<strong>没有运行真实蛋白语言模型或全量微调</strong>。</p>
+<p><strong>运行方式：</strong>程序需 Python 与 NumPy；只运行合成序列的 PCA 和岭回归。 将完整代码保存为 <code>experiment.py</code>，在已安装依赖的环境执行 <code>python experiment.py</code>。本轮 CPU 复跑环境为 Python 3.12.14、NumPy 2.3.5；末位浮点数不要求跨环境逐位一致。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="n">AA</span><span class="p">,</span> <span class="n">L</span><span class="p">,</span> <span class="n">K</span> <span class="o">=</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="mi">5</span>          <span class="c1"># 20 种氨基酸，长 30，背后 5 维隐变量</span>
@@ -398,7 +397,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <section aria-label="少量标签时，冻结表示的收益" class="experiment-result" id="experiment-result-20">
 <h3 id="_4">少量标签时，冻结表示的收益</h3>
 <p>两列都是测试集 R²（越高越好）。冻结表示来自 4000 条无标签合成序列的 PCA，不是实际蛋白语言模型。</p>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格：少量标签时，冻结表示的收益；可左右滚动"><table>
 <thead>
 <tr>
 <th style="text-align: right;">有标签样本数</th>
@@ -446,8 +445,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>原始 one-hot 在 300 条时从 <strong>0.797 回落到 0.783</strong>。单次曲线不能定位原因：样本组成、固定正则参数与随机波动都可能有关。要区分它们，需要多次划分，并在训练侧选择正则强度，不能直接归因于 <code>lam=1</code>。</p>
 <hr />
 <h2 id="_5">🎛️ 三、为什么冻结比微调更适合这里</h2>
-<p>「用预训练模型」有两种用法，⚠️ <strong>在小数据上它们的表现相差很远</strong>：</p>
-<div class="tw"><table>
+<p>使用预训练表示可以冻结，也可以微调。下面比较常见代价；<strong>本页实验只直接比较固定 PCA 表示与 one-hot，不能据它断言冻结总比微调好。</strong></p>
+<div class="tw" tabindex="0" role="region" aria-label="表格：🎛️ 三、为什么冻结比微调更适合这里；可左右滚动"><table>
 <thead>
 <tr>
 <th></th>
@@ -458,8 +457,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td>要拟合的参数</td>
-<td>⭐ <strong>十几到几百个</strong></td>
-<td>几百万到几亿</td>
+<td>本例为 16 个回归权重；一般取决于表示维度和预测头</td>
+<td>取决于主干尺寸、解冻范围和适配方式</td>
 </tr>
 <tr>
 <td>几十条标签时</td>
@@ -468,8 +467,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td>需要的算力</td>
-<td>一台笔记本</td>
-<td>GPU</td>
+<td>本页 PCA 与小头可在 CPU 运行；真实大主干抽特征仍可能需要 GPU</td>
+<td>按模型尺寸与训练配置估算，不能一概而论</td>
 </tr>
 <tr>
 <td>什么时候考虑调整</td>
@@ -481,26 +480,14 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong>判据很朴素：可训练参数的数量级要和样本量匹配。</strong>
 上面代码里冻结方案要解的是一个 <strong>16 维</strong>的岭回归，而原始方案是 <strong>600 维</strong> ——
 20 个样本拟合 600 维特征有较高风险，但岭回归等正则方法并不等于必然记忆。</p>
-<p>⚠️ <strong>中间档也存在</strong>（只解冻最后几层、或用 LoRA 那类低秩适配），
-但在几十条标签的量级上，<strong>先把冻结这一档做扎实</strong>，它是最难做错的一个。</p>
+<p>⚠️ 还可以只解冻末层或使用 LoRA 等适配方式。标签少时先把简单基线和验证流程做扎实，再根据任务匹配与训练侧验证决定是否微调。</p>
 <hr />
 <h2 id="_6">🧰 四、另外四件小数据该做的事</h2>
-<p><strong>① 别用单次划分，用交叉验证。</strong>
-50 条数据切出 10 条测试集，那 10 条换一批结论就变了。
-⭐ 用 K 折把每条数据都当一次测试 —— 基本功在
-<a href="../机器学习与深度学习基础/05-评估与过拟合.html">机器学习与深度学习基础 05 · 评估与过拟合</a>。
-⚠️ <strong>但这里的 K 折必须按同源家族分组</strong>，理由见 <a href="07-评测的坑.html">07 章</a>。</p>
+<p><strong>① 用交叉验证估计划分波动。</strong> 小样本时单次留出可能很不稳定；K 折让不同样本轮流进入验证折。若调参，需保留独立最终测试，或使用嵌套交叉验证；每折的缩放、PCA 和模型都应仅在对应训练侧拟合。若目标是新家族，内外划分均应按家族分离；同家族新序列、时间外推则需各自对应的设计。见 <a href="07-评测的坑.html">07 章</a>及<a href="https://scikit-learn.org/stable/auto_examples/model_selection/plot_nested_cross_validation_iris.html">官方嵌套交叉验证示例</a>。</p>
 <p><strong>② 报区间，不报单点。</strong>
 50 条数据上的 R² 本身就带着很大的不确定性。⭐ 只报一个数会让你和同事都高估它。</p>
-<p><strong>③ 数据增强要尊重对称性。</strong>
-⚠️ <strong>不能乱加</strong> —— 把分子旋转一下当新样本是合法的（性质不变），
-把序列里一个残基随便换掉当新样本<strong>通常不合法</strong>（性质可能全变）。
-⭐ 什么变换是安全的，取决于你的问题有什么对称性，那是 <a href="05-等变与不变.html">05 章</a>的正题。</p>
-<p><strong>④ 主动选下一批标注哪些。</strong>
-既然每条标签都这么贵，就不该随机挑。站内已经有一整章讲这件事：
-<a href="../数据这一关/12-标注预算与主动学习.html">数据这一关 12 · 标注预算与主动学习</a>。
-⭐ 到 <a href="08-数据实验模型飞轮.html">08 章</a>会把它推到更远的地方 ——
-那里<strong>连样本本身都是你造出来的</strong>。</p>
+<p><strong>③ 数据增强要遵守标签的变换规则。</strong> 预测孤立分子的旋转不变性质时，整体旋转可保留标签；预测力等方向量时，标签也要旋转。随意替换残基通常不能沿用原标签。见 <a href="05-等变与不变.html">05 章</a>。</p>
+<p><strong>④ 比较下一批标注的选择策略。</strong> 可以比较随机采样、不确定性采样和批量多样性，计入成本与失败；不预设主动策略必然优于随机。参见<a href="../数据这一关/12-标注预算与主动学习.html">数据这一关 12 · 标注预算与主动学习</a>；<a href="08-数据实验模型飞轮.html">08 章</a>再讨论实验候选的选择。</p>
 <hr />
 <h2 id="_7">⚠️ 五、小数据上最容易骗到自己的两件事</h2>
 <p><strong>① 指标好看是因为测试集也小。</strong>
@@ -510,13 +497,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 在 5 个模型里挑测试集上最好的那个，<strong>报出来的分数存在被高估的选择偏差风险</strong> ——
 你已经把测试集用作选择依据了。⭐ 小数据上这件事的代价格外大，因为噪声大、可挑的空间也大。</p>
 <blockquote>
-<p>⭐ 这两条本质是同一件事：<strong>测试集每被看一次，它作为尺子的价值就掉一点。</strong>
-<a href="../数据这一关/13-评测集也是数据.html">数据这一关 13 · 评测集也是数据</a> 有完整的展开，
-包括「多大才够」怎么算。</p>
+<p>⭐ <strong>风险来自用测试反馈调整模型、划分或报告方式。</strong> 预先规定的最终核验与反复挑高分不同；若测试已参与选择，就需要新的独立评估或明确报告选择过程。详见<a href="../数据这一关/13-评测集也是数据.html">数据这一关 13 · 评测集也是数据</a>。</p>
 </blockquote>
 <hr />
 <h2 id="_8">🔗 这一章连到哪里</h2>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格：🔗 这一章连到哪里；可左右滚动"><table>
 <thead>
 <tr>
 <th>去哪</th>
@@ -526,11 +511,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td><a href="01-第一天.html">01 · 第一天</a></td>
-<td>⭐ <strong>同一个结论的另一半</strong>：那一章量的是「领域知识 ≈ 一倍数据」，这一章量的是「预训练表示 ≈ 更多数据」。两者都在 3000 条时收敛 —— <strong>本次实验中差距随标签增加而缩小，不是对上限的普遍结论</strong></td>
+<td>01 比较特征与样本量，06 比较固定表示与原始特征。两者都展示特定条件下的样本效率，不给领域知识或预训练设普遍兑换率</td>
 </tr>
 <tr>
 <td><a href="07-评测的坑.html">07 · 评测的坑</a></td>
-<td>⚠️ 这一章说「用交叉验证」，而那一章说明<strong>为什么这里的 K 折必须按家族分组</strong>。不看那一章，这里的 K 折会给你一个虚高的数</td>
+<td>目标为未见家族时，验证与测试均需相应分组；不能一律把随机 K 折判错</td>
 </tr>
 <tr>
 <td><a href="05-等变与不变.html">05 · 等变与不变</a></td>
@@ -546,14 +531,14 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><a href="../机器学习与深度学习基础/05-评估与过拟合.html">机器学习与深度学习基础 05 · 评估与过拟合</a></td>
-<td>交叉验证和过拟合的基本功。⚠️ 那里的随机 K 折在这个板块要改成分组 K 折</td>
+<td>交叉验证的基本功；按新家族、同家族新样本或时间外推等预测目标选择划分</td>
 </tr>
 </tbody>
 </table></div>
 <hr />
 <h2 id="_9">✅ 检查点</h2>
 <ol>
-<li>无标注数据和有标注数据在这个领域的成本差多少？「一条标注」实际意味着什么？</li>
+<li>本章所关心的场景里，原始序列与实验标签的获取成本有何不同？成本为何不能统一报价？</li>
 <li>20 条标签时，冻结 PCA 表示把 R² 从多少提到了多少？那个表示是怎么来的、用了多少标签？</li>
 <li>到 3000 条标签时两种方案的差距是多少？这说明预训练买到的是什么？</li>
 <li>为什么小数据上「冻结 + 小头」比「全量微调」更合适？判据是什么？</li>
@@ -563,18 +548,17 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>无标注接近 0 成本、亿级；有标注<strong>一条就是一次湿实验</strong>，几百到几千元、几天到几周，量级常常只有<strong>两位数到三位数</strong>。</li>
+<li>未标注序列可能容易取得，实验标签可能昂贵且耗时；具体成本、数据量与实验通量需在项目中测量。整理公共数据和提取大模型表示也有成本。</li>
 <li>从 <strong>0.374</strong> 提到 <strong>0.696</strong>（提高 0.322，不能简单解释为效果翻倍）。那 16 维表示是从 <strong>4000 条无标签序列</strong>用 PCA 抽的，<strong>一个标签都没用</strong>。</li>
 <li><strong>0.878 vs 0.884，差 0.006</strong>；20 条时差 <strong>0.322</strong>。这只说明当前合成数据与模型下表示的收益随标签量增加而缩小，不能推断预训练永远不影响最终上限。</li>
 <li>冻结表示可减少要从少量标签中拟合的自由度，是值得先测的基线。风险还取决于表示质量、正则和任务匹配，不存在“参数多于样本就一定过拟合”或“达到几千条才可微调”的硬门槛。</li>
-<li>因为增强必须<strong>保持标签不变</strong>。⭐ 合法：把分子整体旋转（性质不变）。⚠️ 不合法：随便换掉序列里一个残基（性质可能全变）。什么变换安全取决于问题的对称性，见 <a href="05-等变与不变.html">05 章</a>。</li>
-<li>①指标好看是因为<strong>测试集也小</strong>，试过多种划分再挑一个好看的，那个数已经被污染 ②<strong>用同一批数据既选模型又报成绩</strong>，在 5 个模型里挑测试集最好的那个，分数存在被高估的选择偏差风险。⭐ 共同本质：<strong>测试集每被看一次，它作为尺子的价值就掉一点。</strong></li>
+<li>增强必须遵守任务的变换规则：旋转不变性质可保留标签，力和坐标等输出需同步变换；随意替换残基通常不能保留旧标签。</li>
+<li>① 试过多种划分再挑好看的，② 在测试结果上选模型。共同风险是测试反馈参与选择，造成偏乐观估计；应在训练侧选择，再做独立核验。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_10">🛑 可以停在这里</h2>
-<p>到这里你手上有小数据场景最有效的那一招（<strong>冻结 + 小头</strong>）和它的判据（<strong>参数量级配得上样本量</strong>），
-外加四件该做的事和两个该躲的坑。<strong>这些已经够你开工了。</strong></p>
+<p>到这里可以先建立<strong>固定表示加小头</strong>的基线，再按任务选择验证方式、报告不确定性，并比较微调或追加标签的价值。参数数目是风险线索，不能单独代替验证。</p>
 <p>⚠️ <strong>什么时候看下一页</strong>：你已经把现有的几十条数据榨干了，
 开始想「<strong>那下一批实验该做什么</strong>」—— 那是 <a href="08-数据实验模型飞轮.html">08 章</a>；下一章先检查评估是否可靠。</p>
 <p>⚡ <strong>走神救援</strong></p>
@@ -587,14 +571,25 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </main>
 <script>(function(){
   var KEY="sci-progress", FILE="06-\u5c0f\u6570\u636e\u8fd9\u4e00\u5173.md";
-  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  var memoryProgress=null;
+  function storageNote(message){var n=document.querySelector('.donebar .hint');if(n){n.setAttribute('role','status');n.textContent=message;}}
+  function load(){if(memoryProgress!==null)return memoryProgress;
+    try{var value=JSON.parse(localStorage.getItem(KEY));
+      if(value===null)return {};
+      if(typeof value==='object'&&!Array.isArray(value))return value;
+      storageNote('旧进度格式无法读取；本页仍可阅读和打卡。');return {};
+    }catch(e){storageNote('当前浏览器无法读取进度；本页仍可阅读和打卡。');return {};}}
+
   function refresh(){var d=!!load()[FILE];
     document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
       b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
                      :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
   document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
     var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
-    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+    memoryProgress=p;
+    try{localStorage.setItem(KEY,JSON.stringify(p));storageNote('打卡记录已写入当前浏览器。');}
+    catch(e){storageNote('本页打卡仅本次有效：浏览器无法保存，刷新或关闭后不会保留。');}
+    refresh();});});
   refresh();
 
   var tt=document.getElementById('themeToggle');
@@ -603,8 +598,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
     var next=dark?'light':'dark';
     document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('recsys-theme',next);});
+    try{localStorage.setItem('recsys-theme',next);}catch(e){storageNote('主题已切换；当前浏览器无法保存，下次打开可能恢复默认。');}});
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/scientific-modeling-reader.css">
+<script src="../assets/scientific-modeling-reader.js"></script>
+</body></html>
