@@ -2,8 +2,8 @@
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>09 · 怎么评估：FID 与 CLIP Score · 扩散模型</title>
-<script>(function(){var t=localStorage.getItem('recsys-theme');
-if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');
+if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(_){}})();</script><style>
 @font-face{font-family:"CodeCJK";
  src:url("../assets/code-cjk-mono.woff2") format("woff2");
  font-weight:400;font-style:normal;font-display:swap;}
@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="diffusion-reader">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -309,7 +309,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⏱ <strong>38 分钟</strong> ｜ ⭐ 两个几乎每篇论文都在报的数字，以及它们各自看不见什么</p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>FID 量「这一批图整体像不像真图」，CLIP Score 量「这一张图对不对得上提示词」—— 而你真正在乎的构图、手指、小字、审美，两个都不测。</strong></p>
+<p><strong>FID 量「这一批图整体像不像真图」，CLIP Score 量「这一张图对不对得上提示词」；构图、手指、小字和审美可能影响这些分数，但两个分数都不是这些维度的专门判据。</strong></p>
 <p>前面几章讲的全是怎么把图生成出来。这一章讲最后一件事：<strong>生成出来之后，你凭什么说这一版比上一版好。</strong></p>
 <hr />
 <h2 id="fid">📏 一、FID 到底在算什么</h2>
@@ -321,10 +321,22 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ol>
 <p>$$\mathrm{FID}=\lVert\mu_r-\mu_g\rVert^2+\mathrm{Tr}\!\left(\Sigma_r+\Sigma_g-2\left(\Sigma_r\Sigma_g\right)^{1/2}\right)$$</p>
 <blockquote>
-<p>⭐ <strong>人话翻译</strong>：第一项是「两堆点的<strong>中心</strong>差多远」，第二项是「两堆点的<strong>形状</strong>（往哪些方向散、散多开）差多少」。两项都为 0 才是 0。<strong>越小越好。</strong></p>
+<p>⭐ <strong>人话翻译</strong>：第一项是「两堆点的<strong>中心</strong>差多远」，第二项是「两堆点的<strong>形状</strong>（往哪些方向散、散多开）差多少」。总体距离为 0 对应两边均值和协方差相同。按同一评测协议比较时通常越小越好，但不能推出原始图像分布完全相同。</p>
 </blockquote>
 <p>⚠️ 注意这里的措辞：<strong>FID 从头到尾只用了均值和协方差</strong>。它把两堆图各压成了「一个中心 + 一个椭球」，除此之外的一切信息都被丢掉了。这一句是下面四个坑的共同来源。</p>
-<figure class="dia"><svg viewBox="0 0 700 306" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="两团特征点云各自拟合一个椭球，中间一条虚线表示它们的距离"><text class="dia-t" x="350" y="24" font-size="14" text-anchor="middle" fill="var(--fg)" font-weight="700">FID 只比较两团点的中心和形状，不看任何一张图</text><circle cx="161.3" cy="160.229" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="162.313" cy="143.699" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="138.379" cy="145.734" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="207.805" cy="158.483" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="205.254" cy="154.978" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="183.422" cy="153.707" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="113.354" cy="167.105" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="187.217" cy="159.976" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="112.494" cy="115.122" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="139.753" cy="140.636" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="180.385" cy="149.082" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="187.713" cy="137.155" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="180.496" cy="157.883" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="147.521" cy="184.351" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="188.925" cy="173.94" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="148.909" cy="135.21" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="158.302" cy="147.872" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="191.491" cy="154.969" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="154.79" cy="130.862" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="152.3" cy="174.418" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="142.53" cy="154.895" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="184.502" cy="120.205" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="171.648" cy="176.125" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="101.512" cy="143.568" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="166.391" cy="133.655" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="186.911" cy="148.754" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="120.202" cy="166.557" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="192.757" cy="168.917" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="218.98" cy="157.245" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="174.055" cy="124.017" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="190.925" cy="137.765" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="154.608" cy="124.704" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="137.101" cy="139.378" r="2.6" fill="var(--accent)" opacity=".62"/><circle cx="213.82" cy="109.364" r="2.6" fill="var(--accent)" opacity=".62"/><ellipse cx="170" cy="150" rx="66" ry="40" fill="none" stroke="var(--accent)" stroke-width="2.4"/><text class="dia-t" x="170" y="216" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">真图特征</text><circle cx="450.438" cy="154.787" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="549.074" cy="161.57" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="435.402" cy="99.6353" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="512.152" cy="135.275" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="461.927" cy="169.547" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="537.461" cy="153.145" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="508.356" cy="158.687" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="554.196" cy="162.381" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="517.634" cy="160.955" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="446.677" cy="175.635" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="532.473" cy="160.592" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="432.888" cy="137.326" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="528.638" cy="113.776" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="493.743" cy="170.391" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="455.42" cy="182.202" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="518.767" cy="146.997" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="511.045" cy="162.997" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="504.093" cy="172.913" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="477.507" cy="141.705" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="535.417" cy="150.536" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="470.064" cy="168.929" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="549.827" cy="141.103" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="453.08" cy="147.305" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="494.933" cy="144.04" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="547.762" cy="129.461" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="542.86" cy="124.634" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="473.241" cy="162.63" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="538.375" cy="167.18" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="511.738" cy="152.847" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="505.184" cy="161.506" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="494.009" cy="155.549" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="519.473" cy="150.017" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="525.975" cy="161.318" r="2.6" fill="var(--done)" opacity=".62"/><circle cx="568.361" cy="156.499" r="2.6" fill="var(--done)" opacity=".62"/><ellipse cx="500" cy="150" rx="66" ry="40" fill="none" stroke="var(--done)" stroke-width="2.4"/><text class="dia-t" x="500" y="216" font-size="12.5" text-anchor="middle" fill="var(--done)" font-weight="700">生成图特征</text><line x1="236" y1="150" x2="434" y2="150" stroke="var(--fg)" stroke-width="2" stroke-dasharray="6 4"/><text class="dia-t" x="335" y="142" font-size="12" text-anchor="middle" fill="var(--fg)" font-weight="700">中心差多远 + 形状差多少</text><text class="dia-t" x="350" y="242" font-size="13" text-anchor="middle" fill="var(--done)" font-weight="700">⭐ 全程只用了均值和协方差 —— 四个坑全从这一句来</text><text class="dia-t" x="350" y="266" font-size="12" text-anchor="middle" fill="var(--muted)">实测：两组来自同一分布、真值该是 0，n=100 却算出 21.4，n=10000 才降到 0.214</text><text class="dia-t" x="350" y="290" font-size="12" text-anchor="middle" fill="var(--danger,#e5534b)">⚠️ 而高斯 vs 每维只取 ±1（两阶矩一样、形状天差地别）FID 只有 0.1127，基线 0.1088</text></svg><figcaption>看这张图<strong>没画什么</strong>：它没有一张具体的图像。⭐ FID 只拿两团点的<strong>中心和形状</strong>做比较 —— 所以「每张都很怪但整体分布对」照样能拿高分。</figcaption></figure>
+<figure class="dia" data-diffusion-figure="fid-moments">
+<svg xmlns="http://www.w3.org/2000/svg" class="diffusion-figure" viewBox="0 0 760 620" role="img" aria-labelledby="df-fid-moments-title df-fid-moments-desc">
+<title id="df-fid-moments-title">两阶矩相同，分布也一定相同吗？</title>
+<desc id="df-fid-moments-desc">一维手工总体反例：等概率取正负1的离散分布与标准高斯分布，均值都为0，方差都为1，因此两者高斯拟合间的总体Frechet矩距离为0，但原分布不同。该示意没有图像、Inception网络或实际图像FID测量。有限样本的距离估计通常不为零。</desc>
+<defs><marker id="df-fid-moments-arrow" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto"><path d="M0 0L8 4L0 8" fill="none" stroke="var(--muted,#587082)" stroke-width="1.5"/></marker></defs>
+<g font-family="system-ui, 'Microsoft YaHei', sans-serif">
+<rect width="760" height="620" rx="14" fill="var(--card,#ffffff)"/>
+<text x="30" y="42" font-size="25" text-anchor="start" fill="var(--fg,#183248)" font-weight="700">两阶矩相同，分布也一定相同吗？</text>
+<text x="30" y="78" font-size="19" text-anchor="start" fill="var(--fg,#183248)" font-weight="400">一维总体分布的反例；手工构造，不是图像质量实验</text><rect x="30" y="110" width="700" height="130" rx="12" fill="var(--quote-bg,#f1f5fa)" stroke="var(--border,#bbc9d8)"/><text x="50" y="142" font-size="21" text-anchor="start" fill="var(--fg,#183248)" font-weight="700">分布 A：等概率取 −1、+1</text><text x="50" y="175" font-size="20" text-anchor="start" fill="var(--fg,#183248)" font-weight="400">均值 0；方差 1</text><path d="M380 213 L690 213" fill="none" stroke="var(--muted,#587082)" stroke-width="2"/><text x="415" y="232" font-size="15" text-anchor="middle" fill="var(--fg,#183248)" font-weight="400">-2</text><text x="475" y="232" font-size="15" text-anchor="middle" fill="var(--fg,#183248)" font-weight="400">-1</text><text x="535" y="232" font-size="15" text-anchor="middle" fill="var(--fg,#183248)" font-weight="400">0</text><text x="595" y="232" font-size="15" text-anchor="middle" fill="var(--fg,#183248)" font-weight="400">1</text><text x="655" y="232" font-size="15" text-anchor="middle" fill="var(--fg,#183248)" font-weight="400">2</text><rect x="30" y="260" width="700" height="130" rx="12" fill="var(--quote-bg,#f1f5fa)" stroke="var(--border,#bbc9d8)"/><text x="50" y="292" font-size="21" text-anchor="start" fill="var(--fg,#183248)" font-weight="700">分布 B：标准高斯 N(0,1)</text><text x="50" y="325" font-size="20" text-anchor="start" fill="var(--fg,#183248)" font-weight="400">均值 0；方差 1</text><path d="M380 363 L690 363" fill="none" stroke="var(--muted,#587082)" stroke-width="2"/><text x="415" y="382" font-size="15" text-anchor="middle" fill="var(--fg,#183248)" font-weight="400">-2</text><text x="475" y="382" font-size="15" text-anchor="middle" fill="var(--fg,#183248)" font-weight="400">-1</text><text x="535" y="382" font-size="15" text-anchor="middle" fill="var(--fg,#183248)" font-weight="400">0</text><text x="595" y="382" font-size="15" text-anchor="middle" fill="var(--fg,#183248)" font-weight="400">1</text><text x="655" y="382" font-size="15" text-anchor="middle" fill="var(--fg,#183248)" font-weight="400">2</text><path d="M475 213 L475 164" fill="none" stroke="var(--accent,#245de2)" stroke-width="2"/><path d="M595 213 L595 164" fill="none" stroke="var(--accent,#245de2)" stroke-width="2"/><text x="475" y="157" font-size="19" text-anchor="middle" fill="var(--fg,#183248)" font-weight="400">½</text><text x="595" y="157" font-size="19" text-anchor="middle" fill="var(--fg,#183248)" font-weight="400">½</text><polyline points="385.00,360.36 388.00,360.02 391.00,359.63 394.00,359.21 397.00,358.74 400.00,358.23 403.00,357.66 406.00,357.05 409.00,356.38 412.00,355.66 415.00,354.88 418.00,354.04 421.00,353.13 424.00,352.16 427.00,351.13 430.00,350.02 433.00,348.86 436.00,347.62 439.00,346.32 442.00,344.95 445.00,343.52 448.00,342.03 451.00,340.48 454.00,338.88 457.00,337.23 460.00,335.53 463.00,333.79 466.00,332.03 469.00,330.24 472.00,328.43 475.00,326.61 478.00,324.79 481.00,322.98 484.00,321.19 487.00,319.43 490.00,317.71 493.00,316.04 496.00,314.43 499.00,312.88 502.00,311.42 505.00,310.05 508.00,308.78 511.00,307.61 514.00,306.56 517.00,305.64 520.00,304.85 523.00,304.19 526.00,303.67 529.00,303.30 532.00,303.07 535.00,303.00 538.00,303.07 541.00,303.30 544.00,303.67 547.00,304.19 550.00,304.85 553.00,305.64 556.00,306.56 559.00,307.61 562.00,308.78 565.00,310.05 568.00,311.42 571.00,312.88 574.00,314.43 577.00,316.04 580.00,317.71 583.00,319.43 586.00,321.19 589.00,322.98 592.00,324.79 595.00,326.61 598.00,328.43 601.00,330.24 604.00,332.03 607.00,333.79 610.00,335.53 613.00,337.23 616.00,338.88 619.00,340.48 622.00,342.03 625.00,343.52 628.00,344.95 631.00,346.32 634.00,347.62 637.00,348.86 640.00,350.02 643.00,351.13 646.00,352.16 649.00,353.13 652.00,354.04 655.00,354.88 658.00,355.66 661.00,356.38 664.00,357.05 667.00,357.66 670.00,358.23 673.00,358.74 676.00,359.21 679.00,359.63 682.00,360.02 685.00,360.36" fill="none" stroke="var(--done,#087c65)" stroke-width="3"/><rect x="30" y="418" width="700" height="108" rx="12" fill="var(--quote-bg,#f1f5fa)" stroke="var(--border,#bbc9d8)"/><text x="50" y="450" font-size="22" text-anchor="start" fill="var(--fg,#183248)" font-weight="700">两者高斯拟合相同 → 总体 Fréchet 矩距离 = 0</text><text x="50" y="486" font-size="20" text-anchor="start" fill="var(--fg,#183248)" font-weight="400">原分布仍不同：一个只有两个取值，一个连续。</text><text x="30" y="561" font-size="18" text-anchor="start" fill="var(--fg,#183248)" font-weight="400">FID 比较特征均值与协方差；有限样本估计通常不恰为 0。</text><text x="30" y="592" font-size="19" text-anchor="start" fill="var(--fg,#183248)" font-weight="400">不能从“距离小”直接推出逐张图像合格。</text>
+</g></svg>
+
+<figcaption>上面两种一维总体分布都满足均值 0、方差 1，因而高斯拟合间的总体 Fréchet 矩距离为 0，但原分布不同。这是手工数学示意，不是实际图像 FID；有限样本估计通常不恰为 0。</figcaption>
+</figure>
 
 <hr />
 <h2 id="1">🕳️ 二、坑①：它对样本量极敏感（这一条可以直接跑出来）</h2>
@@ -425,7 +437,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>样本增加通常改善估计，但单次随机结果不保证单调下降；本例接近“误差随样本量增加而减小”，不是适用于所有分布的固定倍率公式。</p>
 <p><strong>比较时至少固定样本量、特征网络、参考集和预处理。</strong> 50000 张是一种常见设置，10000 张不是普适的有效/无效分界；样本少时还要报告重复抽样的波动。</p>
 <p>有限样本 FID 存在与模型有关的偏差，固定样本量也不能自动消除它。不能说“少抽样本只会变大、绝不变小”。依据：<a href="https://arxiv.org/abs/1911.07023">有限样本 FID 偏差研究</a>。</p>
-<p><strong>B 段是坑③</strong>：右边那组每一维只取 +1 或 −1 —— 一个长在 64 维超立方体顶点上的分布，和高斯<strong>形状完全不同</strong>，但它俩的均值和协方差<strong>一模一样</strong>。结果 FID 是 <strong>0.1127</strong>，而同一个分布的基线是 <strong>0.1088</strong>。⭐ <strong>总体两阶矩相同的不同分布，会有相同的总体 Fréchet 距离；样本估计只是很接近</strong> —— 因为 FID 只看均值和协方差，它在设计上就看不见别的。</p>
+<p><strong>B 段是坑③</strong>：右边那组每一维只取 +1 或 −1 —— 一个长在 64 维超立方体顶点上的分布，和高斯形状完全不同；它们的总体均值都是 0、协方差都是 I，有限样本统计量并不完全相同。结果 FID 是 <strong>0.1127</strong>，而同一个分布的基线是 <strong>0.1088</strong>。⭐ <strong>总体两阶矩相同的不同分布，会有相同的总体 Fréchet 距离；样本估计只是很接近</strong> —— 因为 FID 只看均值和协方差，它在设计上就看不见别的。</p>
 <blockquote>
 <p>💀 <strong>落到图上就是</strong>：只要整批图的特征分布对得上，<strong>每一张单独看都很怪</strong>（六根手指、糊掉的招牌字）也能拿到漂亮的 FID。FID 从来不评价任何一张图。</p>
 </blockquote>
@@ -438,24 +450,24 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <hr />
 <h2 id="clip-score">🧲 四、CLIP Score：另一个方向的一半</h2>
-<p>FID 完全不看提示词。CLIP Score 补的就是这一半：把图过 CLIP 的图像编码器、提示词过文本编码器，两个向量算<strong>余弦相似度</strong>（通常再乘 100、并把负值截成 0）。<strong>越大越好。</strong></p>
-<p>⚠️ <strong>它的坑只有一条，但很致命：它只测「对不对」，不测「好不好看」。</strong> 一张构图糟糕、光线奇怪、手指畸形的图，只要内容确实是「一只戴帽子的猫」，就能拿到和精美版本一样的分。</p>
+<p>FID 完全不看提示词。CLIP Score 补的就是这一半：把图过 CLIP 的图像编码器、提示词过文本编码器，对归一化后的两个向量算<strong>余弦相似度</strong>，作为匹配代理。常见实现为 <code>100×max(cos,0)</code>；原始 CLIPScore 论文采用 <code>2.5×max(cos,0)</code>，因此报告时需写清编码器与缩放，不能混比绝对数。<a href="https://arxiv.org/abs/2104.08718">CLIPScore 原论文</a>给出其定义与适用边界。</p>
+<p><strong>CLIP Score 是整体图文相似度，不能保证关系、数量或属性绑定正确，也不是完整画质评分。</strong> 例如内容大体像“戴帽子的猫”的图片，仍可能在手指、文字或构图上失败。要检查这些要求，需增加针对该维度的任务或人工检查，不能把一个余弦分数读作“内容全部正确”。</p>
 <p><strong>CFG 改变的可能是多个指标之间的取舍。</strong> 在某些模型和区间里，加强引导能提高图文匹配，同时损害多样性或画面质量；CLIP Score 并不保证随 CFG 一路单调上升。固定模型和提示词，实际画出 FID–CLIP 对照，再结合图像检查选择强度。</p>
 <hr />
 <h2 id="_3">⚖️ 五、人评怎么做才不浪费</h2>
-<p>图像生成里，人评不是「补充」，是<strong>唯一直接测你在乎的东西的办法</strong>。但它很贵，所以三条规矩必须守住：</p>
+<p><strong>先把在乎的质量写成清楚的任务与判据。</strong> 审美、整体偏好适合补充人工判断；文字、计数或布局还可用相应自动检查，但也要验证检查器。人评同样会有偏差，下面三点帮助让偏好比较更可靠。</p>
 <ul>
-<li>⭐ <strong>成对比较 &gt; 打分。</strong> 让评委在两张图里选一张，不要让他打 1–5 分。绝对刻度在人和人之间不可比，而且<strong>同一个人的刻度会随着看过的图漂移</strong>（看了二十张好图之后，第七分变成第五分）。成对比较只要求排序，再用 Elo / Bradley–Terry 汇总成一个可比的分数。</li>
+<li><strong>整体偏好可先用成对比较。</strong> 把“更符合提示词”和“更好看”分开问，允许平局或都不合格。成对结果可用 Bradley–Terry 等模型汇总；有明确锚点的分项打分也可用。应记录评委一致性与不确定性，不把排序自动当成客观真值。</li>
 <li>⭐ <strong>必须盲评。</strong> 不告诉评委哪张来自哪个模型，<strong>并且左右顺序随机</strong> —— 否则位置偏好和品牌预期会盖过真实差距。</li>
-<li>⭐ <strong>题目集要固定，而且来自真实用法。</strong> 每次评测用同一批提示词，否则你比的是提示词不是模型；提示词要从真实请求里捞，<strong>不要自己编</strong> —— 编的题总是太规整。</li>
+<li>⭐ <strong>题目集要固定，而且来自真实用法。</strong> 每次评测用同一批提示词，否则你比的是提示词不是模型；优先覆盖实际请求，并可补充有明确目的的诊断题；写清各类占比，避免只放规整题或只放困难题。</li>
 </ul>
-<p>⚠️ 还有一条容易被忽略：<strong>人评同样受样本量限制</strong>。30 组对比只够判断「明显更好 / 明显更差」，分辨不了「好 3 个百分点」。</p>
+<p>⚠️ 还有一条容易被忽略：<strong>人评同样受样本量限制</strong>。例如把 30 个独立成对结果暂当作二项胜负观测，胜率约 50% 时，标准误差约 9.1 个百分点，粗略 95% 区间宽达 ±18 个百分点；不足以据此确认 3 个点的小优势。重复提示词或共享评委带来的相关性还要另算。</p>
 <hr />
 <h2 id="_4">🔭 六、最要紧的一条：尺子本身也会坏</h2>
 <p>站内《数据这一关》第 13 章把这件事说成一句话：<strong>评测集是你唯一的尺子，而尺子本身也是一份数据 —— 它会被抽错、被污染、被磨损。</strong> 这条判据在这里一字不改地成立，而且加倍成立，因为 FID 和 CLIP Score <strong>都不是你的目标，只是代理</strong>。</p>
-<p>⭐ <strong>磨损</strong>是最容易忽略的一种坏法。那一章跑过一个实验：从一堆真实水平几乎一样的候选里，每次挑评测分最高的那个 —— 试过 200 个候选之后，被选中那个的在该教学实验设置下分数平均虚高约 <strong>4.5 个百分点</strong>，而普通、未校正选择过程的置信区间不会自动反映这项偏差（置信区间只管抽样误差，不管选择偏差）。你每天拿 FID 挑 checkpoint、挑调度器、挑 CFG，干的正是这件事。</p>
+<p>⭐ <strong>磨损</strong>是最容易忽略的一种坏法。那一章跑过一个实验：从一堆真实水平几乎一样的候选里，每次挑评测分最高的那个 —— 试过 200 个候选之后，被选中模型在该教学实验设置下的分数平均虚高约 <strong>4.5 个百分点</strong>，而普通、未校正选择过程的置信区间不会自动反映这项偏差（置信区间只管抽样误差，不管选择偏差）。你每天拿 FID 挑 checkpoint、挑调度器、挑 CFG，干的正是这件事。</p>
 <p>⭐ <strong>对策便宜到没有借口不做</strong>：把评测提示词集<strong>切成 dev 和 test</strong>。dev 随便调随便看；test 设置访问配额并记录用途；例如每季度三次可以是一条团队约定，不是统计学定律。</p>
-<p>⭐ <strong>而最后一条判据来自《模型上线之后》第 15 章</strong>：代理指标必须<strong>定期回验</strong>它和真实目标的相关性还在不在。做法是攒 5–10 组「FID 变化 vs 人评变化」画散点 —— <strong>相关性一旦消失，这把尺子就已经不指向你要的东西了</strong>，而你还会继续做出一串「成功」的实验。</p>
+<p><strong>还要定期检查代理指标与真实目标是否仍同向。</strong> 可以先画“FID 变化与人评变化”的散点，并追查具体冲突案例；少数点只适合初步诊断，观察不到相关性可能也来自估计噪声或样本不足。扩大样本并量化不确定性后，再决定是否更换指标。</p>
 <hr />
 <h2 id="_5">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
@@ -472,7 +484,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><a href="../大模型全景导论/11-评测体系.html">大模型全景导论 11 · 评测体系</a></td>
-<td>榜单那一侧的通用陷阱。本章坑④（跨论文不可比）在那里叫<strong>「报告条件不对等」</strong>，它给的检查法直接能搬过来：看到任何对比图，先找「用的什么提示词 / 跑了几次怎么取 / 温度是多少」。它还算过一笔本章第五节要用的账：<strong>100 题的评测集只能分辨 8 个百分点以上的差距，想分辨 3 个点需要约 700 题</strong></td>
+<td>对照“报告条件不对等”的通用陷阱：提示词、采样次数与取值方式、模型参数是否一致。样本量要结合目标差距、方差与配对设计计算，不能把“100 题／700 题”当成所有任务的分辨率定律。</td>
 </tr>
 <tr>
 <td><a href="../大模型全景导论/11b-私有评测集怎么建.html">大模型全景导论 11b · 私有评测集怎么建</a></td>
@@ -480,7 +492,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><a href="../模型上线之后/15-长期效应与代理指标.html">模型上线之后 15 · 长期效应与代理指标</a></td>
-<td>「代理指标不等于真实目标」这条判据的出处。它给了可执行的门槛（相关系数 ρ &gt; 0.7 且方向一致率 &gt; 85% 才能拿来做决策），也给了不回验的代价：一个跑了 <strong>14 个月</strong>才被发现的代理失效。⭐ 它那条「半年一次重新验证整条指标链」，就是本章末尾那个散点图该多久画一次</td>
+<td>对照代理指标与真实目标的偏离，学习怎样定期回验指标链。该章的数值门槛、事故与检查周期属于其教学案例或团队约定，不是跨任务通用的统计定律。</td>
 </tr>
 </tbody>
 </table></div>
@@ -498,10 +510,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>2048 维</strong>，来自 <strong>Inception</strong> 网络倒数第二层。⭐ 所以 FID 测的是「在 Inception 眼里像不像」，而 Inception 是 ImageNet 分类模型，对纹理敏感、对版式和文字基本无感。</li>
+<li><strong>2048 维</strong>，来自 <strong>Inception</strong> 网络倒数第二层。⭐ 所以 FID 测的是「在 Inception 眼里像不像」，而 Inception 是 ImageNet 分类模型，这些分类特征不是文字、手指或布局的专门检查器，不能说完全不敏感。</li>
 <li>第一项 $\lVert\mu_r-\mu_g\rVert^2$ 量两堆特征的<strong>中心</strong>差多远；第二项那个迹量两堆的<strong>形状</strong>（往哪些方向散、散多开）差多少。⭐ 除了均值和协方差，别的信息一概没用上。</li>
 <li>同分布的总体距离是 <strong>0</strong>；这次合成特征实验 n=100 为 <strong>21.422</strong>，n=10000 为 <strong>0.214</strong>。有限样本有估计误差和偏差，但单次结果不保证随样本量单调变化。</li>
-<li>因为 FID 只比较两个分布的均值和协方差，<strong>从不评价任何单张图</strong>。B 段：右边那组每维只取 +1/−1（长在超立方体顶点上），和高斯形状完全不同但两阶矩一模一样 —— 算出 <strong>0.1127</strong>，而同一分布的基线是 <strong>0.1088</strong>，两者没有区别。</li>
+<li>因为 FID 只比较两个分布的均值和协方差，<strong>从不评价任何单张图</strong>。B 段：右边那组每维只取 +1/−1（长在超立方体顶点上），和高斯形状完全不同但两阶矩一模一样 —— 算出 <strong>0.1127</strong>，而同一分布的基线是 <strong>0.1088</strong>，两次样本估计接近，但不能据此说它们严格相等或已完成显著性检验。</li>
 <li><strong>不能。</strong> CLIP Score 是图文匹配的代理指标，不是完整画质评分。调高 CFG 可能在匹配、多样性和质量之间产生取舍，具体变化必须实测，不能假定两个指标单调变化。</li>
 <li>因为 1–5 的<strong>绝对刻度在人和人之间不可比</strong>，而且同一个人的刻度会随看过的图<strong>漂移</strong>。成对比较只要求排序，再用 Elo / Bradley–Terry 汇总。另外两条同样是硬要求：<strong>盲评 + 左右顺序随机</strong>，<strong>题目集固定且来自真实请求</strong>。</li>
 <li>反复依据同一评测集选模型，可能把评测噪声也选进去。相关教学实验的 4.5 个百分点只对应其设置，不是偏差下限。分开 dev/test，限制并记录 test 的使用；普通置信区间不会自动校正模型选择偏差。</li>
@@ -521,15 +533,24 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </main>
 <script>(function(){
   var KEY="diff-progress", FILE="09-\u600e\u4e48\u8bc4\u4f30.md";
-  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  var storageAvailable=true, memoryProgress={};
+  function load(){try{var parsed=JSON.parse(localStorage.getItem(KEY));
+    memoryProgress=parsed&&typeof parsed==='object'&&!Array.isArray(parsed)?parsed:{};
+    return memoryProgress;}catch(e){storageAvailable=false;return memoryProgress;}}
+  function storageStatus(message){var node=document.getElementById('diffusion-storage-status');
+    if(!node){node=document.createElement('p');node.id='diffusion-storage-status';
+      node.setAttribute('role','status');node.className='diffusion-storage-status';
+      var host=document.querySelector('.dash')||document.querySelector('.donebar')||document.querySelector('main');
+      host.appendChild(node);}node.textContent=message;}
   function refresh(){var d=!!load()[FILE];
     document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
       b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
                      :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
   document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
     var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
-    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+    memoryProgress=p;try{localStorage.setItem(KEY,JSON.stringify(p));storageAvailable=true;storageStatus('打卡已保存在当前浏览器。');}catch(_){storageAvailable=false;storageStatus('未保存：浏览器存储不可用，打卡仅本次有效。');} refresh();});});
   refresh();
+  if(!storageAvailable)storageStatus('无法读取进度；打卡仅本次有效。');
 
   var tt=document.getElementById('themeToggle');
   if(tt)tt.addEventListener('click',function(){
@@ -537,8 +558,43 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
     var next=dark?'light':'dark';
     document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('recsys-theme',next);});
+    try{localStorage.setItem('recsys-theme',next);}catch(_){storageStatus('未保存：浏览器存储不可用，主题更改仅本次有效。');}});
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/diffusion-reader.css"><script data-diffusion-zoom-adapter>
+/* Module-local adapter: keep original SVG IDs and uniquify only zoom copies. */
+(function () {
+  'use strict';
+  if (!document.body.classList.contains('diffusion-reader')) return;
+  var serial = 0;
+  document.addEventListener('click', function (event) {
+    if (!event.target.closest('.diagram-expand')) return;
+    var svg = document.querySelector('#diagram-reader-stage > svg');
+    if (!svg) return;
+    var elements = [svg].concat(Array.from(svg.querySelectorAll('*')));
+    var names = new Map(), prefix = 'diffusion-zoom-' + (++serial) + '-';
+    elements.forEach(function (element) { if (element.id) names.set(element.id, prefix + element.id); });
+    function references(value) {
+      return value.replace(/url\((['"]?)#([^)'\"]+)\1\)/g, function (whole, quote, id) {
+        return names.has(id) ? 'url(#' + names.get(id) + ')' : whole;
+      });
+    }
+    elements.forEach(function (element) {
+      if (element.id) element.id = names.get(element.id);
+      Array.from(element.attributes).forEach(function (attribute) {
+        if (attribute.name === 'id') return;
+        var value = references(attribute.value);
+        if (attribute.name === 'aria-labelledby' || attribute.name === 'aria-describedby') {
+          value = value.split(/\s+/).map(function (id) { return names.get(id) || id; }).join(' ');
+        } else if (value.charAt(0) === '#' && names.has(value.slice(1))) {
+          value = '#' + names.get(value.slice(1));
+        }
+        if (value !== attribute.value) attribute.value = value;
+      });
+      if (element.tagName.toLowerCase() === 'style') element.textContent = references(element.textContent);
+    });
+  });
+})();
+
+</script></body></html>

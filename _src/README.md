@@ -12,7 +12,7 @@
 
 ## 版本化范围与定向重建
 
-2026-10-20起，本轮已验收首页、机器学习基础和大模型导论的源文件、现有构建器及Python-Markdown运行依赖按用户要求定向纳入版本控制。受跟踪的输出/源关系以 `maintenance/polished-pages.json` 为准，操作命令见 `maintenance/README.md`。全站 `_src/source-map.json` 及其他板块历史源仍不分发；不要在新克隆中把下方本地全站命令当作本轮重建入口。
+2026-10-20起，已验收且由维护清单明确声明的首页与课程板块源文件、现有构建器及Python-Markdown运行依赖按用户要求定向纳入版本控制。受跟踪的输出/源关系以 `maintenance/polished-pages.json` 为准，操作命令见 `maintenance/README.md`。全站 `_src/source-map.json` 及其他板块历史源仍不分发；不要在新克隆中把下方本地全站命令当作本轮重建入口。
 
 ## 仅供本地完整维护档案的旧全站命令
 

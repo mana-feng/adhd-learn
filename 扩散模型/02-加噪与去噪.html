@@ -2,8 +2,8 @@
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>02 · 加噪：一条不用学的公式 · 扩散模型</title>
-<script>(function(){var t=localStorage.getItem('recsys-theme');
-if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');
+if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(_){}})();</script><style>
 @font-face{font-family:"CodeCJK";
  src:url("../assets/code-cjk-mono.woff2") format("woff2");
  font-weight:400;font-style:normal;font-display:swap;}
@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="diffusion-reader">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -416,7 +416,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong>关键一步</strong>：两个独立的零均值高斯相加，结果<strong>还是高斯</strong>，而且<strong>方差直接相加</strong>：</p>
 <p>$$\alpha_2(1-\alpha_1) + (1-\alpha_2) = 1 - \alpha_1\alpha_2$$</p>
 <p>所以那一整坨等价于一个方差为 $1-\alpha_1\alpha_2$ 的高斯。归纳下去就得到 $\bar\alpha_t = \prod_{s\le t}\alpha_s$。</p>
-<p>⚠️ 合并成立<strong>只因为噪声与数据无关、而且每步都是线性的</strong>。反向那条路两个条件都不满足，所以合并不了（见第五节）。</p>
+<p>合并用到了每步噪声相互独立、与数据独立、且都是高斯，以及更新的线性形式。反向依赖未知的数据分布，不能直接照抄这个合并式；见 <a href="02b-调度表与反向过程.html#_3">02b 的反向过程</a>。</p>
 </details>
 <h3 id="_5">🔬 亲手验证一下</h3>
 <p>两种算法应该给出同一个分布 —— 迭代法每步重采一次噪声、走 $t$ 次；闭式法只采一次噪声、算一次乘加：</p>
@@ -647,7 +647,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>上表保留原稿数值。本次 PyTorch 2.14.0+cpu 复跑首行相关系数为 <strong>+0.9999</strong>（原稿 +0.9998），其余显示值一致；末位差异不改变这里的结论。</p>
+<p>上表保留原稿数值。旧稿记载的 PyTorch 2.14.0+cpu 复跑首行相关系数为 <strong>+0.9999</strong>（原稿 +0.9998），其余显示值一致；末位差异不改变这里的结论。</p>
 </section>
 <p>到 $t=1000$，样本相关系数为 <strong>0.0031</strong>，线性相关很弱。但相关接近零不是独立性的证明，更不是标准高斯分布的鉴定。这里还要结合前向公式：原数据系数小、噪声系数接近 1，终点才近似标准高斯。</p>
 <p><strong>为什么生成可以从随机噪声起步？</strong> 训练终点的分布被设计成接近一个容易采样的先验，因此推理可用 <code>torch.randn(...)</code> 起步。有限步调度留下的差距仍要检查，而不是假定两者完全相同。</p>
@@ -714,15 +714,24 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </main>
 <script>(function(){
   var KEY="diff-progress", FILE="02-\u52a0\u566a\u4e0e\u53bb\u566a.md";
-  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  var storageAvailable=true, memoryProgress={};
+  function load(){try{var parsed=JSON.parse(localStorage.getItem(KEY));
+    memoryProgress=parsed&&typeof parsed==='object'&&!Array.isArray(parsed)?parsed:{};
+    return memoryProgress;}catch(e){storageAvailable=false;return memoryProgress;}}
+  function storageStatus(message){var node=document.getElementById('diffusion-storage-status');
+    if(!node){node=document.createElement('p');node.id='diffusion-storage-status';
+      node.setAttribute('role','status');node.className='diffusion-storage-status';
+      var host=document.querySelector('.dash')||document.querySelector('.donebar')||document.querySelector('main');
+      host.appendChild(node);}node.textContent=message;}
   function refresh(){var d=!!load()[FILE];
     document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
       b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
                      :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
   document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
     var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
-    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+    memoryProgress=p;try{localStorage.setItem(KEY,JSON.stringify(p));storageAvailable=true;storageStatus('打卡已保存在当前浏览器。');}catch(_){storageAvailable=false;storageStatus('未保存：浏览器存储不可用，打卡仅本次有效。');} refresh();});});
   refresh();
+  if(!storageAvailable)storageStatus('无法读取进度；打卡仅本次有效。');
 
   var tt=document.getElementById('themeToggle');
   if(tt)tt.addEventListener('click',function(){
@@ -730,8 +739,43 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
     var next=dark?'light':'dark';
     document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('recsys-theme',next);});
+    try{localStorage.setItem('recsys-theme',next);}catch(_){storageStatus('未保存：浏览器存储不可用，主题更改仅本次有效。');}});
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/diffusion-reader.css"><script data-diffusion-zoom-adapter>
+/* Module-local adapter: keep original SVG IDs and uniquify only zoom copies. */
+(function () {
+  'use strict';
+  if (!document.body.classList.contains('diffusion-reader')) return;
+  var serial = 0;
+  document.addEventListener('click', function (event) {
+    if (!event.target.closest('.diagram-expand')) return;
+    var svg = document.querySelector('#diagram-reader-stage > svg');
+    if (!svg) return;
+    var elements = [svg].concat(Array.from(svg.querySelectorAll('*')));
+    var names = new Map(), prefix = 'diffusion-zoom-' + (++serial) + '-';
+    elements.forEach(function (element) { if (element.id) names.set(element.id, prefix + element.id); });
+    function references(value) {
+      return value.replace(/url\((['"]?)#([^)'\"]+)\1\)/g, function (whole, quote, id) {
+        return names.has(id) ? 'url(#' + names.get(id) + ')' : whole;
+      });
+    }
+    elements.forEach(function (element) {
+      if (element.id) element.id = names.get(element.id);
+      Array.from(element.attributes).forEach(function (attribute) {
+        if (attribute.name === 'id') return;
+        var value = references(attribute.value);
+        if (attribute.name === 'aria-labelledby' || attribute.name === 'aria-describedby') {
+          value = value.split(/\s+/).map(function (id) { return names.get(id) || id; }).join(' ');
+        } else if (value.charAt(0) === '#' && names.has(value.slice(1))) {
+          value = '#' + names.get(value.slice(1));
+        }
+        if (value !== attribute.value) attribute.value = value;
+      });
+      if (element.tagName.toLowerCase() === 'style') element.textContent = references(element.textContent);
+    });
+  });
+})();
+
+</script></body></html>

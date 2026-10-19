@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>05 · Latent Diffusion：在压缩过的空间里扩散 · 扩散模型</title>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');
+if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(_){}})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{
+/* ⭐ 字号阶梯：正文 = 1em（body 18px）。其余一律从这几档取，
+   不要再写 .92 / .94 / .95 这种随手值 —— body 18px 下它们相差不到 0.5px，
+   分不出来，只会让后来的人不知道该抄哪一个。 */
+  --fs-xs:.8em;    /* 角标、方向标签 */
+  --fs-sm:.88em;   /* 代码、图注、注解 */
+  --fs-md:.93em;   /* 略小于正文：表格、面板、目录 —— 站内最常用 */
+  --fs-lg:1.14em;  /* h3 */
+  --fs-xl:1.42em;  /* h2 */
+  --fs-2xl:1.9em;  /* h1 */
+--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:var(--fs-2xl);line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:var(--fs-xl);margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:var(--fs-lg);margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+/* ⭐ 表格横向滚动兜底：`width:100%` 让表格只会挤不会溢出，实测 305px 宽下
+   最窄单元格只剩 40px。给单元格一个 min-width 让它不再无限压缩，超出的由 .tw 兜住。
+   2–4 列的表仍然占满不滚动，只有真挤不下的多列表才出现滚动条。 */
+.tw{overflow-x:auto;margin:1.2em 0;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;margin:0;font-size:var(--fs-md)}
+th,td{min-width:5.2em}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:var(--fs-sm);background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:var(--fs-sm)}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:var(--fs-md)}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:var(--fs-xs);color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:var(--fs-sm);color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:var(--fs-md)}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:var(--fs-xs);
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:var(--fs-md);border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:var(--fs-md)}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:var(--fs-md);line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:var(--fs-md)}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:var(--fs-sm);line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:var(--fs-md);line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:var(--fs-md)}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:var(--fs-lg);opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:var(--fs-sm);
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+/* ⭐ 块公式也要能自己横向滚动：pre/表格/图都有兜底，只有它没有 —— 一条长公式会把整页撑出横向滚动条 */
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:2px 0 6px}
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:var(--fs-xs);
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
+
+.dia-lead{color:var(--muted);font-size:var(--fs-md);margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:var(--fs-sm);margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:var(--fs-md);margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:var(--fs-md);line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.05em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:var(--fs-md);break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #FF4689 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #66D9EF } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #A6E22E } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #A6E22E } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
+<script defer src="../assets/vendor/katex/katex.min.js"></script>
+<script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading topic-reading diffusion-reader">
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">05 · Latent Diffusion</span>
+  <span class="prevnext"><a href="04-DDIM与采样加速.html">←</a>
+  <a href="06-条件控制与CFG.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#_2">💸 一、先把账算出来：像素空间的哪些操作很贵</a></li>
+<li><a href="#_3">🗜️ 二、把扩散搬进潜空间：先分清你正在做哪件事</a></li>
+<li><a href="#_4">🔢 三、三个倍数，别混成一个</a></li>
+<li><a href="#_5">🧪 四、动手：这笔账自己算一遍</a></li>
+<li><a href="#_6">🔍 五、代价：先查重建，再谈细节从哪里损失</a></li>
+<li><a href="#kl">⚖️ 六、KL 项在这里到底管什么</a></li>
+<li><a href="#_7">🔗 这一章连到哪里</a></li>
+<li><a href="#_8">✅ 检查点</a></li>
+<li><a href="#_9">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<div class="ov-layout"><article class="ov-body"><h1 id="05-latent-diffusion">05 · Latent Diffusion：在压缩过的空间里扩散</h1>
+<!-- topic-reading -->
+
+<p><link rel="stylesheet" href="../assets/diff-formula-help.css"><script defer src="../assets/diff-formula-help.js"></script></p>
+<p>⏱ <strong>40 分钟</strong> ｜ 阅读与计数实验参考，可分次完成 ｜ <strong>先区分“少了多少个数”和“真的快了多少”</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong>Latent Diffusion 把反复去噪放在较小的潜变量张量上做，最后用解码器变成图像。</strong> 它能减少某些计算开销，但尺寸比不等于整机加速比，重建误差也不是所有生成图的统一画质上限。</p>
+<p>先记一组具体尺寸：在本页采用的 <strong>Stable Diffusion 1.x 示例</strong>中，512×512×3 的图像可编码成 64×64×4 的潜变量。元素数从 <strong>786,432</strong> 变成 <strong>16,384</strong>，是原来的 1/48。潜变量仍是一组实数，不是一张缩小后给人看的 RGB 图片。</p>
+<p>这一页有三个入口：</p>
+<ul>
+<li>想知道它在做什么：先看<a href="#_3">训练与两种出图路径</a>。</li>
+<li>想核对 48／64／4096：去<a href="#_4">三个倍数的条件</a>和<a href="#_5">可运行计数</a>。</li>
+<li>想排查小字、纹理或细节：去<a href="#_6">重建能告诉你什么</a>，不要先把所有问题归罪于压缩。</li>
+</ul>
+<p>上一章的 DDIM 主要改变采样方式和步数。本章主要改变<strong>反复计算发生在哪里</strong>；两者可以组合，但不能保证任意压缩率和任意步数都保持原质量。</p>
+<hr />
+<h2 id="_2">💸 一、先把账算出来：像素空间的哪些操作很贵</h2>
+<p>512×512 的 RGB 图有 <strong>512×512×3 = 786,432</strong> 个数。若在像素空间直接去噪，网络处理的输入、输出仍是这个空间尺度的图像张量。</p>
+<p>但 <strong>U-Net 的中间特征图不是始终 512×512</strong>：它会下采样，再逐步上采样，通道数和注意力位置也由架构决定。不能把最高分辨率的单层成本乘上总层数，当成真实 U-Net 的总成本。</p>
+<h3 id="latent-conv-assumption">一个明确假设下的卷积账</h3>
+<p>只比较一层保持空间大小的 3×3 卷积，输入、输出都为 128 通道，batch 为 1。一次乘法加一次加法计 2 FLOPs，不计偏置及其他操作。</p>
+<ul>
+<li>在 512×512 上，这层约要 <strong>77.31 GFLOPs</strong>。</li>
+<li>同一层运行 50 次，合计约 <strong>3.87 TFLOPs</strong>。</li>
+<li>这是浮点运算<strong>次数</strong>，不是 GPU 速度，也不是一次真实出图的总成本。</li>
+</ul>
+<p>下面会把同一层移到 64×64 上比较，其他条件不动。先控制变量，才知道节省来自哪里。</p>
+<h3 id="latent-attention-memory">“137 GB 注意力矩阵”是怎样算出来的？</h3>
+<p>假设每个像素位置是一个 token，并且在 512×512 上做<strong>全局自注意力</strong>，单头、单样本的打分矩阵有：</p>
+<p>$$N=512^2=262144,\qquad N^2=68719476736.$$</p>
+<p>如果把这张矩阵<strong>完整保存为 fp16</strong>，每项 2 字节，单这个矩阵就约为 <strong>137.44 GB（128 GiB）</strong>。这里 GB 按十进制、GiB 按二进制计，不能混着比。</p>
+<p>这笔算术没有错，错的是把它读成“所有像素扩散模型都必须占这些显存”。实际模型可以在较低分辨率做注意力，也可以采用不完整保存打分矩阵的实现；模型参数、其他激活和训练梯度还要另外计算。</p>
+<p>事实上，<a href="https://github.com/openai/guided-diffusion">OpenAI 的 guided-diffusion 官方仓库</a>已提供 512×512 像素模型，并把注意力放在指定的较低分辨率上；同一仓库也提供 64→256、128→512 的超分路线。<strong>级联超分是一种设计，不是高分辨率像素扩散唯一能走的路。</strong></p>
+<hr />
+<h2 id="_3">🗜️ 二、把扩散搬进潜空间：先分清你正在做哪件事</h2>
+<p><strong>潜空间</strong>就是自编码器学到的图像表示空间。“潜”不是另一个神秘坐标系，而是模型内部用来表达图像的一组数。</p>
+<p>自编码器有两个部分：</p>
+<ul>
+<li><strong>编码器 E</strong>：从已有图像得到潜变量。本页用 $z_{\mathrm{AE}}=E(x)$ 简记一次编码结果；KL 版实际可从条件高斯后验取样，<a href="#kl">第六节</a>再解释。</li>
+<li><strong>解码器 D</strong>：从潜变量得到像素图像。它不是把一个小缩略图简单放大，而是学习怎样用这组数合成图像。</li>
+</ul>
+<p>先训练好 E、D，再训练潜空间去噪器，是原始 LDM 的两阶段思路。<a href="https://arxiv.org/html/2112.10752v2#S3">原论文 §3.1–3.2</a>给出了这个分工；具体编码细节与缩放见附录 G。</p>
+<h3 id="latent-three-paths">训练、文生图、图生图不是同一条流程</h3>
+<figure class="dia">
+<svg viewBox="0 0 760 430" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="三条不同路径：扩散训练把训练图编码、抽一个时间加噪并训练预测器；文生图从潜空间高斯噪声反复去噪后解码，不经过图像编码器；图生图先编码参考图，再加噪、去噪和解码。">
+<text x="28" y="24" font-size="15" fill="var(--fg)" font-weight="700">扩散训练：自编码器已经训练好并冻结</text>
+<rect x="28" y="44" width="122" height="68" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<rect x="184" y="44" width="122" height="68" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+<rect x="340" y="44" width="154" height="68" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<rect x="528" y="44" width="204" height="68" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<text x="89" y="71" font-size="13" text-anchor="middle" fill="var(--fg)">训练图片</text>
+<text x="89" y="93" font-size="12" text-anchor="middle" fill="var(--muted)">512×512×3</text>
+<text x="245" y="71" font-size="13" text-anchor="middle" fill="var(--fg)">E 得到潜变量</text>
+<text x="245" y="93" font-size="12" text-anchor="middle" fill="var(--muted)">64×64×4</text>
+<text x="417" y="71" font-size="13" text-anchor="middle" fill="var(--fg)">抽一个 t 加噪</text>
+<text x="417" y="93" font-size="12" text-anchor="middle" fill="var(--muted)">直接得到 zₜ</text>
+<text x="630" y="71" font-size="13" text-anchor="middle" fill="var(--fg)">预测噪声并计算损失</text>
+<text x="630" y="93" font-size="12" text-anchor="middle" fill="var(--muted)">更新去噪网络</text>
+<path d="M150 78 H174" fill="none" stroke="var(--accent)" stroke-width="2"/><polygon points="181,78 173,73 173,83" fill="var(--accent)"/>
+<path d="M306 78 H330" fill="none" stroke="var(--accent)" stroke-width="2"/><polygon points="337,78 329,73 329,83" fill="var(--accent)"/>
+<path d="M494 78 H518" fill="none" stroke="var(--accent)" stroke-width="2"/><polygon points="525,78 517,73 517,83" fill="var(--accent)"/>
+<text x="28" y="156" font-size="15" fill="var(--fg)" font-weight="700">文生图：不需要把一张真实图片交给 E</text>
+<rect x="28" y="176" width="150" height="68" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<rect x="212" y="176" width="204" height="68" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+<rect x="450" y="176" width="110" height="68" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<rect x="594" y="176" width="138" height="68" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<text x="103" y="203" font-size="13" text-anchor="middle" fill="var(--fg)">潜空间高斯噪声</text>
+<text x="103" y="225" font-size="12" text-anchor="middle" fill="var(--muted)">64×64×4</text>
+<text x="314" y="203" font-size="13" text-anchor="middle" fill="var(--fg)">若干次潜空间去噪</text>
+<text x="314" y="225" font-size="12" text-anchor="middle" fill="var(--muted)">使用文本条件</text>
+<text x="505" y="215" font-size="13" text-anchor="middle" fill="var(--fg)">D 解码</text>
+<text x="663" y="203" font-size="13" text-anchor="middle" fill="var(--fg)">生成图片</text>
+<text x="663" y="225" font-size="12" text-anchor="middle" fill="var(--muted)">512×512×3</text>
+<path d="M178 210 H202" fill="none" stroke="var(--accent)" stroke-width="2"/><polygon points="209,210 201,205 201,215" fill="var(--accent)"/>
+<path d="M416 210 H440" fill="none" stroke="var(--accent)" stroke-width="2"/><polygon points="447,210 439,205 439,215" fill="var(--accent)"/>
+<path d="M560 210 H584" fill="none" stroke="var(--accent)" stroke-width="2"/><polygon points="591,210 583,205 583,215" fill="var(--accent)"/>
+<text x="28" y="288" font-size="15" fill="var(--fg)" font-weight="700">图生图：参考图先编码，再从选定的噪声强度开始</text>
+<rect x="28" y="308" width="122" height="68" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<rect x="184" y="308" width="100" height="68" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<rect x="318" y="308" width="128" height="68" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+<rect x="480" y="308" width="110" height="68" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<rect x="624" y="308" width="108" height="68" rx="8" fill="var(--card)" stroke="var(--border)"/>
+<text x="89" y="347" font-size="13" text-anchor="middle" fill="var(--fg)">参考图像</text>
+<text x="234" y="347" font-size="13" text-anchor="middle" fill="var(--fg)">E 编码</text>
+<text x="382" y="336" font-size="13" text-anchor="middle" fill="var(--fg)">加噪到选定 t</text>
+<text x="382" y="358" font-size="12" text-anchor="middle" fill="var(--muted)">仍在潜空间</text>
+<text x="535" y="347" font-size="13" text-anchor="middle" fill="var(--fg)">去噪</text>
+<text x="678" y="347" font-size="13" text-anchor="middle" fill="var(--fg)">D 解码</text>
+<path d="M150 342 H174" fill="none" stroke="var(--accent)" stroke-width="2"/><polygon points="181,342 173,337 173,347" fill="var(--accent)"/>
+<path d="M284 342 H308" fill="none" stroke="var(--accent)" stroke-width="2"/><polygon points="315,342 307,337 307,347" fill="var(--accent)"/>
+<path d="M446 342 H470" fill="none" stroke="var(--accent)" stroke-width="2"/><polygon points="477,342 469,337 469,347" fill="var(--accent)"/>
+<path d="M590 342 H614" fill="none" stroke="var(--accent)" stroke-width="2"/><polygon points="621,342 613,337 613,347" fill="var(--accent)"/>
+<text x="28" y="415" font-size="12.5" fill="var(--muted)">尺寸是本页示例；潜变量的约定缩放省略在图中，正文另行说明。</text>
+</svg>
+<figcaption>先看第二行：文生图从潜空间噪声开始，不是先压缩一张输入图片。第一行训练通常只抽一个时间点来计算损失，也不是每次训练样本都跑完整条采样链。</figcaption>
+</figure>
+
+<p>对应到基本单次流程：</p>
+<ul>
+<li><strong>训练自编码器</strong>：E、D 都参加前向计算，训练更新会重复很多轮，不是“总共各跑一次”。</li>
+<li><strong>训练扩散模型</strong>：编码训练图片或使用预先缓存的潜变量，随机取一个 t 加噪并训练去噪器；基础噪声预测损失在潜空间计算，不必每次解码到像素。</li>
+<li><strong>文生图</strong>：图像 E 不运行；文本编码器是另一组件。潜空间去噪结束后，D 解码一次。</li>
+<li><strong>图生图</strong>：先编码一次参考图，再加到选定噪声水平，从那里去噪，最后解码一次。</li>
+</ul>
+<p>这里不含额外的高分辨率二次处理、阶段预览或分块解码。原始 Stable Diffusion 的 <a href="https://github.com/CompVis/stable-diffusion/blob/main/scripts/txt2img.py">txt2img 脚本</a>与 <a href="https://github.com/CompVis/stable-diffusion/blob/main/scripts/img2img.py">img2img 脚本</a>可直接核对后两条路径。</p>
+<h3 id="latent-noising">加噪公式保留，作用对象和尺度要说清</h3>
+<p>先按模型约定把自编码器潜变量缩放成 $z_0$。前向加噪仍可以写成：</p>
+<p>$$z_t=\sqrt{\bar\alpha_t}\,z_0+\sqrt{1-\bar\alpha_t}\,\epsilon,\qquad \epsilon\sim\mathcal N(0,I).$$</p>
+<ul>
+<li>$z_0$ 是<strong>干净的、已按约定缩放的潜变量</strong>，不是 RGB 像素。</li>
+<li>$\bar\alpha_t$ 控制保留多少信号；另一项加入同形状的高斯噪声。</li>
+<li>在噪声预测训练中，去噪器根据 $z_t$、t 和可选条件，预测这次实际加进去的 $\epsilon$。</li>
+</ul>
+<p>例如 $\bar\alpha_t=0.25$ 时，干净信号乘 0.5，噪声乘 $\sqrt{0.75}$。系数的形式与像素扩散相同，<strong>不代表可以把任何像素模型的调度、缩放和预测目标原封不动移过来</strong>。</p>
+<p>反复去噪器能在较小空间工作，这是潜空间路线的核心收益。E、D、文本编码等开销是否可以忽略，仍取决于分辨率、步数和具体实现；尤其步数很少时，固定开销占比会变大。</p>
+<hr />
+<h2 id="_4">🔢 三、三个倍数，别混成一个</h2>
+<p>下表继续使用 512×512×3 与 64×64×4，batch 为 1。卷积采用前面的固定层假设；注意力只数<strong>全局自注意力的打分矩阵元素</strong>。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>比较项</th>
+<th>像素尺寸上的数量</th>
+<th>潜空间尺寸上的数量</th>
+<th>比值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>输入／输出元素数</td>
+<td>786,432</td>
+<td>16,384</td>
+<td><strong>48</strong></td>
+</tr>
+<tr>
+<td>一层 128→128 的 3×3 卷积</td>
+<td>77.31 GFLOPs</td>
+<td>1.208 GFLOPs</td>
+<td><strong>64</strong></td>
+</tr>
+<tr>
+<td>全局自注意力打分矩阵项数</td>
+<td>$6.872\times10^{10}$</td>
+<td>$1.678\times10^7$</td>
+<td><strong>4096</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>48 看的是总元素。</strong> 高和宽各除以 8，让空间位置减少 64 倍；通道从 3 改成 4，所以元素数只减少 48 倍。</p>
+<p><strong>64 看的是同通道卷积。</strong> 两边都为 128→128，卷积核也一样，计算量随空间面积变成原来的 1/64。如果比较输入首层，通道分别为 3→128 和 4→128，得到的又是 48 倍。</p>
+<p><strong>4096 看的是位置两两配对。</strong> 全局自注意力矩阵为 N×N；N 减少 64 倍，矩阵元素数减少 $64^2=4096$ 倍。</p>
+<p>有两个限制必须和这张表一起看：</p>
+<ol>
+<li>这是<strong>三个局部计数</strong>，不是实际两个完整模型的架构对比。通道、网络深度、层所在分辨率、模型调用次数和内存实现变化，都会改变总成本。</li>
+<li>图像对固定长度文本的<strong>交叉注意力</strong>是 N×M，不是 N×N。M 不变时，打分矩阵按 N 缩放；不能把 4096 倍直接套过去。注意力层的投影和其他操作也不全按 N² 变化。</li>
+</ol>
+<hr />
+<h2 id="_5">🧪 四、动手：这笔账自己算一遍</h2>
+<p><strong>这是计数实验，不是模型性能测试。</strong> 保留下面完整的 PyTorch 小程序：它只创建两个小 CPU 张量来数元素，不下载模型，也不需要 GPU。运行环境需有 PyTorch；<code>numel()</code> 返回元素总数，不返回字节数。</p>
+<p>卷积函数假设输出高宽与输入相同，batch 为 1、不分组，一次乘加算 2 FLOPs，忽略偏置。程序没有真的执行卷积或注意力，也不会申请前面那张巨大的矩阵。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 像素空间 vs 潜空间：同一件事各要花多少算力（纯计数，不测秒）</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">conv_flops</span><span class="p">(</span><span class="n">cin</span><span class="p">,</span> <span class="n">cout</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">hw</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;一层 k×k 卷积：每个输出元素做 cin*k*k 次乘加，一次乘加算 2 FLOPs&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">cin</span> <span class="o">*</span> <span class="n">cout</span> <span class="o">*</span> <span class="n">k</span> <span class="o">*</span> <span class="n">k</span> <span class="o">*</span> <span class="n">hw</span> <span class="o">*</span> <span class="n">hw</span>
+
+<span class="n">C_PIX</span><span class="p">,</span> <span class="n">H_PIX</span> <span class="o">=</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">512</span>      <span class="c1"># 一张 512×512 的 RGB 图</span>
+<span class="n">C_LAT</span><span class="p">,</span> <span class="n">H_LAT</span> <span class="o">=</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">64</span>       <span class="c1"># Stable Diffusion 的潜空间</span>
+
+<span class="n">n_pix</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">C_PIX</span><span class="p">,</span> <span class="n">H_PIX</span><span class="p">,</span> <span class="n">H_PIX</span><span class="p">)</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span>   <span class="c1"># ⭐ 每一步要去噪的东西有多少个数</span>
+<span class="n">n_lat</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">C_LAT</span><span class="p">,</span> <span class="n">H_LAT</span><span class="p">,</span> <span class="n">H_LAT</span><span class="p">)</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;每步要去噪的量：  </span><span class="si">{</span><span class="n">n_pix</span><span class="si">}</span><span class="s2"> 个数  vs  </span><span class="si">{</span><span class="n">n_lat</span><span class="si">}</span><span class="s2"> 个数  → 压缩 </span><span class="si">{</span><span class="n">n_pix</span><span class="w"> </span><span class="o">//</span><span class="w"> </span><span class="n">n_lat</span><span class="si">}</span><span class="s2"> 倍&quot;</span><span class="p">)</span>
+
+<span class="n">f_in_p</span> <span class="o">=</span> <span class="n">conv_flops</span><span class="p">(</span><span class="n">C_PIX</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">H_PIX</span><span class="p">)</span>          <span class="c1"># ① 首层：把输入通道抬到 128</span>
+<span class="n">f_in_l</span> <span class="o">=</span> <span class="n">conv_flops</span><span class="p">(</span><span class="n">C_LAT</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">H_LAT</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;首层 3x3 卷积：   </span><span class="si">{</span><span class="n">f_in_p</span><span class="o">/</span><span class="mf">1e9</span><span class="si">:</span><span class="s2">7.2f</span><span class="si">}</span><span class="s2"> GFLOPs vs </span><span class="si">{</span><span class="n">f_in_l</span><span class="o">/</span><span class="mf">1e9</span><span class="si">:</span><span class="s2">6.3f</span><span class="si">}</span><span class="s2"> GFLOPs → </span><span class="si">{</span><span class="n">f_in_p</span><span class="o">/</span><span class="n">f_in_l</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2"> 倍&quot;</span><span class="p">)</span>
+
+<span class="n">f_bd_p</span> <span class="o">=</span> <span class="n">conv_flops</span><span class="p">(</span><span class="mi">128</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">H_PIX</span><span class="p">)</span>            <span class="c1"># ② 主干：通道数一样，差别全在分辨率</span>
+<span class="n">f_bd_l</span> <span class="o">=</span> <span class="n">conv_flops</span><span class="p">(</span><span class="mi">128</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="n">H_LAT</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;主干 128→128 卷积：</span><span class="si">{</span><span class="n">f_bd_p</span><span class="o">/</span><span class="mf">1e9</span><span class="si">:</span><span class="s2">6.2f</span><span class="si">}</span><span class="s2"> GFLOPs vs </span><span class="si">{</span><span class="n">f_bd_l</span><span class="o">/</span><span class="mf">1e9</span><span class="si">:</span><span class="s2">6.3f</span><span class="si">}</span><span class="s2"> GFLOPs → </span><span class="si">{</span><span class="n">f_bd_p</span><span class="o">/</span><span class="n">f_bd_l</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2"> 倍&quot;</span><span class="p">)</span>
+
+<span class="n">a_p</span><span class="p">,</span> <span class="n">a_l</span> <span class="o">=</span> <span class="p">(</span><span class="n">H_PIX</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">,</span> <span class="p">(</span><span class="n">H_LAT</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span>    <span class="c1"># ③ 全局自注意力：每个空间位置一个 token</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;注意力矩阵项数：  </span><span class="si">{</span><span class="n">a_p</span><span class="si">:</span><span class="s2">.3e</span><span class="si">}</span><span class="s2">     vs </span><span class="si">{</span><span class="n">a_l</span><span class="si">:</span><span class="s2">.3e</span><span class="si">}</span><span class="s2">    → </span><span class="si">{</span><span class="n">a_p</span><span class="w"> </span><span class="o">//</span><span class="w"> </span><span class="n">a_l</span><span class="si">}</span><span class="s2"> 倍&quot;</span><span class="p">)</span>
+
+<span class="k">for</span> <span class="n">steps</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">50</span><span class="p">,</span> <span class="mi">1000</span><span class="p">):</span>                           <span class="c1"># ④ 再乘上采样步数</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;走 </span><span class="si">{</span><span class="n">steps</span><span class="si">:</span><span class="s2">4d</span><span class="si">}</span><span class="s2"> 步，光②这一层就要： 像素空间 </span><span class="si">{</span><span class="n">f_bd_p</span><span class="o">*</span><span class="n">steps</span><span class="o">/</span><span class="mf">1e12</span><span class="si">:</span><span class="s2">6.2f</span><span class="si">}</span><span class="s2"> TFLOPs&quot;</span>
+          <span class="sa">f</span><span class="s2">&quot;  vs  潜空间 </span><span class="si">{</span><span class="n">f_bd_l</span><span class="o">*</span><span class="n">steps</span><span class="o">/</span><span class="mf">1e12</span><span class="si">:</span><span class="s2">5.3f</span><span class="si">}</span><span class="s2"> TFLOPs&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>这段程序已独立执行，原来的输出数值保留如下。前四项也可以与上一节的公式手算互相核对。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>程序计算的项目</th>
+<th>像素尺寸</th>
+<th>潜空间尺寸</th>
+<th>比值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>每步去噪元素</td>
+<td>786432</td>
+<td>16384</td>
+<td>48</td>
+</tr>
+<tr>
+<td>输入首层 3×3 卷积</td>
+<td>1.81 GFLOPs</td>
+<td>0.038 GFLOPs</td>
+<td>48</td>
+</tr>
+<tr>
+<td>主干假设层 128→128 卷积</td>
+<td>77.31 GFLOPs</td>
+<td>1.208 GFLOPs</td>
+<td>64</td>
+</tr>
+<tr>
+<td>全局自注意力矩阵元素</td>
+<td>6.872e+10</td>
+<td>1.678e+07</td>
+<td>4096</td>
+</tr>
+</tbody>
+</table></div>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>这一个 128→128 层重复多少次</th>
+<th>像素尺寸合计</th>
+<th>潜空间尺寸合计</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>50 次</td>
+<td>3.87 TFLOPs</td>
+<td>0.060 TFLOPs</td>
+</tr>
+<tr>
+<td>1000 次</td>
+<td>77.31 TFLOPs</td>
+<td>1.208 TFLOPs</td>
+</tr>
+</tbody>
+</table></div>
+<p>看最后两行：在<strong>这个假设层</strong>上，潜空间执行 1000 次的计数，确实小于像素尺寸执行 50 次。它不证明“真实潜空间模型跑 1000 步比另一模型 50 步更快”——那需要实际模型、相同设备与明确质量条件的测量。</p>
+<p>少步数与较便宜的单次调用可以同时节省工作量。在这个简化模型里，成本就是“调用次数 × 每次 FLOPs”；完整管线还要加固定组件、调度和数据搬运等成本。</p>
+<blockquote>
+<p>可以在这里停：你已经知道 48／64／4096 分别在比什么。后半页转向另一个问题——压缩会影响什么、怎样查明原因。</p>
+</blockquote>
+<hr />
+<h2 id="_6">🔍 五、代价：先查重建，再谈细节从哪里损失</h2>
+<p>自编码器通常追求感知上接近原图，不是无损逐像素还原。它可能把细笔画、规则网格、密集纹理等细节重建错；具体问题要对着具体模型和图片检查。</p>
+<h3 id="latent-reconstruction-test">重建图是诊断工具，不是所有生成图的硬上限</h3>
+<p>把一张已知原图只做编码、解码，得到：</p>
+<p>$$\hat x=D(E(x)).$$</p>
+<p>这个测试回答的是：<strong>当前自编码器能否通过这次编码，把这张输入图重建回来？</strong> KL 版还要明确使用后验均值还是固定随机种子的采样，避免每次编码本身的随机性干扰对照。</p>
+<ul>
+<li>原图中的清晰小字在重建后已损坏：说明编码—解码阶段值得优先排查，不必把这次损坏归因于采样器。</li>
+<li>重建能保留小字，生成却写错：不能再用这次重建结果给压缩定罪；还要查训练数据、条件对齐、生成先验、采样和后处理。</li>
+<li>这只是排查方法。<strong>本页没有加载真实图像自编码器做小字实验，也没有声称某个具体 VAE 一定会糊字。</strong></li>
+</ul>
+<p>固定解码器的可表达范围确实约束输出，但 $D(E(x))$ <strong>不是任意生成图片、任意画质指标的数学上限</strong>。文生图并没有先编码这张 x；它生成的潜变量也不必等于 E(x)。</p>
+<p>即使讨论同一张 x，编码器给出的 E(x) 也不自动等于“在这个解码器下最优的潜变量”。更长采样不能保证找回被输入编码丢掉的具体信息，但模型可以依据数据规律合成新细节；合成得像不等于忠实恢复了原细节。</p>
+<h3 id="latent-receptive-field">下采样 8 倍，不是把图切成互不相干的 8×8 小块</h3>
+<p>512→64 说明潜变量网格在高、宽方向各稀疏了 8 倍。按整体数量平均，每个潜格对应原图 64 个空间位置，即 <strong>192 个 RGB 数对 4 个潜通道数</strong>。</p>
+<p><strong>这只是数量平均，不能当成信息分区。</strong> 编码器有多层卷积和下采样，相邻潜格的感受野可以重叠，一个潜格能受更大区域影响；解码时相邻格也共同影响像素。<a href="https://github.com/CompVis/latent-diffusion/blob/main/ldm/modules/diffusionmodules/model.py">CompVis 的编码器实现</a>可看到这些操作。</p>
+<p>因此，小字只占几像素不意味着它必然被锁在某一个潜格、必然丢失。远景人脸、手指、细纹理也不能只凭格点尺寸归为同一种错误；数据、训练目标和结构建模都可能参与。</p>
+<h3 id="latent-quality-tradeoffs">三条改进路线：都需匹配模型能力并验证</h3>
+<p><strong>1. 降低空间压缩率。</strong> 若同一张 512 图从下采样 8 倍改为 4 倍，潜网格从 64×64 变为 128×128。更多空间位置可能有利于保留细节，但在同通道假设下卷积位置数增加 4 倍，全局注意力打分矩阵增加 16 倍；不是“整个模型必然只贵 4 倍”。</p>
+<p><strong>2. 增加潜通道。</strong> 4 通道不是 LDM 的定义。原始 SD 1.x 与 SDXL 的具体自编码器配置使用 4 通道；SD3 参考实现和 FLUX.1-dev／schnell 的公开配置使用 16 通道。更多通道提供更大的表示容量，但不能只换一个数字或解码器，就保证旧去噪模型正常工作或小字变清楚。</p>
+<p>这些例子按具体版本核对：<a href="https://github.com/CompVis/stable-diffusion/blob/main/configs/stable-diffusion/v1-inference.yaml">SD 1.x 配置</a>、<a href="https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/blob/main/vae/config.json">SDXL 配置</a>、<a href="https://github.com/Stability-AI/sd3-ref/blob/master/sd3_impls.py">SD3 的 VAE 实现</a>、<a href="https://github.com/black-forest-labs/flux/blob/main/src/flux/util.py">FLUX.1 的自编码器参数</a>。它们不是说以后所有同名系列都固定采用这些通道数。</p>
+<p><strong>3. 使用与模型匹配的更高分辨率。</strong> 下采样仍为 8 倍时，1024×1024 对应 128×128 潜网格。如果同一个文字区域也随画面同比放大，它能覆盖更多潜格；但如果只是增加画布、字仍只有原来的像素大小，这个推论就不成立。更高尺寸还要考虑模型训练范围、位置表示、算力和重建能力。</p>
+<p>这三条都在改变模型的表示或工作条件，不能保证独立于训练而提升质量。应使用一致的原图重建、生成任务和评估口径做对照。</p>
+<hr />
+<h2 id="kl">⚖️ 六、KL 项在这里到底管什么</h2>
+<p>先区分两类“高斯”，否则很容易把这节读反：</p>
+<ul>
+<li><strong>自编码器的后验</strong> $q_\phi(z_{\mathrm{AE}}\mid x)$：给定一张真实图，它的潜变量可以是什么。KL 正则约束的是这层分布。</li>
+<li><strong>扩散采样的末端噪声</strong> $z_T$：文生图开始去噪时抽的噪声。它不是已经能直接解码为合适图像的干净潜变量。</li>
+</ul>
+<p>所以“LDM 不从高斯噪声开始”是错的。正确的区别是：它<strong>先把噪声经去噪模型转成学到的潜变量分布，再交给 D</strong>，而不是跳过去噪直接解码初始噪声。</p>
+<h3 id="latent-kl-purpose">KL 是权衡，不是把每张图都变成标准正态</h3>
+<p>KL 版编码器输出一个依赖 x 的高斯后验，$\phi$ 只是编码器参数的记号。以对角高斯为例，有均值和标准差，再从中取样；同一 x 的采样可以不同。这里 $\mathcal N(0,I)$ 表示各维均值为 0、方差为 1 且相互独立的高斯参考分布。</p>
+<p>KL 惩罚把这个后验往标准正态拉，避免潜变量尺度任意扩张。这里只展示<strong>损失的组成示意</strong>，不是原论文完整的对抗训练公式：</p>
+<p>$$\mathcal L_{\mathrm{AE}}=\mathcal L_{\mathrm{rec}}+\lambda_{\mathrm{KL}}\mathcal L_{\mathrm{KL}}+\lambda_{\mathrm{adv}}\mathcal L_{\mathrm{adv}}.$$</p>
+<p>$$\mathcal L_{\mathrm{KL}}=\mathbb E_x\!\left[D_{\mathrm{KL}}\!\left(q_\phi(z_{\mathrm{AE}}\mid x)\,\|\,\mathcal N(0,I)\right)\right].$$</p>
+<ul>
+<li>$\mathcal L_{\mathrm{rec}}$ 表示重建方面的目标，原始 LDM 的方案还采用感知损失，不只逐像素误差。</li>
+<li>$\mathcal L_{\mathrm{adv}}$ 是生成侧的对抗项；判别器有自己的训练目标，本式没有把整个极小极大过程写出来。</li>
+<li>$\lambda_{\mathrm{KL}}$ 控制重建与潜变量正则之间的权衡。论文使用较弱正则，<a href="https://arxiv.org/html/2112.10752v2#A7">附录 G</a>报告了约 $10^{-6}$ 的 KL 权重；这不是任意实现、任意损失归一化下都能照搬的默认值。</li>
+</ul>
+<p>一个重要反例：如果每张图的后验都被强制为<strong>完全相同</strong>的 $\mathcal N(0,I)$，z 的分布就不再依赖 x，反而难以携带这张图的重建信息。因此不能把“每图后验严格标准正态”当成自编码器训练成功的条件。</p>
+<h3 id="latent-vae-compare">与普通 VAE 的区别，不是“一个 KL 必须大，一个必须小”</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>比较项</th>
+<th>从固定先验生成的普通 VAE</th>
+<th>LDM 的两阶段方案</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>生成的干净潜变量来自哪里</td>
+<td>从指定先验采样后解码</td>
+<td>由学习到的潜空间生成模型产生，再解码</td>
+</tr>
+<tr>
+<td>自编码器重建质量</td>
+<td>需要与潜变量正则权衡</td>
+<td>同样要权衡，表示需适合后续生成学习</td>
+</tr>
+<tr>
+<td>后验是否每张图都必须标准正态</td>
+<td>不要求完全相同</td>
+<td>同样不要求完全相同</td>
+</tr>
+<tr>
+<td>KL 权重能否仅凭模型名决定</td>
+<td>不能</td>
+<td>不能</td>
+</tr>
+</tbody>
+</table></div>
+<p>普通 VAE 的固定先验与编码数据的潜分布不匹配，可能影响生成质量；但不等于“只要不完全相同，所有样本就都是噪声”。LDM 学习更灵活的潜空间生成分布，也不等于它能轻松学好任意不规则的编码。</p>
+<h3 id="latent-scaling">缩放常数解决的是噪声调度的尺度配合</h3>
+<p>在前面的加噪公式中，若把同一干净潜变量整体乘 100、其他设置不动，它的信号方差会乘 10,000；同一份单位方差噪声的相对强度就变了。公式仍成立，但信噪比与训练时设计的不再相同，终点是否足够接近纯噪声也可能受影响。</p>
+<p>这不意味着“数据方差不是 1 就不能扩散”。可以约定潜变量缩放、调整噪声调度，或采用其他一致的参数化；关键是训练与采样使用相同约定。</p>
+<p>SD 1.x 的一个具体约定是：</p>
+<p>$$z_0=s\,z_{\mathrm{AE}},\qquad s=0.18215.$$</p>
+<p>送进扩散模型前乘 s，交给原自编码器解码前再除回去，即输出为 $D(z_0/s)$。对应实现可核对 <a href="https://github.com/CompVis/stable-diffusion/blob/main/ldm/models/diffusion/ddpm.py">CompVis 的潜空间扩散代码</a>；不要对输入像素或文本向量随意套这个缩放。</p>
+<p>原始 LDM 论文在 KL 版本里描述过按一批潜变量估计标准差再缩放的做法。但 <strong>0.18215 是具体模型约定，不是所有 LDM 的数学常数</strong>；SDXL 等模型有各自配置。</p>
+<p>即使缩放后的总体标准差接近 1，也不证明每张图的后验是标准正态，更不证明整组潜变量独立。反过来，某个缩放常数非 1 也不能单独证明“KL 失败”；还要看定义、损失权重和数据分布。</p>
+<h3 id="latent-vq">VQ 版本：码本是离散的，不等于 LDM 在离散 token 上扩散</h3>
+<p>原论文还提出另一条正则路线：<strong>向量量化（VQ）</strong>用码本存一组向量，把连续表示映射到距离最近的码本项。码本索引可以构成离散 token；其他 VQ 生成系统确实可以用自回归模型预测索引。</p>
+<p>但 <strong>LDM 原论文的 VQ 版本没有因此改为离散 token 扩散</strong>。它取量化之前的连续潜表示作为扩散对象，把量化操作放进解码器的开头。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>路线</th>
+<th>生成模型处理什么</th>
+<th>量化在哪里</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>KL 正则的 LDM</td>
+<td>连续潜变量</td>
+<td>没有 VQ 码本量化</td>
+</tr>
+<tr>
+<td>原论文 VQ 正则的 LDM</td>
+<td>仍是量化前的连续潜变量</td>
+<td>解码时先经过量化，再还原像素</td>
+</tr>
+<tr>
+<td>自回归 VQ token 模型</td>
+<td>码本索引序列</td>
+<td>这是另一种生成建模路线，不要与上一行混同</td>
+</tr>
+</tbody>
+</table></div>
+<p>这一点可以直接检查 <a href="https://github.com/CompVis/latent-diffusion/blob/main/ldm/models/autoencoder.py">CompVis 的 VQModelInterface</a>：<code>encode</code> 返回连续 h，<code>decode</code> 内部调用量化。两种 LDM 都在学习的表示空间中做生成，不是在证明某个固定潜先验已经完美拟合数据。</p>
+<hr />
+<h2 id="_7">🔗 这一章连到哪里</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>去哪</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../机器学习的数学原理/01b-KL散度.html">数学原理 01b · KL 散度</a></td>
+<td>核对 KL 两个参数的方向与不同目标的含义；不要仅凭“反向 KL”四个字，就断言本页高斯后验必然偏窄或已经覆盖全部图像信息</td>
+</tr>
+<tr>
+<td><a href="../机器学习与深度学习基础/06-无监督-聚类与降维.html">ML 基础 06 · 无监督：聚类与降维</a></td>
+<td>对照 PCA 的线性投影与自编码器的学习表示。小方差不天然等于噪声，自编码器也不是统一丢掉“小字”；保留什么取决于数据、容量与目标</td>
+</tr>
+<tr>
+<td><a href="../AI基础设施/09-显存优化全家桶.html">AI 基础设施 09 · 显存优化全家桶</a></td>
+<td>潜空间减少某些重复计算；显存还包括参数、激活、梯度和优化器状态。训练遇到 OOM 时，要按实际占用选技术，不能把 FLOPs 比当显存比</td>
+</tr>
+<tr>
+<td><a href="../大模型全景导论/10b-图像生成.html">全景导论 10b · 图像生成</a></td>
+<td>从本页返回组件总览，重新看自编码器、去噪主干和条件控制各负责什么；导论已经链接到本站完整《扩散模型》板块，不再需要为了本主题另找站外入口</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="_8">✅ 检查点</h2>
+<ol>
+<li>本页 SD 1.x 尺寸例子中，512×512×3 和 64×64×4 各有多少元素？48 倍是在比什么，能否泛化为所有潜空间模型？</li>
+<li>137.44 GB（128 GiB）是按哪些假设算出的？它为什么不是所有像素扩散模型必需的显存？</li>
+<li>训练去噪器、文生图、图生图三种流程中，图像编码器 E 与解码器 D 各在什么时候出现？为什么不能统一说“E、D 各跑一次”？</li>
+<li>48、64、4096 分别比较什么？输入首层与同通道主干层有什么区别？图像对固定长度文本的交叉注意力能套 4096 倍吗？</li>
+<li>$D(E(x))$ 能用于诊断什么，为什么不能当成所有生成图片或指标的严格画质上限？</li>
+<li>下采样 8 倍时，192 个 RGB 数与 4 个潜通道数是怎样算出的？为什么不表示独立 8×8 小块？压得更轻、加通道或加大分辨率是否都保证改善细节？</li>
+<li>KL 正则、扩散初始高斯噪声与 0.18215 缩放分别负责什么？普通 VAE 是否要求每图后验完全一样？原论文 VQ-LDM 的去噪对象是连续潜变量还是离散码本索引？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li>786,432 与 16,384 个元素，前者是后者的 48 倍。这是本页指定高、宽、通道的张量元素比，不是实际生成速度或所有 LDM 的固定压缩率。</li>
+<li>单样本、单头、512×512 个 token 做全局自注意力，N² 项的整张打分矩阵按 fp16 每项 2 字节保存，约为 137.44 GB，即 128 GiB。实际可以在较低分辨率做注意力或不完整保存矩阵，还要另算其他存储，所以它不是必需显存的通用下界。</li>
+<li>训练去噪器编码训练图或读缓存潜变量，抽 t 加噪算潜空间损失，基础流程不必解码；文生图从潜空间噪声开始，不经过图像 E，最后 D 解码；图生图先 E 编码参考图，再加噪和去噪，最后 D 解码。自编码器自身训练又是另一阶段，E、D 要随训练重复前向与更新。</li>
+<li>48 是输入／输出元素比，也是在本例 3→128 与 4→128 首层假设下的卷积 FLOPs 比；64 是同核、同 128→128 通道层的空间面积比；4096 是 N×N 全局自注意力矩阵元素比。固定文本长度 M 的交叉注意力为 N×M，打分矩阵随 N 线性缩放，不能直接套 4096；整层其他运算也需另算。</li>
+<li>它检验当前自编码器对给定原图的重建表现，能帮助隔离编码—解码造成的损坏。但文生图不先编码那张 x，生成潜变量不必等于 E(x)，E(x) 也不保证是固定 D 下的最优编码。因此不能从单次重建推出任何生成图、任何指标都不能更好。</li>
+<li>空间面积平均缩小 8²=64 倍，64×3=192 个原图通道数对应 4 个潜通道数；这只是整体数量平均。多层卷积有重叠感受野，潜格不是独立小块。更多位置或通道提供容量，但还要匹配训练、模型和算力；更大画布也不保证同一字真的变大，三条路线都没有无条件质量保证。</li>
+<li>KL 约束图像条件后验，初始高斯噪声是扩散采样的起点，0.18215 是特定 SD 1.x 的潜变量尺度约定，解码前需逆变换。普通 VAE 与 LDM 都不要求每图后验完全一样；一样反而丢失对输入的依赖。原论文 VQ-LDM 对量化前连续表示做扩散，量化被归到解码器，不能把它说成离散 token 扩散。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_9">🛑 可以停在这里</h2>
+<p>你已经能区分：潜空间缩小了什么、几种流程分别在哪里编码、重建对照能证明什么。这些比背下三个加速倍数更重要。</p>
+<p>回来排查时，从具体问题进入：<a href="#_2">算力／显存口径</a>、<a href="#_6">细节与重建</a>、<a href="#latent-scaling">潜变量缩放</a>、<a href="#latent-vq">KL 与 VQ 的区别</a>。训练 OOM 可去上面的显存优化链接，不必把整页重读。</p>
+<p>⚡ <strong>走神救援</strong></p>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>文生图从潜空间噪声去噪再解码，不先编码一张真实图片。</li><li>48／64／4096 是带假设的不同计数，不能冒充实际模型加速比。</li><li>重建用来排查表示瓶颈，不是所有生成图的统一画质上限。</li><li>潜变量正则、尺度约定和采样噪声不同；VQ-LDM 仍可对连续表示做扩散。</li></ul></section>
+
+<p><strong>下一节</strong> 👉 <a href="06-条件控制与CFG.html">06 · 条件控制与 CFG</a></p>
+<p>下一节再看提示词如何参与去噪，以及 guidance scale 改变的是哪一个组合，而不只问“滑块越大是不是越好”。</p></article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
+<button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">💸 一、先把账算出来：像素空间的哪些操作很贵</a><a href="#_3">🗜️ 二、把扩散搬进潜空间：先分清你正在做哪件事</a><a href="#_4">🔢 三、三个倍数，别混成一个</a><a href="#_5">🧪 四、动手：这笔账自己算一遍</a><a href="#_6">🔍 五、代价：先查重建，再谈细节从哪里损失</a><a href="#kl">⚖️ 六、KL 项在这里到底管什么</a><a href="#_7">🔗 这一章连到哪里</a><a href="#_8">✅ 检查点</a><a href="#_9">🛑 可以停在这里</a></nav>
+<button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
+<a href="index.html">回到本模块目录</a></div></aside></div>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="04-DDIM与采样加速.html"><div class="dir">← 上一节</div>⏩ 04 · DDIM 与采样加速</a><a class="next" href="06-条件控制与CFG.html"><div class="dir">下一节 →</div>🎚️ 06 · 条件控制与 CFG</a></nav>
+</main>
+<script>(function(){
+  var KEY="diff-progress", FILE="05-Latent-Diffusion.md";
+  var storageAvailable=true, memoryProgress={};
+  function load(){try{var parsed=JSON.parse(localStorage.getItem(KEY));
+    memoryProgress=parsed&&typeof parsed==='object'&&!Array.isArray(parsed)?parsed:{};
+    return memoryProgress;}catch(e){storageAvailable=false;return memoryProgress;}}
+  function storageStatus(message){var node=document.getElementById('diffusion-storage-status');
+    if(!node){node=document.createElement('p');node.id='diffusion-storage-status';
+      node.setAttribute('role','status');node.className='diffusion-storage-status';
+      var host=document.querySelector('.dash')||document.querySelector('.donebar')||document.querySelector('main');
+      host.appendChild(node);}node.textContent=message;}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    memoryProgress=p;try{localStorage.setItem(KEY,JSON.stringify(p));storageAvailable=true;storageStatus('打卡已保存在当前浏览器。');}catch(_){storageAvailable=false;storageStatus('未保存：浏览器存储不可用，打卡仅本次有效。');} refresh();});});
+  refresh();
+  if(!storageAvailable)storageStatus('无法读取进度；打卡仅本次有效。');
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    try{localStorage.setItem('recsys-theme',next);}catch(_){storageStatus('未保存：浏览器存储不可用，主题更改仅本次有效。');}});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/diffusion-reader.css"><script data-diffusion-zoom-adapter>
+/* Module-local adapter: keep original SVG IDs and uniquify only zoom copies. */
+(function () {
+  'use strict';
+  if (!document.body.classList.contains('diffusion-reader')) return;
+  var serial = 0;
+  document.addEventListener('click', function (event) {
+    if (!event.target.closest('.diagram-expand')) return;
+    var svg = document.querySelector('#diagram-reader-stage > svg');
+    if (!svg) return;
+    var elements = [svg].concat(Array.from(svg.querySelectorAll('*')));
+    var names = new Map(), prefix = 'diffusion-zoom-' + (++serial) + '-';
+    elements.forEach(function (element) { if (element.id) names.set(element.id, prefix + element.id); });
+    function references(value) {
+      return value.replace(/url\((['"]?)#([^)'\"]+)\1\)/g, function (whole, quote, id) {
+        return names.has(id) ? 'url(#' + names.get(id) + ')' : whole;
+      });
+    }
+    elements.forEach(function (element) {
+      if (element.id) element.id = names.get(element.id);
+      Array.from(element.attributes).forEach(function (attribute) {
+        if (attribute.name === 'id') return;
+        var value = references(attribute.value);
+        if (attribute.name === 'aria-labelledby' || attribute.name === 'aria-describedby') {
+          value = value.split(/\s+/).map(function (id) { return names.get(id) || id; }).join(' ');
+        } else if (value.charAt(0) === '#' && names.has(value.slice(1))) {
+          value = '#' + names.get(value.slice(1));
+        }
+        if (value !== attribute.value) attribute.value = value;
+      });
+      if (element.tagName.toLowerCase() === 'style') element.textContent = references(element.textContent);
+    });
+  });
+})();
+
+</script></body></html>

@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>06 · 条件控制：文本与 CFG · 扩散模型</title>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');
+if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(_){}})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{
+/* ⭐ 字号阶梯：正文 = 1em（body 18px）。其余一律从这几档取，
+   不要再写 .92 / .94 / .95 这种随手值 —— body 18px 下它们相差不到 0.5px，
+   分不出来，只会让后来的人不知道该抄哪一个。 */
+  --fs-xs:.8em;    /* 角标、方向标签 */
+  --fs-sm:.88em;   /* 代码、图注、注解 */
+  --fs-md:.93em;   /* 略小于正文：表格、面板、目录 —— 站内最常用 */
+  --fs-lg:1.14em;  /* h3 */
+  --fs-xl:1.42em;  /* h2 */
+  --fs-2xl:1.9em;  /* h1 */
+--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:var(--fs-2xl);line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:var(--fs-xl);margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:var(--fs-lg);margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+/* ⭐ 表格横向滚动兜底：`width:100%` 让表格只会挤不会溢出，实测 305px 宽下
+   最窄单元格只剩 40px。给单元格一个 min-width 让它不再无限压缩，超出的由 .tw 兜住。
+   2–4 列的表仍然占满不滚动，只有真挤不下的多列表才出现滚动条。 */
+.tw{overflow-x:auto;margin:1.2em 0;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;margin:0;font-size:var(--fs-md)}
+th,td{min-width:5.2em}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:var(--fs-sm);background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:var(--fs-sm)}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:var(--fs-md)}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:var(--fs-xs);color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:var(--fs-sm);color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:var(--fs-md)}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:var(--fs-xs);
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:var(--fs-md);border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:var(--fs-md)}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:var(--fs-md);line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:var(--fs-md)}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:var(--fs-sm);line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:var(--fs-md);line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:var(--fs-md)}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:var(--fs-lg);opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:var(--fs-sm);
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+/* ⭐ 块公式也要能自己横向滚动：pre/表格/图都有兜底，只有它没有 —— 一条长公式会把整页撑出横向滚动条 */
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:2px 0 6px}
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:var(--fs-xs);
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
+
+.dia-lead{color:var(--muted);font-size:var(--fs-md);margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:var(--fs-sm);margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:var(--fs-md);margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:var(--fs-md);line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.05em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:var(--fs-md);break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #FF4689 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #66D9EF } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #A6E22E } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #A6E22E } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
+<script defer src="../assets/vendor/katex/katex.min.js"></script>
+<script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading topic-reading diffusion-reader">
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">06 · 条件控制与 CFG</span>
+  <span class="prevnext"><a href="05-Latent-Diffusion.html">←</a>
+  <a href="07-去噪主干-UNet与DiT.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#_2">📝 一、文本先变成一串向量</a></li>
+<li><a href="#_3">🔀 二、交叉注意力：图像位置怎样取文本信息</a></li>
+<li><a href="#cfg">🎚️ 三、CFG：同一状态取两份预测</a></li>
+<li><a href="#s">📉 四、s 调大，先看预测数值会发生什么</a></li>
+<li><a href="#_4">💰 五、代价与例外：先认清是哪一种 guidance</a></li>
+<li><a href="#temperature">🌡️ 六、与 temperature 对照：不是同一根滑块</a></li>
+<li><a href="#_5">🔗 这一章连到哪里</a></li>
+<li><a href="#_6">✅ 检查点</a></li>
+<li><a href="#_7">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<div class="ov-layout"><article class="ov-body"><h1 id="06-cfg">06 · 条件控制：文本与 CFG</h1>
+<!-- topic-reading -->
+
+<p><link rel="stylesheet" href="../assets/diff-formula-help.css"><script defer src="../assets/diff-formula-help.js"></script></p>
+<p>⏱ <strong>22 分钟</strong> ｜ ⭐ <strong>看懂标准 CFG 的两份预测，再分清哪些 guidance 参数不按这条公式工作</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong>文本条件告诉去噪网络“想生成什么”；标准 CFG 再把有条件与无该语义条件的预测作差，在采样时调节这份差。</strong></p>
+<p>这一章以 SD-v1 式文本条件和标准双分支 CFG 为主例。这里的 guidance scale 不是所有模型、所有 UI 中同名参数的统一定义；<a href="#_4">第五节</a>会单独说明蒸馏模型的边界。</p>
+<p>从上一章的潜空间继续：每次去噪都可以读取条件，而不只是把提示词混进初始噪声。想先看滑块怎么算，去<a href="#cfg">第三节</a>；想看一段能运行的数值例子，去<a href="#s">第四节</a>。</p>
+<hr />
+<h2 id="_2">📝 一、文本先变成一串向量</h2>
+<p><strong>在 SD-v1 这个接口里，提示词先经过冻结的 CLIP ViT-L/14 文本塔，得到 token 级隐藏状态。</strong> 它使用 77 个位置、每个位置 768 维的表示；不是一整句话只给一个向量。</p>
+<p>这里的 <strong>77 是位置数，不是 77 个词</strong>：序列还包含特殊标记和填充位置，一个词也可能拆成多个 token。该基础实现把短输入补齐、长输入截断；某些工具另外实现了长提示词处理，不能只凭这个数字判断所有 UI。<a href="https://github.com/CompVis/stable-diffusion/blob/main/ldm/modules/encoders/modules.py#L123">SD-v1 文本编码器</a>、<a href="https://github.com/CompVis/stable-diffusion/blob/main/configs/stable-diffusion/v1-inference.yaml">模型配置</a>、<a href="https://github.com/openai/CLIP/blob/main/clip/clip.py#L205">CLIP 分词入口</a>。</p>
+<p>保留一串向量，下一步就能让不同图像位置取不同的文本信息。例如“戴红帽子的猫”，帽子区域与爪子区域可以使用不同的权重。</p>
+<p>但这不是“文本条件必须是一串”的定理。全局向量、类别标签也能作为条件；把文本汇总成一个向量也不等于语义全丢了。本页选择 token 序列，是因为要解释接下来的交叉注意力。</p>
+<hr />
+<h2 id="_3">🔀 二、交叉注意力：图像位置怎样取文本信息</h2>
+<p><strong>交叉注意力放在选定的注意力模块里，不是每一个卷积层都执行一次。</strong> 在 SD-v1 的 U-Net 中，模块位置由分辨率配置等结构设置决定；各次去噪调用都能使用同一份文本条件。<a href="https://github.com/CompVis/stable-diffusion/blob/main/ldm/modules/diffusionmodules/openaimodel.py">U-Net 实现</a>。</p>
+<figure class="dia">
+<svg viewBox="0 0 760 304" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="图像特征投影为查询Q，文本分别投影为K和V；Q与K得到按文本位置归一化的权重，再用权重加权V">
+<defs><marker id="diff06-attn-arrow__f1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="var(--accent)"/></marker></defs>
+<text class="dia-t" x="380" y="25" text-anchor="middle" fill="var(--fg)" font-size="15" font-weight="700">一份文本，两条用途：K 用来匹配，V 用来取回内容</text>
+<rect x="24" y="60" width="212" height="67" rx="8" fill="var(--card)" stroke="var(--muted)"/>
+<text class="dia-t" x="130" y="85" text-anchor="middle" fill="var(--fg)" font-size="15">图像特征 → 投影为 Q</text>
+<text class="dia-t" x="130" y="109" text-anchor="middle" fill="var(--muted)" font-size="14">4×4 特征示例：N=16 个位置</text>
+<rect x="24" y="198" width="212" height="67" rx="8" fill="var(--card)" stroke="var(--muted)"/>
+<text class="dia-t" x="130" y="224" text-anchor="middle" fill="var(--fg)" font-size="15">文本隐藏状态</text>
+<text class="dia-t" x="130" y="247" text-anchor="middle" fill="var(--muted)" font-size="14">SD-v1：77×768</text>
+<rect x="315" y="60" width="196" height="90" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+<text class="dia-t" x="413" y="86" text-anchor="middle" fill="var(--fg)" font-size="15">Q 与 K 打分</text>
+<text class="dia-t" x="413" y="109" text-anchor="middle" fill="var(--muted)" font-size="14">每行沿 77 个位置 softmax</text>
+<text class="dia-t" x="413" y="132" text-anchor="middle" fill="var(--accent)" font-size="15">权重 A：16×77</text>
+<rect x="575" y="60" width="164" height="90" rx="8" fill="var(--card)" stroke="var(--muted)"/>
+<text class="dia-t" x="657" y="90" text-anchor="middle" fill="var(--fg)" font-size="15">用 A 加权 V</text>
+<text class="dia-t" x="657" y="119" text-anchor="middle" fill="var(--muted)" font-size="14">取回：16×d_v</text>
+<path d="M236 94 H315" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#diff06-attn-arrow__f1)"/>
+<path d="M236 219 H282 V137 H315" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#diff06-attn-arrow__f1)"/>
+<text class="dia-t" x="294" y="190" fill="var(--accent)" font-size="14">投影 K</text>
+<path d="M511 105 H575" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#diff06-attn-arrow__f1)"/>
+<path d="M236 246 H657 V150" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#diff06-attn-arrow__f1)"/>
+<text class="dia-t" x="460" y="234" text-anchor="middle" fill="var(--accent)" font-size="14">单独投影 V：77×d_v</text>
+<text class="dia-t" x="380" y="291" text-anchor="middle" fill="var(--muted)" font-size="14">图省略批维和多头；位置数与投影维数不是同一个轴</text>
+</svg>
+<figcaption>先看中间权重矩阵：<b>行对应图像位置，列对应文本 token 位置</b>。每行可以取不同的文本信息；这提供局部关联能力，不保证“红色”绝不会影响到帽子以外。</figcaption>
+</figure>
+
+<div class="tw"><table>
+<thead>
+<tr>
+<th>投影</th>
+<th>从哪来</th>
+<th>单个注意力头里有多少位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Q</strong>：用什么去匹配</td>
+<td>当前图像特征</td>
+<td>N = h×w</td>
+</tr>
+<tr>
+<td><strong>K</strong>：按什么被匹配</td>
+<td>文本隐藏状态，经 K 投影</td>
+<td>L = 77（本例）</td>
+</tr>
+<tr>
+<td><strong>V</strong>：取回什么内容</td>
+<td>同一份文本隐藏状态，经另一组 V 投影</td>
+<td>L = 77（本例）</td>
+</tr>
+</tbody>
+</table></div>
+<p>这里的 <code>d_v</code> 是单个注意力头中 V 投影后的维数，不等于文本编码器原来的 768 维。</p>
+<p>每头打分矩阵是 <strong>N×L</strong>；若批内有 B 个样本、每个模块有 heads 个头，写全形状就是 <strong>B×heads×N×L</strong>。沿最后一个轴做 softmax 后，每个图像位置取得一组文本权重，再把 V 加权取回。<a href="https://github.com/CompVis/stable-diffusion/blob/main/ldm/modules/attention.py#L156">交叉注意力实现</a>。</p>
+<p>所以，“提示词塞在哪里”的准确答案是：<strong>文本条件被传入主干，在配置好的条件模块中使用。</strong> 文本编码通常可先算一次并缓存；每次去噪的图像特征会变化，注意力关联也随之变化。时间条件 <code>t</code> 是另一条输入，留到下一章讲。</p>
+<hr />
+<h2 id="cfg">🎚️ 三、CFG：同一状态取两份预测</h2>
+<p><strong>先决条件在训练阶段：模型必须学过缺少这份语义条件时怎样预测。</strong> 标准 CFG 训练会以设定概率把语义条件替换为训练时约定的空语义条件（null）；带噪输入和时间条件仍在。不是推理时随手关闭任意条件模型，也不是随机清零一部分嵌入元素。<a href="https://arxiv.org/html/2207.12598v1">CFG 原论文算法 1</a>。</p>
+<p>例如 SD-v1-3/1-4 的训练说明写了 <strong>10% 文本条件丢弃</strong>；这是具体版本的超参数，不是 CFG 必须使用的常数。“无条件”在这里指<strong>不带指定文本语义条件</strong>，仍然看着 <code>x_t</code> 和 <code>t</code>。<a href="https://github.com/CompVis/stable-diffusion/blob/main/README.md">CompVis 训练说明</a>。</p>
+<p>采样时，对<strong>同一个 <code>x_t</code>、同一个 <code>t</code>、同一种预测参数化</strong>取得两份结果：带文本的 <code>ε_cond</code> 与 null 条件的 <code>ε_uncond</code>。本页沿用 ε 预测记号，再合成：</p>
+<p>$$\tilde{\varepsilon} = \varepsilon_{\text{uncond}} + s \cdot (\varepsilon_{\text{cond}} - \varepsilon_{\text{uncond}})$$</p>
+<p>括号是两份预测的差，<code>s</code> 决定从无条件预测出发沿这份差走多远。它是预测空间的运算，不是把两张最终图片混合。</p>
+<figure class="dia">
+<svg viewBox="0 0 760 216" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="沿条件预测差的仿射坐标：s等于0在无条件点，等于1在条件点，7.5与15位于条件点以外；位置按s的比例绘制">
+<defs><marker id="diff06-cfg-arrow__f2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="var(--accent)"/></marker></defs>
+<text class="dia-t" x="380" y="26" text-anchor="middle" fill="var(--fg)" font-size="15" font-weight="700">s&gt;1 才是越过条件预测的外推</text>
+<path d="M50 95 H713" stroke="var(--accent)" stroke-width="2" marker-end="url(#diff06-cfg-arrow__f2)"/>
+<circle cx="70" cy="95" r="6" fill="var(--muted)"/>
+<circle cx="110" cy="95" r="6" fill="var(--accent)"/>
+<circle cx="370" cy="95" r="6" fill="var(--accent)"/>
+<circle cx="670" cy="95" r="6" fill="var(--accent)"/>
+<text class="dia-t" x="70" y="68" text-anchor="middle" fill="var(--muted)" font-size="15">s=0：ε_uncond</text>
+<path d="M110 102 V134 H175" stroke="var(--muted)" fill="none"/>
+<text class="dia-t" x="181" y="139" fill="var(--fg)" font-size="15">s=1：ε_cond</text>
+<text class="dia-t" x="370" y="68" text-anchor="middle" fill="var(--accent)" font-size="15">s=7.5</text>
+<text class="dia-t" x="670" y="68" text-anchor="middle" fill="var(--accent)" font-size="15">s=15</text>
+<text class="dia-t" x="480" y="134" text-anchor="middle" fill="var(--muted)" font-size="14">沿预测差继续走，不是画质等级</text>
+<text class="dia-t" x="380" y="174" text-anchor="middle" fill="var(--muted)" font-size="14">每增加 1 个 s，图上向右 40 单位；假设两份预测不相同</text>
+<text class="dia-t" x="380" y="198" text-anchor="middle" fill="var(--fg)" font-size="14">本图表示公式坐标，不表示某个 API 在 s≤1 时的执行开关</text>
+</svg>
+<figcaption>看 <b>s=1</b>：仍是带条件预测，只是不做额外 CFG 外推。7.5 与 15 只是公式中的外推位置，不能据此宣布哪一点画质好、哪一点必然崩坏。</figcaption>
+</figure>
+
+<p>把公式整理成 <code>(1−s)·ε_uncond + s·ε_cond</code>，三个边界就清楚了：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>本页公式的 s</th>
+<th>结果</th>
+<th>注意</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><code>ε_uncond</code></td>
+<td>代数结论；不保证 UI 的 0 会执行无条件分支</td>
+</tr>
+<tr>
+<td>1</td>
+<td><code>ε_cond</code></td>
+<td>仍使用条件，没有额外外推</td>
+</tr>
+<tr>
+<td>大于 1</td>
+<td>越过 <code>ε_cond</code>，无条件项系数为负</td>
+<td>假设两份预测不同；若完全相同，改变 s 不起作用</td>
+</tr>
+</tbody>
+</table></div>
+<p>原论文把合成写成 <code>(1+w)·ε_cond − w·ε_uncond</code>，与这里的关系是 <strong>s=1+w</strong>，因此论文的 <code>w=0</code> 对应本页 <code>s=1</code>。看到“guidance 为零”，必须先查采用哪套约定。<a href="https://arxiv.org/html/2207.12598v1">CFG 原论文算法 2</a>。</p>
+<p>CompVis 参考文本生成脚本的默认 scale 是 <strong>7.5</strong>，但这是该脚本的默认值，不是所有 UI 或模型的通用推荐值。<a href="https://github.com/CompVis/stable-diffusion/blob/main/README.md">参考运行参数</a>。</p>
+<h3 id="cfg-null-branch">空条件不等于所有模型都用全零</h3>
+<p>在本页的 SD-v1 路径中，null 分支可用<strong>空字符串经过文本编码器得到的嵌入</strong>，不是直接给全零张量。其他模型会不同：原始 DiT 使用额外类别 ID；当前 SDXL 实现中，<code>negative_prompt=None</code> 且开启 <code>force_zeros_for_empty_prompt</code> 时可以使用零嵌入，显式空字符串又不是这一判定。<a href="https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py#L389">SDXL 条件编码</a>。</p>
+<p>如果把 null 分支换成负面提示词，标准组合成为 <code>ε_neg + s·(ε_pos−ε_neg)</code>。这时负面分支是<strong>另一份有条件预测</strong>，不再是严格的无条件预测。<code>s&gt;1</code> 时其系数 <code>1−s</code> 为负；<code>s=1</code> 时它的系数为零。<a href="https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L417">标准 SD 管线的负面分支</a>。</p>
+<p><strong>负面词不是逻辑 NOT。</strong> 这条差分能改变采样方向，但不保证彻底删除指定概念，也不能概括所有模型的负面词实现。</p>
+<details>
+<summary>👀 名字里的 free 指什么</summary>
+<p>classifier guidance 需要额外的分类器提供引导；classifier-free guidance 联合学习条件与 null 预测，不再需要那一个额外分类器。它不是“没有条件”，也不是“引导不花计算”。</p>
+</details>
+<hr />
+<h2 id="s">📉 四、<code>s</code> 调大，先看预测数值会发生什么</h2>
+<p><strong>这个实验只检查合成公式，不评测图像。</strong> 下面保留两个假预测张量和固定种子，观察向量范数与越过 ±3 的分量数。无需下载模型。</p>
+<p>代码沿用“训练时见过”“训练尺度”的打印标签；在本例里它们只指<strong>标准高斯参考</strong>。真实噪声预测器的输出分布不必等于训练噪声目标的分布，不能从这个标签推出真实模型的合法范围。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># CFG 合成出来的 ε，随 s 被放大成什么样</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">D</span> <span class="o">=</span> <span class="mi">256</span>                                <span class="c1"># 假装是展平的潜变量</span>
+<span class="n">eps_uncond</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">D</span><span class="p">)</span>            <span class="c1"># 空提示词那次前向的输出</span>
+<span class="n">eps_cond</span> <span class="o">=</span> <span class="n">eps_uncond</span> <span class="o">+</span> <span class="mf">0.35</span> <span class="o">*</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">D</span><span class="p">)</span>   <span class="c1"># 带条件那次</span>
+<span class="n">base</span> <span class="o">=</span> <span class="n">D</span> <span class="o">**</span> <span class="mf">0.5</span>                        <span class="c1"># 训练时 ε~N(0,I)，典型范数约 sqrt(256)=16，并非范数期望的精确值</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;训练时见过的 ε：范数约 </span><span class="si">{</span><span class="n">base</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">，几乎没有分量超过 3&quot;</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">,</span> <span class="mf">7.5</span><span class="p">,</span> <span class="mf">15.0</span><span class="p">):</span>
+    <span class="n">eps</span> <span class="o">=</span> <span class="n">eps_uncond</span> <span class="o">+</span> <span class="n">s</span> <span class="o">*</span> <span class="p">(</span><span class="n">eps_cond</span> <span class="o">-</span> <span class="n">eps_uncond</span><span class="p">)</span>   <span class="c1"># ⭐ 就是 CFG 那一行</span>
+    <span class="n">n</span> <span class="o">=</span> <span class="n">eps</span><span class="o">.</span><span class="n">norm</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;s=</span><span class="si">{</span><span class="n">s</span><span class="si">:</span><span class="s2">4.1f</span><span class="si">}</span><span class="s2">  范数 </span><span class="si">{</span><span class="n">n</span><span class="si">:</span><span class="s2">6.2f</span><span class="si">}</span><span class="s2">（训练尺度的 </span><span class="si">{</span><span class="n">n</span><span class="o">/</span><span class="n">base</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> 倍）&quot;</span>
+          <span class="sa">f</span><span class="s2">&quot;  越过 3 的分量 </span><span class="si">{</span><span class="nb">int</span><span class="p">((</span><span class="n">eps</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">3</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span><span class="si">:</span><span class="s2">3d</span><span class="si">}</span><span class="s2"> 个&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>先定位循环中的 <code>eps = ...</code>：只有这一行随 <code>s</code> 合成预测，两份假预测本身不变。<code>norm()</code> 量整体长度，最后一行的比较统计单个分量；二者不是同一个指标。</p>
+<section aria-label="本例 CFG 外推怎样改变向量尺度" class="experiment-result" id="experiment-result-9">
+<h3 id="cfg_1">本例 CFG 外推怎样改变向量尺度</h3>
+<p>256 维标准高斯的范数均方根为 <strong>16</strong>，可作典型尺度，但不是范数期望的精确值。本次独立执行得到：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th style="text-align: right;">CFG 强度 s</th>
+<th style="text-align: right;">合成向量范数</th>
+<th style="text-align: right;">相对参考尺度</th>
+<th style="text-align: right;">绝对值超过 3 的分量数</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">1.0</td>
+<td style="text-align: right;">15.81</td>
+<td style="text-align: right;">0.99 倍</td>
+<td style="text-align: right;">0</td>
+</tr>
+<tr>
+<td style="text-align: right;">3.0</td>
+<td style="text-align: right;">22.84</td>
+<td style="text-align: right;">1.43 倍</td>
+<td style="text-align: right;">9</td>
+</tr>
+<tr>
+<td style="text-align: right;">7.5</td>
+<td style="text-align: right;">47.13</td>
+<td style="text-align: right;">2.95 倍</td>
+<td style="text-align: right;">70</td>
+</tr>
+<tr>
+<td style="text-align: right;">15.0</td>
+<td style="text-align: right;">91.65</td>
+<td style="text-align: right;">5.73 倍</td>
+<td style="text-align: right;">152</td>
+</tr>
+</tbody>
+</table></div>
+<p>看 <strong>s=7.5</strong>：范数是参考尺度的 <strong>2.95 倍</strong>，有 <strong>70 个分量越过 3</strong>。这说明本例的外推显著改变了数值尺度；<strong>3 不是模型的硬边界</strong>，标准高斯本身也可能越过它。</p>
+</section>
+<p>也不能把表格概括成“所有预测的范数都随 s 增长”。一个简单反例：无条件预测为 <code>(2,0)</code>、条件预测为 <code>(1,0)</code>，则 <code>s=0、1、2、3</code> 的合成范数分别为 <code>2、1、0、1</code>，先减后增。</p>
+<p>真实生成中，过强引导可能伴随过饱和、结构或纹理伪影，以及多样性下降；它们需要图像实验验证，<strong>不是本页随机向量表的观测结果</strong>。也不存在由这张表推导出的通用最佳 s。<a href="https://arxiv.org/html/2207.12598v1">CFG 论文的质量与多样性讨论</a>。</p>
+<p>实际比较时，固定模型、提示词与采样器，对每个 s 使用同一组多个种子；既看条件匹配，也看细节和样本间差异。多样性不能靠一张图判断。</p>
+<hr />
+<h2 id="_4">💰 五、代价与例外：先认清是哪一种 guidance</h2>
+<p><strong>标准双分支 CFG 每个去噪状态需要两份预测。</strong> 若采样器恰好有 50 次这样的去噪评估，就是 <strong>100 份预测工作</strong>。两份可以分别调用，也可以合成一个较大的 batch；不代表一定有 100 次函数调用，墙钟时间也不必恰好翻倍。</p>
+<p>合批可能减少调度和重复访存、改善设备利用率，但没有把第二份输入对应的网络计算抹掉。计时前先对齐：采样器的“步”、模型评估次数、每次 batch 大小、硬件与实际耗时。</p>
+<p><strong>同名参数不一定执行同一算法。</strong> 以下是具体实现的边界，不是未来所有模型的通则：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>模型或实现</th>
+<th>应怎样理解</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>常规 Diffusers StableDiffusionPipeline</td>
+<td>显式 CFG 的开关通常要求 <code>guidance_scale&gt;1</code>，且没有时间条件投影分支；因此 API 中 ≤1 可直接走条件预测，不等于照本页公式返回无条件结果</td>
+</tr>
+<tr>
+<td>SDXL-Turbo 官方使用方式</td>
+<td>示例设 <code>guidance_scale=0</code>，不使用常规 CFG/负面词；正提示词仍是生成条件</td>
+</tr>
+<tr>
+<td>FLUX.1-dev 的官方参考实现</td>
+<td>模型经过 guidance distillation；guidance 数值作为模型条件嵌入，参考循环并不因此每步算一正一负</td>
+</tr>
+<tr>
+<td>当前 Diffusers FluxPipeline</td>
+<td><code>guidance_scale</code> 条件嵌入与 <code>true_cfg_scale</code> 显式组合是两件事；后者在大于 1 且提供负面条件时才需要另一份预测</td>
+</tr>
+</tbody>
+</table></div>
+<p>对应一手入口：<a href="https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L695">SD 的 CFG 开关</a>、<a href="https://huggingface.co/stabilityai/sdxl-turbo#diffusers">SDXL-Turbo 模型卡</a>、<a href="https://huggingface.co/black-forest-labs/FLUX.1-dev#key-features">FLUX.1-dev 模型卡</a>、<a href="https://github.com/black-forest-labs/flux/blob/main/src/flux/model.py#L78">BFL 模型条件</a>与<a href="https://github.com/black-forest-labs/flux/blob/main/src/flux/sampling.py#L281">参考采样循环</a>、<a href="https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/flux/pipeline_flux.py">Diffusers FluxPipeline</a>。实现边界核对于 2026-09-11。</p>
+<p>所以，看到“20 步出图”或一个 guidance 滑块，先查模型版本与管线。<strong>别把“没有显式双分支 CFG”读成“没有文本条件”。</strong></p>
+<hr />
+<h2 id="temperature">🌡️ 六、与 temperature 对照：不是同一根滑块</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>语言模型的 <code>temperature</code></th>
+<th>本页标准 CFG 的 <code>s</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>改哪里</td>
+<td>token 采样分布的尖锐程度</td>
+<td>两份去噪预测的线性组合</td>
+</tr>
+<tr>
+<td>往小／大调的直接含义</td>
+<td>降低正温度通常降低采样随机性</td>
+<td>s&gt;1 时增大 s，加强沿预测差的外推</td>
+</tr>
+<tr>
+<td>不能保证什么</td>
+<td>低温不保证更遵守指令或事实正确</td>
+<td>高 s 不保证更匹配提示词或画质更好</td>
+</tr>
+<tr>
+<td>走极端时应观察</td>
+<td>输出是否过于单一、反复重复高概率内容</td>
+<td>是否过饱和、结构或纹理异常、样本多样性下降</td>
+</tr>
+<tr>
+<td>计算口径</td>
+<td>温度缩放本身不增加模型预测份数</td>
+<td>标准双分支 CFG 需要两份预测，可合批</td>
+</tr>
+</tbody>
+</table></div>
+<p>可保留的类比是：<strong>采样参数会改变结果分布，需要按任务做受控比较。</strong> 但两者的数学操作、方向和实现代价不同；降低语言模型随机性，不等于增加扩散条件差。<a href="https://huggingface.co/docs/transformers/main/en/internal/generation_utils#transformers.TemperatureLogitsWarper">温度缩放说明</a>。</p>
+<p>一次只改一个变量，是为了知道变化由谁造成，不是因为两种旋钮等价。保留一个可复查的基准设置，再逐项试验，比记住一个跨模型“安全默认值”可靠。</p>
+<hr />
+<h2 id="_5">🔗 这一章连到哪里</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>去哪</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../大模型全景导论/06c-解码参数怎么调.html">大模型全景导论 06c · 解码参数怎么调</a></td>
+<td>看 temperature 的数学：logits 差为 2.0、T=0.5 时，概率比约为 54.6。它与 top_p 分开试验，是控制变量的方法</td>
+</tr>
+<tr>
+<td><a href="../大模型全景导论/02-Transformer原理.html">大模型全景导论 主线 2 · 模型怎样看懂一句话</a></td>
+<td>补 Q/K/V 的角色；本页把 Q 与 K/V 的来源拆成图像、文本两边</td>
+</tr>
+<tr>
+<td><a href="../大模型全景导论/10d-CLIP与对比学习.html">大模型全景导论 10d · CLIP 与对比学习</a></td>
+<td>看冻结文本编码器的训练来历：原始 CLIP 使用 4 亿图文对，采用 InfoNCE 一类对比目标；batch 内 N×N 匹配提高成对项（对角线）的相对得分。别与本页图像位置×文本位置的注意力矩阵混淆</td>
+</tr>
+<tr>
+<td><a href="../大模型全景导论/06-推理优化.html">大模型全景导论 06 · 推理优化：省显存</a></td>
+<td>区分算力密集与访存密集，理解为什么合批可能改善耗时，却没有省掉第二份预测的乘加</td>
+</tr>
+</tbody>
+</table></div>
+<p>图文对规模与训练目标见 <a href="https://arxiv.org/abs/2103.00020">CLIP 原论文</a>；训练数据规模属于文本编码器的来历，不是本页假预测实验的规模。</p>
+<hr />
+<h2 id="_6">✅ 检查点</h2>
+<ol>
+<li>本页 SD-v1 文本接口输出一个向量还是一串？77 是否指 77 个词？为什么保留不同位置有用？</li>
+<li>交叉注意力里 Q、K、V 各来自哪边？打分矩阵什么形状？是否每层都有、是否保证属性绝不串到别处？</li>
+<li>标准 CFG 合成公式是什么？<code>s=1</code> 有无文本条件，<code>s&gt;1</code> 为什么叫外推？负面词替换的是哪一份预测？</li>
+<li>大 s 可能伴随哪些问题，哪一类不能看单张图判断？本页随机实验真正测到了什么？</li>
+<li>标准 CFG 需要多少预测工作？合批省不掉什么？为什么不能把所有模型的 guidance 参数都按两份预测计费？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li>本页使用 <strong>77×768 的 token 级隐藏状态</strong>，77 包括特殊与填充位置，不等于词数。不同图像位置可以取不同文本信息，但这不是所有条件接口必须使用序列的定理。</li>
+<li>Q 来自图像特征投影，K/V 来自文本隐藏状态的分别投影。每头为 <strong>(h·w)×77</strong>，完整为 B×heads×(h·w)×77。在选定模块中使用，不是每层都有，也不保证“红色”只影响帽子。</li>
+<li><code>ε = ε_uncond + s·(ε_cond−ε_uncond)</code>；<strong>s=1 是条件预测，没有额外外推</strong>。s&gt;1 时无条件项系数为负，若两份预测不同便越过条件点。负面词通常替换基线分支，成为 <code>ε_neg+s·(ε_pos−ε_neg)</code>，不再是严格无条件，也不是逻辑 NOT。</li>
+<li>可能有过饱和、结构或纹理伪影、多样性下降；最后一项需要比较多个样本。本页只测假预测的数值：s=7.5 时范数为参考 16 的 <strong>2.95 倍</strong>、<strong>70 个分量绝对值超过 3</strong>。没有生成图片，3 也不是模型硬边界。</li>
+<li>每个需要标准双分支 CFG 的状态有两份预测工作，可分开调用或合批。合批可改善调度、访存和利用率，但不消除第二份网络计算；耗时不保证恰好翻倍。蒸馏 guidance 条件嵌入与显式 CFG 是不同实现，须查模型和管线。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_7">🛑 可以停在这里</h2>
+<p>现在你可以把三件事分开：<strong>文本怎样进入网络、标准 CFG 怎样组合预测、当前模型是否真的执行这条双分支公式。</strong></p>
+<p>要查提示词长度与局部关联，回看前两节；要查 s 的数值与计时口径，回看第三至五节。出现颜色、纹理或多样性问题时，先在同一组种子下与已记录的基准比较，不把所有问题都归因于一个滑块。</p>
+<p>⚡ <strong>走神救援</strong></p>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>文本条件在选定模块中影响去噪；不是每层都做交叉注意力。</li><li>标准 CFG 需要训练好的 null 分支，s=1 仍是有条件预测。</li><li>随机向量表只证明本例数值变化，画质与多样性要另做图像对照。</li><li>同名 guidance 不保证同一算法，先核对模型版本与管线。</li></ul></section>
+
+<p><strong>上一节</strong>：<a href="05-Latent-Diffusion.html">05 · Latent Diffusion</a> ｜ <strong>下一节</strong>：<a href="07-去噪主干-UNet与DiT.html">07 · 去噪主干：U-Net 与 DiT</a></p></article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
+<button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">📝 一、文本先变成一串向量</a><a href="#_3">🔀 二、交叉注意力：图像位置怎样取文本信息</a><a href="#cfg">🎚️ 三、CFG：同一状态取两份预测</a><a href="#s">📉 四、s 调大，先看预测数值会发生什么</a><a href="#_4">💰 五、代价与例外：先认清是哪一种 guidance</a><a href="#temperature">🌡️ 六、与 temperature 对照：不是同一根滑块</a><a href="#_5">🔗 这一章连到哪里</a><a href="#_6">✅ 检查点</a><a href="#_7">🛑 可以停在这里</a></nav>
+<button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
+<a href="index.html">回到本模块目录</a></div></aside></div>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="05-Latent-Diffusion.html"><div class="dir">← 上一节</div>🗜️ 05 · Latent Diffusion</a><a class="next" href="07-去噪主干-UNet与DiT.html"><div class="dir">下一节 →</div>🏗️ 07 · 去噪主干：U-Net 与 DiT</a></nav>
+</main>
+<script>(function(){
+  var KEY="diff-progress", FILE="06-\u6761\u4ef6\u63a7\u5236\u4e0eCFG.md";
+  var storageAvailable=true, memoryProgress={};
+  function load(){try{var parsed=JSON.parse(localStorage.getItem(KEY));
+    memoryProgress=parsed&&typeof parsed==='object'&&!Array.isArray(parsed)?parsed:{};
+    return memoryProgress;}catch(e){storageAvailable=false;return memoryProgress;}}
+  function storageStatus(message){var node=document.getElementById('diffusion-storage-status');
+    if(!node){node=document.createElement('p');node.id='diffusion-storage-status';
+      node.setAttribute('role','status');node.className='diffusion-storage-status';
+      var host=document.querySelector('.dash')||document.querySelector('.donebar')||document.querySelector('main');
+      host.appendChild(node);}node.textContent=message;}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    memoryProgress=p;try{localStorage.setItem(KEY,JSON.stringify(p));storageAvailable=true;storageStatus('打卡已保存在当前浏览器。');}catch(_){storageAvailable=false;storageStatus('未保存：浏览器存储不可用，打卡仅本次有效。');} refresh();});});
+  refresh();
+  if(!storageAvailable)storageStatus('无法读取进度；打卡仅本次有效。');
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    try{localStorage.setItem('recsys-theme',next);}catch(_){storageStatus('未保存：浏览器存储不可用，主题更改仅本次有效。');}});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/diffusion-reader.css"><script data-diffusion-zoom-adapter>
+/* Module-local adapter: keep original SVG IDs and uniquify only zoom copies. */
+(function () {
+  'use strict';
+  if (!document.body.classList.contains('diffusion-reader')) return;
+  var serial = 0;
+  document.addEventListener('click', function (event) {
+    if (!event.target.closest('.diagram-expand')) return;
+    var svg = document.querySelector('#diagram-reader-stage > svg');
+    if (!svg) return;
+    var elements = [svg].concat(Array.from(svg.querySelectorAll('*')));
+    var names = new Map(), prefix = 'diffusion-zoom-' + (++serial) + '-';
+    elements.forEach(function (element) { if (element.id) names.set(element.id, prefix + element.id); });
+    function references(value) {
+      return value.replace(/url\((['"]?)#([^)'\"]+)\1\)/g, function (whole, quote, id) {
+        return names.has(id) ? 'url(#' + names.get(id) + ')' : whole;
+      });
+    }
+    elements.forEach(function (element) {
+      if (element.id) element.id = names.get(element.id);
+      Array.from(element.attributes).forEach(function (attribute) {
+        if (attribute.name === 'id') return;
+        var value = references(attribute.value);
+        if (attribute.name === 'aria-labelledby' || attribute.name === 'aria-describedby') {
+          value = value.split(/\s+/).map(function (id) { return names.get(id) || id; }).join(' ');
+        } else if (value.charAt(0) === '#' && names.has(value.slice(1))) {
+          value = '#' + names.get(value.slice(1));
+        }
+        if (value !== attribute.value) attribute.value = value;
+      });
+      if (element.tagName.toLowerCase() === 'style') element.textContent = references(element.textContent);
+    });
+  });
+})();
+
+</script></body></html>

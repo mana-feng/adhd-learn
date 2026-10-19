@@ -2,8 +2,8 @@
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>08 · ControlNet 与风格 LoRA · 扩散模型</title>
-<script>(function(){var t=localStorage.getItem('recsys-theme');
-if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');
+if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(_){}})();</script><style>
 @font-face{font-family:"CodeCJK";
  src:url("../assets/code-cjk-mono.woff2") format("woff2");
  font-weight:400;font-style:normal;font-display:swap;}
@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="diffusion-reader">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -293,8 +293,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
-<li><a href="#_2">🖐️ 一、提示词到底控制不了什么</a></li>
-<li><a href="#controlnet">🧬 二、ControlNet：复制一份主干，再用零卷积接回去</a></li>
+<li><a href="#_2">🖐️ 一、文本、空间条件与适配各补什么</a></li>
+<li><a href="#controlnet">🧬 二、ControlNet：复制编码器与中间块，再接回主干</a></li>
 <li><a href="#lora">🎨 三、风格 LoRA：和语言模型那个是同一个东西</a></li>
 <li><a href="#_4">⚖️ 四、三者的分工（这一章最该记住的一张表）</a></li>
 <li><a href="#_5">💸 五、代价</a></li>
@@ -308,11 +308,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⏱ <strong>22 分钟</strong> ｜ ⭐ <strong>提示词管「画什么」，这一章补上「画成什么形状」和「用什么风格画」</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>文字说得清「一只猫在雪地里」，说不清「猫站在画面左三分之一、头偏右、镜头俯视」。</strong>
-ControlNet 补形状，风格 LoRA 补风格。⭐ <strong>它们和提示词三者互不替代</strong> —— 这是这一章最容易搞混的地方。</p>
+<p><strong>提示词能描述内容、空间关系和风格，但细密控制未必稳定。</strong> ControlNet 用边缘、深度或姿态等额外空间条件加强结构控制；LoRA 用低秩权重更新适配风格、角色等需求。三者可组合，也有能力重叠，不能仅靠名字判断哪一种必需。</p>
 <hr />
-<h2 id="_2">🖐️ 一、提示词到底控制不了什么</h2>
-<p>上一章把接口钉死了：去噪网络吃 <code>(x_t, t, c)</code>。<strong>提示词只是 <code>c</code> 的一种</strong>，所以「加控制」只有两条路：往 <code>c</code> 里塞更强的东西，或者改那个函数本身。下面两个主角各走一条。</p>
+<h2 id="_2">🖐️ 一、文本、空间条件与适配各补什么</h2>
+<p>上一章用 <code>(x_t,t,c)</code> 解释去噪器的概念输入，实际还要核对输出目标与方差头。本章的 ControlNet 增加条件支路，LoRA 修改部分层的权重；这是两种常见做法，不是全部控制方法的穷尽分类。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -323,27 +322,27 @@ ControlNet 补形状，风格 LoRA 补风格。⭐ <strong>它们和提示词三
 <tbody>
 <tr>
 <td><strong>画什么</strong>（一只猫、雪地、黄昏）</td>
-<td>✅ 够，这正是文本编码器擅长的语义</td>
+<td>常可用文本表达，但是否遵从仍需检查</td>
 </tr>
 <tr>
 <td><strong>画成什么形状</strong>（构图、姿势、线稿）</td>
-<td>❌ <strong>说不清</strong> —— 每加一条空间约束，全部命中的概率就掉一截，你还<strong>无法验证它听了哪几条</strong></td>
+<td>可以描述，细密布局或姿态却可能不稳定；可用空间条件和输出检查增强控制</td>
 </tr>
 <tr>
 <td><strong>用什么风格画</strong>（某种笔触、你的角色）</td>
-<td>❌ <strong>说了也没用</strong> —— 不是描述得更细就行，是底座<strong>根本没见过</strong>它</td>
+<td>已有风格可能通过文本触发；新概念或稳定身份可考虑适配与参考图方法，不能先断定底座未见过</td>
 </tr>
 </tbody>
 </table></div>
 <hr />
-<h2 id="controlnet">🧬 二、ControlNet：复制一份主干，再用零卷积接回去</h2>
-<figure class="dia"><svg viewBox="0 0 700 326" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="左侧是冻结的原主干，右侧是可训练的编码器副本，中间一个标着 0 的零初始化卷积把副本接回主干"><text class="dia-t" x="350" y="24" font-size="14" text-anchor="middle" fill="var(--fg)" font-weight="700">复制一份可训练的副本，用零初始化卷积接回冻结的主干</text><rect x="30" y="54" width="180" height="216" rx="10" fill="var(--quote-bg)" stroke="var(--border)" stroke-width="1.6" stroke-dasharray="6 4"/><text class="dia-t" x="120" y="76" font-size="12.5" text-anchor="middle" fill="var(--muted)" font-weight="700">🔒 冻结的原主干</text><rect x="50" y="90" width="140" height="40" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="120" y="115" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">编码器</text><rect x="50" y="152" width="140" height="40" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="120" y="177" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">瓶颈</text><rect x="50" y="200" width="140" height="40" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="120" y="225" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">解码器</text><rect x="290" y="54" width="180" height="164" rx="10" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="380" y="76" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">🔥 可训练副本</text><rect x="310" y="90" width="140" height="40" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"/><text class="dia-t" x="380" y="115" font-size="13" text-anchor="middle" fill="var(--accent)" font-weight="700">编码器（复制）</text><rect x="310" y="152" width="140" height="40" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"/><text class="dia-t" x="380" y="177" font-size="13" text-anchor="middle" fill="var(--accent)" font-weight="700">条件图编码</text><rect x="520" y="152" width="150" height="40" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="595" y="177" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">线稿 / 深度 / 姿态</text><line x1="520" y1="172" x2="463" y2="172" stroke="var(--accent)" stroke-width="2"/><polygon points="454,172 463,167 463,177" fill="var(--accent)"/><circle cx="250" cy="220" r="16" fill="var(--card)" stroke="var(--done)" stroke-width="2.2"/><text class="dia-t" x="250" y="225" font-size="14" text-anchor="middle" fill="var(--done)" font-weight="700">0</text><line x1="310" y1="110" x2="266" y2="210" stroke="var(--done)" stroke-width="2" stroke-dasharray="5 4"/><line x1="234" y1="220" x2="203" y2="220" stroke="var(--done)" stroke-width="2"/><polygon points="194,220 203,215 203,225" fill="var(--done)"/><text class="dia-t" x="250" y="254" font-size="11.5" text-anchor="middle" fill="var(--done)" font-weight="700">零初始化卷积</text><text class="dia-t" x="350" y="292" font-size="12.5" text-anchor="middle" fill="var(--done)" font-weight="700">⭐ 第 0 步这条支路输出恒为 0 —— 本例零卷积不改变主干输出（最大差 0.0）</text><text class="dia-t" x="350" y="314" font-size="12" text-anchor="middle" fill="var(--muted)">本例零卷积权重梯度为 2501.0；不代表所有上游参数第一步都有梯度</text></svg><figcaption>看中间那个标着 <strong>0</strong> 的圆：训练开始时它让整条支路输出为零，⭐ 于是<strong>本例零卷积暂不扰动主干输出</strong> —— 不破坏已训好的东西，却照样有梯度可学。</figcaption></figure>
+<h2 id="controlnet">🧬 二、ControlNet：复制编码器与中间块，再接回主干</h2>
+<figure class="dia"><svg viewBox="0 0 700 326" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="左侧是冻结的原主干，右侧是可训练的编码器与中间块副本；图中简画一条零卷积连接，实际残差经跳连和中间块接回主干"><text class="dia-t" x="350" y="24" font-size="14" text-anchor="middle" fill="var(--fg)" font-weight="700">复制一份可训练的副本，用零初始化卷积接回冻结的主干</text><rect x="30" y="54" width="180" height="216" rx="10" fill="var(--quote-bg)" stroke="var(--border)" stroke-width="1.6" stroke-dasharray="6 4"/><text class="dia-t" x="120" y="76" font-size="12.5" text-anchor="middle" fill="var(--muted)" font-weight="700">🔒 冻结的原主干</text><rect x="50" y="90" width="140" height="40" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="120" y="115" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">编码器</text><rect x="50" y="152" width="140" height="40" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="120" y="177" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">瓶颈</text><rect x="50" y="200" width="140" height="40" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="120" y="225" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">解码器</text><rect x="290" y="54" width="180" height="164" rx="10" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="380" y="76" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">🔥 可训练副本</text><rect x="310" y="90" width="140" height="40" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"/><text class="dia-t" x="380" y="115" font-size="13" text-anchor="middle" fill="var(--accent)" font-weight="700">编码器／中间块</text><rect x="310" y="152" width="140" height="40" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"/><text class="dia-t" x="380" y="177" font-size="13" text-anchor="middle" fill="var(--accent)" font-weight="700">条件图编码</text><rect x="520" y="152" width="150" height="40" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/><text class="dia-t" x="595" y="177" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">线稿 / 深度 / 姿态</text><line x1="520" y1="172" x2="463" y2="172" stroke="var(--accent)" stroke-width="2"/><polygon points="454,172 463,167 463,177" fill="var(--accent)"/><circle cx="250" cy="220" r="16" fill="var(--card)" stroke="var(--done)" stroke-width="2.2"/><text class="dia-t" x="250" y="225" font-size="14" text-anchor="middle" fill="var(--done)" font-weight="700">0</text><line x1="310" y1="110" x2="266" y2="210" stroke="var(--done)" stroke-width="2" stroke-dasharray="5 4"/><line x1="234" y1="220" x2="203" y2="220" stroke="var(--done)" stroke-width="2"/><polygon points="194,220 203,215 203,225" fill="var(--done)"/><text class="dia-t" x="250" y="254" font-size="11.5" text-anchor="middle" fill="var(--done)" font-weight="700">零初始化卷积</text><text class="dia-t" x="350" y="292" font-size="12.5" text-anchor="middle" fill="var(--done)" font-weight="700">⭐ 第 0 步这条支路输出恒为 0 —— 本例零卷积不改变主干输出（最大差 0.0）</text><text class="dia-t" x="350" y="314" font-size="12" text-anchor="middle" fill="var(--muted)">本例零卷积权重梯度为 2501.0；不代表所有上游参数第一步都有梯度</text></svg><figcaption>看中间那个标着 <strong>0</strong> 的圆：训练开始时它让整条支路输出为零，⭐ 于是<strong>本例零卷积暂不扰动主干输出</strong> —— 不破坏已训好的东西，却照样有梯度可学。 原始 SD 方案的副本包括编码器与中间块，残差经多尺度跳连和中间块接回冻结主干；图中仅简画一条连接。数值沿用本章历史示例，本轮未复跑 PyTorch。</figcaption></figure>
 
 <ol>
 <li><strong>冻结</strong>原来的去噪主干（上一章那个 U-Net），一个权重都不动。</li>
-<li>把它<strong>编码器那一半复制一份</strong>，这份可训练 —— 起点是会画画的权重，不是随机数。</li>
+<li>在原始 SD U-Net 方案中，复制<strong>编码器与中间块</strong>作可训练支路，保留其预训练权重起点；新增条件编码与连接模块另行初始化。</li>
 <li><strong>条件图</strong>（Canny 边缘图 / 深度图 / 姿态骨架）经一个小编码器，加到副本输入上。</li>
-<li>副本每一级的输出，各经一个<strong>零初始化的 1×1 卷积</strong>，加进冻结主干<strong>解码器</strong>同级。</li>
+<li>支路输出经<strong>零初始化的 1×1 卷积</strong>，送入主干的跳连路径与中间块，再由解码器使用。它不是另训一整个解码器。</li>
 </ol>
 <p>第 4 步那个「零初始化」是整个设计的支点：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 零初始化卷积：训练前输出恒为 0，梯度却不为 0 —— 所以它接得进去，也学得起来</span>
@@ -395,7 +394,7 @@ ControlNet 补形状，风格 LoRA 补风格。⭐ <strong>它们和提示词三
 <p>💡 上一章 DiT 的 adaLN-Zero 门控也是零初始化，同一个想法。</p>
 <hr />
 <h2 id="lora">🎨 三、风格 LoRA：和语言模型那个是同一个东西</h2>
-<p>不是「像」，是<strong>同一个低秩适配</strong>：底座 <code>W</code> 冻结，旁边挂一对窄矩阵，前向变成 <code>W·x + B(A·x)</code>，中间那个窄维度叫 <strong>rank</strong>（记作 <code>r</code>）。⭐ <code>B</code> 零初始化，所以挂上那一刻 <code>W + BA = W</code> —— <strong>和上一节的零卷积同一个动机</strong>。</p>
+<p>不是「像」，是<strong>同一个低秩适配</strong>：底座 <code>W</code> 冻结，旁边挂一对窄矩阵，前向变成 <code>W·x + B(A·x)</code>，中间那个窄维度叫 <strong>rank</strong>（记作 <code>r</code>）。常见初始化将 <code>B</code> 置零、<code>A</code> 随机初始化，因此初始 <code>W + BA = W</code>；这里省略偏置、缩放系数取 1 —— <strong>和上一节的零卷积同一个动机</strong>。</p>
 <p>拿交叉注意力里 768 → 320 那层算笔账：原层 <code>768×320 = 245760</code> 个参数，LoRA 只有 <code>r×(768+320) = 1088r</code> 个。</p>
 <div class="tw"><table>
 <thead>
@@ -418,8 +417,8 @@ ControlNet 补形状，风格 LoRA 补风格。⭐ <strong>它们和提示词三
 </tr>
 </tbody>
 </table></div>
-<p>⚠️ 所以 <code>r</code> 不是越大越好：到 64 已经离全量微调不远，小数据下更容易把训练集背下来。常见取值就在 <strong>4~64</strong>，主要挂在<strong>交叉注意力</strong>的 Q/K/V 和输出投影上 —— 那正是文本条件落到图像特征的地方。</p>
-<p><strong>为什么风格只能走这条路</strong>：风格是<strong>分布层面</strong>的偏移（笔触走向、色调、留白），几个形容词定位不了，得拿 20~100 张风格一致的图去改权重。</p>
+<p><strong>rank 决定这条低秩旁路的容量与参数量。</strong> 本层 r=64 的新增参数是原层的 28.33%，不能据此说整个模型已接近全量微调。适合的 r、目标层与训练长度需用留出数据比较；LoRA 可挂在注意力或其他线性／卷积层，范围取决于实现。</p>
+<p><strong>LoRA 是风格适配的一条路。</strong> 若底座已有相应能力，提示词可能足够；参考图条件、其他适配器或微调方法也是选项。需要训练时，数据量取决于目标、底座与样本覆盖度，没有通用的“20–100 张即可”门槛。依据：<a href="https://arxiv.org/abs/2106.09685">LoRA 原论文</a>的低秩更新形式；这里的风格用法还需具体训练验证。</p>
 <hr />
 <h2 id="_4">⚖️ 四、三者的分工（这一章最该记住的一张表）</h2>
 <div class="tw"><table>
@@ -436,7 +435,7 @@ ControlNet 补形状，风格 LoRA 补风格。⭐ <strong>它们和提示词三
 <td><strong>提示词</strong></td>
 <td><strong>画什么</strong> —— 内容、语义</td>
 <td>文本编码器 → 条件 <code>c</code></td>
-<td>免费，改字就行</td>
+<td>不额外训练权重；仍需文本编码和生成计算</td>
 </tr>
 <tr>
 <td><strong>ControlNet</strong></td>
@@ -448,21 +447,21 @@ ControlNet 补形状，风格 LoRA 补风格。⭐ <strong>它们和提示词三
 <td><strong>风格 LoRA</strong></td>
 <td><strong>用什么风格画</strong> —— 笔触、角色</td>
 <td>直接改主干若干层的权重</td>
-<td>算力几乎不加，但要训</td>
+<td>需要适配训练；推理开销取决于是否合并权重、目标层与实现</td>
 </tr>
 </tbody>
 </table></div>
 <ul>
-<li>只给 ControlNet 不给提示词 → <strong>形状对了，它不知道该画猫还是狗</strong>。</li>
-<li>只给 LoRA 不给 ControlNet → <strong>风格稳了，构图还是每次都变</strong>。</li>
-<li>提示词写「站在左边」只让概率<strong>偏一点</strong>；ControlNet 给的是<strong>逐像素</strong>的约束。</li>
+<li>没有文本时，ControlNet 仍可能从条件图与底座先验生成内容；语义与结构是否满足要求都需检查。</li>
+<li>LoRA 可能同时影响风格、角色与构图；没有显式空间条件时，不能据此保证布局稳定。</li>
+<li>ControlNet 接受空间对齐的条件图并学习控制；它是软条件，不保证逐像素或逐关节严格服从。</li>
 </ul>
 <hr />
 <h2 id="_5">💸 五、代价</h2>
-<p><strong>① ControlNet 要多跑一份主干。</strong> 副本是编码器那一半，推理时那部分跑两遍，参数和激活都多一份。⚠️ <strong>更贵的是它和 CFG 相乘</strong> —— CFG 本来就要跑两次去噪网络，加了 ControlNet 之后<strong>这两次都得带上副本</strong>。</p>
-<p><strong>② 多个 ControlNet 会打架。</strong> 条件互相矛盾时（线稿说手在这儿、深度图说手在那儿），出图就崩在那个位置。</p>
-<p><strong>③ 多个 LoRA 更麻烦</strong>：<code>BA</code> 直接加进同一个 <code>W</code>，⚠️ <strong>它们没有任何机制知道对方存在</strong>，只能每个配一个系数靠试（diffusers 里就是 <code>set_adapters([...], adapter_weights=[0.8, 0.6])</code> 那两个数）。风格 LoRA 和角色 LoRA 打架是最常见的一种。</p>
-<p><strong>④ 风格 LoRA 会越界。</strong> 训练集只有几十张时，它常连<strong>背景和构图</strong>一起学走，那就侵占了 ControlNet 的地盘。症状很好认：<strong>不管提示词怎么改，构图都像训练集那几张</strong>。解法是减 <code>r</code>、减步数，或让训练集构图更杂。</p>
+<p><strong>① ControlNet 增加支路计算。</strong> 原始方案复制编码器和中间块，参数与中间激活都会增加。标准双分支 CFG 通常还处理正、负两份条件；但并非所有模式都让 ControlNet 跑两份：Diffusers 的 <code>guess_mode</code> 可仅计算有条件分支，再给无条件分支补零残差。因此不能用“固定翻倍”替代实际调用与显存测量。依据：<a href="https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/controlnet/pipeline_controlnet.py">官方管线中的 guess mode 分支</a>（核对日期 2026-10-20）。</p>
+<p><strong>② 多个空间条件可能冲突。</strong> 例如线稿和深度给出不一致的手部位置，生成器未必同时满足；需逐项加入条件，比较控制强度、使用时段与具体失败区域，不能断言冲突必在原位置造成崩坏。</p>
+<p><strong>③ 多个 LoRA 的权重更新会叠加，也可能相互干扰。</strong> 简单相加不包含协调这些适配器的训练。先单独检查每个适配器，再调各自系数，并保留组合的留出评估；不能保证两个单独有效的适配器合起来仍有效。</p>
+<p><strong>④ 风格适配也可能学入背景和构图。</strong> 若输出反复接近训练图布局，先检查训练数据的相关性与过拟合，再比较学习率、训练长度、rank 与推理强度。扩大构图覆盖或减少更新是可测的方案，不保证只改一个参数就能解决。</p>
 <hr />
 <h2 id="_6">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
@@ -483,11 +482,11 @@ ControlNet 补形状，风格 LoRA 补风格。⭐ <strong>它们和提示词三
 </tr>
 <tr>
 <td><a href="../AI基础设施/09-显存优化全家桶.html">AI基础设施 09 · 显存优化全家桶</a></td>
-<td>训 ControlNet 多出来的副本让<strong>参数、梯度、优化器状态三块一起翻</strong>。那章第一节的判断很实用：<strong>把 batch 调到 1 还 OOM 吗</strong> —— 还 OOM 是这三块的问题，不 OOM 才是激活的</td>
+<td>区分冻结主干与可训练支路：可训练部分才需要相应梯度和优化器状态，激活还取决于反传路径。batch=1 仍 OOM 只能帮助排查，不能唯一判定是参数或优化器问题；应分项测量峰值显存。</td>
 </tr>
 <tr>
 <td><a href="../大模型全景导论/10b-图像生成.html">大模型全景导论 10b · 图像生成</a></td>
-<td>14 分钟的索引版，这两样在那里只占组件表<strong>一行</strong>。⭐ 而它的「📦 深挖的话要学什么」把 ControlNet 和风格 LoRA 训练标成 <strong>📕 整块要外找</strong> —— 本章就是那一行</td>
+<td>回到图像生成组件总览，再按本章的空间条件与权重适配区分两种机制；导论已有本站扩散模块入口。</td>
 </tr>
 </tbody>
 </table></div>
@@ -498,16 +497,16 @@ ControlNet 补形状，风格 LoRA 补风格。⭐ <strong>它们和提示词三
 <li>ControlNet 冻结哪一份、训练哪一份？副本复制主干的哪一半，又加回哪一半？</li>
 <li>零初始化的卷积第 0 步输出是多少？那它靠什么学起来？换成默认初始化会怎样？</li>
 <li><code>r=64</code> 时 LoRA 的可训练参数占原层多少？为什么它不是越大越好？</li>
-<li>为什么 ControlNet 的算力代价会和 CFG「相乘」？多个 LoRA 叠加时又要调什么、为什么？</li>
+<li>ControlNet 与 CFG 合用时为什么要核对实际分支？guess mode 有何例外？多个 LoRA 的组合应怎样验证？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>形状是<strong>说不清</strong>（文字表达不了逐像素的空间约束）；风格是<strong>说了也没用</strong>（底座根本没见过那个角色或笔触）。</li>
-<li>原主干<strong>全部冻结</strong>，复制出来的<strong>编码器那一半</strong>可训练；副本每级输出经零卷积加进冻结主干的<strong>解码器</strong>同级。</li>
+<li>文本可以描述结构与风格，但复杂约束未必稳定。空间条件可增强结构控制，权重适配可学习新需求；不能仅凭失败就断定文字无法表达或底座完全未见过。</li>
+<li>原始方案冻结预训练主干，复制编码器和中间块作为可训练支路；零卷积连接跳连路径与中间块，由冻结主干解码器继续处理。</li>
 <li>本例零卷积初始输出为 <strong>0</strong>，主干输出最大差 <strong>0.0</strong>；该层权重梯度范数 <strong>2501.0</strong>，因此可更新。它上游的参数首次收到的梯度可能为零。默认初始化在本例引入最大 <strong>2.217</strong> 的改动。</li>
-<li><strong>28.33%</strong>（<code>r=4</code> 只有 1.77%）。<code>r</code> 一大就接近全量微调，小数据下更容易背下训练集，常见 <strong>4~64</strong>。</li>
-<li>CFG 本身要跑两次去噪网络，加了 ControlNet 后<strong>这两次都得带上编码器副本</strong>，所以相乘不是相加。多个 LoRA 要调<strong>各自的权重系数</strong>（如 0.8 / 0.6），因为它们的 <code>BA</code> 直接加进同一个 <code>W</code>，<strong>没有任何机制知道对方存在</strong>。</li>
+<li>这一层为 28.33%（r=4 为 1.77%），不含偏置。它是单层新增参数比，不代表整模型微调占比；rank 增加容量与开销，是否改善泛化要用留出样本验证。</li>
+<li>标准 CFG 需要两份去噪预测，可合批；ControlNet 是否为两份都计算取决于管线，guess mode 可只处理条件支路。多个 LoRA 需检查各自强度与组合后的留出表现，不能从单独有效推断组合有效。</li>
 </ol>
 </details>
 <hr />
@@ -524,15 +523,24 @@ ControlNet 补形状，风格 LoRA 补风格。⭐ <strong>它们和提示词三
 </main>
 <script>(function(){
   var KEY="diff-progress", FILE="08-ControlNet\u4e0e\u98ce\u683cLoRA.md";
-  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  var storageAvailable=true, memoryProgress={};
+  function load(){try{var parsed=JSON.parse(localStorage.getItem(KEY));
+    memoryProgress=parsed&&typeof parsed==='object'&&!Array.isArray(parsed)?parsed:{};
+    return memoryProgress;}catch(e){storageAvailable=false;return memoryProgress;}}
+  function storageStatus(message){var node=document.getElementById('diffusion-storage-status');
+    if(!node){node=document.createElement('p');node.id='diffusion-storage-status';
+      node.setAttribute('role','status');node.className='diffusion-storage-status';
+      var host=document.querySelector('.dash')||document.querySelector('.donebar')||document.querySelector('main');
+      host.appendChild(node);}node.textContent=message;}
   function refresh(){var d=!!load()[FILE];
     document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
       b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
                      :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
   document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
     var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
-    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+    memoryProgress=p;try{localStorage.setItem(KEY,JSON.stringify(p));storageAvailable=true;storageStatus('打卡已保存在当前浏览器。');}catch(_){storageAvailable=false;storageStatus('未保存：浏览器存储不可用，打卡仅本次有效。');} refresh();});});
   refresh();
+  if(!storageAvailable)storageStatus('无法读取进度；打卡仅本次有效。');
 
   var tt=document.getElementById('themeToggle');
   if(tt)tt.addEventListener('click',function(){
@@ -540,8 +548,43 @@ ControlNet 补形状，风格 LoRA 补风格。⭐ <strong>它们和提示词三
     var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
     var next=dark?'light':'dark';
     document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('recsys-theme',next);});
+    try{localStorage.setItem('recsys-theme',next);}catch(_){storageStatus('未保存：浏览器存储不可用，主题更改仅本次有效。');}});
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/diffusion-reader.css"><script data-diffusion-zoom-adapter>
+/* Module-local adapter: keep original SVG IDs and uniquify only zoom copies. */
+(function () {
+  'use strict';
+  if (!document.body.classList.contains('diffusion-reader')) return;
+  var serial = 0;
+  document.addEventListener('click', function (event) {
+    if (!event.target.closest('.diagram-expand')) return;
+    var svg = document.querySelector('#diagram-reader-stage > svg');
+    if (!svg) return;
+    var elements = [svg].concat(Array.from(svg.querySelectorAll('*')));
+    var names = new Map(), prefix = 'diffusion-zoom-' + (++serial) + '-';
+    elements.forEach(function (element) { if (element.id) names.set(element.id, prefix + element.id); });
+    function references(value) {
+      return value.replace(/url\((['"]?)#([^)'\"]+)\1\)/g, function (whole, quote, id) {
+        return names.has(id) ? 'url(#' + names.get(id) + ')' : whole;
+      });
+    }
+    elements.forEach(function (element) {
+      if (element.id) element.id = names.get(element.id);
+      Array.from(element.attributes).forEach(function (attribute) {
+        if (attribute.name === 'id') return;
+        var value = references(attribute.value);
+        if (attribute.name === 'aria-labelledby' || attribute.name === 'aria-describedby') {
+          value = value.split(/\s+/).map(function (id) { return names.get(id) || id; }).join(' ');
+        } else if (value.charAt(0) === '#' && names.has(value.slice(1))) {
+          value = '#' + names.get(value.slice(1));
+        }
+        if (value !== attribute.value) attribute.value = value;
+      });
+      if (element.tagName.toLowerCase() === 'style') element.textContent = references(element.textContent);
+    });
+  });
+})();
+
+</script></body></html>

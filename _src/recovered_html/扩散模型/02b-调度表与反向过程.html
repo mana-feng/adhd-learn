@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>02b · 调度表与反向过程 · 扩散模型</title>
+<script>(function(){try{var t=localStorage.getItem('recsys-theme');
+if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(_){}})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{
+/* ⭐ 字号阶梯：正文 = 1em（body 18px）。其余一律从这几档取，
+   不要再写 .92 / .94 / .95 这种随手值 —— body 18px 下它们相差不到 0.5px，
+   分不出来，只会让后来的人不知道该抄哪一个。 */
+  --fs-xs:.8em;    /* 角标、方向标签 */
+  --fs-sm:.88em;   /* 代码、图注、注解 */
+  --fs-md:.93em;   /* 略小于正文：表格、面板、目录 —— 站内最常用 */
+  --fs-lg:1.14em;  /* h3 */
+  --fs-xl:1.42em;  /* h2 */
+  --fs-2xl:1.9em;  /* h1 */
+--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:var(--fs-2xl);line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:var(--fs-xl);margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:var(--fs-lg);margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+/* ⭐ 表格横向滚动兜底：`width:100%` 让表格只会挤不会溢出，实测 305px 宽下
+   最窄单元格只剩 40px。给单元格一个 min-width 让它不再无限压缩，超出的由 .tw 兜住。
+   2–4 列的表仍然占满不滚动，只有真挤不下的多列表才出现滚动条。 */
+.tw{overflow-x:auto;margin:1.2em 0;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;margin:0;font-size:var(--fs-md)}
+th,td{min-width:5.2em}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:var(--fs-sm);background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:var(--fs-sm)}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:var(--fs-md)}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:var(--fs-xs);color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:var(--fs-sm);color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:var(--fs-md)}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:var(--fs-xs);
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:var(--fs-md);border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:var(--fs-md)}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:var(--fs-md);line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:var(--fs-md)}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:var(--fs-sm);line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:var(--fs-md);line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:var(--fs-md)}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:var(--fs-lg);opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:var(--fs-sm);
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+/* ⭐ 块公式也要能自己横向滚动：pre/表格/图都有兜底，只有它没有 —— 一条长公式会把整页撑出横向滚动条 */
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:2px 0 6px}
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:var(--fs-xs);
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
+
+.dia-lead{color:var(--muted);font-size:var(--fs-md);margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:var(--fs-sm);margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:var(--fs-md);margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:var(--fs-md);line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.05em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:var(--fs-md);break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #FF4689 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #66D9EF } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #A6E22E } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #A6E22E } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
+<script defer src="../assets/vendor/katex/katex.min.js"></script>
+<script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="diffusion-reader">
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">02b · 调度表与反向过程</span>
+  <span class="prevnext"><a href="02-加噪与去噪.html">←</a>
+  <a href="03-训练目标为什么是预测噪声.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#_2">📉 四、β 调度：这条曲线在决定什么</a></li>
+<li><a href="#_3">🔄 五、反向过程：唯一需要学的那一半</a></li>
+<li><a href="#_5">🔗 这一章连到哪里</a></li>
+<li><a href="#_6">✅ 检查点</a></li>
+<li><a href="#_7">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<h1 id="02b">02b · 调度表与反向过程</h1>
+<p>⏱ <strong>26 分钟</strong> ｜ ⭐ <strong>β 那张表在决定什么，以及反向为什么不能照抄前向</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p>上一页说前向是一条写死的公式 —— 但<strong>那张表具体怎么写，会改变不同时间步的信号与噪声分配</strong>。
+这一页先讲调度表，再回答那个自然会冒出来的问题：
+<strong>既然前向能一步构造任意 $t$ 的样本，为什么不能照抄这条公式来生成？</strong></p>
+<hr />
+<h2 id="_2">📉 四、β 调度：这条曲线在决定什么</h2>
+<p>$\beta_t$ 那张表怎么填，决定了「信息被毁掉的节奏」。两个常见选择：</p>
+<ul>
+<li><strong>linear</strong>：$\beta_t$ 从 0.0001 线性涨到 0.02（DDPM 原文）</li>
+<li><strong>cosine</strong>：不直接定 $\beta$，而是<strong>先画出 $\bar\alpha_t$ 想要的形状</strong>，再反推 $\beta$（Improved DDPM）</li>
+</ul>
+<p>$$\bar\alpha_t = \frac{f(t)}{f(0)}, \qquad f(t) = \cos^2\!\left(\frac{t/T + s}{1+s}\cdot\frac{\pi}{2}\right), \quad s = 0.008$$</p>
+<p><strong>人话</strong>：cosine 让「原图还剩多少」沿一条平缓的余弦曲线下落，而不是像 linear 那样前段陡跌。那个小小的 $s$ 是防止 $t=0$ 附近 $\beta$ 掉到 0 的偏置项。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 两种 β 调度下，「原图还剩多少」随 t 怎么衰减</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">T</span> <span class="o">=</span> <span class="mi">1000</span>
+
+<span class="c1"># linear：DDPM 原论文</span>
+<span class="n">beta_lin</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">1e-4</span><span class="p">,</span> <span class="mf">0.02</span><span class="p">,</span> <span class="n">T</span><span class="p">)</span>
+<span class="n">abar_lin</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cumprod</span><span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">beta_lin</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+
+<span class="c1"># cosine：Improved DDPM 提出的，直接定义 ᾱ_t 而不是先定义 β_t</span>
+<span class="n">s</span> <span class="o">=</span> <span class="mf">0.008</span>
+<span class="n">t</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">T</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+<span class="n">f</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cos</span><span class="p">((</span><span class="n">t</span> <span class="o">/</span> <span class="n">T</span> <span class="o">+</span> <span class="n">s</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">s</span><span class="p">)</span> <span class="o">*</span> <span class="n">torch</span><span class="o">.</span><span class="n">pi</span> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span>
+<span class="n">abar_cos</span> <span class="o">=</span> <span class="p">(</span><span class="n">f</span> <span class="o">/</span> <span class="n">f</span><span class="p">[</span><span class="mi">0</span><span class="p">])[</span><span class="mi">1</span><span class="p">:]</span>                       <span class="c1"># ⭐ 先画出 ᾱ 的形状，β 是反推出来的</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="s1">&#39;t&#39;</span><span class="si">:</span><span class="s2">&gt;5</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">&#39;sqrt_ab_lin&#39;</span><span class="si">:</span><span class="s2">&gt;12</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">&#39;sqrt_ab_cos&#39;</span><span class="si">:</span><span class="s2">&gt;12</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">&#39;SNR linear&#39;</span><span class="si">:</span><span class="s2">&gt;11</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">&#39;SNR cosine&#39;</span><span class="si">:</span><span class="s2">&gt;11</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">99</span><span class="p">,</span> <span class="mi">199</span><span class="p">,</span> <span class="mi">399</span><span class="p">,</span> <span class="mi">599</span><span class="p">,</span> <span class="mi">799</span><span class="p">,</span> <span class="mi">999</span><span class="p">]:</span>
+    <span class="n">al</span><span class="p">,</span> <span class="n">ac</span> <span class="o">=</span> <span class="n">abar_lin</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span> <span class="n">abar_cos</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="si">:</span><span class="s2">5d</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">al</span><span class="o">**</span><span class="mf">0.5</span><span class="si">:</span><span class="s2">11.4f</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">ac</span><span class="o">**</span><span class="mf">0.5</span><span class="si">:</span><span class="s2">11.4f</span><span class="si">}</span><span class="s2"> &quot;</span>
+          <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">al</span><span class="o">/</span><span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">al</span><span class="p">)</span><span class="si">:</span><span class="s2">11.3f</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">ac</span><span class="o">/</span><span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">ac</span><span class="p">)</span><span class="si">:</span><span class="s2">11.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="c1"># 调度 SNR=1：对单位方差信号，信号与噪声方差相等</span>
+<span class="n">half_lin</span> <span class="o">=</span> <span class="nb">int</span><span class="p">((</span><span class="n">abar_lin</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">abar_lin</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span>
+<span class="n">half_cos</span> <span class="o">=</span> <span class="nb">int</span><span class="p">((</span><span class="n">abar_cos</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">abar_cos</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">SNR 掉到 1 之前，linear 撑了 </span><span class="si">{</span><span class="n">half_lin</span><span class="si">}</span><span class="s2"> 步（</span><span class="si">{</span><span class="n">half_lin</span><span class="o">/</span><span class="n">T</span><span class="si">:</span><span class="s2">.0%</span><span class="si">}</span><span class="s2">），&quot;</span>
+      <span class="sa">f</span><span class="s2">&quot;cosine 撑了 </span><span class="si">{</span><span class="n">half_cos</span><span class="si">}</span><span class="s2"> 步（</span><span class="si">{</span><span class="n">half_cos</span><span class="o">/</span><span class="n">T</span><span class="si">:</span><span class="s2">.0%</span><span class="si">}</span><span class="s2">）&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;终点 sqrt(abar_T)：linear </span><span class="si">{</span><span class="n">abar_lin</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="o">**</span><span class="mf">0.5</span><span class="si">:</span><span class="s2">.5f</span><span class="si">}</span><span class="s2">，cosine </span><span class="si">{</span><span class="n">abar_cos</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="o">**</span><span class="mf">0.5</span><span class="si">:</span><span class="s2">.5f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>真实输出：</p>
+<section aria-label="同样 1000 步，两种调度的差别" class="experiment-result" id="experiment-result-7">
+<h3 id="1000">同样 1000 步，两种调度的差别</h3>
+<p>先比较原数据系数：cosine 在中段保留得更久。SNR 列使用单位方差信号的约定。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th style="text-align: right;">t</th>
+<th style="text-align: right;">√ᾱ linear</th>
+<th style="text-align: right;">√ᾱ cosine</th>
+<th style="text-align: right;">SNR linear</th>
+<th style="text-align: right;">SNR cosine</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0.9999</td>
+<td style="text-align: right;">1.0000</td>
+<td style="text-align: right;">9997.341</td>
+<td style="text-align: right;">24221.327</td>
+</tr>
+<tr>
+<td style="text-align: right;">100</td>
+<td style="text-align: right;">0.9471</td>
+<td style="text-align: right;">0.9859</td>
+<td style="text-align: right;">8.710</td>
+<td style="text-align: right;">34.833</td>
+</tr>
+<tr>
+<td style="text-align: right;">200</td>
+<td style="text-align: right;">0.8118</td>
+<td style="text-align: right;">0.9480</td>
+<td style="text-align: right;">1.933</td>
+<td style="text-align: right;">8.872</td>
+</tr>
+<tr>
+<td style="text-align: right;">400</td>
+<td style="text-align: right;">0.4418</td>
+<td style="text-align: right;">0.8047</td>
+<td style="text-align: right;">0.242</td>
+<td style="text-align: right;">1.837</td>
+</tr>
+<tr>
+<td style="text-align: right;">600</td>
+<td style="text-align: right;">0.1609</td>
+<td style="text-align: right;">0.5838</td>
+<td style="text-align: right;">0.027</td>
+<td style="text-align: right;">0.517</td>
+</tr>
+<tr>
+<td style="text-align: right;">800</td>
+<td style="text-align: right;">0.0391</td>
+<td style="text-align: right;">0.3067</td>
+<td style="text-align: right;">0.002</td>
+<td style="text-align: right;">0.104</td>
+</tr>
+<tr>
+<td style="text-align: right;">1000</td>
+<td style="text-align: right;">0.0064</td>
+<td style="text-align: right;">0.0000</td>
+<td style="text-align: right;">0.000</td>
+<td style="text-align: right;">0.000</td>
+</tr>
+</tbody>
+</table></div>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>汇总</th>
+<th style="text-align: right;">linear</th>
+<th style="text-align: right;">cosine</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SNR ≥ 1 的步数</td>
+<td style="text-align: right;">259（26%）</td>
+<td style="text-align: right;">496（50%）</td>
+</tr>
+<tr>
+<td>终点 √ᾱ（保留 5 位小数）</td>
+<td style="text-align: right;">0.00635</td>
+<td style="text-align: right;">0.00000</td>
+</tr>
+</tbody>
+</table></div>
+<p>显示为 0.000 或 0.00000 可能来自四舍五入，不能据此断言计算值严格为零。</p>
+</section>
+<p>这里使用调度的 <strong>SNR 约定</strong>：$\bar\alpha_t/(1-\bar\alpha_t)$。当原数据方差为 1、噪声独立且为单位方差时，它才等于信号与噪声的方差比；这时 SNR=1 表示两者方差相等。</p>
+<p>若原数据方差为 V，实际方差比是 $\bar\alpha_t V/(1-\bar\alpha_t)$。因此不能把表中的 SNR 无条件读作“原图信息还剩几成”。</p>
+<figure class="dia" data-diffusion-figure="schedule-snr">
+<svg xmlns="http://www.w3.org/2000/svg" class="diffusion-figure" viewBox="0 0 760 540" role="img" aria-labelledby="df-schedule-snr-title df-schedule-snr-desc">
+<title id="df-schedule-snr-title">SNR = 1 是刻度，不是学习边界</title>
+<desc id="df-schedule-snr-desc">比较1000步linear与cosine的累积alpha。横轴t，纵轴累积alpha而非其平方根。单位方差信号下，SNR为1对应alpha为0.5。满足阈值的步数为259与496；不代表有效学习步数或性能翻倍。</desc>
+<defs><marker id="df-schedule-snr-arrow" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto"><path d="M0 0L8 4L0 8" fill="none" stroke="var(--muted,#587082)" stroke-width="1.5"/></marker></defs>
+<g font-family="system-ui, 'Microsoft YaHei', sans-serif">
+<rect width="760" height="540" rx="14" fill="var(--card,#ffffff)"/>
+<text x="30" y="42" font-size="25" text-anchor="start" fill="var(--fg,#183248)" font-weight="700">SNR = 1 是刻度，不是学习边界</text>
+<text x="30" y="78" font-size="18" text-anchor="start" fill="var(--fg,#183248)" font-weight="400">T=1000；SNR=ᾱₜ/(1−ᾱₜ)，采用单位方差信号约定</text><text x="90" y="118" font-size="18" text-anchor="start" fill="var(--fg,#183248)" font-weight="400">ᾱₜ：原数据的方差系数</text><path d="M90 360 L700 360" fill="none" stroke="var(--muted,#587082)" stroke-width="2" stroke-dasharray="7 5"/><text x="74" y="366" font-size="18" text-anchor="end" fill="var(--fg,#183248)" font-weight="400">0</text><path d="M90 250.0 L700 250.0" fill="none" stroke="var(--muted,#587082)" stroke-width="2" stroke-dasharray="7 5"/><text x="74" y="256.0" font-size="18" text-anchor="end" fill="var(--fg,#183248)" font-weight="400">0.5</text><path d="M90 140 L700 140" fill="none" stroke="var(--muted,#587082)" stroke-width="2" stroke-dasharray="7 5"/><text x="74" y="146" font-size="18" text-anchor="end" fill="var(--fg,#183248)" font-weight="400">1</text><path d="M90.0 360 L90.0 366" fill="none" stroke="var(--muted,#587082)" stroke-width="2"/><text x="90.0" y="394" font-size="18" text-anchor="middle" fill="var(--fg,#183248)" font-weight="400">0</text><path d="M242.5 360 L242.5 366" fill="none" stroke="var(--muted,#587082)" stroke-width="2"/><text x="242.5" y="394" font-size="18" text-anchor="middle" fill="var(--fg,#183248)" font-weight="400">250</text><path d="M395.0 360 L395.0 366" fill="none" stroke="var(--muted,#587082)" stroke-width="2"/><text x="395.0" y="394" font-size="18" text-anchor="middle" fill="var(--fg,#183248)" font-weight="400">500</text><path d="M547.5 360 L547.5 366" fill="none" stroke="var(--muted,#587082)" stroke-width="2"/><text x="547.5" y="394" font-size="18" text-anchor="middle" fill="var(--fg,#183248)" font-weight="400">750</text><path d="M700.0 360 L700.0 366" fill="none" stroke="var(--muted,#587082)" stroke-width="2"/><text x="700.0" y="394" font-size="18" text-anchor="middle" fill="var(--fg,#183248)" font-weight="400">1000</text><text x="738" y="394" font-size="18" text-anchor="start" fill="var(--fg,#183248)" font-weight="400">t</text><polyline points="90.00,140.00 93.05,140.15 96.10,140.42 99.15,140.79 102.20,141.27 105.25,141.86 108.30,142.55 111.35,143.35 114.40,144.26 117.45,145.27 120.50,146.38 123.55,147.59 126.60,148.90 129.65,150.30 132.70,151.80 135.75,153.39 138.80,155.08 141.85,156.85 144.90,158.70 147.95,160.64 151.00,162.66 154.05,164.75 157.10,166.92 160.15,169.16 163.20,171.47 166.25,173.84 169.30,176.28 172.35,178.77 175.40,181.32 178.45,183.92 181.50,186.57 184.55,189.26 187.60,192.00 190.65,194.78 193.70,197.59 196.75,200.43 199.80,203.30 202.85,206.20 205.90,209.12 208.95,212.06 212.00,215.01 215.05,217.98 218.10,220.95 221.15,223.93 224.20,226.91 227.25,229.89 230.30,232.87 233.35,235.85 236.40,238.81 239.45,241.76 242.50,244.70 245.55,247.62 248.60,250.52 251.65,253.41 254.70,256.26 257.75,259.09 260.80,261.90 263.85,264.67 266.90,267.41 269.95,270.12 273.00,272.79 276.05,275.42 279.10,278.02 282.15,280.57 285.20,283.09 288.25,285.56 291.30,287.99 294.35,290.38 297.40,292.72 300.45,295.01 303.50,297.26 306.55,299.46 309.60,301.61 312.65,303.71 315.70,305.77 318.75,307.77 321.80,309.73 324.85,311.64 327.90,313.50 330.95,315.31 334.00,317.07 337.05,318.78 340.10,320.44 343.15,322.06 346.20,323.63 349.25,325.15 352.30,326.62 355.35,328.05 358.40,329.43 361.45,330.77 364.50,332.06 367.55,333.31 370.60,334.52 373.65,335.68 376.70,336.80 379.75,337.88 382.80,338.93 385.85,339.93 388.90,340.89 391.95,341.82 395.00,342.71 398.05,343.57 401.10,344.39 404.15,345.18 407.20,345.93 410.25,346.65 413.30,347.35 416.35,348.01 419.40,348.64 422.45,349.25 425.50,349.83 428.55,350.38 431.60,350.90 434.65,351.41 437.70,351.89 440.75,352.34 443.80,352.77 446.85,353.19 449.90,353.58 452.95,353.95 456.00,354.31 459.05,354.64 462.10,354.96 465.15,355.26 468.20,355.55 471.25,355.82 474.30,356.08 477.35,356.32 480.40,356.55 483.45,356.77 486.50,356.97 489.55,357.16 492.60,357.35 495.65,357.52 498.70,357.68 501.75,357.83 504.80,357.98 507.85,358.11 510.90,358.24 513.95,358.36 517.00,358.47 520.05,358.57 523.10,358.67 526.15,358.76 529.20,358.85 532.25,358.93 535.30,359.01 538.35,359.08 541.40,359.14 544.45,359.21 547.50,359.26 550.55,359.32 553.60,359.37 556.65,359.41 559.70,359.46 562.75,359.50 565.80,359.54 568.85,359.57 571.90,359.60 574.95,359.63 578.00,359.66 581.05,359.69 584.10,359.71 587.15,359.74 590.20,359.76 593.25,359.78 596.30,359.79 599.35,359.81 602.40,359.83 605.45,359.84 608.50,359.85 611.55,359.87 614.60,359.88 617.65,359.89 620.70,359.90 623.75,359.91 626.80,359.91 629.85,359.92 632.90,359.93 635.95,359.93 639.00,359.94 642.05,359.94 645.10,359.95 648.15,359.95 651.20,359.96 654.25,359.96 657.30,359.97 660.35,359.97 663.40,359.97 666.45,359.97 669.50,359.98 672.55,359.98 675.60,359.98 678.65,359.98 681.70,359.98 684.75,359.99 687.80,359.99 690.85,359.99 693.90,359.99 696.95,359.99 700.00,359.99" fill="none" stroke="var(--accent,#245de2)" stroke-width="3" stroke-dasharray="8 5"/><polyline points="90.00,140.00 93.05,140.06 96.10,140.14 99.15,140.25 102.20,140.38 105.25,140.55 108.30,140.74 111.35,140.95 114.40,141.19 117.45,141.46 120.50,141.76 123.55,142.08 126.60,142.43 129.65,142.80 132.70,143.20 135.75,143.63 138.80,144.08 141.85,144.55 144.90,145.06 147.95,145.59 151.00,146.14 154.05,146.72 157.10,147.32 160.15,147.95 163.20,148.60 166.25,149.28 169.30,149.99 172.35,150.71 175.40,151.46 178.45,152.24 181.50,153.04 184.55,153.86 187.60,154.71 190.65,155.57 193.70,156.47 196.75,157.38 199.80,158.32 202.85,159.28 205.90,160.26 208.95,161.26 212.00,162.28 215.05,163.33 218.10,164.40 221.15,165.48 224.20,166.59 227.25,167.72 230.30,168.87 233.35,170.04 236.40,171.23 239.45,172.43 242.50,173.66 245.55,174.90 248.60,176.16 251.65,177.44 254.70,178.74 257.75,180.06 260.80,181.39 263.85,182.74 266.90,184.10 269.95,185.48 273.00,186.88 276.05,188.29 279.10,189.72 282.15,191.16 285.20,192.62 288.25,194.09 291.30,195.57 294.35,197.07 297.40,198.58 300.45,200.10 303.50,201.63 306.55,203.18 309.60,204.73 312.65,206.30 315.70,207.88 318.75,209.47 321.80,211.07 324.85,212.68 327.90,214.29 330.95,215.92 334.00,217.55 337.05,219.20 340.10,220.85 343.15,222.50 346.20,224.17 349.25,225.84 352.30,227.51 355.35,229.19 358.40,230.88 361.45,232.57 364.50,234.26 367.55,235.96 370.60,237.66 373.65,239.37 376.70,241.08 379.75,242.79 382.80,244.50 385.85,246.21 388.90,247.93 391.95,249.64 395.00,251.35 398.05,253.07 401.10,254.78 404.15,256.49 407.20,258.20 410.25,259.91 413.30,261.62 416.35,263.32 419.40,265.02 422.45,266.72 425.50,268.41 428.55,270.10 431.60,271.78 434.65,273.46 437.70,275.13 440.75,276.80 443.80,278.46 446.85,280.11 449.90,281.76 452.95,283.39 456.00,285.02 459.05,286.64 462.10,288.25 465.15,289.86 468.20,291.45 471.25,293.03 474.30,294.61 477.35,296.17 480.40,297.72 483.45,299.26 486.50,300.78 489.55,302.30 492.60,303.80 495.65,305.29 498.70,306.76 501.75,308.22 504.80,309.67 507.85,311.11 510.90,312.52 513.95,313.93 517.00,315.31 520.05,316.68 523.10,318.04 526.15,319.38 529.20,320.70 532.25,322.01 535.30,323.29 538.35,324.56 541.40,325.81 544.45,327.05 547.50,328.26 550.55,329.46 553.60,330.63 556.65,331.79 559.70,332.92 562.75,334.04 565.80,335.14 568.85,336.21 571.90,337.27 574.95,338.30 578.00,339.31 581.05,340.30 584.10,341.27 587.15,342.21 590.20,343.14 593.25,344.04 596.30,344.92 599.35,345.77 602.40,346.60 605.45,347.41 608.50,348.19 611.55,348.96 614.60,349.69 617.65,350.40 620.70,351.09 623.75,351.76 626.80,352.39 629.85,353.01 632.90,353.60 635.95,354.16 639.00,354.70 642.05,355.21 645.10,355.70 648.15,356.16 651.20,356.60 654.25,357.01 657.30,357.39 660.35,357.75 663.40,358.08 666.45,358.39 669.50,358.67 672.55,358.92 675.60,359.15 678.65,359.35 681.70,359.52 684.75,359.67 687.80,359.79 690.85,359.88 693.90,359.95 696.95,359.99 700.00,360.00" fill="none" stroke="var(--done,#087c65)" stroke-width="3"/><text x="470" y="110" font-size="18" text-anchor="start" fill="var(--done,#087c65)" font-weight="400">── cosine</text><text x="600" y="110" font-size="18" text-anchor="start" fill="var(--accent,#245de2)" font-weight="400">┄ linear</text><text x="705" y="254" font-size="16" text-anchor="end" fill="var(--fg,#183248)" font-weight="400">SNR=1</text><rect x="30" y="420" width="700" height="96" rx="12" fill="var(--quote-bg,#f1f5fa)" stroke="var(--border,#bbc9d8)"/><text x="50" y="451" font-size="21" text-anchor="start" fill="var(--fg,#183248)" font-weight="700">ᾱₜ ≥ 0.5 的步数：linear 259；cosine 496</text><text x="50" y="486" font-size="19" text-anchor="start" fill="var(--fg,#183248)" font-weight="400">这只是一条阈值统计；低 SNR 不等于“不能学习”。</text>
+</g></svg>
+
+<figcaption>看虚线刻度 ᾱₜ=0.5：在单位方差信号约定下它对应 SNR=1。259 与 496 是满足这个阈值的步数，不是有效学习步数，也不能推出训练收益翻倍。</figcaption>
+</figure>
+
+<p><strong>这张表说明两种调度把噪声水平怎样分配到时间轴上，不足以单独决定哪种更好</strong>：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>对比项</th>
+<th>linear</th>
+<th>cosine</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SNR ≥ 1 撑到第几步</td>
+<td><strong>259</strong>（26%）</td>
+<td><strong>496</strong>（50%）</td>
+</tr>
+<tr>
+<td>$t=400$ 时原图还剩</td>
+<td>0.44</td>
+<td>0.80</td>
+</tr>
+<tr>
+<td>SNR &lt; 1 的时间范围</td>
+<td>约 74%</td>
+<td>约 50%</td>
+</tr>
+</tbody>
+</table></div>
+<p>本例中 linear 的系数 SNR 更早降到 1 以下。但 <strong>SNR&lt;1 不等于纯噪声，也不等于没有学习价值</strong>；阈值只是便于比较的刻度。哪种调度更适合，需要结合数据尺度、目标权重与采样预算实测。</p>
+<p><strong>核对终点的实现。</strong> 理想余弦曲线在终点为零；离散化时，常将最后一步 β 截到 0.999，避免某些反向公式除以零。本页代码直接展示理想累计曲线，没有反推 β，也没有截断；其终点显示为 <code>0.00000</code>。若要实现带截断的离散调度，应另算 <code>beta = 1 - abar[1:]/abar[:-1]</code>、截到 0.999，再累乘 <code>1-beta</code>；不能把两种终点混作同一份结果。</p>
+<p>这不是“所有实现都必须如此”。若要使用严格零终点 SNR，需让预测目标和采样换算共同支持它。</p>
+<hr />
+<h2 id="_3">🔄 五、反向过程：唯一需要学的那一半</h2>
+<p>要生成图，就得反着问：<strong>给定 $x_t$，$x_{t-1}$ 是什么？</strong></p>
+<p>直接求 $q(x_{t-1}\mid x_t)$ 要用到整个数据分布 —— 而那正是你想学的东西，绕回去了。</p>
+<p>如果额外知道干净样本 x₀，在 t≥2 时，这个后验有闭式解且为高斯；t=1 时方差为 0，按干净端点的退化分布理解：</p>
+<p>$$q(x_{t-1}\mid x_t, x_0) = \mathcal{N}\!\left(\tilde\mu_t(x_t, x_0),\; \tilde\beta_t I\right)$$</p>
+<p>$$\tilde\mu_t = \frac{\sqrt{\bar\alpha_{t-1}}\,\beta_t}{1-\bar\alpha_t}\,x_0 + \frac{\sqrt{\alpha_t}\,(1-\bar\alpha_{t-1})}{1-\bar\alpha_t}\,x_t, \qquad \tilde\beta_t = \frac{1-\bar\alpha_{t-1}}{1-\bar\alpha_t}\,\beta_t$$</p>
+<p><strong>人话</strong>：<strong>已知起点和终点，中间那一步就是两者的一个线性加权组合</strong>，权重由调度决定，再配一个固定的方差。$t$ 大的时候权重偏向 $x_t$，$t$ 小的时候偏向 $x_0$。</p>
+<p>问题只剩一个：<strong>推理时你没有 $x_0$</strong>（有的话还生成什么）。所以拿一个网络去估它。而由第二节的闭式采样式一变形，</p>
+<p>$$x_0 = \frac{x_t - \sqrt{1-\bar\alpha_t}\;\varepsilon}{\sqrt{\bar\alpha_t}}$$</p>
+<p><strong>知道 $x_t$ 和 $\varepsilon$，就等于知道 $x_0$。</strong> 于是「估原图」和「估噪声」在数学上是同一件事 —— ⭐ 而工程上普遍选后者，为什么，就是下一章的正题。</p>
+<blockquote>
+<p>本页的噪声预测器根据带噪状态与 t 估计噪声。平方误差下，理想输出是 $\mathbb E[\epsilon\mid x_t,t]$，不是保证认出某次隐藏的真实噪声。</p>
+</blockquote>
+<h3 id="_4">🚧 为什么反向不能直接照抄前向的捷径</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>对比项</th>
+<th>前向</th>
+<th>反向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>每一步在做什么</td>
+<td>加一份<strong>和数据无关</strong>的高斯噪声</td>
+<td>问「这坨像素最可能是从什么演变来的」</td>
+</tr>
+<tr>
+<td>是不是线性</td>
+<td>是（乘一个数 + 加噪声）</td>
+<td><strong>否</strong> —— 网络是非线性的</td>
+</tr>
+<tr>
+<td>能否直接用前向闭式公式</td>
+<td>能，独立高斯的线性组合可合并</td>
+<td>不能直接照抄；反向依赖未知数据分布，通常需学习并使用合适的采样器</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>所以那 1000 步是一步一步走出来的，这就是扩散模型慢的根源。</strong> ⚠️ 但「不能精确合并」不等于「不能近似跳过」—— 怎么把 1000 步压到 50 步，是第 4 章的正题。</p>
+<hr />
+<h2 id="_5">🔗 这一章连到哪里</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>相关的地方</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../大模型全景导论/10b-图像生成.html">全景导论 10b · 图像生成</a></td>
+<td>14 分钟的鸟瞰版，讲<strong>为什么图像走扩散、语言走自回归</strong>。它的深挖清单把这一整块判成「要外找」，本章就是那份外找的第一页</td>
+</tr>
+<tr>
+<td><a href="../强化学习基础/02-MDP.html">强化学习基础 02 · MDP</a></td>
+<td>第一节说前向过程是<strong>马尔可夫链</strong>。那一章专门有一节讲马尔可夫性质（「未来只取决于现在，与过去无关」），还给了个反例说明<strong>它是「状态怎么定义」的属性、不是问题本身的属性</strong></td>
+</tr>
+<tr>
+<td><a href="../机器学习的数学原理/13-EM与高斯混合.html">机器学习的数学原理 13 · EM 与高斯混合</a></td>
+<td>$x_1 \dots x_T$ 全是<strong>隐变量</strong> —— 扩散模型是个隐变量模型。那一章用高斯混合把「有隐变量该怎么办」讲透了，<strong>下一章的变分下界直接接着它用</strong></td>
+</tr>
+<tr>
+<td><a href="../机器学习与深度学习基础/15-PyTorch实战手册.html">机器学习与深度学习基础 15 · PyTorch 实战手册</a></td>
+<td>上面几段代码里的 <code>torch.cumprod</code>、<code>randn_like</code>、广播如果读着吃力，那一章有一份可直接抄的 PyTorch 模板</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="_6">✅ 检查点</h2>
+<ol>
+<li>linear 和 cosine 两种调度，SNR 掉到 1 各撑了多少步？这一差别能否单独证明 cosine 更好？</li>
+<li>模型到底在学什么？用一句不含「生成」「创作」的话说清楚。</li>
+<li>前向能一步跳到任意 $t$，反向为什么不能？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li>linear 的 SNR≥1 共 <strong>259 步（26%）</strong>，cosine 共 <strong>496 步（50%）</strong>。这说明时间分配不同；SNR 低于 1 不等于纯噪声或白走，不能只凭该阈值判断训练价值。</li>
+<li>给定带噪状态和噪声水平，回归训练时已知的噪声标签；理想输出为条件均值，不保证恢复当前样本隐藏的真实噪声。</li>
+<li>前向每步是「加一份和数据无关的噪声」，是线性的、两个高斯能合并成一个；反向每步要问「这坨像素最可能是从什么演变来的」，依赖数据分布而且是<strong>非线性</strong>的，不能仅靠前向的高斯合并公式得到精确反向采样；非线性本身并不证明任何闭式解都不存在。（近似跳过是另一回事，<a href="04-DDIM与采样加速.html">04 章</a>讲。）</li>
+</ol>
+</details>
+<hr />
+<h2 id="_7">🛑 可以停在这里</h2>
+<p>到这里前向和反向两条路你都看清了：<strong>一条写死、一条要学</strong>，而且清楚了为什么反向不能像前向那样抄近道。</p>
+<p>⚠️ <strong>什么时候回来</strong>：读完 <a href="04-DDIM与采样加速.html">04 章</a>之后 —— 那一章会告诉你反向其实<strong>可以</strong>跳步，只是换掉了一个前提。回头再看这一页最后那一节，会更清楚它换掉的是什么。</p>
+<p>⚡ <strong>走神救援</strong></p>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>调度表控制不同时间段保留多少信号，不只是给步骤编号。</li><li>用信噪比比较线性和余弦调度，观察信息何时接近消失。</li><li>前向闭式加噪不等于反向也有精确的一步解；采样加速另需合适的方法。</li></ul></section>
+
+<p><strong>下一节</strong> 👉 <a href="03-训练目标为什么是预测噪声.html">03-训练目标为什么是预测噪声.md</a></p>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="02-加噪与去噪.html"><div class="dir">← 上一节</div>🌫️ 02 · 加噪与去噪</a><a class="next" href="03-训练目标为什么是预测噪声.html"><div class="dir">下一节 →</div>🎯 03 · 训练目标为什么是预测噪声</a></nav>
+</main>
+<script>(function(){
+  var KEY="diff-progress", FILE="02b-\u8c03\u5ea6\u8868\u4e0e\u53cd\u5411\u8fc7\u7a0b.md";
+  var storageAvailable=true, memoryProgress={};
+  function load(){try{var parsed=JSON.parse(localStorage.getItem(KEY));
+    memoryProgress=parsed&&typeof parsed==='object'&&!Array.isArray(parsed)?parsed:{};
+    return memoryProgress;}catch(e){storageAvailable=false;return memoryProgress;}}
+  function storageStatus(message){var node=document.getElementById('diffusion-storage-status');
+    if(!node){node=document.createElement('p');node.id='diffusion-storage-status';
+      node.setAttribute('role','status');node.className='diffusion-storage-status';
+      var host=document.querySelector('.dash')||document.querySelector('.donebar')||document.querySelector('main');
+      host.appendChild(node);}node.textContent=message;}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    memoryProgress=p;try{localStorage.setItem(KEY,JSON.stringify(p));storageAvailable=true;storageStatus('打卡已保存在当前浏览器。');}catch(_){storageAvailable=false;storageStatus('未保存：浏览器存储不可用，打卡仅本次有效。');} refresh();});});
+  refresh();
+  if(!storageAvailable)storageStatus('无法读取进度；打卡仅本次有效。');
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    try{localStorage.setItem('recsys-theme',next);}catch(_){storageStatus('未保存：浏览器存储不可用，主题更改仅本次有效。');}});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/diffusion-reader.css"><script data-diffusion-zoom-adapter>
+/* Module-local adapter: keep original SVG IDs and uniquify only zoom copies. */
+(function () {
+  'use strict';
+  if (!document.body.classList.contains('diffusion-reader')) return;
+  var serial = 0;
+  document.addEventListener('click', function (event) {
+    if (!event.target.closest('.diagram-expand')) return;
+    var svg = document.querySelector('#diagram-reader-stage > svg');
+    if (!svg) return;
+    var elements = [svg].concat(Array.from(svg.querySelectorAll('*')));
+    var names = new Map(), prefix = 'diffusion-zoom-' + (++serial) + '-';
+    elements.forEach(function (element) { if (element.id) names.set(element.id, prefix + element.id); });
+    function references(value) {
+      return value.replace(/url\((['"]?)#([^)'\"]+)\1\)/g, function (whole, quote, id) {
+        return names.has(id) ? 'url(#' + names.get(id) + ')' : whole;
+      });
+    }
+    elements.forEach(function (element) {
+      if (element.id) element.id = names.get(element.id);
+      Array.from(element.attributes).forEach(function (attribute) {
+        if (attribute.name === 'id') return;
+        var value = references(attribute.value);
+        if (attribute.name === 'aria-labelledby' || attribute.name === 'aria-describedby') {
+          value = value.split(/\s+/).map(function (id) { return names.get(id) || id; }).join(' ');
+        } else if (value.charAt(0) === '#' && names.has(value.slice(1))) {
+          value = '#' + names.get(value.slice(1));
+        }
+        if (value !== attribute.value) attribute.value = value;
+      });
+      if (element.tagName.toLowerCase() === 'style') element.textContent = references(element.textContent);
+    });
+  });
+})();
+
+</script></body></html>
