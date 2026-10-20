@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="sql-query">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -308,13 +308,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="08-rows-range">08 · 窗口帧：ROWS 数行，RANGE 数值</h1>
+<details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>106 分钟</strong> ｜ ⭐ <strong>实测：同一份数据，「最近 3 行」算出 16，「最近 3 天」算出 4 —— 数据有缺口时它们不是一回事，而缺口是常态</strong></p>
-<hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>帧（frame）回答的是「这一行的窗里，到底装了哪些行」。</strong>
 <a href="07-窗口函数.html">07 章</a>一句帧子句都没写，但每一个 <code>OVER (…)</code> 都有帧 —— 数据库替你用了默认的那个。
 ⭐ 而默认的那个，<strong>在排序列有并列值时的行为，和几乎所有人的直觉相反</strong>。</p>
-<hr />
 <h2 id="_2">🕳️ 一、你早就写过帧了，只是没写出来</h2>
 <p>先看一句最普通的累计求和。五行数据，⭐ <strong><code>03-02</code> 那天有两笔</strong>：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
@@ -403,7 +402,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <p>⭐ <strong>判据一句话</strong>：<strong>只要你写了「聚合函数 + 窗口内 <code>ORDER BY</code>」，就已经在用帧了。</strong>
 排名类（<code>ROW_NUMBER</code> / <code>RANK</code> / <code>DENSE_RANK</code>）和 <code>LAG</code> / <code>LEAD</code> 不受帧影响，所以 07 章一路无事。</p>
-<hr />
 <h2 id="_3">📐 二、帧的完整语法：三个部件</h2>
 <div class="codehilite" data-code-language="sql"><pre><span></span><code><span class="err">函数</span><span class="p">(</span><span class="err">…</span><span class="p">)</span><span class="w"> </span><span class="n">OVER</span><span class="w"> </span><span class="p">(</span>
 <span class="w">  </span><span class="n">PARTITION</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="err">…</span>
@@ -489,7 +487,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>⚠️ ⭐ <strong><code>PARTITION BY</code> 是硬边界，帧永远不会越过它。</strong>
 <code>ROWS BETWEEN 2 PRECEDING …</code> 在每个分区的第一行只能看到 1 行，第二行看到 2 行 —— <strong>帧会在边界处自动缩水，而不是去隔壁分区借行</strong>。下一节有实测。</p>
-<hr />
 <h2 id="rows">🧮 三、<code>ROWS</code>：累计、移动平均、还剩多少</h2>
 <p>三个最常用的形状，一次跑完。这是一张服务的日 p99 延迟表：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
@@ -580,7 +577,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <strong>帧在分区开头自动缩水到 1 行、2 行</strong>，实测 <code>COUNT</code> 那张表是 <code>1, 2, 3, 3, 3, 3</code>。</p>
 <p>⚠️ 于是头几行的「3 日均值」其实是 1 日、2 日均值 —— 它不报错，但画到趋势图上就是「开头那一段莫名其妙地平」。</p>
 <p>要么在正文里说明，要么加一句 <code>WHERE</code> 把窗不满的行滤掉（拿 <code>COUNT(*) OVER (…) = 3</code> 当条件，⚠️ 记得它得写在 CTE 外面 —— 这是 07 章第六节的规矩）。</p>
-<hr />
 <h2 id="range">🕳️ 四、<code>RANGE</code>：数的是值，不是行</h2>
 <p><strong>这一节是全章的正题。</strong></p>
 <p>上面所有「近 3 天」其实都是骗人的 —— 我写的是 <code>ROWS 2 PRECEDING</code>，它是近 3 行。
@@ -694,7 +690,6 @@ RANGE 带偏移量时，窗口里只能有一个 ORDER BY 列：
 <strong>后半章还有</strong>：<code>LAST_VALUE</code> 的默认帧陷阱，和命名窗口 · <code>GROUPS</code> 和 <code>EXCLUDE</code>：知道有这两个就够了 · 把帧接回真实需求：滚动特征，和「只看过去」 · 一张需求 → 帧的对照表
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="last_value">🎭 五、<code>LAST_VALUE</code> 的默认帧陷阱，和命名窗口</h2>
 <p><strong>这是默认帧引发的第二起事故，比累计和那个更常见。</strong></p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
@@ -776,7 +771,6 @@ RANGE 带偏移量时，窗口里只能有一个 ORDER BY 列：
 <strong>窗口定义写一次，后面全用名字引用</strong>。</p>
 <p>⚠️ 它不只是少打几个字：<strong>同一个窗口定义在一句 SQL 里抄三遍，改的时候就一定会漏改一处</strong>，
 而漏改之后<strong>两列用的是不同的窗口，结果照样出得来</strong>。⭐ 一句 SQL 里同一个 <code>OVER (…)</code> 出现两次以上，就该抽成命名窗口。</p>
-<hr />
 <h2 id="groups-exclude">🧪 六、<code>GROUPS</code> 和 <code>EXCLUDE</code>：知道有这两个就够了</h2>
 <p>它俩用得少，但知道存在能省下「明明该有这个功能怎么没有」的半小时。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
@@ -913,7 +907,6 @@ PostgreSQL 从 11 开始支持，MySQL 8.0 的窗口帧<strong>只有 <code>ROWS
 <strong>最后一段还有</strong>（约 25 分钟）：把帧接回真实需求：滚动特征，和「只看过去」 · 一张需求 → 帧的对照表
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="_4">📋 七、把帧接回真实需求：滚动特征，和「只看过去」</h2>
 <p>现在把前面所有零件用在一个真问题上。一张客服工单评分表，⚠️ <strong><code>alice</code> 在 3 月 4–8 日休假，一张单都没有</strong>：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
@@ -1049,7 +1042,6 @@ bob    2026-03-04   4.0      3.67       3.67       3
 <p>这正是 <a href="../数据这一关/18-特征存储.html">数据这一关 18 特征存储</a> 讲的 <strong>point-in-time 正确性</strong>在 SQL 里的样子 ——
 那一章给的是 pandas 的实现和「该建不该建 Feature Store」的判据，⭐ <strong>这里补的是同一件事的 SQL 写法：把右边界钉死在 <code>1 PRECEDING</code></strong>。
 ⚠️ 那一章还有一条更狠的：真正该对齐的是特征能被读到的时刻而不是它描述的时刻，那属于建模问题，不在本教程范围内。</p>
-<hr />
 <h2 id="_5">🧭 八、一张需求 → 帧的对照表</h2>
 <p>写之前先把中文需求念一遍，然后照着抄：</p>
 <div class="tw"><table>
@@ -1103,7 +1095,6 @@ bob    2026-03-04   4.0      3.67       3.67       3
 它会直接告诉你「每一行的窗里到底有几行」—— 本章三处实测（<code>1,2,3,3,3,3</code> 的边界缩水 / 缺口表的 <code>1,2,3,1,2,3</code> / <code>alice</code> 的 <code>1,2,3,1,2</code>）
 全都是靠这一列看出问题的。看完再把它删掉。</p>
 </blockquote>
-<hr />
 <h2 id="_6">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -1147,7 +1138,6 @@ bob    2026-03-04   4.0      3.67       3.67       3
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_7">✅ 检查点</h2>
 <ol>
 <li>窗口里写了 <code>ORDER BY</code> 的聚合函数，默认帧是什么？不写 <code>ORDER BY</code> 呢？</li>
@@ -1176,7 +1166,6 @@ bob    2026-03-04   4.0      3.67       3.67       3
 <li><strong>加一列 <code>COUNT(*) OVER (同一个窗口)</code></strong>，它直接告诉你每行的窗里有几行。本章三处实测（<code>1,2,3,3,3,3</code> 的边界缩水、有缺口时的 <code>1,2,3</code>、<code>alice</code> 的 <code>1,2,3,1,2</code>）全是靠它看出来的，看完删掉即可。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_8">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
@@ -1215,4 +1204,4 @@ bob    2026-03-04   4.0      3.67       3.67       3
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-sql-query-reader.css"></body></html>

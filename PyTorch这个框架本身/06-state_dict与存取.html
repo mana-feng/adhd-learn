@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="pytorch-framework">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -308,12 +308,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="06-state_dict">06 · <code>state_dict</code> 到底装了什么，以及加载为什么老是报错</h1>
+<details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>68 分钟</strong> ｜ ⭐ <strong>实测：<code>state_dict()</code> 拿到的张量和模型参数是同一块内存 —— 这就是早停回滚必须 <code>.clone()</code> 的原因</strong></p>
-<hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong><code>state_dict()</code> 返回的是一个普通的 <code>OrderedDict</code>，key 是「模块路径 + 属性名」拼出来的字符串，value 是</strong>参数张量本身的引用<strong>（不是拷贝）。</strong>
 所以它有两副面孔：存盘的时候它是一份清单，在内存里传来传去的时候它是一堆活的引用 —— 后一副面孔坑过的人比前一副多得多。</p>
-<hr />
 <h2 id="_2">🧩 一、先把它打开看看</h2>
 <p>站内有 6 处代码在用 <code>state_dict</code>（<code>ml_md/15</code> 的早停、<code>ml_md/10</code> 的回滚、<code>rl_md/08</code> 的目标网络同步、<code>ai_md/11</code> 的分布式 checkpoint），<strong>每一处都是直接用，没有一处打开看过它长什么样</strong>。先看：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -365,7 +364,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>⚠️ <strong><code>detach</code> 过 ≠ 拷贝过</strong>。这是下一节整节的内容。</p>
-<hr />
 <h2 id="_3">🧨 二、💀 它装的是引用，不是快照</h2>
 <p><code>ml_md/15</code> 的早停模板里有这么一行，站内<strong>没有任何一页解释过为什么要 <code>.clone()</code></strong>：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="n">best_state</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">state_dict</span><span class="p">()</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
@@ -414,7 +412,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <p>💀 <strong>这个 bug 的可怕之处在于它不报错</strong>：早停照常触发、日志照常打印「回滚最佳权重」、最终指标只是比预期低一点。
 <code>ml_md/15</code> 的实测里早停发生在第 51 轮、回滚到第 10 轮的权重；如果漏了 <code>.clone()</code>，你回滚到的其实是第 51 轮的权重，而验证集指标是拿第 10 轮那次算的 —— <strong>两个数字对不上，但没有任何东西会告诉你</strong>。</p>
-<hr />
 <h2 id="key">🏷️ 三、key 的名字是拼出来的</h2>
 <p>命名规则只有一条：<strong>从根模块往下走，每一层的属性名用 <code>.</code> 连起来，最后接参数名</strong>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -470,7 +467,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>实跑输出：</p>
 <section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>DDP 存出来的 key: [&#x27;module.weight&#x27;, &#x27;module.bias&#x27;]</p><p>剥掉前缀后: &lt;All keys matched successfully&gt;</p></div></section>
-<hr />
 <h2 id="_4">🧯 四、加载报错的三种原文（都是实跑抄下来的）</h2>
 <p><code>load_state_dict</code> 只会抛 <code>RuntimeError</code>，但<strong>信息里的关键词有三种</strong>，对应三个完全不同的问题。</p>
 <p><strong>① 形状不匹配</strong></p>
@@ -514,7 +510,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <strong>后半章还有</strong>：<code>strict=False</code> 到底放过了什么 · 优化器也有 <code>state_dict</code>，而且 step 之前是空的 · <code>torch.save</code> 存的到底是什么 · 一份能真的恢复训练的 checkpoint
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="strictfalse">📋 五、<code>strict=False</code> 到底放过了什么</h2>
 <p>大多数人对 <code>strict=False</code> 的印象是「忽略所有加载错误」。<strong>错。它只放过 key 的问题，不放过形状的问题。</strong></p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -550,7 +545,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <p>（微调时 <code>allow_missing=("head.", "classifier.")</code> —— <strong>新加的分类头本来就该是随机的，其它任何一层缺失都是 bug</strong>。）</p>
-<hr />
 <h2 id="state_dict-step">⚙️ 六、优化器也有 <code>state_dict</code>，而且 step 之前是空的</h2>
 <p>只存模型不存优化器，恢复训练时 loss 会跳一下 —— 因为<strong>动量和二阶矩全丢了</strong>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -576,7 +570,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   ⚠️ 于是：<strong>恢复训练时构造优化器的参数顺序必须和存的时候完全一致</strong>，否则动量会被安到别的参数头上，<strong>而且不报错</strong>。</li>
 <li><code>exp_avg</code> / <code>exp_avg_sq</code> 是 Adam 的一阶/二阶矩，<strong>每个都和参数一样大</strong> —— 这就是「Adam 的优化器状态是参数的 2 倍」这句话的出处（显存账在 <code>AI基础设施</code> 讲）。</li>
 </ul>
-<hr />
 <h2 id="torchsave">💾 七、<code>torch.save</code> 存的到底是什么</h2>
 <p><code>torch.save</code> 就是 <strong>pickle + 一个张量存储的旁路</strong>。存什么进去，就得有什么才能读出来。</p>
 <p><strong>① 存整个 model 对象 = 把类的引用路径腌进去</strong></p>
@@ -628,7 +621,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⚠️ <strong><code>map_location</code> 不加会怎样</strong>：checkpoint 里记着张量原来在 <code>cuda:3</code>，
 在只有 2 张卡（或者没有卡）的机器上加载会直接报设备不存在。<strong>存的时候是什么设备，读的时候就会去找什么设备</strong> —— 加 <code>map_location="cpu"</code> 一劳永逸。
 （🗓️ 未实跑 —— 需要 GPU。本机 CUDA 不可用，无法触发这条报错原文。）</p>
-<hr />
 <h2 id="checkpoint">📦 八、一份能真的恢复训练的 checkpoint</h2>
 <p>「存了 checkpoint」和「能从 checkpoint 接着训」是两回事。要接着训，下面每一项少一样就会有肉眼可见的后果：</p>
 <div class="tw"><table>
@@ -689,7 +681,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>实跑输出：<code>从第 8 轮继续；配置 = {'hidden': 2, 'lr': 0.001}</code>。</p>
 <p>⭐ <strong><code>config</code> 那一行是最容易被省掉、也最值钱的一项</strong>：没有它，半年后你拿到 <code>ckpt.pt</code> 得靠<strong>猜隐藏层宽度</strong>才能把模型构造出来 —— 而猜错的表现就是第四节那条 <code>size mismatch</code>。</p>
-<hr />
 <h2 id="_5">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -733,7 +724,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_6">✅ 检查点</h2>
 <ol>
 <li><code>state_dict()</code> 返回的 value 是 <code>Parameter</code> 还是 <code>Tensor</code>？<code>requires_grad</code> 是多少？</li>
@@ -760,7 +750,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>PyTorch 2.6</strong>。因为 pickle 反序列化等于执行文件里的代码，下载来的 <code>.pt</code> 直接 <code>torch.load</code> 可以被拿去执行任意命令；<code>weights_only=True</code> 只放纯张量过。只存 <code>state_dict</code> 的人根本撞不上这条报错。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_7">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>state_dict 按模块路径组织参数和缓冲区，值并不是独立的模型副本。</li><li>detach 不等于复制；继续训练时，直接留下的状态字典可能跟着变化。</li><li>内存中保存最佳权重时复制张量；存取后核对键、设备与恢复出的结果。</li></ul></section>
@@ -792,4 +781,4 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-pytorch-framework-reader.css"></body></html>

@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="pytorch-framework">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -308,8 +308,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="10-torchscriptonnxtorchexportcompile">10 · 把模型交出去：保存、TorchScript、ONNX、<code>torch.export</code>、<code>compile</code></h1>
+<details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>132 分钟</strong> ｜ ⭐ <strong>实测：<code>torch.save(model)</code> 存出来的文件里，真的写着 <code>mymodel Net</code> 这个模块路径 —— 换个目录加载就是 <code>ModuleNotFoundError: No module named 'mymodel'</code></strong></p>
-<hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>交付一个模型永远是交付两样东西：【权重】和【怎么算】。四种格式的差别只在于「怎么算」这一半装在哪里 —— 装在你的 <code>.py</code> 文件里、装在 pickle 的一根引用里、还是装进导出的那张图里。</strong>
 ⚠️ 这一章只管<strong>模型怎么变成一个可交付的文件</strong>。文件到手之后怎么起服务、怎么做健康检查、怎么灰度，是 <a href="../AI全栈/index.html">《AI 全栈》</a> 和 <a href="../模型上线之后/index.html">《模型上线之后》</a> 的事。</p>
@@ -329,7 +329,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <p>⚠️ <strong>它只有 58 个参数</strong>（<code>fc1</code> 40 个 + <code>fc2</code> 18 个），所以下面所有文件体积<strong>基本全是元数据，不是权重</strong>。别拿这些字节数去比较格式谁更省空间 —— 它们比的是「装了多少结构信息」。</p>
-<hr />
 <h2 id="torchsavemodel">🧩 一、<code>torch.save(model)</code> 存的不是模型，是一根引用</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -405,7 +404,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>✅ <strong>规矩就一条：<code>torch.save(model.state_dict())</code>，加载时先自己构造一个同样结构的模型，再 <code>load_state_dict</code>。</strong>
 <code>state_dict</code> 里没有任何类名，它只是一个 <code>OrderedDict[str, Tensor]</code> —— <strong>纯数据，跨项目、跨版本、跨人都能读</strong>。
 （<code>state_dict</code> 里到底装了什么、<code>load_state_dict</code> 为什么老报 key 对不上，在 <a href="06-state_dict与存取.html">06 · <code>state_dict</code> 到底装了什么</a>。）</p>
-<hr />
 <h2 id="pytorch-26-torchload">🔒 二、PyTorch 2.6 改了 <code>torch.load</code> 的默认值</h2>
 <p>即使 <code>mymodel.py</code> 就在手边，直接 <code>torch.load("whole.pt")</code> 现在也会失败：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -490,7 +488,6 @@ Weights only load failed. This file can still be loaded, to do so you have two o
 <li><code>with torch.serialization.safe_globals([argparse.Namespace]): torch.load(...)</code> —— 明确地放行你认识的那几个类。</li>
 <li><code>torch.load(..., weights_only=False)</code> —— <strong>只在文件是你自己产的时候用</strong>。⚠️ 别把它当成「修好了」，它是「我确认这个文件可信」。</li>
 </ol>
-<hr />
 <h2 id="_2">📐 三、光有权重还不够：交付清单</h2>
 <p><code>state_dict</code> 是纯数据，好处是跨项目可读，代价是<strong>「怎么算」全部丢在你这边</strong>。所以交出去的时候还得附上：</p>
 <div class="tw"><table>
@@ -537,7 +534,6 @@ Weights only load failed. This file can still be loaded, to do so you have two o
 <strong>后半章还有</strong>：TorchScript（<code>trace</code> 会把分支写死）· ONNX（换个运行时跑）· <code>torch.export</code>（现在的正路）· <code>torch.compile</code>（它<strong>不是</strong>交付格式）· 怎么选。
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="torchscript">🧊 四、TorchScript：把「怎么算」也装进文件</h2>
 <p><code>torch.jit</code> 有两条路，<strong>它们的失败方式完全不同，这是本节唯一要记住的事</strong>：</p>
 <ul>
@@ -643,7 +639,6 @@ Weights only load failed. This file can still be loaded, to do so you have two o
 <p>⭐ <strong>和第一节形成了完整对照</strong>：同一个目录、同样没有 <code>mymodel.py</code>，<code>torch.load("whole.pt")</code> 报 <code>ModuleNotFoundError</code>，而 <code>torch.jit.load("scripted.pt")</code> <strong>跑出了一模一样的 <code>[-0.1947, -0.1502]</code></strong>。</p>
 <p>「怎么算」这一半真的进了文件 —— 而且 <code>m.code</code> 还能把它打印出来。这就是 TorchScript 的全部卖点：一个不需要你的 Python 代码就能跑的模型（C++ 的 LibTorch 也能直接加载它）。</p>
 <p>🗓️ <strong>但 TorchScript 现在处于维护状态</strong>，PyTorch 的力量都投在 <code>torch.export</code> 上（第六节）。⭐ <strong>新项目从 <code>torch.export</code> 起步；<code>torch.jit</code> 主要是维护存量、或者你要交给一个只认 TorchScript 的老部署环境。</strong></p>
-<hr />
 <h2 id="onnx">🕸️ 五、ONNX：交给另一个运行时</h2>
 <p>前面几种格式的读者都还是 PyTorch。<strong>ONNX 换的是运行时</strong> —— onnxruntime、TensorRT、CoreML、各种边缘芯片的 SDK 都吃它。</p>
 <p>⚠️ <strong>先说一条会当场绊住你的</strong>。PyTorch 2.9 起 <code>torch.onnx.export</code> 默认走<strong>新的 <code>torch.export</code> 导出器</strong>，它需要一个额外的包：</p>
@@ -795,7 +790,6 @@ Weights only load failed. This file can still be loaded, to do so you have two o
 <strong>最后一段还有</strong>（约 31 分钟）：<code>torch.export</code>：现在的正路 · <code>torch.compile</code> 不是一种交付格式 · 选哪一个
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="torchexport">🧭 六、<code>torch.export</code>：现在的正路</h2>
 <p><code>torch.export</code> 是 PyTorch 2.x 给出的答案，位置介于 trace 和 script 之间：<strong>它用符号执行走一遍你的代码</strong>，产出一张 ATen 级别的图。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
@@ -876,7 +870,6 @@ consider using data-dependent friendly APIs such as guard_or_false, guard_or_tru
 <section class="visual-block visual-block-flow" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">① 不声明动态维，喂 batch=5 -&gt; AssertionError: Guard failed: x.size()[0] == 2</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 声明 batch 是动态维，喂 batch=5: torch.Size([5, 2])</span></div></div></section>
 <p>⭐ <strong>默认所有形状都是写死的</strong>（<code>Guard failed: x.size()[0] == 2</code> 把这件事说得很直白），要动态就用 <code>torch.export.Dim</code> 明确声明 —— 和 ONNX 的 <code>dynamic_axes</code> 是同一个概念。</p>
 <p>⚠️ <strong>样例输入的 batch 不要用 1</strong>：0 和 1 会被当成特殊值做特化，拿 <code>batch=1</code> 的样例去声明动态维会得到 <code>Constraints violated (batch)! … your code specialized it to be a constant (1)</code>。用 2 或更大。</p>
-<hr />
 <h2 id="torchcompile">⚡ 七、<code>torch.compile</code> 不是一种交付格式</h2>
 <p>这是最容易被归错类的一个。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -938,7 +931,6 @@ Error(s) in loading state_dict for Net:
 <strong>最后一段还有</strong>（约 30 分钟）：选哪一个 · 检查点与走神救援
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="_7">🚦 八、选哪一个</h2>
 <div class="tw"><table>
 <thead>
@@ -982,7 +974,6 @@ Error(s) in loading state_dict for Net:
 </blockquote>
 <p>本章的三个坑 —— trace 写死分支（负样例 <code>[1.0, 2.0]</code> vs <code>[-2.0, -4.0]</code>）、ONNX 同样写死、numpy 那个折成常数 —— <strong>全部会被这一步抓住，也全部会被「只测一条样例」放过</strong>。</p>
 <p>⚠️ <strong><code>.eval()</code> 别忘了。</strong> 导出的是<strong>当时那个状态</strong>，<code>train()</code> 模式下导出的图会把 Dropout 和 BN 的训练分支一起带走（<a href="07-train和eval改了什么.html">07 · <code>train()</code> / <code>eval()</code> 到底改了什么</a>）。</p>
-<hr />
 <h2 id="_8">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -1030,7 +1021,6 @@ Error(s) in loading state_dict for Net:
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_9">✅ 检查点</h2>
 <ol>
 <li><code>torch.save(model)</code> 存出来的文件里，实测能看到哪些类名？<code>torch.save(model.state_dict())</code> 呢？</li>
@@ -1065,7 +1055,6 @@ Error(s) in loading state_dict for Net:
 <li><strong>拿一批（不是一条）真实数据，逐条比对原模型和导出模型的输出。</strong> 因为本章三个坑（trace 写死分支、ONNX 同样写死、numpy 折成常数）全都在样例输入上给出正确答案 —— trace 那个例子里正样例 <code>[2.0, 4.0]</code> 两边一致、负样例才暴露；只测一条样例（尤其是导出时用的那一条）必然全部漏掉。⚠️ 另外别忘了 <code>.eval()</code>。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_10">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
@@ -1105,4 +1094,4 @@ Error(s) in loading state_dict for Net:
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-pytorch-framework-reader.css"></body></html>

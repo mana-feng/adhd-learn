@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="pytorch-framework">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -307,12 +307,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="07-train-eval">07 · <code>train()</code> / <code>eval()</code> 到底改了什么</h1>
+<details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>68 分钟</strong> ｜ ⭐ <strong>实测：BN 的 <code>running_mean</code> 在【前向】里就更新了 —— <code>no_grad()</code> 拦不住，<code>requires_grad=False</code> 也拦不住</strong></p>
-<hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong><code>model.train()</code> 和 <code>model.eval()</code> 只做一件事：递归地把每个子模块的 <code>self.training</code> 设成 <code>True</code> 或 <code>False</code>。</strong>
 其余全是各层自己看着这个布尔量分叉。站内讲过 Dropout 在测试时会缩放（<a href="../机器学习与深度学习基础/10-正则化全家桶.html"><code>ml_md/10</code></a> 和<a href="../机器学习与深度学习基础/附录C-手撕代码速查.html">附录C 第 6 题</a>），<strong>但没有一页说过 BatchNorm 的 <code>running_mean</code> 是什么时候被改的</strong> —— 而那正是「模型加载回来指标不对」的最隐蔽的一个来源。</p>
-<hr />
 <h2 id="_2">🔘 一、它真的只改了一个布尔</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
 
@@ -348,7 +347,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>输出 <code>eval() 之后 requires_grad = True  grad_fn = AddmmBackward0</code> —— <strong>图照建，显存照占</strong>。
 这就是<a href="../机器学习与深度学习基础/附录A-术语速查卡.html">附录 A 那条「验证时两个都要」</a>的原因，第五节会把这两个开关摆成一张表。</p>
-<hr />
 <h2 id="dropouteval">🎲 二、Dropout：<code>eval()</code> 下它是恒等函数</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -372,7 +370,6 @@ Dropout eval : [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 <li><code>p</code> 是<strong>丢弃</strong>概率，<code>nn.Dropout(0.5)</code> 丢一半。</li>
 <li><code>eval()</code> 下 <code>nn.Dropout</code> <strong>返回输入本身</strong>，不做任何事 —— 所以它在推理时既不慢也不占显存。</li>
 </ul>
-<hr />
 <h2 id="batchnormrunning_mean">📊 三、⭐ BatchNorm：<code>running_mean</code> 是在【前向】里更新的</h2>
 <p>这是本章的正题，也是站内此前完全没有的一节。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -463,7 +460,6 @@ Dropout eval : [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 <strong>后半章还有</strong>：事故：忘了 <code>eval()</code> 跑验证，统计量被永久污染 · <code>eval()</code> 和 <code>no_grad()</code> 是两个正交的开关 · 到底哪些层在看 <code>training</code> · 三个最容易漏掉 <code>eval()</code> 的地方
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="eval">💀 四、事故：忘了 <code>eval()</code> 跑验证，统计量被永久污染</h2>
 <blockquote>
 <p>⚠️ 本节输出块没固定种子，<code>running_mean</code> 的<strong>具体数值每次运行不同</strong>（下面是某次实跑）；稳定可复现的是「train 下会动、eval 下不动」这两个结论。</p>
@@ -525,7 +521,6 @@ Dropout eval : [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 或者更狠一点，记下 <code>bn.num_batches_tracked</code> 在验证前后有没有变。
 这个数只增不减，<strong>它变了就说明有 batch 在训练模式下走过前向</strong>。</p>
 </blockquote>
-<hr />
 <h2 id="eval-no_grad">🚦 五、<code>eval()</code> 和 <code>no_grad()</code> 是两个正交的开关</h2>
 <p>它们经常一起出现，于是被当成一回事。实测一下：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -563,7 +558,6 @@ Dropout eval : [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 </table></div>
 <p>⭐ 一句话记法：<strong><code>eval()</code> 管「层的行为」，<code>no_grad()</code> 管「要不要建图」。两件事，两个开关，验证时都要。</strong>
 （<code>no_grad</code> / <code>detach</code> / <code>requires_grad</code> 三者的区别是<a href="04-detach与no_grad.html">第 4 章</a>的正题。）</p>
-<hr />
 <h2 id="training">🧯 六、到底哪些层在看 <code>training</code></h2>
 <p>别猜，直接测：同一个输入在两种模式下各跑一次，看输出一不一样。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -609,7 +603,6 @@ Dropout eval : [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 
 <p>⭐ 一个样本算不出方差。<code>eval()</code> 下同样的输入完全正常（用的是 running stats）。
 💀 <strong>典型触发点：<code>drop_last=False</code> 时最后一个 batch 恰好只剩 1 条</strong> —— 训练跑了几百步之后突然崩，而你什么都没改。</p>
-<hr />
 <h2 id="eval_1">📋 七、三个最容易漏掉 <code>eval()</code> 的地方</h2>
 <div class="tw"><table>
 <thead>
@@ -639,7 +632,6 @@ Dropout eval : [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 </table></div>
 <p>⚠️ 第一格那条最值钱，因为它<strong>同时踩了两个坑</strong>：以为冻结参数就冻住了整层，以及以为 <code>model.train()</code> 只影响需要梯度的层。
 <a href="../机器学习与深度学习基础/附录C-手撕代码速查.html">附录C 第 5 题</a>提过一句「微调冻结主干时记得 <code>bn.eval()</code>」—— <strong>第三节那段实测就是它的证据</strong>。</p>
-<hr />
 <h2 id="_3">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -679,7 +671,6 @@ Dropout eval : [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_4">✅ 检查点</h2>
 <ol>
 <li><code>model.eval()</code> 具体改了什么？它是递归的吗？返回值是什么？</li>
@@ -708,7 +699,6 @@ Dropout eval : [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 <li><strong>train 模式下 batch=1</strong>（一个样本算不出方差），实测报 <code>ValueError: Expected more than 1 value per channel when training, got input size torch.Size([1, 2])</code>。💀 典型触发点是 <code>drop_last=False</code> 时最后一个 batch 恰好只剩 1 条 —— 训练几百步之后突然崩。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_5">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
@@ -746,4 +736,4 @@ Dropout eval : [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-pytorch-framework-reader.css"></body></html>

@@ -181,20 +181,20 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .tw{overflow-x:auto;margin:1.2em 0;-webkit-overflow-scrolling:touch}
 table{border-collapse:collapse;width:100%;margin:0;font-size:.93em}
 th,td{min-width:5.2em}
-</style></head><body>
+</style></head><body data-polish="claude-library" class="polish-claude-library-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner"><a href="../index.html">🏠 总目录</a>
 <a href="index.html">📚 资料库</a><span class="title">Claude Code 实践</span>
 <button id="themeToggle" title="切换深浅色">🌗</button></div></header>
 <main>
-<h1>How We Built Claude Code Auto Mode: A Safer Way to Skip Permissions（Claude Code auto mode：更安全地跳过权限审批）</h1>
-<div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>How We Built Claude Code Auto Mode: A Safer Way to Skip Permissions（Claude Code auto mode：更安全地跳过权限审批）</dd><dt>原文链接</dt><dd><a href="https://www.anthropic.com/engineering/claude-code-auto-mode" target="_blank" rel="noopener">https://www.anthropic.com/engineering/claude-code-auto-mode</a></dd><dt>作者</dt><dd>John Hughes 等（Anthropic）</dd><dt>发布日期</dt><dd>2026-03-25</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。具体参数与功能名更新很快，落地前请点击上方链接核对原文。</div></div>
+<h1>Claude Code auto mode：更安全地跳过权限审批</h1>
 <div class="adhd-head">
 <p class="meta">⏱ <strong>10 分钟</strong> ｜ 🤖 <strong>什么时候可以真的放手</strong></p>
 <h2 id="tldr">🎯 一句话</h2>
-<p class="tl">auto 模式的本质是<strong>把「每步确认」换成「事后审查」</strong>。⭐ 它能不能用，取决于两件事：<strong>失败代价够不够低、验证手段够不够客观</strong>。</p>
+<p class="tl">auto 模式的本质是<strong>由分类器在执行前代替部分人工审批，并保留事后验收</strong>。⭐ 它能不能用，取决于两件事：<strong>失败代价够不够低、验证手段够不够客观</strong>。</p>
 </div>
-
+<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>哪些检查发生在动作执行之前，哪些属于事后验收？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav>
+<div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>How We Built Claude Code Auto Mode: A Safer Way to Skip Permissions（Claude Code auto mode：更安全地跳过权限审批）</dd><dt>原文链接</dt><dd><a href="https://www.anthropic.com/engineering/claude-code-auto-mode" target="_blank" rel="noopener">https://www.anthropic.com/engineering/claude-code-auto-mode</a></dd><dt>作者</dt><dd>John Hughes 等（Anthropic）</dd><dt>发布日期</dt><dd>2026-03-25</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。版本、参数与案例数字属于原文所示条件，不是本资料库的实测结果；产品状态与接口以实施时官方文档为准。</div></div>
 <details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
 <ul>
 <li><a href="#tldr">🎯 一句话</a></li>
@@ -223,9 +223,11 @@ th,td{min-width:5.2em}
 <h3 id="_3">输入层：提示词注入探针</h3>
 <p>服务端系统在工具输出进入 Agent 上下文之前扫描；发现试图劫持行为的可疑内容时附加警告，指示 Agent 锚定原始用户意图。</p>
 <h3 id="_4">输出层：转录分类器</h3>
-<p>运行在 Claude Sonnet 4.6 上，在每个动作执行前评估。两段式流水线：
-- <strong>Stage 1：</strong> 快速单 token 过滤（是/否，无推理）——激进标记（高误报、低漏报）
-- <strong>Stage 2：</strong> 仅对被标记项做链式思考推理——大幅消解误报；提示词与 Stage 1 几乎相同因此命中缓存，成本可控</p>
+<p>运行在 Claude Sonnet 4.6 上，在每个动作执行前评估。两段式流水线：</p>
+<ul>
+<li><strong>Stage 1：</strong> 快速单 token 过滤（是/否，无推理）——激进标记（高误报、低漏报）</li>
+<li><strong>Stage 2：</strong> 仅对被标记项做链式思考推理——大幅消解误报；提示词与 Stage 1 几乎相同因此命中缓存，成本可控</li>
+</ul>
 <h2 id="_5">三级权限体系</h2>
 <ol>
 <li><strong>安全工具白名单：</strong> 文件读取、文本搜索、代码导航、切换 plan mode 直接放行。进入 auto mode 时自动禁用部分危险的 always-allow 规则（任意 shell、Python/Node 等通配解释器、包管理器命令）</li>
@@ -268,7 +270,7 @@ th,td{min-width:5.2em}
 <h2 id="_8">关键设计决策</h2>
 <ul>
 <li><strong>剥离助手文本和工具结果：</strong> 防止 Agent 构造有说服力的自我辩护；防止在分类层被提示词注入</li>
-<li><strong>多 Agent 交接点双重检查：</strong> 在子 Agent 委派时（防任务升级）和返回时（抓中途被攻陷）都跑分类器</li>
+<li><strong>多 Agent 交接点双重检查：</strong> 在子 Agent 委派时（可拒绝越界委派）和返回时（可附加风险警告）都跑分类器</li>
 <li><strong>拒绝后继续（Deny-and-continue）：</strong> 拦截时把拒绝作为工具结果返回并指示寻找更安全的替代方案；连续 3 次或累计 20 次拒绝才终止会话——既防反复试探又容忍误报恢复</li>
 </ul>
 <h2 id="_9">定位与局限</h2>
@@ -284,7 +286,7 @@ th,td{min-width:5.2em}
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>⭐ <strong>把控制点从「每步之前」移到了「整体之后」</strong>。不再逐步批准，而是让它跑完一整段再审查结果。</li>
+<li>⭐ <strong>把部分人工逐步审批交给执行前的分类器</strong>。已有允许规则先处理常规操作，其余动作由分类器判定；人仍需检查最终产物与副作用。</li>
 <li><strong>①有沙箱或版本控制兜底（失败可回滚）</strong><strong>②有客观的验证手段（测试、编译、lint）</strong><strong>③任务的失败代价低</strong>。⚠️ <strong>三个条件缺一个都不该开</strong>——尤其是没有版本控制时，auto 模式的破坏是不可逆的。</li>
 <li>从<strong>「操作员」变成「审查者和规则制定者」</strong>：事前把目标、边界、验收标准说清楚，事后审查产出和 diff。⭐ <strong>关键是要真的审查</strong>——auto 模式最大的风险不是模型乱来，是<strong>人因为「它一直挺靠谱」而放弃了审查</strong>。</li>
 </ol>
@@ -306,4 +308,5 @@ th,td{min-width:5.2em}
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
+<link rel="stylesheet" href="../assets/polish-claude-library-reader.css">
 </body></html>

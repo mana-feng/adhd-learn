@@ -177,20 +177,20 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .ckpt ol{padding-left:1.3em}.ckpt li{margin:.4em 0}
 .recap{background:var(--quote-bg);border-radius:12px;padding:16px 20px;margin:18px 0 0}
 .recap b{color:var(--accent)}
-</style></head><body>
+</style></head><body data-polish="claude-library" class="polish-claude-library-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner"><a href="../index.html">🏠 总目录</a>
 <a href="index.html">📚 资料库</a><span class="title">智能体构建模式</span>
 <button id="themeToggle" title="切换深浅色">🌗</button></div></header>
 <main>
-<h1>Common Workflow Patterns for AI Agents—and When to Use Them（AI Agent 常见工作流模式及适用时机）</h1>
-<div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>Common Workflow Patterns for AI Agents—and When to Use Them（AI Agent 常见工作流模式及适用时机）</dd><dt>原文链接</dt><dd><a href="https://claude.com/blog/common-workflow-patterns-for-ai-agents-and-when-to-use-them" target="_blank" rel="noopener">https://claude.com/blog/common-workflow-patterns-for-ai-agents-and-when-to-use-them</a></dd><dt>作者</dt><dd>Anthropic（Claude 博客）</dd><dt>发布日期</dt><dd>2026-03-05</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。具体参数与功能名更新很快，落地前请点击上方链接核对原文。</div></div>
+<h1>AI Agent 常见工作流模式及适用时机</h1>
 <div class="adhd-head">
 <p class="meta">⏱ <strong>12 分钟</strong> ｜ 🔀 <strong>能用固定流程就别用 Agent</strong></p>
 <h2 id="tldr">🎯 一句话</h2>
-<p class="tl">五种工作流模式：<strong>提示链、路由、并行化、编排器-工作者、评估-优化</strong>。⭐ 它们和 Agent 的根本区别是：<strong>工作流的路径是你定的，Agent 的路径是它自己决定的</strong>。路径能定就别让它自己决定。</p>
+<p class="tl">本篇聚焦<strong>顺序、并行、评估器-优化器</strong>三类工作流，分别处理任务依赖、独立子任务和带反馈的迭代。先建立单 Agent 基线，再证明增加结构的收益。</p>
 </div>
-
+<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>依赖、独立工作与反馈迭代分别适合哪种工作流？</p><p><a href="#sequential">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav>
+<div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>Common Workflow Patterns for AI Agents—and When to Use Them（AI Agent 常见工作流模式及适用时机）</dd><dt>原文链接</dt><dd><a href="https://claude.com/blog/common-workflow-patterns-for-ai-agents-and-when-to-use-them" target="_blank" rel="noopener">https://claude.com/blog/common-workflow-patterns-for-ai-agents-and-when-to-use-them</a></dd><dt>作者</dt><dd>Anthropic（Claude 博客）</dd><dt>发布日期</dt><dd>2026-03-05</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。版本、参数与案例数字属于原文所示条件，不是本资料库的实测结果；产品状态与接口以实施时官方文档为准。</div></div>
 <details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
 <ul>
 <li><a href="#tldr">🎯 一句话</a></li>
@@ -250,22 +250,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>务实渐进：从简单开始，只有可衡量的改进能证明时才增加复杂度。模块化模式提供清晰的升级路径，避免不必要的重写。核心原则：工作流复杂度要匹配实际业务需求，而非架构能力上限。</p>
 <hr />
 <div class="ckpt"><h2 id="ckpt">✅ 检查点</h2>
-<ol>
-<li>工作流和 Agent 的根本区别是什么？</li>
-<li>五种工作流模式各是什么？</li>
-<li>为什么「能用工作流就别用 Agent」？</li>
-</ol>
-<details>
-<summary>👀 答案</summary>
-<ol>
-<li>⭐ <strong>路径由谁决定</strong>。<strong>工作流的执行路径是你在代码里写死的</strong>（可能有分支，但分支是有限且已知的）；<strong>Agent 的路径由它自己在运行时决定</strong>，你事先不知道它会调用哪些工具、调几次。</li>
-<li><strong>提示链</strong>：拆成固定的几步依次执行；<strong>路由</strong>：先分类，再走对应的专用分支；<strong>并行化</strong>：同时跑多个子任务再合并（分片或投票）；<strong>编排器-工作者</strong>：由模型动态决定要派发哪些子任务；<strong>评估-优化</strong>：生成后由另一个环节打分，不合格就重来。</li>
-<li>因为<strong>工作流是可预测、可测试、可复现的</strong>——你知道它会走哪条路、花多少 token、耗时多久，出错时也容易定位到具体环节。而 Agent 的<strong>成本、延迟、行为都是不确定的</strong>，调试要还原完整的决策序列。⭐ <strong>只有当路径确实无法事先枚举时，Agent 的灵活性才值这个代价。</strong></li>
-</ol>
-</details>
+<ol><li>本篇的三种工作流是什么？</li><li>什么时候选顺序，什么时候选并行？</li><li>评估器-优化器循环必须先定义什么？</li></ol>
+<details><summary>👀 答案</summary><ol><li>顺序工作流、并行工作流、评估器-优化器。更广义的五种模式见“构建有效的 Agent”，本篇聚焦这三种组织方式。</li><li>上一步的结果决定下一步输入时采用顺序；子任务独立且有聚合和冲突处理办法时才并行。预设路径并不保证每次模型输出或耗时相同。</li><li>明确评分标准、反馈格式、质量阈值、预算和停止条件。确定性规则优先用测试或检查器；模型评估需校准，达到标准或无进展时停止。</li></ol></details>
 </div>
 <div class="recap"><h2 id="recap">🛑 可以停在这里</h2>
-<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>链式、路由、并行与评估优化适合不同的任务关系。</li><li>先判断路径能否预先规定，再决定需要多少动态自主性。</li><li>每种模式都要明确交接结果、错误处理与停止条件。</li></ul></section></div>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>三种方式分别处理依赖、独立子任务和带反馈的迭代。</li><li>先试单 Agent 基线，再衡量新增工作流的质量与成本。</li><li>定义交接、聚合、失败恢复和停止条件。</li></ul></section></div>
 <nav class="pagenav"><a href="index.html"><div class="dir">← 返回</div>📚 资料库目录</a>
 <a class="next" href="../智能体工程教程/index.html"><div class="dir">系统学习 →</div>🎓 智能体工程教程</a></nav>
 </main><script>(function(){
@@ -280,4 +269,5 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
+<link rel="stylesheet" href="../assets/polish-claude-library-reader.css">
 </body></html>

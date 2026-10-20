@@ -177,20 +177,20 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .ckpt ol{padding-left:1.3em}.ckpt li{margin:.4em 0}
 .recap{background:var(--quote-bg);border-radius:12px;padding:16px 20px;margin:18px 0 0}
 .recap b{color:var(--accent)}
-</style></head><body>
+</style></head><body data-polish="claude-library" class="polish-claude-library-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner"><a href="../index.html">🏠 总目录</a>
 <a href="index.html">📚 资料库</a><span class="title">智能体技能</span>
 <button id="themeToggle" title="切换深浅色">🌗</button></div></header>
 <main>
-<h1>Equipping Agents for the Real World with Agent Skills（用 Agent Skills 装备现实世界的 Agent）</h1>
-<div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>Equipping Agents for the Real World with Agent Skills（用 Agent Skills 装备现实世界的 Agent）</dd><dt>原文链接</dt><dd><a href="https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills" target="_blank" rel="noopener">https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills</a></dd><dt>作者</dt><dd>Barry Zhang、Keith Lazuka、Mahesh Murag（Anthropic）</dd><dt>发布日期</dt><dd>2025-10-16（2025-12-18 更新：发布为开放标准）</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。具体参数与功能名更新很快，落地前请点击上方链接核对原文。</div></div>
+<h1>用 Agent Skills 装备现实世界的 Agent</h1>
 <div class="adhd-head">
 <p class="meta">⏱ <strong>12 分钟</strong> ｜ 🎒 <strong>三层渐进式披露</strong></p>
 <h2 id="tldr">🎯 一句话</h2>
 <p class="tl">Skill 的核心机制是<strong>三层渐进式披露</strong>：<strong>先给一行描述、需要时展开说明、真正用到才加载资源</strong>。⭐ 这让上下文只为「当下真正用得上的东西」付费。</p>
 </div>
-
+<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>技能简介、正文与附件分别何时加载？</p><p><a href="#agent-skills">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav>
+<div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>Equipping Agents for the Real World with Agent Skills（用 Agent Skills 装备现实世界的 Agent）</dd><dt>原文链接</dt><dd><a href="https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills" target="_blank" rel="noopener">https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills</a></dd><dt>作者</dt><dd>Barry Zhang、Keith Lazuka、Mahesh Murag（Anthropic）</dd><dt>发布日期</dt><dd>2025-10-16（2025-12-18 更新：发布为开放标准）</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。版本、参数与案例数字属于原文所示条件，不是本资料库的实测结果；产品状态与接口以实施时官方文档为准。</div></div>
 <details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
 <ul>
 <li><a href="#tldr">🎯 一句话</a></li>
@@ -225,7 +225,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h3 id="pdf">PDF 技能示例</h3>
 <p>Claude 理解 PDF 概念但缺乏直接操作能力。PDF 技能捆绑：核心 SKILL.md（表单填写概览）+ forms.md（详细填表指令）+ reference.md（通用 PDF 操作）+ 用于确定性提取表单字段的 Python 脚本。核心保持精简，按场景定向加载。</p>
 <h3 id="_3">为什么渐进式披露是核心设计原则</h3>
-<p>像一本组织良好的手册（目录、章节、附录），Claude「只在需要时加载信息」。具备文件系统和代码执行能力的 Agent 不需要把整个技能装进上下文——技能的有效复杂度上限因此是<strong>无界的</strong>。</p>
+<p>像一本组织良好的手册（目录、章节、附录），Claude「只在需要时加载信息」。具备文件系统和代码执行能力的 Agent 不需要把整个技能装进上下文——技能包可大于单个上下文窗口，但每次读取仍受窗口、检索质量与执行预算限制。</p>
 <h2 id="_4">上下文窗口的工作机制</h2>
 <ol>
 <li>初始上下文：系统提示词 + 所有技能元数据 + 用户消息</li>
@@ -234,11 +234,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>用加载的技能指令执行用户任务</li>
 </ol>
 <h2 id="_5">技能与代码执行</h2>
-<p>技能可捆绑可执行代码，Claude 自行决定何时使用：
-- <strong>效率：</strong> 确定性排序用代码跑比逐 token 生成强
-- <strong>可靠性：</strong> 确定性代码保证一致可重复的流程
-- 分离： 代码可以在不加载其本身或相关数据进上下文的情况下执行（如不加载 PDF 就提取表单字段）
-- 要区分「Claude 应该直接执行的脚本」和「Claude 应该读进上下文的参考资料」</p>
+<p>技能可捆绑可执行代码，Claude 自行决定何时使用：</p>
+<ul>
+<li><strong>效率：</strong> 确定性排序用代码跑比逐 token 生成强</li>
+<li><strong>可靠性：</strong> 确定性代码保证一致可重复的流程</li>
+<li>分离： 代码可以在不加载其本身或相关数据进上下文的情况下执行（如不加载 PDF 就提取表单字段）</li>
+<li>要区分「Claude 应该直接执行的脚本」和「Claude 应该读进上下文的参考资料」</li>
+</ul>
 <h2 id="_6">开发最佳实践</h2>
 <ol>
 <li><strong>从评估出发：</strong> 在代表性任务上运行 Agent 找能力缺口，增量构建技能补短板</li>
@@ -247,17 +249,19 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>与 Claude 一起迭代：</strong> 让 Claude 自我反思失败原因，把成功方法沉淀为可复用组件——这个过程能揭示 Claude 真正需要什么上下文</li>
 </ol>
 <h2 id="_7">安全考量</h2>
-<p>技能通过指令和代码引入新能力，也就引入攻击面：
-- 只安装可信来源的技能；对不够可信的先彻底审计
-- 读完所有捆绑文件、审查代码依赖和资源引用
-- 警惕引导 Claude 连接不可信外部网络源的指令</p>
+<p>技能通过指令和代码引入新能力，也就引入攻击面：</p>
+<ul>
+<li>只安装可信来源的技能；对不够可信的先彻底审计</li>
+<li>读完所有捆绑文件、审查代码依赖和资源引用</li>
+<li>警惕引导 Claude 连接不可信外部网络源的指令</li>
+</ul>
 <h2 id="_8">现状与未来</h2>
 <ul>
 <li>已支持：Claude.ai、Claude Code、Claude Agent SDK、Claude Developer Platform</li>
 <li>规划中：技能生命周期管理（创建/编辑/发现/分享）、与 MCP server 互补集成、Agent 自主创建和评估技能——让 Agent「把自己的行为模式沉淀为可复用能力」</li>
 </ul>
 <h2 id="_9">结论</h2>
-<p>Agent Skills 用简单格式解决通用 AI 能力与领域现实需求之间的落差：把程序性知识打包成可发现、可组合、智能加载的模块。渐进式披露保证了不受上下文窗口约束的可扩展性，开放标准的发布则预示更广泛的生态采纳。</p>
+<p>Agent Skills 用简单格式解决通用 AI 能力与领域现实需求之间的落差：把程序性知识打包成可发现、可组合、智能加载的模块。渐进式披露减少了一次性预载的上下文压力，开放标准的发布则预示更广泛的生态采纳。</p>
 <hr />
 <div class="ckpt"><h2 id="ckpt">✅ 检查点</h2>
 <ol>
@@ -270,7 +274,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ol>
 <li><strong>①名称+一句话描述</strong>（常驻，极短）<strong>②完整说明文档</strong>（判断相关后才载入）<strong>③附带的脚本、模板、数据文件</strong>（真正执行时才读）。</li>
 <li>⭐ 解决<strong>「能力越多、上下文越挤」这个矛盾</strong>。如果所有 Skill 的完整内容都常驻，挂十个就把上下文占满了；<strong>分层之后，常驻成本只有每个 Skill 一行描述</strong>，于是可以挂几十上百个。</li>
-<li>⭐ <strong>描述要写清「什么时候该用它」，而不是「它能做什么」</strong>。因为<strong>第一层是模型做路由判断的唯一依据</strong>——它靠这一行决定要不要展开。写成「处理 PDF 的工具」不如写成「当需要从 PDF 提取表格或填写 PDF 表单时使用」。</li>
+<li>⭐ <strong>描述要写清「什么时候该用它」，而不是「它能做什么」</strong>。因为<strong>第一层是模型发现和初步匹配技能的重要依据，用户显式调用及当前任务上下文也会影响选择</strong>——它靠这一行决定要不要展开。写成「处理 PDF 的工具」不如写成「当需要从 PDF 提取表格或填写 PDF 表单时使用」。</li>
 </ol>
 </details>
 </div>
@@ -290,4 +294,5 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
+<link rel="stylesheet" href="../assets/polish-claude-library-reader.css">
 </body></html>

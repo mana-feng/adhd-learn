@@ -177,20 +177,20 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .ckpt ol{padding-left:1.3em}.ckpt li{margin:.4em 0}
 .recap{background:var(--quote-bg);border-radius:12px;padding:16px 20px;margin:18px 0 0}
 .recap b{color:var(--accent)}
-</style></head><body>
+</style></head><body data-polish="claude-library" class="polish-claude-library-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner"><a href="../index.html">🏠 总目录</a>
 <a href="index.html">📚 资料库</a><span class="title">工具与 MCP</span>
 <button id="themeToggle" title="切换深浅色">🌗</button></div></header>
 <main>
-<h1>Introducing Advanced Tool Use on the Claude Developer Platform（Claude 开发者平台的高级工具使用）</h1>
-<div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>Introducing Advanced Tool Use on the Claude Developer Platform（Claude 开发者平台的高级工具使用）</dd><dt>原文链接</dt><dd><a href="https://www.anthropic.com/engineering/advanced-tool-use" target="_blank" rel="noopener">https://www.anthropic.com/engineering/advanced-tool-use</a></dd><dt>作者</dt><dd>Bin Wu 等（Anthropic）</dd><dt>发布日期</dt><dd>2025-11-24</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。具体参数与功能名更新很快，落地前请点击上方链接核对原文。</div></div>
+<h1>Claude 开发者平台的高级工具使用</h1>
 <div class="adhd-head">
 <p class="meta">⏱ <strong>12 分钟</strong> ｜ 🛠️ <strong>工具设计的进阶细节</strong></p>
 <h2 id="tldr">🎯 一句话</h2>
-<p class="tl">工具好不好用，决定了 Agent 的能力上限。⭐ 最容易被忽略的一点：<strong>工具的返回值是给模型读的，不是给日志看的</strong>——它的格式和信息密度直接影响下一步决策质量。</p>
+<p class="tl">本文的三种能力分别处理<strong>工具定义过大、工具调用中间数据过多、复杂参数惯例不清</strong>：按需搜索、程序化调用、工具使用示例。先找到实际瓶颈，再选择组合。</p>
 </div>
-
+<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>瓶颈是工具发现、数据体积，还是调用惯例？</p><p><a href="#tool-search-tool">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav>
+<div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>Introducing Advanced Tool Use on the Claude Developer Platform（Claude 开发者平台的高级工具使用）</dd><dt>原文链接</dt><dd><a href="https://www.anthropic.com/engineering/advanced-tool-use" target="_blank" rel="noopener">https://www.anthropic.com/engineering/advanced-tool-use</a></dd><dt>作者</dt><dd>Bin Wu 等（Anthropic）</dd><dt>发布日期</dt><dd>2025-11-24</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。版本、参数与案例数字属于原文所示条件，不是本资料库的实测结果；产品状态与接口以实施时官方文档为准。</div></div>
 <details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
 <ul>
 <li><a href="#tldr">🎯 一句话</a></li>
@@ -204,17 +204,19 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ul>
 </div>
 </details>
-<p>有效的 Agent 需要三种传统工具调用模式给不了的能力：不耗上下文的动态工具发现、用代码而非逐次 API 调用的高效编排、从用法示例（而非仅 schema）学习。Anthropic 为此发布三个 beta 特性。</p>
+<p>有效的 Agent 需要三种传统工具调用模式给不了的能力：不耗上下文的动态工具发现、用代码而非逐次 API 调用的高效编排、从用法示例（而非仅 schema）学习。原文发布时，Anthropic 将这三种能力作为 beta 特性介绍；以下版本号和启用方式保留发布时记录。</p>
 <h2 id="tool-search-tool">特性一：Tool Search Tool（工具搜索）</h2>
 <p><strong>解决的问题：</strong> 工具定义吞噬 token 预算。示例：GitHub+Slack+Sentry+Grafana+Splunk 五个服务器共 58 个工具，对话还没开始就消耗约 55K token；再加 Jira 逼近 100K+。</p>
 <p><strong>工作方式：</strong>
 - 工具标记 <code>defer_loading: true</code> 延迟加载
 - 初始只加载搜索工具本身（约 500 token）
 - Claude 需要时搜索相关工具，只有匹配的工具才展开进上下文</p>
-<p><strong>效果：</strong>
-- token 用量减少 85%，同时保有完整工具库访问
-- 准确率提升：Opus 4 从 49% → 74%；Opus 4.5 从 79.5% → 88.1%
-- 与 prompt caching 兼容（延迟加载的工具不在初始提示词中）</p>
+<p><strong>效果：</strong></p>
+<ul>
+<li>token 用量减少 85%，同时保有完整工具库访问</li>
+<li>准确率提升：Opus 4 从 49% → 74%；Opus 4.5 从 79.5% → 88.1%</li>
+<li>与 prompt caching 兼容（延迟加载的工具不在初始提示词中）</li>
+</ul>
 <p><strong>适用：</strong> 10+ 工具的大型库、多 MCP server、工具定义超 10K token 时。</p>
 <h2 id="programmatic-tool-calling">特性二：Programmatic Tool Calling（程序化工具调用）</h2>
 <p><strong>解决的问题：</strong> 中间结果污染上下文 + 推理开销。处理 10MB 日志会把整个文件挤进上下文；跨表查询会累积每一条记录。</p>
@@ -223,13 +225,17 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 2. Claude 生成 Python 代码编排多个工具调用
 3. 工具结果在代码执行环境中处理，不进 Claude 上下文
 4. 只有最终输出进入上下文窗口</p>
-<p><strong>例子——差旅预算核查：</strong>
-- 传统方式：20+ 次工具调用，2,000+ 条报销明细（约 50KB）全进上下文
-- 程序化：脚本处理全部数据，Claude 只看到 3-5 个超预算的人</p>
-<p><strong>效果：</strong>
-- token 平均减少 37%（43,588 → 27,297）
-- 并行执行 + 减少推理轮次带来延迟改善
-- 准确率：知识检索 25.6% → 28.5%；GIA 基准 46.5% → 51.2%</p>
+<p><strong>例子——差旅预算核查：</strong></p>
+<ul>
+<li>传统方式：20+ 次工具调用，2,000+ 条报销明细（约 50KB）全进上下文</li>
+<li>程序化：脚本处理全部数据，Claude 只看到 3-5 个超预算的人</li>
+</ul>
+<p><strong>效果：</strong></p>
+<ul>
+<li>token 平均减少 37%（43,588 → 27,297）</li>
+<li>并行执行 + 减少推理轮次带来延迟改善</li>
+<li>准确率：知识检索 25.6% → 28.5%；GIA 基准 46.5% → 51.2%</li>
+</ul>
 <p><strong>适用：</strong> 有依赖关系的多步流程、并行操作、大数据集摘要、条件逻辑。实际应用：Claude for Excel 用它处理数千行表格而不压垮上下文。</p>
 <h2 id="tool-use-examples">特性三：Tool Use Examples（工具使用示例）</h2>
 <p><strong>解决的问题：</strong> JSON Schema 只定义结构合法性，表达不了使用惯例——日期格式（"2024-11-06" 还是 "Nov 6, 2024"？）、ID 惯例（UUID 还是 "USR-12345"？）、嵌套结构何时填、参数之间的关联（升级级别与 SLA 小时数如何随优先级变化）。</p>
@@ -237,32 +243,23 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p><strong>效果：</strong> 复杂参数处理的准确率从 72% → 90%。</p>
 <p><strong>适用：</strong> 复杂嵌套结构、有领域惯例的 API、大量可选参数、区分相似工具。</p>
 <h2 id="_1">组合策略</h2>
-<p>按最大瓶颈选择切入点，而非同时全上：
-- 工具定义撑爆上下文 → Tool Search Tool
-- 中间结果太大 → Programmatic Tool Calling
-- 参数错误频发 → Tool Use Examples</p>
+<p>按最大瓶颈选择切入点，而非同时全上：</p>
+<ul>
+<li>工具定义撑爆上下文 → Tool Search Tool</li>
+<li>中间结果太大 → Programmatic Tool Calling</li>
+<li>参数错误频发 → Tool Use Examples</li>
+</ul>
 <p><strong>配置要点：</strong> 常用的 3-5 个工具保持常载，其余延迟加载；文档写清返回格式；示例用真实数据而非泛型占位符，每个工具 1-5 个。</p>
 <p>API 启用：<code>betas=["advanced-tool-use-2025-11-20"]</code>。</p>
 <h2 id="_2">结论</h2>
 <p>三个特性共同让 Agent 突破基础限制：动态发现代替预载全部定义、代码编排代替逐次推理调用、示例学习补足 schema 校验。按瓶颈分层采用，支撑跨数十个工具和大数据集的复杂 Agent 工作流。</p>
 <hr />
 <div class="ckpt"><h2 id="ckpt">✅ 检查点</h2>
-<ol>
-<li>为什么说返回值设计和参数设计一样重要？</li>
-<li>工具太多时会出什么问题？怎么办？</li>
-<li>什么样的错误信息才是「好」的？</li>
-</ol>
-<details>
-<summary>👀 答案</summary>
-<ol>
-<li>因为<strong>返回值直接进入模型的上下文，是它做下一步决策的全部依据</strong>。返回一个巨大的 JSON dump，<strong>既浪费上下文又淹没关键信息</strong>；⭐ 好的返回值应当<strong>只包含决策需要的字段，并对结果做必要的摘要</strong>。</li>
-<li>⭐ <strong>模型会选错工具，或者在相似工具之间犹豫</strong>——工具描述之间的重叠越多，选择越不稳定。<strong>解法：①合并功能相近的工具</strong>；<strong>②描述里写清「什么时候不该用它」</strong>（边界比功能更能区分）；<strong>③用工具搜索/按需加载</strong>，让模型每次只面对相关的那几个。</li>
-<li>⭐ 四个要素：<strong>①说清哪里错了 ②说清为什么错 ③给出可执行的下一步 ④保留必要的原始信息</strong>。例：不要返回「400 Bad Request」，而要返回「参数 date 格式应为 YYYY-MM-DD，收到的是 2025/13/01；注意月份最大为 12」。<strong>好的错误信息能让模型自己修好，差的只能让它重试同样的错误。</strong></li>
-</ol>
-</details>
+<ol><li>三个高级工具特性分别解决哪个瓶颈？</li><li>工具定义太大和中间结果太大，应该选同一种办法吗？</li><li>工具使用示例与参数校验有什么不同？</li></ol>
+<details><summary>👀 答案</summary><ol><li>Tool Search 按需发现工具，减少预加载定义；Programmatic Tool Calling 在代码环境里组合调用和处理数据；Tool Use Examples 展示有效调用的惯例。</li><li>不是。定义太多先看工具搜索与延迟加载；结果太多先看程序化调用与过滤。可以组合，但要先确认主要瓶颈并记录实际 token、延迟和任务成功率。</li><li>示例帮助模型理解日期格式、可选字段和参数关系；Schema 与服务端校验仍需拒绝非法输入。示例不会自动成为安全边界。</li></ol></details>
 </div>
 <div class="recap"><h2 id="recap">🛑 可以停在这里</h2>
-<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>返回值是下一轮决策的输入，要突出有用字段与剩余信息入口。</li><li>相似工具写清边界，工具很多时按需发现和加载。</li><li>错误说明应包含问题、规则与可执行的修正方向。</li></ul></section></div>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>先定位瓶颈：工具定义、中间数据，还是调用惯例。</li><li>分别选按需搜索、代码编排或示例，不必一次全部引入。</li><li>原文 beta 名称和工具版本属于发布时配置，实施前核对当前接口。</li></ul></section></div>
 <nav class="pagenav"><a href="index.html"><div class="dir">← 返回</div>📚 资料库目录</a>
 <a class="next" href="../智能体工程教程/index.html"><div class="dir">系统学习 →</div>🎓 智能体工程教程</a></nav>
 </main><script>(function(){
@@ -277,4 +274,5 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
+<link rel="stylesheet" href="../assets/polish-claude-library-reader.css">
 </body></html>

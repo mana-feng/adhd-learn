@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="polish-ai-infra-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -436,7 +436,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="ring-allreduce-5">🔁 三、Ring AllReduce（<a href="05-互联与集群拓扑.html">第 5 章</a>的展开）</h2>
 <section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">N 张卡排成环，梯度切成 N 份</span></div><div class="vb-flow-row"><span class="vb-flow-step">阶段① ReduceScatter（转 N-1 步）：</span></div><div class="vb-flow-row"><span class="vb-flow-step">每一步，每张卡把手里的一份发给下家、从上家收一份并累加</span></div><div class="vb-flow-row"><span class="vb-flow-step">结束时，第 i 张卡持有【第 i 份的完整求和】</span></div><div class="vb-flow-row"><span class="vb-flow-step">阶段② AllGather（再转 N-1 步）：</span></div><div class="vb-flow-row"><span class="vb-flow-step">把各自那份完整结果传遍全环</span></div><div class="vb-flow-row"><span class="vb-flow-step">结束时，所有卡都有完整的求和结果</span></div></div></section>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>⭐ 每张卡收发的数据量 = 2 × (N-1)/N × 数据量 ≈ 2 × 数据量</p><p>【和卡数几乎无关】</p><p>对比朴素的&quot;都发给 0 号卡&quot;：0 号要收发 N-1 倍 💀</p></div></section>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>⭐ 每张卡发送的数据量（接收量相同）= 2 × (N-1)/N × 数据量 ≈ 2 × 数据量</p><p>【和卡数几乎无关】</p><p>对比朴素的&quot;都发给 0 号卡&quot;：0 号要收发 N-1 倍 💀</p></div></section>
 <details>
 <summary>📐 <b>为什么是 2×(N−1)/N（想看再点）</b></summary>
 <p>梯度总量 $D$，切成 $N$ 份，每份 $D/N$。</p>
@@ -445,7 +445,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>AllGather</strong>：同样 $N-1$ 步，每步 $D/N$ → 共 $(N-1)D/N$</li>
 </ul>
 <p>合计 $2(N-1)D/N \approx 2D$（$N$ 大时）。</p>
-<p>💡 <strong>关键点：随着 N 增大，每卡的通信量趋于常数 2D，不随 N 增长。</strong>
+<p>💡 <strong>关键点：随着 N 增大，每卡发送量趋于常数 2D，接收量另计，不随 N 增长。</strong>
 但步数是 $2(N-1)$，所以<strong>延迟随 N 线性增长</strong> —— 这是 Ring 的软肋。</p>
 </details>
 <h3 id="allreduce">⭐ 分层 AllReduce：大规模的标准做法</h3>
@@ -582,6 +582,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>数据并行让每卡保留模型副本、处理不同数据，再同步梯度；它本身不分摊模型状态。</li><li>检查采样器、梯度累积和各卡迭代次数，避免重复通信或集合操作相互等待。</li><li>通过梯度分桶与计算通信重叠提高效率，再实测增加卡数后的扩展收益。</li></ul></section>
 
 <p><strong>下一节</strong> 👉 <a href="11-ZeRO与FSDP.html">11-ZeRO与FSDP.md</a> ⭐</p>
+<details class="g05-content-note"><summary>条件与依据</summary><p>Ring 的 2(N−1)D/N 是每 rank 的发送量，接收量相同；不能再将二者合计当同一数字。分层方案需各本地 rank 对应分片跨机归约；“只派一个代表”不会自动使整机网络流量降到 1/8。no_sync 示例需导入 contextlib.nullcontext，并处理尾批；各 rank 的 dropout 不同本身不是错误，复现需要可追踪的随机数流。</p><p><a href="https://docs.pytorch.org/docs/stable/generated/torch.nn.parallel.DistributedDataParallel.html">官方文档</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="09-显存优化全家桶.html"><div class="dir">← 上一节</div>⭐ 显存优化</a><a class="next" href="11-ZeRO与FSDP.html"><div class="dir">下一节 →</div>⭐⭐ ZeRO 与 FSDP</a></nav>
@@ -608,4 +609,4 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-ai-infra-reader.css"></body></html>

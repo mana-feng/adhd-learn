@@ -177,20 +177,20 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .ckpt ol{padding-left:1.3em}.ckpt li{margin:.4em 0}
 .recap{background:var(--quote-bg);border-radius:12px;padding:16px 20px;margin:18px 0 0}
 .recap b{color:var(--accent)}
-</style></head><body>
+</style></head><body data-polish="claude-library" class="polish-claude-library-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner"><a href="../index.html">🏠 总目录</a>
 <a href="index.html">📚 资料库</a><span class="title">智能体构建模式</span>
 <button id="themeToggle" title="切换深浅色">🌗</button></div></header>
 <main>
-<h1>How We Built Our Multi-Agent Research System（我们如何构建多 Agent 研究系统）</h1>
-<div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>How We Built Our Multi-Agent Research System（我们如何构建多 Agent 研究系统）</dd><dt>原文链接</dt><dd><a href="https://www.anthropic.com/engineering/multi-agent-research-system" target="_blank" rel="noopener">https://www.anthropic.com/engineering/multi-agent-research-system</a></dd><dt>作者</dt><dd>Jeremy Hadfield、Barry Zhang、Kenneth Lien、Florian Scholz、Jeremy Fox、Daniel Ford</dd><dt>发布日期</dt><dd>2025-06-13</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。具体参数与功能名更新很快，落地前请点击上方链接核对原文。</div></div>
+<h1>我们如何构建多 Agent 研究系统</h1>
 <div class="adhd-head">
 <p class="meta">⏱ <strong>14 分钟</strong> ｜ 🔬 <strong>一个真实的主从编排案例</strong></p>
 <h2 id="tldr">🎯 一句话</h2>
-<p class="tl">研究型任务用主从编排：<strong>主 Agent 拆解问题并派发，子 Agent 各自检索，主 Agent 汇总</strong>。⭐ 关键设计是<strong>子 Agent 只回传结论而不是原始资料</strong>——这才是它省上下文的地方。</p>
+<p class="tl">研究系统用编排器分配独立子问题，再汇总<strong>结论、关键证据、来源和未解决冲突</strong>。中间材料可留在可追溯的产物里按需读取，不必全文回传，也不能只交无依据结论。</p>
 </div>
-
+<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>独立研究如何回传证据并处理冲突？</p><p><a href="#-">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav>
+<div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>How We Built Our Multi-Agent Research System（我们如何构建多 Agent 研究系统）</dd><dt>原文链接</dt><dd><a href="https://www.anthropic.com/engineering/multi-agent-research-system" target="_blank" rel="noopener">https://www.anthropic.com/engineering/multi-agent-research-system</a></dd><dt>作者</dt><dd>Jeremy Hadfield、Barry Zhang、Kenneth Lien、Florian Scholz、Jeremy Fox、Daniel Ford</dd><dt>发布日期</dt><dd>2025-06-13</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。版本、参数与案例数字属于原文所示条件，不是本资料库的实测结果；产品状态与接口以实施时官方文档为准。</div></div>
 <details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
 <ul>
 <li><a href="#tldr">🎯 一句话</a></li>
@@ -240,7 +240,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ol>
 <h2 id="_4">评估方法</h2>
 <ul>
-<li><strong>从小规模开始：</strong> 约 20 个真实使用场景的代表性查询就够；早期提示词改动的效应量大（30%→80%），小样本即有统计意义；不要等建好大规模测试集才开始评估</li>
+<li><strong>从小规模开始：</strong> 约 20 个真实使用场景的代表性查询就够；早期提示词改动的效应量大（30%→80%），小样本可帮助尽早发现大幅变化；统计结论仍取决于效应量、任务分布与重复试验；不要等建好大规模测试集才开始评估</li>
 <li><strong>LLM 评委：</strong> 单个 LLM 按结构化 rubric 打分——事实准确性、引用准确性、完整性、来源质量、工具效率；单评委比多个专门评委更一致</li>
 <li><strong>人工评估不可省：</strong> 能抓住自动评估遗漏的边缘情况，例如 Agent 偏好 SEO 内容农场而非权威学术来源——加入来源质量启发式后解决</li>
 <li><strong>涌现行为：</strong> 对主导 Agent 的小改动会不可预测地改变子 Agent 行为，要理解交互模式而非只看单体指标</li>
@@ -254,7 +254,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ul>
 <h2 id="_6">附录实用洞察</h2>
 <ul>
-<li><strong>只评估终态：</strong> 对改变状态的复杂流程，验证最终状态是否正确，容许不同路径；用离散检查点而非校验每一步</li>
+<li><strong>主要评估终态，同时检查安全与授权约束：</strong> 对改变状态的复杂流程，验证最终状态是否正确，容许不同路径；用离散检查点而非校验每一步</li>
 <li><strong>跨越数百轮的长对话：</strong> 接近上限时总结已完成阶段、要点存外部记忆、派新子 Agent 用干净上下文接力</li>
 <li><strong>子 Agent 直接输出到文件系统：</strong> 产物（代码、报告、可视化）自行持久化，只把轻量引用传回主导 Agent，避免多级传话的信息损耗</li>
 </ul>
@@ -292,4 +292,5 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
+<link rel="stylesheet" href="../assets/polish-claude-library-reader.css">
 </body></html>

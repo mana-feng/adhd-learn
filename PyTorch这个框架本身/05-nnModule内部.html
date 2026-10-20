@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="pytorch-framework">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -306,13 +306,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="05-nnmodule">05 · <code>nn.Module</code> 内部：它是怎么找到你的参数的</h1>
+<details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>120 分钟</strong> ｜ ⭐ <strong>实测：装在 Python list 里的三个 <code>nn.Linear</code>，梯度照算、权重永远不动、<code>state_dict</code> 里也没有 —— 全程不报一个错</strong></p>
-<hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong><code>nn.Module</code> 认参数只靠一件事：你写 <code>self.x = ...</code> 的那一刻，<code>__setattr__</code> 做了一次类型检查，把东西分进三个字典（<code>_parameters</code> / <code>_buffers</code> / <code>_modules</code>）。</strong>
 没进这三个字典的，<code>parameters()</code> 找不到（<strong>优化器看不见</strong>）、<code>state_dict()</code> 存不了（存盘丢失）、<code>.to()</code> 也搬不动（设备/精度不跟着变）。</p>
 <p>⭐ 「为什么我的参数没被优化器更新」，答案几乎全在这一句里。</p>
-<hr />
 <h2 id="selfx">🚪 一、<code>self.x = ...</code> 的那一刻，海关做了一次类型检查</h2>
 <p>先看三种写法各去了哪：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -367,8 +366,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>实测输出：</p>
 <section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">_parameters: [&#x27;p&#x27;]</span></div><div class="vb-flow-row"><span class="vb-flow-step">_buffers : []</span></div><div class="vb-flow-row"><span class="vb-flow-step">_modules : [&#x27;sub&#x27;]</span></div><div class="vb-flow-row"><span class="vb-flow-step">__dict__ : [&#x27;training&#x27;, &#x27;t&#x27;]</span></div><div class="vb-flow-row"><span class="vb-flow-step">往参数槽塞普通张量 -&gt; cannot assign &#x27;torch.FloatTensor&#x27; as parameter &#x27;p&#x27; (torch.nn.Parameter or None expected)</span></div></div></section>
-<p>⭐ <strong>注意 <code>_buffers</code> 是空的</strong>：普通张量 <code>t</code> 掉进了 <code>__dict__</code>。
-buffer 没有专属类型 —— <code>nn.Parameter</code> 是个类，「buffer」不是，所以它<strong>只能靠 <code>register_buffer</code> 显式登记</strong>，没有第二条路。这是三个表里唯一一个「你不主动说就不会有」的。</p>
+<p>普通 Tensor 直接赋值不会自动成为 buffer，兼容性稳妥的写法是 <code>register_buffer</code>。提供 <code>torch.nn.parameter.Buffer</code> 的版本也支持将这种专用类型赋给属性并自动注册；请按目标版本检查。<a href="https://docs.pytorch.org/docs/stable/generated/torch.nn.parameter.Buffer.html">Buffer 官方说明</a>。</p>
 <p>⚠️ <strong>槽位一旦定了就换不掉</strong>：<code>w</code> 已经在 <code>_parameters</code> 里，再往它上面赋一个普通张量会直接 <code>TypeError</code>。
 （想换成别的值，写 <code>m.w.data.copy_(新值)</code>，或者 <code>m.w = nn.Parameter(新值)</code>。）</p>
 <h3 id="super__init__">💀 忘了 <code>super().__init__()</code></h3>
@@ -471,7 +469,6 @@ buffer 没有专属类型 —— <code>nn.Parameter</code> 是个类，「buffer
 <strong>后面还有</strong>（约 35 分钟）：装在 Python list 里的子模块，一个都不算数 · 名字是从根往下递归拼出来的
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="python-list">💀 二、装在 Python list 里的子模块，一个都不算数</h2>
 <p>⚠️ <strong>这是本章最贵的一条，也是「参数不更新」最常见的成因。</strong></p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -666,7 +663,6 @@ buffer 没有专属类型 —— <code>nn.Parameter</code> 是个类，「buffer
 </tbody>
 </table></div>
 <p>⚠️ <strong><code>nn.ModuleList</code> 不是 <code>nn.Sequential</code></strong>：前者<strong>没有 <code>forward</code></strong>，直接 <code>m.layers(x)</code> 会报错，你必须自己写 for 循环；后者会按顺序调用。想要 for 循环里做点别的（残差、条件分支）就用 <code>ModuleList</code>。</p>
-<hr />
 <h2 id="_6">🏷️ 三、名字是从根往下递归拼出来的</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -764,7 +760,7 @@ buffer 没有专属类型 —— <code>nn.Parameter</code> 是个类，「buffer
 <p>⭐ <strong><code>parameters()</code> 去重（2 个），<code>state_dict()</code> 不去重（4 个 key）。</strong> 两个后果：</p>
 <ul>
 <li>✅ <strong>优化器不会把共享权重更新两次</strong> —— 这正是你要的（梯度已经在反向里加过一遍了，见第 02 章「一个参数被多条路径用到」）。</li>
-<li>⚠️ <strong>checkpoint 里同一块张量存了两份</strong>：key 是双份、体积也是双份。加载回去结果仍然正确（两次 <code>copy_</code> 写的是同一块存储），只是白占地方；⭐ 但如果你<strong>手工改 key</strong>、只改了 <code>a.*</code> 忘了 <code>b.*</code>，加载完两边就不再是同一块内存，权重共享当场断掉而不报错。</li>
+<li>共享模块会产生多个 state_dict 名称，但可能仍指向同一存储；不能据此断言文件体积翻倍。默认加载将数值复制到已有模型中，模型本来绑定为同一 Parameter 的关系不会因 key 多一份而自行断开；若多条名称提供不一致数值，则需检查加载顺序与结果。</li>
 </ul>
 <hr />
 <!--MIDSTOP-->
@@ -773,7 +769,6 @@ buffer 没有专属类型 —— <code>nn.Parameter</code> 是个类，「buffer
 <strong>后半章还有</strong>：<code>.to()</code> / <code>.float()</code> 为什么能一次改掉全部（以及谁不会跟着搬） · <code>forward</code> 和 <code>__call__</code> 的区别（hook 会被跳过） · 一个 20 行的自检器
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="to-float">🚚 四、<code>.to()</code> / <code>.float()</code> 为什么能一次改掉全部</h2>
 <p>答案就是第一节那三个表 —— <strong>因为有表可遍历</strong>。
 <code>nn.Module._apply(fn)</code> 做三件事：递归所有子模块 → 对 <code>_parameters</code> 里每一个套 <code>fn</code> → 对 <code>_buffers</code> 里每一个套 <code>fn</code>。
@@ -849,9 +844,7 @@ RuntimeError: expected m1 and m2 to have the same dtype, but got: double != floa
 
 <p>实测输出：</p>
 <section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>Module.to 返回的是自己吗: True</p><p>Tensor.to 返回的是自己吗: False</p><p>忘了接返回值，x 还是: torch.float32</p></div></section>
-<p>⭐ 这解释了 <a href="../机器学习与深度学习基础/15-PyTorch实战手册.html">ML 基础 15 章</a> 那份模板里两种写法为什么不一样：
-<code>model = make_model().to(device)</code> 接不接返回值都行（<code>Module.to</code> 改的是注册表里的东西，返回 <code>self</code> 只是为了链式书写），
-而 <code>xb, yb = xb.to(device), yb.to(device)</code> <strong>必须接</strong> —— 张量是不可变对象，<code>.to()</code> 给你一个新的。</p>
+<p><code>Module.to(...)</code> 修改模块并返回 self；<code>Tensor.to(...)</code> 应接收返回值。张量本身支持原地修改，不能称为不可变对象；当 dtype、device 已匹配且未要求 copy 时，<code>Tensor.to</code> 还可能直接返回原对象。</p>
 <h3 id="parameter">⭐ 转换之后，<code>Parameter</code> 对象没换</h3>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -896,8 +889,7 @@ RuntimeError: expected m1 and m2 to have the same dtype, but got: double != floa
 
 <p>实测输出：</p>
 <section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>优化器手里的还是同一个对象吗: True</p><p>dtype: torch.float64</p><p>step() 之后权重变了吗: True</p></div></section>
-<p>⭐ <strong>顺序不影响正确性</strong> —— 优化器持有的是 <code>Parameter</code> 对象的引用，<code>.to()</code> 只换它内部的存储。
-⚠️ <strong>但仍然建议先 <code>.to(device)</code> 再建优化器</strong>：优化器状态（Adam 的 <code>exp_avg</code> 等）是在第一次 <code>step()</code> 时照着参数当时的设备创建的，先搬完再建，能避免状态和参数分处两地这类边角问题。</p>
+<p><strong>先把模块搬到目标设备／dtype，再创建优化器。</strong>上面 CPU dtype 转换记录中的 Parameter 身份保持，不应推广为所有设备转换、Tensor 子类或转换选项的保证；已有优化器状态也不会自动随模型迁移。</p>
 <hr />
 <!--MIDSTOP2-->
 <blockquote>
@@ -905,7 +897,6 @@ RuntimeError: expected m1 and m2 to have the same dtype, but got: double != floa
 <strong>最后一段还有</strong>：<code>forward</code> 和 <code>__call__</code> 不是一回事 · 一个 20 行的自检器
 这一章确实长，分三次读完全没问题 —— 回来直接从下一节接着看。</p>
 </blockquote>
-<hr />
 <h2 id="forward-__call__">📞 五、<code>forward</code> 和 <code>__call__</code> 不是一回事</h2>
 <p><code>m(x)</code> 走的是 <code>nn.Module.__call__</code>，它按顺序做四件事：
 <strong>跑 forward pre-hook → 跑 <code>forward</code> → 跑 forward hook → 给输出挂上 backward hook</strong>。
@@ -1009,7 +1000,6 @@ RuntimeError: expected m1 and m2 to have the same dtype, but got: double != floa
 <strong>最后一段还有</strong>（约 34 分钟）：一个 20 行的自检器 · 检查点与走神救援
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="20">🔍 六、一个 20 行的自检器</h2>
 <p>前面五节的坑全是静默的，所以值得在模型构造完之后加一道体检。
 ⭐ <strong>判据要认结构</strong>：不看你给属性起的名字，只看 <code>__dict__</code> 里躺着的东西<strong>是不是</strong>张量或模块。</p>
@@ -1065,7 +1055,6 @@ RuntimeError: expected m1 and m2 to have the same dtype, but got: double != floa
 <p>实测输出：</p>
 <section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>参数量: 25</p><p>state_dict 条数: 4</p></div></section>
 <p>⭐ <strong>和你心算的对不上，就去查注册表。</strong> 参数量少一大截、<code>state_dict</code> 条数少一半，这两个数字比 loss 曲线诚实得多。</p>
-<hr />
 <h2 id="_9">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -1109,7 +1098,6 @@ RuntimeError: expected m1 and m2 to have the same dtype, but got: double != floa
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_10">✅ 检查点</h2>
 <ol>
 <li><code>self.w = nn.Parameter(...)</code>、<code>self.register_buffer("r", ...)</code>、<code>self.plain = torch.zeros(2)</code> 三者分别进哪里？哪些进 <code>parameters()</code>、哪些进 <code>state_dict()</code>？</li>
@@ -1127,22 +1115,21 @@ RuntimeError: expected m1 and m2 to have the same dtype, but got: double != floa
 <summary>👀 答案</summary>
 <ol>
 <li>分别进 <code>_parameters</code>、<code>_buffers</code>、<code>__dict__</code>。<code>parameters()</code> 只看 <code>_parameters</code>（加上递归进子模块）；<code>state_dict()</code> 看 <code>_parameters</code> + <code>_buffers</code>。实测：<code>named_parameters()</code> 是 <code>['w']</code>，<code>state_dict()</code> 是 <code>['w', 'running']</code>，⚠️ <code>'plain' in m.state_dict()</code> 是 <strong><code>False</code></strong>。</li>
-<li>因为 <code>__setattr__</code> 认的是<strong>类型</strong>：<code>nn.Parameter</code> 是一个类、<code>nn.Module</code> 是一个类，而「buffer」不是任何类型，普通张量和普通张量长得一模一样。所以 <code>_buffers</code> 是唯一一个只能靠 <code>register_buffer</code> 显式登记的表（实测直接 <code>setattr</code> 一个张量，<code>_buffers</code> 是空的 <code>[]</code>，东西掉进了 <code>__dict__</code>）。</li>
+<li>本例赋值的是普通 Tensor，因此没有自动进入 <code>_buffers</code>；使用 <code>register_buffer</code> 可以显式登记。支持专用 <code>Buffer</code> 类型的版本也可通过该类型自动登记，不能把本例概括为“buffer 没有类型”。</li>
 <li><code>AttributeError: cannot assign module before Module.__init__() call</code>。因为<strong>那三个注册表就是 <code>Module.__init__()</code> 建出来的空字典</strong> —— 没建表，海关无处安放，只能当场报错。其余的坑（list 装子模块、普通属性不搬设备、<code>.forward</code> 跳 hook）全是静默的。</li>
 <li><code>_modules</code> 是 <strong><code>[]</code></strong>、参数个数 0、<code>state_dict</code> 是 空 list；而 <code>forward</code> 照跑，输出形状 <code>torch.Size([1, 2])</code> 和正确版本完全一样。对照 <code>nn.ModuleList</code> 版本：<code>_modules</code> 是 <code>['layers']</code>、6 个参数、6 个 key。</li>
 <li>因为全错会撞上 <code>ValueError: optimizer got an empty parameter list</code>（报错反而是好事）；半错则<strong>一条错都不报</strong>。实测 <code>HalfBad</code>：优化器管着 4 个张量、模型里其实有 10 个；20 步之后 <code>stem</code> 变了、<code>blocks</code> 一位没动；⚠️ 但 <code>blocks[0].weight.grad is not None</code> 是 <code>True</code> —— 梯度是真的算出来了的，autograd 只看图不看注册表，只是优化器手里没有这些张量。<code>state_dict</code> 也只有 4 个 key，模型的一多半从来没被存过。</li>
 <li><code>children()</code> 只往下<strong>一层</strong>，<code>modules()</code> 递归全展开。实测 <code>Net(enc=Block, dec=Block)</code>：children 是 <code>['enc', 'dec']</code>，modules 是 <code>['', 'enc', 'enc.fc', 'dec', 'dec.fc']</code>。⚠️ 第一条 <code>''</code> 是模型自己，写「给每个子模块挂 hook」时别忘了它也在里面。</li>
-<li><strong>不一样</strong>。实测：<code>named_parameters()</code> 是 2 条（<code>['a.weight', 'a.bias']</code>，默认 <code>remove_duplicate=True</code> 去重了），<code>state_dict()</code> 是 4 个 key（<code>a.*</code> 和 <code>b.*</code> 都有，不去重）。去重让优化器不会把共享权重更新两次；⚠️ 不去重让 checkpoint 把同一块张量存两份，而且手工改 key 时只改一半会让权重共享静默断掉。</li>
+<li><code>named_parameters()</code> 默认按对象去重；<code>state_dict()</code> 可保留多条名称指向同一共享存储。名称有两份不等于存储复制两份，序列化也能保留存储共享。改动其中一条 key 不会自动重新定义模型里的共享关系；加载时应检查对应值与模型结构。</li>
 <li>因为 <code>_apply(fn)</code> 递归子模块之后，只遍历 <code>_parameters</code> 和 <code>_buffers</code> 两个字典，<strong><code>__dict__</code> 它根本不看</strong>。实测 <code>m.double()</code> 之后 <code>w</code> 和 <code>running</code> 都是 <code>torch.float64</code>，而 <code>plain</code> 还是 <code>torch.float32</code>。换成 <code>device</code> 就是那条「Expected all tensors to be on the same device」。⚠️ 而且不一定会报错：矩阵乘法卡 dtype（实测 <code>expected m1 and m2 to have the same dtype, but got: double != float</code>），而加法有类型提升，一声不吭地跑完。</li>
-<li><code>Module.to()</code> 是<strong>原地</strong>改注册表里的东西、返回 <code>self</code>（实测 <code>m.to(torch.float64) is m</code> 为 <code>True</code>）；<code>Tensor.to()</code> 返回一个新张量（<code>x.to(...) is x</code> 为 <code>False</code>，不接返回值 <code>x</code> 还是 <code>float32</code>）。<code>.to()</code> 之后 <code>Parameter</code> 对象没换（<code>data_ptr</code> 变了，但 <code>opt.param_groups[0]["params"][0] is m.weight</code> 仍是 <code>True</code>），所以先建优化器再 <code>.to()</code> 也不会坏；不过仍建议先搬设备再建优化器，因为优化器状态是照参数当时的设备创建的。</li>
+<li><code>Module.to()</code> 返回 self；<code>Tensor.to()</code> 返回转换结果，配置已匹配时可能就是 self。本例 CPU dtype 转换中 Parameter 身份保持只是该配置的记录；可靠顺序仍是先移动模型，再创建优化器。</li>
 <li><code>m(x)</code> 走 <code>__call__</code>：pre-hook → <code>forward</code> → forward hook → 给输出挂 backward hook；<code>m.forward(x)</code> 只做中间一件。实测触发条数 <strong>3 条 vs 1 条</strong>（<code>['pre(Net)', 'post(fc)', 'post(Net)']</code> vs <code>['post(fc)']</code>）。<code>post(fc)</code> 还在，是因为只有你直接点名的那一层被跳过，它内部的子模块照常走自己的 <code>__call__</code> —— ⚠️ 所以 hook 不是全没了、是少了一部分，更难发现。后果不止少日志：挂一个会改数的 pre-hook 之后，实测 <code>m(x)</code> 是 0.0、<code>m.forward(x)</code> 是 4.0，没有任何警告。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_11">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>⭐ <strong><code>nn.Module</code> 认参数只靠 <code>__setattr__</code> 的一次类型检查</strong>：<code>nn.Parameter</code> 进 <code>_parameters</code>、<code>nn.Module</code> 进 <code>_modules</code>、<strong>其余一律掉进普通的 <code>__dict__</code></strong>。⭐ <strong>buffer 是唯一没有专属类型的</strong>，所以只能靠 <code>register_buffer</code> 显式登记。</p>
+<p><code>nn.Parameter</code>、子模块和 buffer 分别进入参数、模块与缓冲区注册表。普通 Tensor 属性不会自动成为 buffer；使用 <code>register_buffer</code>，或在支持的版本中使用专用 <code>Buffer</code> 类型。</p>
 <p>这三个表决定了三件事：优化器<strong>看不看得见</strong>、<code>state_dict()</code> <strong>存不存</strong>、<code>.to()</code> <strong>搬不搬得动</strong>。这就是「为什么我的参数没被优化器更新」的全部答案。</p>
 <p>💀 <strong>最贵的形态是把子模块装进 Python list</strong>：参数 0 个、<code>state_dict</code> 是空的，⭐ <strong>而 <code>forward</code> 照跑、输出形状和正确版本一模一样</strong>。</p>
 </blockquote>
@@ -1150,7 +1137,7 @@ RuntimeError: expected m1 and m2 to have the same dtype, but got: double != floa
 <p><strong>半错才致命</strong>：优化器只管住一部分，训练几十步后一部分变了另一部分一位没动，⚠️ 而且那些没被注册的参数<strong>梯度并不是 <code>None</code></strong>（autograd 只看图不看注册表）——<strong>模型的一多半既没在学也没被存过，没有一条日志会告诉你。</strong></p>
 <blockquote>
 <p>修法是 <code>nn.ModuleList</code> / <code>ModuleDict</code> / <code>ParameterList</code> / <code>register_buffer</code>。⚠️ <code>ModuleList</code> 没有 <code>forward</code>，要自己写循环。</p>
-<p>⭐ <strong>权重共享时两个遍历给的答案不同</strong>：<code>named_parameters()</code> 去重（让优化器不重复更新），<code>state_dict()</code> 不去重（于是 checkpoint 存了两份，而手工改 key 只改一半会<strong>静默断掉共享</strong>）。</p>
+<p><code>named_parameters()</code> 默认去重，<code>state_dict()</code> 可保留多个名称；这些条目仍可能共享存储。共享关系由模型结构与加载方式共同决定，修改某条 key 后应显式检查，不能从名称数量推断内存复制。</p>
 <p>⚠️ <code>.to()</code> 只搬那两个表里的东西，普通属性它根本不看——换 dtype 时矩阵乘法会报错，但<strong>加法有类型提升，会一声不吭跑完</strong>。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="06-state_dict与存取.html">06-state_dict与存取.md</a></p>
@@ -1180,4 +1167,4 @@ RuntimeError: expected m1 and m2 to have the same dtype, but got: double != floa
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-pytorch-framework-reader.css"></body></html>

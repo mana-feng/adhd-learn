@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><style>body.polish-ai-infra-reading figure.g05-native-figure::before{display:none}</style></head><body class="polish-ai-infra-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -304,12 +304,19 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="04-roofline-mfu">04 · Roofline 与 MFU</h1>
-<p>⏱ <strong>28 分钟</strong> ｜ ⭐ <strong>唯一能回答"我还有多少空间"的工具</strong></p>
+<p>⏱ <strong>28 分钟</strong> ｜ ⭐ <strong>估计性能上限与检查运行口径的工具</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>不会算 MFU，你的所有优化都是盲调。</strong>
+<p><strong>MFU 与 Roofline 提供两种参考，还需结合时间线、吞吐和质量判断优化。</strong>
 这一章给你两个工具：<strong>Roofline 告诉你瓶颈在哪，MFU 告诉你离天花板还有多远。</strong></p>
-<figure class="dia" data-fig="roofline"><svg viewBox="0 0 730 394" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Roofline 模型"><line x1="110" y1="270" x2="620" y2="270" stroke="var(--border)" stroke-width="1.5"/><line x1="110" y1="270" x2="110" y2="54" stroke="var(--border)" stroke-width="1.5"/><line x1="110" y1="270" x2="324.2" y2="80" stroke="var(--link)" stroke-width="3.4"/><line x1="324.2" y1="80" x2="620" y2="80" stroke="var(--accent)" stroke-width="3.4"/><line x1="324.2" y1="270" x2="324.2" y2="80" stroke="var(--border)" stroke-width="1.2" stroke-dasharray="4 4"/><text class="dia-t" x="324.2" y="290" font-size="11.5" text-anchor="middle" fill="var(--done)" font-weight="700">平衡点</text><text class="dia-t" x="324.2" y="307" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">A100 ≈ 156</text><circle cx="191.6" cy="197.6" r="7" fill="var(--danger,#e5534b)"/><text class="dia-t" x="191.60000000000002" y="181.6190476190476" font-size="12" text-anchor="middle" fill="var(--danger,#e5534b)" font-weight="700">Decode</text><circle cx="477.2" cy="80.0" r="7" fill="var(--done)"/><text class="dia-t" x="477.2" y="64" font-size="12" text-anchor="middle" fill="var(--done)" font-weight="700">Prefill / 训练</text><text class="dia-t" x="200" y="118" font-size="12.5" text-anchor="middle" fill="var(--link)" font-weight="700">带宽受限</text><text class="dia-t" x="200" y="136" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">（搬不过来）</text><text class="dia-t" x="500" y="100" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">算力受限</text><text class="dia-t" x="500" y="118" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">（算不过来）</text><text class="dia-t" x="365.0" y="332" font-size="12" text-anchor="middle" fill="var(--muted)" font-weight="normal">算术强度 = 每读 1 字节做多少次浮点运算  →</text><text class="dia-t" x="116" y="44" font-size="12" text-anchor="start" fill="var(--muted)" font-weight="normal">实际算力  ↑</text><text class="dia-t" x="365" y="32" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">一条折线，就能判断你被什么卡住了</text><text class="dia-t" x="365" y="356" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">⭐ Decode 天然落在左边斜坡上 —— 它的 MFU 只有 1~5% 是【物理决定的】，不是配置错了</text><text class="dia-t" x="365" y="378" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">所以推理优化的方向是「提高算术强度」（批处理、KV Cache），而不是买更强的算力</text></svg><figcaption>左边斜坡是<b>带宽受限</b>（搬不过来），右边平台是<b>算力受限</b>（算不过来）。⭐ Decode 天然落在左边 —— 它的 MFU 只有 1~5% 是<b>物理决定的</b>，不是配置错了。所以推理优化的方向是「提高算术强度」，不是买更强的算力。</figcaption></figure>
+<figure class="dia g05-native-figure" data-fig="roofline"><svg style="display:block;width:100%;min-width:0;max-width:360px;height:auto;margin-inline:auto" xmlns="http://www.w3.org/2000/svg" width="360" height="730" viewBox="0 0 360 730" role="img" aria-labelledby="v02-ai-infra-roofline-bound-title v02-ai-infra-roofline-bound-desc" xml:lang="zh-CN">
+<title id="v02-ai-infra-roofline-bound-title">Roofline：性能上界与观测性能的区别</title>
+<desc id="v02-ai-infra-roofline-bound-desc">线性坐标教学假设：计算峰值8 TFLOP/s，带宽2 TB/s，拐点为4 FLOP/B。绿色实线为理论上界，手工示例圆点A为(1,1)，方点B为(6,5)，均低于相应上界。非硬件实测，也非MFU图。</desc>
+<style>text{font-family:"Microsoft YaHei","PingFang SC","Noto Sans CJK SC",sans-serif} @media (forced-colors:active){text{fill:CanvasText} rect{fill:Canvas;stroke:CanvasText} path,line{stroke:CanvasText}}</style>
+<rect x="1" y="1" width="358" height="728" rx="16" fill="#ffffff" stroke="#c8d0db"/>
+<text x="20" y="35" font-size="24" font-weight="700" fill="#253047">Roofline 给出上界</text><text x="20" y="66" font-size="24" font-weight="700" fill="#253047">观测值可能低于它</text><text x="20" y="107" font-size="18" font-weight="400" fill="#253047">假设：峰值 8 TFLOP/s</text><text x="20" y="134" font-size="18" font-weight="400" fill="#253047">带宽 2 TB/s；线性坐标示意</text><path d="M58 404 V180 M58 404 H326" fill="none" stroke="#596579" stroke-width="1.5"/><path d="M58 404 L190 196 H322" fill="none" stroke="#0f665e" stroke-width="4"/><path d="M190 196 V404" stroke="#8b4518" stroke-width="1.5" stroke-dasharray="5 4"/><text x="53" y="430" font-size="17" font-weight="400" fill="#253047">0</text><text x="185" y="430" font-size="17" font-weight="400" fill="#253047">4</text><text x="317" y="430" font-size="17" font-weight="400" fill="#253047">8</text><text x="32" y="409" font-size="17" font-weight="400" fill="#253047">0</text><text x="32" y="305" font-size="17" font-weight="400" fill="#253047">4</text><text x="32" y="201" font-size="17" font-weight="400" fill="#253047">8</text><text x="20" y="172" font-size="17" font-weight="400" fill="#253047">TFLOP/s</text><text x="129" y="458" font-size="17" font-weight="400" fill="#253047">算术强度 FLOP/B</text><circle cx="91" cy="378" r="6" fill="#253047"/><rect x="250" y="268" width="12" height="12" fill="#253047"/><text x="102" y="380" font-size="17" font-weight="400" fill="#253047">● 示例 A</text><text x="206" y="256" font-size="17" font-weight="400" fill="#253047">■ 示例 B</text><text x="206" y="186" font-size="17" font-weight="400" fill="#253047">计算上界</text><text x="71" y="271" font-size="17" font-weight="400" fill="#253047">带宽上界</text><rect x="20" y="484" width="320" height="104" rx="12" fill="#eef7f4" stroke="#0f665e" stroke-width="1.5"/><text x="34" y="513" font-size="19" font-weight="700" fill="#0f665e">拐点 = 峰值算力 ÷ 带宽</text><text x="34" y="541" font-size="18" font-weight="400" fill="#253047">8 ÷ 2 = 4 FLOP/B</text><text x="34" y="568" font-size="18" font-weight="400" fill="#253047">上界 = min(8, 2 × 算术强度)</text><text x="20" y="633" font-size="17" font-weight="400" fill="#253047">低于上界还可能有调度或通信开销。</text><text x="20" y="660" font-size="17" font-weight="400" fill="#253047">Decode 的位置随批量、精度等变化；</text><text x="20" y="687" font-size="17" font-weight="400" fill="#253047">此图不把某个 MFU 区间定为铁律。</text>
+</svg>
+<figcaption>线性坐标的教学假设：峰值 8 TFLOP/s、带宽 2 TB/s。拐点为 4 FLOP/B；手工示例 A=(1,1)、B=(6,5) 均低于各自上界。这不是 A100 实测，也不是 MFU 图。</figcaption></figure>
 
 <hr />
 <h2 id="roofline">📈 一、Roofline 模型</h2>
@@ -330,8 +337,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <td>优化<strong>【搬运】</strong></td>
 </tr>
 <tr>
-<td>⭐ <strong>屋顶下方</strong></td>
-<td><strong>算力瓶颈</strong></td>
+<td>⭐ 平台区但低于上界<strong></strong></td>
+<td><strong>可能受计算、调度、通信或实现限制，需结合时间线</strong></td>
 <td>优化<strong>【计算】</strong>或用 Tensor Core</td>
 </tr>
 <tr>
@@ -341,10 +348,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>$$\text{可达性能} = \min(\text{峰值算力},\; \text{算术强度} \times \text{带宽})$$</p>
+<p>$$\text{理想性能上界} = \min(\text{峰值算力},\; \text{算术强度} \times \text{带宽})$$</p>
 <p>💡 <strong>人话</strong>：<em>要么被算力卡住，要么被带宽卡住，取小的那个。</em></p>
 <h3 id="_2">🔨 三步用起来</h3>
-<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">① 算这个 kernel 的 FLOP 和字节数</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">得到算术强度</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 在图上找到它的位置</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">知道理论上限是多少</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 和实测对比：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 接近理论上限</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">这个 kernel 已经到头了，去优化别的</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 远低于理论上限</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">有 bug 或实现差，值得深挖 ⭐</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">① 算这个 kernel 的 FLOP 和字节数</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">得到算术强度</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 在图上找到它的位置</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">知道理论上限是多少</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 和实测对比：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 接近理论上限</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">这个 kernel 接近本模型上界，先核对口径再找其他热点，去优化别的</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 远低于理论上限</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">有 bug 或实现差，值得深挖 ⭐</span></div></div></section>
 <blockquote>
 <p>🔑 <strong>Roofline 最大的价值不是"告诉你能快多少"，
 而是"告诉你【不能】快多少"</strong> ——
@@ -395,7 +402,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td>&lt; 20%</td>
 <td>💀 有明显问题</td>
-<td><strong>先查数据管线，多半是没喂饱</strong></td>
+<td><strong>先查数据等待，再看通信、形状、同步与实现</strong></td>
 </tr>
 <tr>
 <td>20–35%</td>
@@ -420,12 +427,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td>&gt; 60%</td>
 <td>🤔 <strong>检查你的公式</strong></td>
-<td>可能算错了（或用了 FP8）</td>
+<td>需核对精度、FLOP 与峰值口径；不因超过60%就判错</td>
 </tr>
 </tbody>
 </table></div>
 <blockquote>
-<p>🔑 <strong>为什么天花板是 60% 而不是 100%</strong>：
+<p>🔑 <strong>为什么 MFU 不会简单达到 100%，而 60% 也不是固定上限</strong>：
 存在无法消除的开销 —— <strong>通信、非矩阵乘操作（LayerNorm/Softmax/激活函数）、
 数据加载、kernel 启动、优化器更新</strong>。这些都不算进"有效 FLOP"但要占时间。</p>
 </blockquote>
@@ -496,8 +503,8 @@ MFU 从 25% 提到 45%，在这个例子里省下的机时价值几十万元。<
 <section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>每个输出 token 的 FLOP ≈ 2 × 参数量 （只有前向）</p><p>⚠️ 但推理是【带宽瓶颈】，用 FLOP 算会严重低估</p><p>⭐ 正确的估法：每生成 1 个 token 至少要把【全部权重读一遍】</p><p>→ 理论最快解码速度 = 显存带宽 / 模型大小</p><p>例：7B 模型 BF16（14GB），A100（2TB/s）</p><p>2000 / 14 ≈ 143 tokens/秒 ← 单个请求的理论上限 ⭐</p></div></section>
 <blockquote>
 <p>🔑 <strong>这个"带宽除以模型大小"是推理领域最有用的心算公式</strong>：
-它解释了为什么<strong>量化能直接提速</strong>（模型小一半 → 速度快一倍），
-也解释了为什么<strong>批处理是免费的</strong>（读一遍权重服务多个请求）。
+它解释了为什么<strong>量化能直接提速</strong>（权重读取量减半，端到端速度仍需实测），
+也解释了为什么<strong>批处理可摊薄权重读取，但仍增加计算、KV 与调度开销</strong>（读一遍权重服务多个请求）。
 🔗 <a href="15-推理和训练是两回事.html">第 15</a>、<a href="16-KV-Cache.html">16</a>、<a href="18-量化.html">18 章</a>全建立在这上面。</p>
 </blockquote>
 <hr />
@@ -547,7 +554,7 @@ MFU 从 25% 提到 45%，在这个例子里省下的机时价值几十万元。<
 <li>Roofline 最大的价值是什么？（不是"能快多少"）</li>
 <li>MFU 怎么算？Transformer 每 token 的训练 FLOP 是多少？</li>
 <li>为什么是 6N？这个公式什么时候会失准？</li>
-<li>MFU 多少算良好？为什么天花板是 60% 而不是 100%？</li>
+<li>MFU 多少算良好？为什么 MFU 不会简单达到 100%，而 60% 也不是固定上限？</li>
 <li>MFU 低了，最值得先做的一个诊断实验是什么？</li>
 <li>读 profiler trace 时，"GPU 时间轴有空隙"说明什么？</li>
 <li>推理领域最有用的心算公式是什么？它解释了哪两件事？</li>
@@ -562,7 +569,7 @@ MFU 从 25% 提到 45%，在这个例子里省下的机时价值几十万元。<
 <li><strong>45–55% 良好，55–60% 优秀</strong>。天花板不是 100% 是因为存在无法消除的开销：通信、非矩阵乘操作（LayerNorm/Softmax）、数据加载、kernel 启动、优化器更新——占时间但不算有效 FLOP。</li>
 <li><strong>把 dataloader 换成固定的随机张量</strong>，其他不变。如果 MFU 显著上升 → 瓶颈在数据管线不在模型。5 分钟排除一整类问题。</li>
 <li><strong>GPU 在等 CPU 或等数据</strong> → 数据管线或 CPU 开销有问题。</li>
-<li><strong>理论最快解码速度 = 显存带宽 ÷ 模型大小</strong>（7B BF16 在 A100 上 ≈ 143 tokens/秒）。解释了：量化能直接提速（模型小一半速度快一倍）、批处理是免费的（读一遍权重服务多个请求）。</li>
+<li><strong>理论最快解码速度 = 显存带宽 ÷ 模型大小</strong>（7B BF16 在 A100 上 ≈ 143 tokens/秒）。解释了：量化能直接提速（权重读取量减半，端到端速度仍需实测）、批处理可摊薄权重读取，但仍增加计算、KV 与调度开销（读一遍权重服务多个请求）。</li>
 </ol>
 </details>
 <hr />
@@ -571,6 +578,7 @@ MFU 从 25% 提到 45%，在这个例子里省下的机时价值几十万元。<
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>Roofline 比较算力上限和带宽上限，帮助判断理论上还能快多少。</li><li>MFU 的计算口径要对应模型、精度和硬件，不能拿 GPU-Util 代替。</li><li>先保留基线，再从时间线检查数据等待、通信与算子开销，一次只改一个因素。</li></ul></section>
 
 <p><strong>下一节</strong> 👉 <a href="05-互联与集群拓扑.html">05-互联与集群拓扑.md</a></p>
+<details class="g05-content-note"><summary>条件与依据</summary><p>小批量、权重完整流经 HBM 的稠密 decode 可用“有效带宽 ÷ 权重字节数”作理想参考，忽略了 KV、通信、计算及调度。MFU 不是通用成绩线；序列何时必须计入注意力项应按相对 FLOP 大小判断，没有统一 8K 阈值。表中低 MFU 是排查入口，不足以证明配置出错。</p><p><a href="https://docs.nvidia.com/deeplearning/performance/dl-performance-gpu-background/index.html">官方文档</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="03-显存与带宽墙.html"><div class="dir">← 上一节</div>⭐⭐ 显存与带宽墙</a><a class="next" href="05-互联与集群拓扑.html"><div class="dir">下一节 →</div>⭐ 互联与拓扑</a></nav>
@@ -597,4 +605,4 @@ MFU 从 25% 提到 45%，在这个例子里省下的机时价值几十万元。<
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-ai-infra-reader.css"></body></html>

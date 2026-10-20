@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="polish-ai-infra-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -382,14 +382,16 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：`model` 来自你自己的代码，这一段只看写法</span>
-<span class="c1"># ⭐ PyTorch 分布式 checkpoint（异步 + 分片）</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">torch.distributed.checkpoint</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">dcp</span>
-
-<span class="n">fut</span> <span class="o">=</span> <span class="n">dcp</span><span class="o">.</span><span class="n">async_save</span><span class="p">(</span>
-    <span class="p">{</span><span class="s2">&quot;model&quot;</span><span class="p">:</span> <span class="n">model</span><span class="p">,</span> <span class="s2">&quot;optim&quot;</span><span class="p">:</span> <span class="n">opt</span><span class="p">,</span> <span class="s2">&quot;step&quot;</span><span class="p">:</span> <span class="n">step</span><span class="p">,</span> <span class="s2">&quot;rng&quot;</span><span class="p">:</span> <span class="n">get_rng_state</span><span class="p">()},</span>
-    <span class="n">checkpoint_id</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;ckpt/step-</span><span class="si">{</span><span class="n">step</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<span class="c1"># 训练继续，不阻塞 ⭐</span>
+<div class="codehilite" data-code-language="python"><pre><code># 配置骨架：所有 rank 参与，外部状态须由训练器收集与恢复
+import torch.distributed.checkpoint as dcp
+from torch.distributed.checkpoint.state_dict import get_state_dict
+model_state, optim_state = get_state_dict(model, opt)
+state = {&quot;model&quot;: model_state, &quot;optim&quot;: optim_state,
+         &quot;step&quot;: step, &quot;rng&quot;: get_rng_state()}
+fut = dcp.async_save(state, checkpoint_id=f&quot;ckpt/step-{step}&quot;)
+# staging 仍可能阻塞；下一次保存或退出前等待上次完成
+fut.result()
+# 调度器、数据位置、scaler 等状态按实际训练器一并保存和恢复
 </code></pre></div>
 
 <h3 id="checkpoint_1">⭐ checkpoint 里必须存什么</h3>
@@ -525,10 +527,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<div class="codehilite" data-code-language="bash"><pre><span></span><code><span class="c1"># ⭐ 三个必设的 NCCL 环境变量</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">TORCH_NCCL_BLOCKING_WAIT</span><span class="o">=</span><span class="m">1</span><span class="w">          </span><span class="c1"># 超时报错而不是永久挂起</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">TORCH_NCCL_ASYNC_ERROR_HANDLING</span><span class="o">=</span><span class="m">1</span><span class="w">   </span><span class="c1"># 异常时干净退出</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">NCCL_TIMEOUT</span><span class="o">=</span><span class="m">1800</span><span class="w">                   </span><span class="c1"># 30 分钟（默认可能太长）</span>
+<div class="codehilite" data-code-language="bash"><pre><code># Python：创建进程组时配置超时，不存在通用 NCCL_TIMEOUT 环境变量
+from datetime import timedelta
+import torch.distributed as dist
+dist.init_process_group(&quot;nccl&quot;, timeout=timedelta(minutes=30))
+# 其他 NCCL/PyTorch 错误处理开关需按实际版本与故障模型配置
 </code></pre></div>
 
 <blockquote>
@@ -613,6 +616,7 @@ GPU 利用率显示 100%（在空转），但一步都没往前走。
 <p>⚠️⭐ <strong>最后是三个必须设的通信库环境变量</strong>：<strong>不设阻塞等待的那个，一张卡挂了、其余全部会永远等下去</strong>——💀 <strong>GPU 显示满负荷，而一步都没走，几小时后才有人发现。</strong></p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="22-数据管线与存储.html">22-数据管线与存储.md</a></p>
+<details class="g05-content-note"><summary>条件与依据</summary><p>独立同分布指数故障下才有集群 MTBF≈单卡 MTBF/N，相关故障会改变估计。异步 checkpoint 仍有 staging 和一致快照成本，应等待上次 future 完成并核验可恢复后再淘汰旧副本。PyTorch 进程组超时用 dist.init_process_group(..., timeout=timedelta(minutes=30)) 设置；不存在通用 NCCL_TIMEOUT 开关。梯度范数一致性只适用于相同同步后完整梯度，不能直接比较 FSDP/TP 分片范数，也不能仅据各 rank loss 不同判故障。</p><p><a href="https://docs.pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html">官方文档</a>；<a href="https://docs.pytorch.org/docs/stable/distributed.html">官方文档</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="20-推理服务化.html"><div class="dir">← 上一节</div>⭐ 推理服务化</a><a class="next" href="22-数据管线与存储.html"><div class="dir">下一节 →</div> 数据管线</a></nav>
@@ -639,4 +643,4 @@ GPU 利用率显示 100%（在空转），但一步都没往前走。
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-ai-infra-reader.css"></body></html>

@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="cpp-underneath">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -307,12 +307,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="05-pytorch">05 · 算子怎么注册进 PyTorch</h1>
+<details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>80 分钟</strong> ｜ ⭐ <strong>一条报错里同时给出了算子名和分派键 —— 那正好是 dispatcher 那张表的两个坐标轴</strong></p>
-<hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>PyTorch 的算子分派就是一张二维表：行是算子名（<code>aten::gelu</code>），列是分派键（<code>CPU</code> / <code>SparseCPU</code> / <code>Autograd</code>），格子里放一个函数指针。</strong>
 所谓「注册一个算子」就是往表里填格子；<code>TORCH_LIBRARY</code> 和 <code>TORCH_LIBRARY_IMPL</code> 这两个宏，一个负责<strong>新开一行</strong>，一个负责填一个格子。</p>
-<hr />
 <h2 id="_2">🧩 一、⭐ 先看一条查表失败的报错</h2>
 <p>本章 Python 侧的输出全是<strong>实跑的</strong>，环境 <code>torch 2.13.0+cpu</code> + CPython 3.13，<strong>CUDA 不可用</strong>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># c05_miss.py</span>
@@ -424,7 +423,6 @@ This could be because the operator doesn&#39;t exist for this backend, or was om
 </table></div>
 <p>⚠️⚠️ <strong><code>CUDA</code> 那一列的 ❌ 是本机的假象，不是 PyTorch 的事实。</strong> 本机装的是 <strong>CPU 版轮子</strong>，<code>torch_cuda</code> 那批库根本不在包里，那些格子从没被填过。⭐ 这恰好演示了更重要的一件事：这张表不是编译期写死的常量表，是运行时一批一批被「加载进来」的 —— 第五节会看到填格子的动作发生在哪一刻。</p>
 <p>⭐ <strong>顺带记住 <code>Meta</code> 这一列</strong>：「只算形状不算数值」的假后端，形状推导和 <code>torch.compile</code> 都靠它，三个算子全有。</p>
-<hr />
 <h2 id="schema">🧩 二、行坐标：算子名和它的 schema</h2>
 <p><code>aten::gelu</code> 不是随手起的字符串，它背后挂着一条<strong>签名</strong>（schema）。Python 侧直接能问：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># c05_schema.py</span>
@@ -497,7 +495,6 @@ This could be because the operator doesn&#39;t exist for this backend, or was om
 </table></div>
 <p>⚠️ <strong>别名标记不是文档，是给编译器看的合同。</strong> <code>torch.compile</code>、functionalization、<code>torch.jit</code> 全靠它判断「这个算子会不会偷改我的输入」。⭐ 自己写算子时<strong>填错它的后果是别的通道上出现随机错误</strong>，而不是当场报错。</p>
 <p>⭐ <strong>schema 是唯一的真相源</strong>：C++ 那边的函数签名、Python 这边的 <code>torch.ops.aten.gelu</code>、类型存根 <code>.pyi</code>、还有 <a href="06-读源码路线图.html">06 章</a>会翻的那堆 <code>ATen/ops/*.h</code>，<strong>全是从同一份 schema 生成的</strong>。这就是为什么改一个算子的签名在 PyTorch 里是件大事。</p>
-<hr />
 <h2 id="dispatchkeyset">🧩 三、列坐标：DispatchKeySet</h2>
 <p>一个 tensor 身上带的是<strong>一组</strong>分派键，不是一个：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># c05_keyset.py</span>
@@ -546,7 +543,6 @@ This could be because the operator doesn&#39;t exist for this backend, or was om
 </tbody>
 </table></div>
 <p>⭐ <strong>上面几层「干完自己的事再往下发一次」的动作叫 redispatch。</strong> ⚠️ 由此得到一条很实用的推论：<strong>「注册一个 CPU kernel」和「让它可导」是两件独立的事</strong> —— 你填的是 <code>CPU</code> 那格，<code>Autograd</code> 那格还空着（第六节）。</p>
-<hr />
 <h2 id="dump">🧩 四、⭐ 直接把那张表 dump 出来</h2>
 <p>前面都在推理，现在直接看。PyTorch 有个内部接口能打印某一行的全部格子：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># c05_dump.py</span>
@@ -570,7 +566,6 @@ This could be because the operator doesn&#39;t exist for this backend, or was om
 <strong>后半章还有</strong>：⭐ C++ 侧：两个宏，各管一件事 · ⭐ 让它可导：C++ 侧的那一半 · CUDA 那一格，和不想编译的路子
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="c">🧩 五、⭐ C++ 侧：两个宏，各管一件事</h2>
 <p>⚠️ <strong>本节及以后的 C++ 代码全部标 <code>🗓️ 未实跑 —— 本机无编译环境</code></strong>（MinGW g++ 配 MSVC 编译的 CPython + CPU 版 torch，编不出能导入的扩展）。写法取自本机 <code>torch/include/torch/library.h</code> 的官方注释和 PyTorch 文档，<strong>作者没有在本机编译运行过</strong>。</p>
 <div class="codehilite" data-code-language="cpp"><pre><span></span><code><span class="c1">// myops.cpp   🗓️ 未实跑 —— 本机无编译环境</span>
@@ -697,7 +692,6 @@ This could be because the operator doesn&#39;t exist for this backend, or was om
 </code></pre></div>
 
 <p>⚠️ <strong>能做，但基本不该做。</strong> 它是<strong>进程全局</strong>的：库一被加载，全进程所有 <code>gelu</code> 都换成你的了，包括别的库调的那些。⭐ 想加速某个算子，正路是注册到你自己的命名空间再显式调用，或者走 <a href="../AI基础设施/07-算子融合与编译.html">AI 基础设施 07</a> 讲的编译器路线。</p>
-<hr />
 <h2 id="c_1">🧩 六、⭐ 让它可导：C++ 侧的那一半</h2>
 <p>⚠️ <strong>边界先说清楚</strong>：<code>autograd.Function</code> 怎么写、<code>forward</code> 存什么 <code>backward</code> 还什么 —— <strong>那是框架的 Python 接口，归 <a href="../PyTorch这个框架本身/09-自定义算子.html">《PyTorch 这个框架本身》09</a></strong>。本节只讲在 C++ 这边，反向是怎么被挂进那张表的。</p>
 <p>回到第三节的优先级：<code>Autograd</code> 在 backend 之上。所以「填了 CPU 格、没填 Autograd 格」的算子，dispatcher 会直接掉进 CPU kernel，<strong>没人记录反向图</strong>。三条路：</p>
@@ -755,7 +749,6 @@ This could be because the operator doesn&#39;t exist for this backend, or was om
 
 <p>⭐ <strong><code>AutoDispatchBelowADInplaceOrView guard;</code> 是全段重点</strong>，而且形状你已经见过 —— 它是个 <a href="02-值语义与所有权.html">RAII 对象</a>（和 <a href="01-Python调C++的那条边界.html">01 章</a>的 <code>gil_scoped_release</code> 同一个套路），作用域内把分派起点压到 autograd 之下。<strong>没有它，<code>forward</code> 里再调一次这个算子会又进 autograd kernel。</strong></p>
 <p>⚠️ <strong>只填 CPU 不填 Autograd 的症状</strong>：前向完全正常，反向时要么报 <code>element 0 of tensors does not require grad</code>，要么<strong>梯度悄悄变成 0</strong>。💀 后者不报错，训练看起来在跑、loss 就是不降 —— 它长得不像 bug，所以调试成本极高。</p>
-<hr />
 <h2 id="cuda">🧩 七、CUDA 那一格，和不想编译的路子</h2>
 <p>⭐ <strong>好消息：CUDA 没有新机制</strong>，同一套宏换个键：</p>
 <div class="codehilite" data-code-language="cpp"><pre><span></span><code><span class="c1">// 🗓️ 未实跑 —— 本机无 nvcc，torch 也是 CPU 版</span>
@@ -789,7 +782,6 @@ This could be because the operator doesn&#39;t exist for this backend, or was om
 </table></div>
 <p>⭐ <strong>建议顺序：先用 Python 接口把注册跑通、确认分派真的进了你的函数，再决定要不要下到 C++。</strong> 这样出问题时你知道是注册错了还是 kernel 错了。具体写法归 <a href="../PyTorch这个框架本身/09-自定义算子.html">《PyTorch 这个框架本身》09</a>。</p>
 <p>⚠️⚠️ <strong>动手之前先确认你真的需要</strong>：<a href="../AI基础设施/07-算子融合与编译.html">AI 基础设施 07</a> 给了「什么时候值得手写 kernel」的三个条件，<strong>不满足就别写</strong>。这和 <a href="01-Python调C++的那条边界.html">01 章</a>第三节那张反面表是同一件事的两个版本。</p>
-<hr />
 <h2 id="_6">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -829,7 +821,6 @@ This could be because the operator doesn&#39;t exist for this backend, or was om
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_7">✅ 检查点</h2>
 <ol>
 <li><code>torch.nn.functional.gelu(torch.ones(2,2).to_sparse())</code> 报什么错？这条报错里的两个片段各对应 dispatcher 的哪个坐标轴？异常类型到底是什么？</li>
@@ -856,7 +847,6 @@ This could be because the operator doesn&#39;t exist for this backend, or was om
 <li>前向完全正常，反向时要么报 <code>element 0 of tensors does not require grad</code>，要么<strong>梯度悄悄变成 0</strong>。💀 后者不报错，训练照跑、loss 就是不降 —— 长得不像 bug，调试成本极高（想避免就注册 <code>autogradNotImplementedFallback()</code> 让它当场报错）。不写那行 guard 会无限递归：<code>forward</code> 里再调这个算子又会进 autograd kernel。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_8">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
@@ -895,4 +885,4 @@ This could be because the operator doesn&#39;t exist for this backend, or was om
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-cpp-underneath-reader.css"></body></html>

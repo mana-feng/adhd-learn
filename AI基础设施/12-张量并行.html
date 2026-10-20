@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="polish-ai-infra-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -295,7 +295,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">✂️ 一、两种切法</a></li>
 <li><a href="#megatron">🧩 二、Megatron 的经典组合（⭐ 这一节是核心）</a></li>
-<li><a href="#_3">📉 三、通信代价：为什么它必须在机内</a></li>
+<li><a href="#_3">📉 三、通信代价：为什么通常优先放在高速互联域</a></li>
 <li><a href="#_4">🔧 四、代码长什么样</a></li>
 <li><a href="#_5">🧵 五、序列并行：一个重要的补充</a></li>
 <li><a href="#_6">⚠️ 六、四个坑</a></li>
@@ -311,7 +311,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h2 id="_1">🎯 一句话</h2>
 <p>前面的并行都是"每卡一份完整的层"。
 <strong>张量并行把【一层内部的矩阵】横着或竖着切开，分给多张卡。</strong>
-<strong>它是唯一能救"单层都装不下"的办法 —— 代价是每层都要通信。</strong></p>
+<strong>它是处理单层工作集超显存的一种办法，代价是层内通信；适用线性层也可评估 ZeRO-3 + TiledLinear 顺序分块，需核对峰值与吞吐。</strong></p>
 <hr />
 <h2 id="_2">✂️ 一、两种切法</h2>
 <p>设一层是 $Y = \text{GeLU}(XA)$，权重 $A$ 要切开。</p>
@@ -395,12 +395,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">多头注意力本来就是【多个独立的头】</span></div><div class="vb-flow-row"><span class="vb-flow-step">直接把头分给不同的卡：GPU0 拿头 1-8，GPU1 拿头 9-16</span></div><div class="vb-flow-row"><span class="vb-flow-step">各自算完整的 attention（Q、K、V 投影都按列并行）</span></div><div class="vb-flow-row"><span class="vb-flow-step">最后的输出投影用行并行</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">一次 AllReduce ⭐</span></div></div></section>
 <section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⭐ 一个 Transformer 层的总通信：</span></div><div class="vb-flow-row"><span class="vb-flow-step">前向：MLP 一次 AllReduce + Attention 一次 AllReduce = 2 次</span></div><div class="vb-flow-row"><span class="vb-flow-step">反向：同样 2 次</span></div><div class="vb-flow-row"><span class="vb-flow-step">每层 4 次 AllReduce</span></div></div></section>
 <hr />
-<h2 id="_3">📉 三、通信代价：为什么它必须在机内</h2>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>每次 AllReduce 的数据量 = batch × seq_len × hidden × 2 字节</p><p>例：batch=8, seq=2048, hidden=8192, BF16</p><p>→ 8 × 2048 × 8192 × 2 = 268 MB</p><p>→ 每层 4 次 = 1.07 GB</p><p>→ 80 层 = 86 GB【每一步】⭐</p><p>在 NVLink 900GB/s：约 0.1 秒 ✅ 可接受</p><p>在 PCIe 64GB/s： 约 1.3 秒 ⚠️ 慢 13 倍</p><p>跨机 IB 25GB/s： 约 3.4 秒 💀 完全不可用</p></div></section>
+<h2 id="_3">📉 三、通信代价：为什么通常优先放在高速互联域</h2>
+<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>每次 AllReduce 的数据量 = batch × seq_len × hidden × 2 字节</p><p>例：batch=8, seq=2048, hidden=8192, BF16</p><p>→ 8 × 2048 × 8192 × 2 = 268 MB</p><p>→ 每层 4 次 = 1.07 GB</p><p>→ 80 层 = 86 GB【每一步】⭐</p><p>若示例有效带宽取 900GB/s：除法约 0.1 秒（非设备实测）</p><p>若示例有效带宽取 64GB/s：除法约 1.3 秒</p><p>若跨机有效带宽取 25GB/s：除法约 3.4 秒；可能明显受通信限制，不代表跨机不可运行</p></div></section>
 <blockquote>
-<p>🔑 <strong>这个数字直接给出了铁律</strong>：
-<strong>张量并行度不要超过单机的 GPU 数（通常是 8）。</strong>
-这不是建议，是<strong>带宽算出来的硬约束</strong>。</p>
+<p>🔑 <strong>这个算账例子提示一种性能偏好：</strong>
+<strong>通常先测试高速互联域内的 TP；需要跨节点时，另核对链路、集合通信、负载及目标效率。</strong>
+这不是可行性的硬上限；示例只做通信量除以假设有效带宽，未计延迟、集合通信系数和重叠。<strong></strong></p>
 <p>⭐ 另外注意：<strong>通信量和层数、hidden、序列长度都成正比，但和张量并行度无关</strong> ——
 也就是说，TP=2 和 TP=8 的通信量一样，但 TP=8 分摊的计算更少 →
 <strong>并行度越高，通信占比越大，效率越低。</strong></p>
@@ -483,7 +483,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><strong>随机种子</strong></td>
-<td>Dropout 在 TP 组内<strong>必须用不同的种子</strong>（否则等于没 dropout）；但数据并行组内要相同</td>
+<td>复制的逻辑张量需一致、分片张量需匹配随机数流；使用框架的 RNG tracker<strong></strong></td>
 </tr>
 <tr>
 <td><strong>词表并行的边界</strong></td>
@@ -491,14 +491,14 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><strong>TP 度太大</strong></td>
-<td>通信占比上升，<strong>TP=8 通常是甜点，TP=16 收益已很小</strong></td>
+<td>通信占比可能上升；TP=8/16 的收益取决于拓扑、内核形状、负载与重叠<strong></strong></td>
 </tr>
 </tbody>
 </table></div>
 <blockquote>
-<p>💥 <strong>随机种子那条特别隐蔽</strong>：如果 TP 组内所有卡的 dropout mask 相同，
+<p>💥 <strong>随机数流那条需按实现检查</strong>：如果 TP 组内所有卡的 dropout mask 相同，
 那么被切开的那些神经元会被<strong>同步地丢弃</strong>，等效的 dropout 率完全不对 ——
-<strong>训练能跑，loss 也在降，但正则效果没了。</strong></p>
+<strong>训练能跑，loss 也在降，但相关性可能变化；不能据此断言等效 dropout 率为零。</strong></p>
 </blockquote>
 <hr />
 <h2 id="_7">🔗 和站内其他章的关系</h2>
@@ -512,7 +512,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td><a href="05-互联与集群拓扑.html">第 5 章</a> NVLink vs PCIe 差 15 倍</td>
-<td><strong>TP 必须在机内的原因</strong> ⭐</td>
+<td><strong>TP 通常优先使用高速互联的原因</strong> ⭐</td>
 </tr>
 <tr>
 <td><a href="05-互联与集群拓扑.html">第 5 章</a> AllReduce=RS+AG</td>
@@ -520,7 +520,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><a href="11-ZeRO与FSDP.html">第 11 章</a> ZeRO-3</td>
-<td>对比：ZeRO 能跨机，TP 不能</td>
+<td>对比：ZeRO 与 TP 都能跨机，效率取决于通信与拓扑</td>
 </tr>
 <tr>
 <td><a href="../大模型全景导论/02-Transformer原理.html">全景导论主线 2 · 模型怎样看懂一句话</a> MLP 和多头注意力</td>
@@ -540,10 +540,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>Attention 怎么切？为什么它比 MLP 更自然？</li>
 <li>一个 Transformer 层前向反向共几次 AllReduce？</li>
 <li>算一下：80 层、hidden=8192、batch=8、seq=2048 时每步通信多少？在 NVLink 和跨机各要多久？</li>
-<li>张量并行度为什么不该超过 8？</li>
+<li>为什么常先在高速互联域内测试 TP，而不是把 8 当通用上限？</li>
 <li>通信量和 TP 度的关系是什么？这有什么含义？</li>
 <li>序列并行解决什么问题？它靠哪个恒等式？</li>
-<li>TP 组内的 dropout 种子为什么必须不同？</li>
+<li>TP 组内的 dropout 随机数流如何匹配张量布局？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
@@ -552,26 +552,27 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>因为<strong>列并行的输出天然是按列切开的，而行并行需要的输入恰好就是按列切开的</strong>——严丝合缝，中间完全不用通信，整个 MLP 只需一次 AllReduce。反过来（先行后列）中间要多一次通信。</li>
 <li><strong>直接把头分给不同的卡</strong>（Q/K/V 投影列并行，输出投影行并行）。更自然是因为多头注意力本来就是多个独立的头。</li>
 <li><strong>4 次</strong>：前向 MLP 一次 + Attention 一次，反向同样 2 次。</li>
-<li>每次 AllReduce = 8×2048×8192×2 = 268MB，每层 4 次 = 1.07GB，80 层 = <strong>86GB/步</strong>。NVLink 900GB/s ≈ 0.1 秒；跨机 IB 25GB/s ≈ 3.4 秒（完全不可用）。</li>
-<li>因为<strong>跨机带宽撑不住</strong>——TP 度超过单机 GPU 数就要跨机通信，而跨机比 NVLink 慢 35 倍。这是带宽算出来的硬约束，不是建议。</li>
-<li><strong>通信量和 TP 度无关</strong>（TP=2 和 TP=8 通信量一样），但 TP 越大每卡分摊的计算越少 → 通信占比上升，效率下降。所以 TP=8 通常是甜点。</li>
+<li>经典示例中每次 AllReduce 输入约 268MB，每层四次、80 层共约 86GB 输入量。若有效带宽分别假设为 900 和 25GB/s，直接相除约为 0.1 与 3.4 秒；还未计集合通信系数、延迟及重叠，不能据此判定跨机不可用。<strong></strong></li>
+<li>层内同步频繁，所以优先使用高速互联通常值得测试；但单机 GPU 数和 8 都不是 TP 的通用上限。跨节点的可行性与效率，应结合有效链路、消息形状、计算量、重叠和目标吞吐判断。<strong></strong></li>
+<li><strong>经典分解中每次 AllReduce 的输入张量大小不随 TP 度改变，但集合通信的链路字节量、延迟和计算划分仍会变化。TP=8 或 16 的效率取决于拓扑、消息大小、内核形状、负载与通信重叠，不能给出通用甜点。</strong></li>
 <li>解决<strong>LayerNorm 和 Dropout 没被切、每卡都要存完整激活</strong>的问题。按序列维度切，和 TP 交替使用。靠 AllReduce = ReduceScatter + AllGather——所以激活显存降 TP 倍而通信总量不变。</li>
-<li>如果 TP 组内 dropout mask 相同，<strong>被切开的神经元会被同步丢弃，等效 dropout 率完全不对</strong>。隐蔽在于训练能跑、loss 也在降，但正则效果没了。</li>
+<li>如果 TP 组内 dropout mask 相同，<strong>被切开的神经元会被同步丢弃，等效 dropout 率完全不对</strong>。隐蔽在于训练能跑、loss 也在降，但相关性可能变化；不能据此断言等效 dropout 率为零。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_9">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p><strong>张量并行把一层内部的矩阵切开分给多卡</strong>——⭐ <strong>唯一能救「单层都装不下」的办法</strong>，代价是每层都要通信。</p>
+<p><strong>张量并行把一层内部的矩阵切开分给多卡</strong>——⭐ <strong>处理单层工作集超显存的一种办法；适用线性层还可评估 ZeRO-3 + TiledLinear 顺序分块，核对分块峰值、兼容性和吞吐</strong>，代价是每层都要通信。</p>
 <p>两种切法：一种切完各算各的、不用通信；另一种切完必须求和。⭐⭐ <strong>Megatron 的精妙之处是把两者按顺序组合</strong>：<strong>前一种的输出天然就是后一种需要的输入形状，严丝合缝</strong>——⭐ <strong>于是整个前馈块只要一次通信，反过来排就要多一次。</strong> 注意力那边更自然：<strong>多个头本来就独立，直接分给不同卡。</strong></p>
-<p>⭐⭐ <strong>通信代价直接推出一条铁律</strong>：把每层前向反向的同步量乘上层数，<strong>在机内高速互联上是可接受的，走 PCIe 就慢一个量级，跨机则完全不可用</strong>——⭐ <strong>所以张量并行度不要超过单机的卡数。这不是经验，是带宽算出来的硬约束。</strong></p>
+<p>⭐⭐ <strong>通信代价解释了为何通常先把 TP 放入高速互联域，但跨机也可以运行。示例的带宽除法不能证明可行性上限；是否值得跨机，要结合有效链路、延迟、负载与性能目标实测。</strong><strong></strong><strong></strong></p>
 <p>⭐ 另一条也是算出来的：<strong>通信量和并行度无关，而计算被分摊了</strong>——⭐ <strong>所以并行度越大，通信占比越高</strong>，到某个点之后再加收益已经很小。</p>
 <p><strong>序列并行</strong>补的是它的盲区（归一化和随机丢弃没被切），⭐ <strong>激活显存再降一档而通信总量不变</strong>——<strong>又是「一次同步等于两次半同步」那个等式，这已经是它第三次出场，是分布式里最有用的一个。</strong></p>
-<p>⚠️ 四个坑里最阴的一个：⭐⭐ <strong>同一组内的随机种子必须不同</strong>——<strong>相同的话，被切开的神经元会被同步丢弃，训练照跑、loss 也降，但正则效果没了。</strong></p>
+<p>⚠️ 四个坑里最阴的一个：⭐⭐ <strong>同一组内的随机种子必须不同</strong>——<strong>相同的话，被切开的神经元会被同步丢弃，训练照跑、loss 也降，但相关性可能变化；不能据此断言等效 dropout 率为零。</strong></p>
 <p>⭐ 最后一句：<strong>别自己实现，用现成的。</strong></p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="13-流水线并行.html">13-流水线并行.md</a></p>
+<details class="g05-content-note"><summary>条件与依据</summary><p>这里四次 AllReduce 是经典 Megatron 前反向分解的示例，不覆盖所有序列并行或优化实现。AllReduce 输入张量大小不随 TP 度变化，不表示链路字节量与延迟都无关。Dropout 需让复制的逻辑张量一致、分片张量使用匹配的随机数流，不能概括成“TP 必须不同、DP 必须相同”。</p><p><a href="https://arxiv.org/abs/1909.08053">原论文</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="11-ZeRO与FSDP.html"><div class="dir">← 上一节</div>⭐⭐ ZeRO 与 FSDP</a><a class="next" href="13-流水线并行.html"><div class="dir">下一节 →</div>⭐ 流水线并行</a></nav>
@@ -598,4 +599,4 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-ai-infra-reader.css"></body></html>

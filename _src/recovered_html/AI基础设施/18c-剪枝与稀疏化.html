@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>18c · 剪枝与稀疏化 · AI 基础设施</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{
+/* ⭐ 字号阶梯：正文 = 1em（body 18px）。其余一律从这几档取，
+   不要再写 .92 / .94 / .95 这种随手值 —— body 18px 下它们相差不到 0.5px，
+   分不出来，只会让后来的人不知道该抄哪一个。 */
+  --fs-xs:.8em;    /* 角标、方向标签 */
+  --fs-sm:.88em;   /* 代码、图注、注解 */
+  --fs-md:.93em;   /* 略小于正文：表格、面板、目录 —— 站内最常用 */
+  --fs-lg:1.14em;  /* h3 */
+  --fs-xl:1.42em;  /* h2 */
+  --fs-2xl:1.9em;  /* h1 */
+--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:var(--fs-2xl);line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:var(--fs-xl);margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:var(--fs-lg);margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+/* ⭐ 表格横向滚动兜底：`width:100%` 让表格只会挤不会溢出，实测 305px 宽下
+   最窄单元格只剩 40px。给单元格一个 min-width 让它不再无限压缩，超出的由 .tw 兜住。
+   2–4 列的表仍然占满不滚动，只有真挤不下的多列表才出现滚动条。 */
+.tw{overflow-x:auto;margin:1.2em 0;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;margin:0;font-size:var(--fs-md)}
+th,td{min-width:5.2em}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:var(--fs-sm);background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:var(--fs-sm)}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:var(--fs-md)}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:var(--fs-xs);color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:var(--fs-sm);color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:var(--fs-md)}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:var(--fs-xs);
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:var(--fs-md);border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:var(--fs-md)}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:var(--fs-md);line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:var(--fs-md)}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:var(--fs-sm);line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:var(--fs-md);line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:var(--fs-md)}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:var(--fs-lg);opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:var(--fs-sm);
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+/* ⭐ 块公式也要能自己横向滚动：pre/表格/图都有兜底，只有它没有 —— 一条长公式会把整页撑出横向滚动条 */
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:2px 0 6px}
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:var(--fs-xs);
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
+
+.dia-lead{color:var(--muted);font-size:var(--fs-md);margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:var(--fs-sm);margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:var(--fs-md);margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:var(--fs-md);line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.05em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:var(--fs-md);break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #FF4689 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #66D9EF } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #A6E22E } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #A6E22E } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
+<script defer src="../assets/vendor/katex/katex.min.js"></script>
+<script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="polish-ai-infra-reading">
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">剪枝与稀疏化</span>
+  <span class="prevnext"><a href="18b-知识蒸馏.html">←</a>
+  <a href="19-投机解码.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#_2">✂️ 一、非结构化剪枝：先区分置零与压缩</a></li>
+<li><a href="#24">🧱 二、半结构化 2:4：给算子一个规整模式</a></li>
+<li><a href="#_4">🪓 三、结构化剪枝：缩小可执行的模型结构</a></li>
+<li><a href="#_5">🎯 四、剪谁：幅度剪枝和它的改良</a></li>
+<li><a href="#_6">🎟️ 五、迭代剪枝与彩票假说</a></li>
+<li><a href="#90-0">💀 六、教学复盘：90% 稀疏并不等于部署成本降九成</a></li>
+<li><a href="#_7">🔗 和站内其他章的关系</a></li>
+<li><a href="#_8">✅ 检查点</a></li>
+<li><a href="#_9">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<h1 id="18c">18c · 剪枝与稀疏化</h1>
+<p>⏱ <strong>36 分钟（参考，可分次读）</strong> ｜ ⭐ <strong>零变多了，不等于程序已经更快</strong></p>
+<hr />
+<h2 id="_1">🎯 一句话</h2>
+<p><strong>剪枝要分别验三件事：质量还行吗、实际存储变小了吗、目标硬件上的服务更快了吗？</strong></p>
+<p>把权重设成 0 只是改变数值。要省存储和运算，还要看保存格式、执行算子与负载；这些条件匹配时，非结构化剪枝也可能有收益。</p>
+<hr />
+<h2 id="_2">✂️ 一、非结构化剪枝：先区分置零与压缩</h2>
+<h3 id="_3">⭐ 本章最重要的一条</h3>
+<p>非结构化剪枝可以逐个选择权重置零，不要求它们构成完整的行、列或层。</p>
+<p><strong>同样形状、同样 dtype 的稠密张量，置零后元素存储字节数不变。</strong> 这不等于任何稀疏实现都不能省空间，也不保证剪掉 90% 后质量仍能保持。</p>
+<p>下面的 PyTorch 实验在 <strong>CPU</strong> 上进行，不是 GPU 显存或完整 LLM 的性能测试。它比较稠密表示和 CSR（压缩稀疏行）表示，需要安装 PyTorch；运行时会分配数个较大的矩阵。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">time</span><span class="o">,</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">torch</span><span class="o">.</span><span class="n">manual_seed</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">set_num_threads</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span>
+<span class="n">W</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">4096</span><span class="p">,</span> <span class="mi">4096</span><span class="p">)</span>
+
+<span class="n">k</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">W</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">*</span> <span class="mf">0.90</span><span class="p">)</span>
+<span class="n">thr</span> <span class="o">=</span> <span class="n">W</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span><span class="o">.</span><span class="n">kthvalue</span><span class="p">(</span><span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="n">values</span>
+<span class="n">W_pruned</span> <span class="o">=</span> <span class="n">W</span> <span class="o">*</span> <span class="p">(</span><span class="n">W</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span> <span class="o">&gt;</span> <span class="n">thr</span><span class="p">)</span>  <span class="c1"># ⭐ 幅度阈值置零；并列值可能改变精确稀疏度</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;稀疏度        : </span><span class="si">%.1f%%</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="p">((</span><span class="n">W_pruned</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">float</span><span class="p">()</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span> <span class="o">*</span> <span class="mi">100</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;原张量占用    : </span><span class="si">%.1f</span><span class="s2"> MiB&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">W</span><span class="o">.</span><span class="n">element_size</span><span class="p">()</span> <span class="o">*</span> <span class="n">W</span><span class="o">.</span><span class="n">nelement</span><span class="p">()</span> <span class="o">/</span> <span class="mi">2</span><span class="o">**</span><span class="mi">20</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;剪枝后占用    : </span><span class="si">%.1f</span><span class="s2"> MiB&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">W_pruned</span><span class="o">.</span><span class="n">element_size</span><span class="p">()</span> <span class="o">*</span> <span class="n">W_pruned</span><span class="o">.</span><span class="n">nelement</span><span class="p">()</span> <span class="o">/</span> <span class="mi">2</span><span class="o">**</span><span class="mi">20</span><span class="p">))</span>
+<span class="c1"># ⭐ 以上是单张量的元素字节数，不是进程总内存，也不是显存峰值</span>
+
+<span class="n">W_csr</span> <span class="o">=</span> <span class="n">W_pruned</span><span class="o">.</span><span class="n">to_sparse_csr</span><span class="p">()</span>
+<span class="n">csr_bytes</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">*</span> <span class="n">t</span><span class="o">.</span><span class="n">element_size</span><span class="p">()</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span>
+                <span class="p">(</span><span class="n">W_csr</span><span class="o">.</span><span class="n">values</span><span class="p">(),</span> <span class="n">W_csr</span><span class="o">.</span><span class="n">col_indices</span><span class="p">(),</span> <span class="n">W_csr</span><span class="o">.</span><span class="n">crow_indices</span><span class="p">()))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;CSR 占用      : </span><span class="si">%.1f</span><span class="s2"> MiB&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">csr_bytes</span> <span class="o">/</span> <span class="mi">2</span><span class="o">**</span><span class="mi">20</span><span class="p">))</span>
+<span class="c1"># ⭐ 同时计算数值、列索引、行偏移；不假设所有设备的索引 dtype 相同</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">bench</span><span class="p">(</span><span class="n">fn</span><span class="p">,</span> <span class="n">warmup</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">runs</span><span class="o">=</span><span class="mi">10</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">warmup</span><span class="p">):</span>
+        <span class="n">fn</span><span class="p">()</span>
+    <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">runs</span><span class="p">):</span>
+        <span class="n">fn</span><span class="p">()</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t0</span><span class="p">)</span> <span class="o">/</span> <span class="n">runs</span> <span class="o">*</span> <span class="mi">1000</span>
+
+<span class="k">for</span> <span class="n">B</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="mi">1024</span><span class="p">]:</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="mi">4096</span><span class="p">)</span>
+    <span class="n">dense_result</span> <span class="o">=</span> <span class="n">x</span> <span class="o">@</span> <span class="n">W_pruned</span><span class="o">.</span><span class="n">T</span>
+    <span class="n">sparse_result</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">mm</span><span class="p">(</span><span class="n">W_csr</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">T</span><span class="p">)</span><span class="o">.</span><span class="n">T</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_close</span><span class="p">(</span><span class="n">dense_result</span><span class="p">,</span> <span class="n">sparse_result</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">)</span>
+    <span class="n">td</span> <span class="o">=</span> <span class="n">bench</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">x</span> <span class="o">@</span> <span class="n">W_pruned</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+    <span class="n">ts</span> <span class="o">=</span> <span class="n">bench</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">sparse</span><span class="o">.</span><span class="n">mm</span><span class="p">(</span><span class="n">W_csr</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">T</span><span class="p">))</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;B=</span><span class="si">{</span><span class="n">B</span><span class="si">:</span><span class="s2">&lt;5</span><span class="si">}</span><span class="s2"> 稠密 </span><span class="si">{</span><span class="n">td</span><span class="si">:</span><span class="s2">8.2f</span><span class="si">}</span><span class="s2"> ms   稀疏 </span><span class="si">{</span><span class="n">ts</span><span class="si">:</span><span class="s2">8.2f</span><span class="si">}</span><span class="s2"> ms   比值 </span><span class="si">{</span><span class="n">ts</span><span class="o">/</span><span class="n">td</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">x&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p><strong>先看能直接算出的存储关系。</strong> 4096×4096 个 FP32 元素共 64 MiB，置零后仍为 64 MiB。</p>
+<p>若约 90% 的元素为零、CSR 的数值为 FP32、索引为 64bit，数值约 6.4 MiB、列索引约 12.8 MiB、行偏移约 0.031 MiB，合计约 19.2 MiB。这个存储计算不需要用某台机器的耗时来证明。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>观察对象</th>
+<th>看哪个输出</th>
+<th>能推出什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>稠密置零前后</td>
+<td>两个张量的元素字节数</td>
+<td>形状和 dtype 不变，元素存储不变</td>
+</tr>
+<tr>
+<td>换成 CSR</td>
+<td>数值、列索引、行偏移的总和</td>
+<td>空间可能减少，但不是只剩非零值的体积</td>
+</tr>
+<tr>
+<td>B=1</td>
+<td>稀疏耗时 / 稠密耗时</td>
+<td>&lt;1 表示本次稀疏算子快；&gt;1 表示慢</td>
+</tr>
+<tr>
+<td>B=64、1024</td>
+<td>相同口径的耗时比</td>
+<td>看负载改变后是否出现收益变化</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>请读自己的输出，不预设 B=1 一定更慢或 B=1024 一定更快。</strong> 比较耗时前，记下 CPU、PyTorch 版本、线程数与矩阵形状，才能知道结果覆盖什么环境。</p>
+<p>B=1 是单个向量参与这一层运算，可帮助观察小批量形状；完整 decode 还有 KV 读写、attention、其他层、批调度和设备差异，不能用这一段 CPU 矩阵乘替代整个 GPU 服务。</p>
+<p><strong>为什么有时稀疏不够快？</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>部分</th>
+<th>稠密路径</th>
+<th>稀疏路径的额外问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>存储与访问</td>
+<td>布局规整，成熟算子可以利用连续访问</td>
+<td>还要读索引；间接访问与负载不均可能增加开销</td>
+</tr>
+<tr>
+<td>运算</td>
+<td>可使用针对形状、dtype 优化的矩阵内核</td>
+<td>需要支持该稀疏格式与形状的内核</td>
+</tr>
+<tr>
+<td>瓶颈</td>
+<td>可能受计算、带宽或调度限制</td>
+<td>少算乘法不一定降低当前占主要部分的耗时</td>
+</tr>
+</tbody>
+</table></div>
+<p>不能把“连续”直接等同于带宽跑满，也不能从 CPU 实验推出 Tensor Core 的表现。CSR 也不代表地址必然完全随机。</p>
+<p>剪枝若真正以压缩格式执行，可能同时减少数值字节与运算；索引又会增加字节。上面的 FP32+64bit 列索引例子，仅列索引就是数值字节的 2 倍，不能固定说所有格式都只增加 50%–100%。</p>
+<p><strong>判断标准：稀疏度、格式、算子、硬件与负载一起看。</strong> 稀疏度不是加速比，但也不是与性能“几乎没有关系”。访存背景见 <a href="03-显存与带宽墙.html">第 3 章</a>。</p>
+<hr />
+<h2 id="24">🧱 二、半结构化 2:4：给算子一个规整模式</h2>
+<p>2:4 通常要求在运算指定的分组方向上，每组 4 个元素<strong>最多 2 个非零值</strong>，即至少 2 个为零。具体方向、维度、dtype 与压缩格式由算子规定，不是随便在矩阵上每圈四个都可以。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>一组示意</th>
+<th>符合 2:4 吗</th>
+<th>怎么理解</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>[0, w1, 0, w3]</td>
+<td>是</td>
+<td>保留两个数值位置</td>
+</tr>
+<tr>
+<td>[0, 0, 0, w3]</td>
+<td>是</td>
+<td>一个非零也满足条件</td>
+</tr>
+<tr>
+<td>[w0, w1, w2, 0]</td>
+<td>否</td>
+<td>三个非零，超过上限</td>
+</tr>
+</tbody>
+</table></div>
+<p>表中的 w0、w1、w2、w3 均表示非零数。<strong>看非零数是否超过两个，不是要求恰好两个零。</strong> 只有一个非零时，编码仍可使用两个值槽位。对照 <a href="https://pytorch.org/blog/accelerating-neural-network-training/">PyTorch 的 2:4 说明</a>。</p>
+<p>Ampere 等支持相应模式的稀疏 Tensor Core 提供了专门路径，但<strong>硬件具备能力不等于任意模型自动加速</strong>；仍需转换格式并满足算子限制。</p>
+<ul>
+<li>峰值计算吞吐的“2 倍”不等于完整服务时延减半。</li>
+<li>固定的两个值槽位再加元数据，不是无开销的 2 倍存储压缩。</li>
+<li>比 50% 更多的零可以符合模式，却通常不能让这种固定编码继续按零比例压缩。</li>
+<li>完整服务的加速比需要在目标环境实测，不能直接借用另一台设备或另一种负载的结果。</li>
+</ul>
+<hr />
+<h2 id="_4">🪓 三、结构化剪枝：缩小可执行的模型结构</h2>
+<p>整头、整通道、整层地删，并正确重连依赖后，可以得到更小的稠密计算结构，通常更容易利用现有稠密算子。</p>
+<p><strong>更少参数或 FLOPs 不是确定的等比例加速。</strong> 固定开销、内存读写、维度对齐、算子融合和其他瓶颈可能限制收益。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>粒度</th>
+<th>保留的尺寸示例</th>
+<th>需要同时处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>注意力头</td>
+<td>32→24 头</td>
+<td>Q/K/V、输出投影以及 GQA/MQA 的分组约束</td>
+</tr>
+<tr>
+<td>FFN 中间维</td>
+<td>11008→8192</td>
+<td>上投影、门控分支和下投影的对应通道</td>
+</tr>
+<tr>
+<td>层数</td>
+<td>32→24 层</td>
+<td>层间连接、质量恢复与具体任务变化</td>
+</tr>
+<tr>
+<td>hidden width</td>
+<td>4096→3072</td>
+<td>残差、归一化、嵌入及各投影等全局依赖</td>
+</tr>
+</tbody>
+</table></div>
+<p>哪部分最值得剪，要根据该模型的参数、耗时和质量敏感性剖析。不能说所有 LLM 的 FFN 都必然是收益最大处，也不能只改一个配置数字就算完成剪枝。</p>
+<p><strong>剪枝后的能力可以尝试恢复，但路线不止蒸馏：</strong></p>
+<ul>
+<li><a href="https://arxiv.org/abs/2407.14679">Minitron</a>研究结构化剪枝配合知识蒸馏。</li>
+<li><a href="https://princeton-nlp.github.io/sheared-llama/">Sheared-LLaMA</a>采用目标结构剪枝与继续预训练、动态数据配比；不能把它也概括成“立刻用老师蒸馏”。</li>
+<li>监督微调、继续预训练、蒸馏的目标和成本不同，恢复多少要重新测；剪枝与蒸馏不是同一件事。</li>
+</ul>
+<hr />
+<h2 id="_5">🎯 四、剪谁：幅度剪枝和它的改良</h2>
+<p>幅度剪枝按 |w| 大小选择要置零的权重，是值得保留的简单基线，不是已知对所有 LLM 都最好的重要性判断。</p>
+<p><strong>全局阈值和逐层配额各有风险。</strong> 各层尺度不同时，全局排序可能对某些层剪得过多；逐层固定同一比例又可能忽略各层冗余不同。应检查层级敏感性与恢复后的质量。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>评分或处理方式</th>
+<th>不要误读成</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Wanda</td>
+<td>单个权重幅度 × 对应输入通道在校准样本上的 L2 范数</td>
+<td>不是“不看权重大小”，也不是简单统计使用频率</td>
+</tr>
+<tr>
+<td>SparseGPT</td>
+<td>利用层输入的二阶近似信息进行剪枝与剩余权重重建</td>
+<td>不是任意比例都无损，也不是全模型精确 Hessian 求解</td>
+</tr>
+<tr>
+<td>幅度基线</td>
+<td>按权重绝对值排序</td>
+<td>不保证比考虑输入信息的方法差，也不保证总是最好</td>
+</tr>
+</tbody>
+</table></div>
+<p>对照 <a href="https://arxiv.org/abs/2306.11695">Wanda</a> 与 <a href="https://arxiv.org/abs/2301.00774">SparseGPT</a> 原论文。</p>
+<p>Wanda 与量化的 AWQ 都提示输入激活信息有用，但目标函数和算法不一样，不能称为完全同一句话。<strong>重要性取决于当前目标和误差影响，不只有“使用得多不多”。</strong></p>
+<hr />
+<h2 id="_6">🎟️ 五、迭代剪枝与彩票假说</h2>
+<p>一次剪到目标稀疏度与分次剪枝，会经过不同的优化路径；迭代恢复可能有帮助，也增加训练成本，不保证总比一次性方法好。</p>
+<p><strong>用四轮教学路线区分“总共剪多少”和“本轮剪多少”：</strong></p>
+<ol>
+<li>到总稀疏度 50%，然后微调。</li>
+<li>到总稀疏度 70%，然后微调。</li>
+<li>到总稀疏度 85%，然后微调。</li>
+<li>到总稀疏度 90%，再验收质量与服务表现。</li>
+</ol>
+<p>这里的百分比均相对原始权重数，不是每轮再删除剩余权重的同一比例；这条示意不是推荐的固定配方。</p>
+<p><a href="https://arxiv.org/abs/1803.03635">彩票假说</a>提出：在研究覆盖的网络和训练设置中，存在带有合适初始化的稀疏子网络，可以单独训练到可比精度。它不是对任意大网络和任意剪枝比例的普遍保证。</p>
+<p>原论文的迭代幅度剪枝与重置初始化，需要付出找到子网络的成本。评估是否省训练，要把搜索、重训和复用次数算在内；不能把它说成“必须训练完所有大网络才能找”，也不能反过来保证一定省钱。</p>
+<hr />
+<h2 id="90-0">💀 六、教学复盘：90% 稀疏并不等于部署成本降九成</h2>
+<p><strong>这是重建的教学场景，不是可追溯的真实事故。</strong> 假设一个 13B、FP16 模型被非结构化剪枝到约 90% 零值，团队仅按非零数估算“26 GB→2.6 GB”。</p>
+<p>这个估算遗漏了两类问题：</p>
+<ol>
+<li>原始稠密张量若还在，权重元素存储仍约 26 GB。</li>
+<li>mask 或索引要另算，不能把完整 13B 参数的掩码随意说成 0.1 GB。</li>
+</ol>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>完整 13B 参数对应的表示</th>
+<th>按十进制计算的存储量</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>原 FP16 稠密权重</td>
+<td>26 GB</td>
+</tr>
+<tr>
+<td>每参数 1 字节的布尔 mask</td>
+<td>另加 13 GB</td>
+</tr>
+<tr>
+<td>每参数 2 字节的 FP16 mask</td>
+<td>另加 26 GB</td>
+</tr>
+<tr>
+<td>假设专门实现位打包，每参数 1 bit</td>
+<td>另加 1.625 GB；并不自动成为高效执行格式</td>
+</tr>
+</tbody>
+</table></div>
+<p>这些是按元素字节数复算的例子，不是框架内存峰值。具体框架可能保留原参数、掩码、临时张量或压缩后的新格式；应查看实际产物。</p>
+<p>因此不能仅由“13B→1.3B 非零值”推出可以从 2×A100 换成 1×A10，更不能据此形成采购承诺。还缺质量、完整容量、内核支持、吞吐、延迟与目标并发证据。</p>
+<p><strong>验收不是把“稀疏度和精度”换成另外两个数，而是补齐维度：</strong></p>
+<ul>
+<li>质量：原有任务、关键分组、稳定性和必要的恢复训练。</li>
+<li>存储：文件大小、加载后占用、运行峰值；分别计算，不混用。</li>
+<li>服务：固定负载下的首 token、后续 token、P50/P99 延迟、吞吐与并发。</li>
+<li>成本：压缩、恢复、部署和维护的总成本；小样矩阵实验只用于早期筛查。</li>
+</ul>
+<p>先做目标硬件的格式与形状实验，再做端到端测试；30 分钟可以是一次排查安排，不是充分验收时间。</p>
+<p>与 <a href="18b-知识蒸馏.html">蒸馏章节</a>、<a href="18-量化.html">量化章节</a>的共同点是：<strong>实现成功不等于优化成功。</strong> 软件也可能报错，只是质量或性能退化不一定会通过异常提示出来。</p>
+<hr />
+<h2 id="_7">🔗 和站内其他章的关系</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>相关的地方</th>
+<th>这里的位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="03-显存与带宽墙.html">第 3 章</a></td>
+<td>把稀疏值、索引与实际访问方式一起计入</td>
+</tr>
+<tr>
+<td><a href="15-推理和训练是两回事.html">第 15 章</a></td>
+<td>区分小批量解码、大批量与其他推理阶段的瓶颈</td>
+</tr>
+<tr>
+<td><a href="18-量化.html">第 18 章</a></td>
+<td>AWQ 和 Wanda 都利用激活信息，但不是同一算法</td>
+</tr>
+<tr>
+<td><a href="18b-知识蒸馏.html">第 18b 章</a></td>
+<td>蒸馏是剪枝后能力恢复的候选路线之一</td>
+</tr>
+<tr>
+<td><a href="02-GPU到底是什么.html">第 2 章</a></td>
+<td>算子是否支持相应稀疏模式</td>
+</tr>
+<tr>
+<td><a href="../模型上线之后/18-成本与容量.html">模型上线之后 18</a></td>
+<td>成本与服务能力不能由参数量直接推定</td>
+</tr>
+<tr>
+<td><a href="../大模型全景导论/06-推理优化.html">大模型导论 06</a></td>
+<td>部署方案各有适用条件；清单未列出某方法，不证明它无用</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="_8">✅ 检查点</h2>
+<ol>
+<li>为什么置零、稀疏存储和加速是三件事？</li>
+<li>90% 零值的同形状 FP32 稠密张量会省多少元素存储？换 CSR 呢？</li>
+<li>B=1 的 CPU 矩阵乘能否证明完整 GPU 解码一定更慢？</li>
+<li>2:4 能否有三个零？更多零是否让固定编码继续缩小？</li>
+<li>结构化剪枝为什么更容易利用稠密算子，却不能保证等比例加速？</li>
+<li>全局阈值与逐层配额分别有什么风险？</li>
+<li>Wanda 是否不看权重大小？它与 AWQ 是同一种方法吗？</li>
+<li>迭代剪枝为何可能有帮助？彩票搜索的成本怎么计入？</li>
+<li>一个压缩项目的验收要包含哪些维度？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li>置零改数值，稀疏格式改存储，内核和负载决定执行开销；任何一步都不能代替后续验证。</li>
+<li>同形状同 dtype 的稠密元素存储仍为 64 MiB；本例 CSR 需连同索引约算为 19.2 MiB，具体看实际 dtype 与非零数。</li>
+<li>不能。它只覆盖这一 CPU 运算与输入形状，不包括完整模型或 GPU 服务。</li>
+<li>可以，最多两个非零即符合该模式；固定两个值槽位和元数据通常不会因第三个零而继续减半。</li>
+<li>结构更小且规整，但对齐、固定开销、其他瓶颈和内核选择仍影响端到端速度。</li>
+<li>全局阈值可能过度剪某些层；相同逐层配额可能忽略层间敏感性差异。</li>
+<li>Wanda 同时乘权重幅度与输入通道范数；它和 AWQ 都用激活信息，但任务和算法不同。</li>
+<li>分次恢复给优化留下调整机会，也增加成本；彩票方法需合计搜索、重新训练与复用，不能只看小网络的一次训练。</li>
+<li>质量、存储、实际服务指标与总成本；稀疏度作为过程信息保留，不能独自决定上线。</li>
+</ol>
+</details>
+<hr />
+<h2 id="_9">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong></p>
+<ul>
+<li>置零不等于压缩格式，压缩格式也不等于已经加速。</li>
+<li>稀疏值与索引一起算，目标硬件和负载一起测。</li>
+<li>2:4 允许每组最多两个非零；结构化剪枝也不保证等比例提速。</li>
+<li>质量恢复与服务验收都保留，不用“参数少了”代替结果。</li>
+</ul>
+<p><strong>下一节</strong> 👉 <a href="19-投机解码.html">19-投机解码.md</a></p>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="18b-知识蒸馏.html"><div class="dir">← 上一节</div>⭐ 知识蒸馏</a><a class="next" href="19-投机解码.html"><div class="dir">下一节 →</div> 投机解码</a></nav>
+</main>
+<script>(function(){
+  var KEY="aiinfra", FILE="18c-\u526a\u679d\u4e0e\u7a00\u758f\u5316.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-ai-infra-reader.css"></body></html>

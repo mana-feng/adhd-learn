@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="polish-ai-fullstack-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -290,13 +290,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <button class="js-done-btn">☐ 打卡</button>
   <button id="themeToggle" title="切换深浅色">🌗</button>
 </div></header>
-<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<main><noscript><p class="polish-noscript" role="note">正文和导航链接仍可阅读；打卡、主题切换与代码、图解工具需要 JavaScript。</p></noscript><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">🧩 一、什么时候必须异步</a></li>
 <li><a href="#_3">🧩 二、三档做法</a></li>
 <li><a href="#_4">🧩 三、状态怎么让前端知道</a></li>
-<li><a href="#_5">🧩 四、幂等：任务一定会被执行两次</a></li>
+<li><a href="#_5">🧩 四、幂等：任务可能被重复执行</a></li>
 <li><a href="#_6">🧩 五、重试、死信、毒药消息</a></li>
 <li><a href="#_7">🔁 换个栈怎么对应</a></li>
 <li><a href="#_8">🔗 这一章连到哪里</a></li>
@@ -511,17 +511,17 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>⚠️ <strong>最常见的错</strong>：轮询间隔写成 200 毫秒 —— 一个跑 3 分钟的任务就发了 <strong>900 个</strong>「好了没」。用退避式轮询：前 10 秒 1 秒一次，之后拉到 5 秒。</p>
-<p>⭐ <strong>进度报阶段，别报百分比</strong>。LLM 任务时长不可预测，百分比一定卡在 90%，而卡住的进度条比没有进度条更让人焦虑。给可数的：「已处理 3 / 12 个分片」。⚠️ 进度要写在 <code>jobs</code> 表的一列里；写在 worker 内存里，worker 一崩前端就永远停在 40%。</p>
+<p>⭐ <strong>进度报阶段，别报百分比</strong>。LLM 任务时长不可预测，百分比可能长时间停在同一数值，而卡住的进度条比没有进度条更让人焦虑。给可数的：「已处理 3 / 12 个分片」。⚠️ 进度要写在 <code>jobs</code> 表的一列里；写在 worker 内存里，worker 一崩前端就永远停在 40%。</p>
 <hr />
 <!--MIDSTOP-->
 <blockquote>
 <p>🛑 <strong>读到这里可以停</strong> —— 已经读了约 25 分钟。
-<strong>最后一段还有</strong>（约 25 分钟）：幂等：任务一定会被执行两次 · 重试、死信、毒药消息 · 换个栈怎么对应 · 检查点与走神救援
+<strong>最后一段还有</strong>（约 25 分钟）：幂等：任务可能被重复执行 · 重试、死信、毒药消息 · 换个栈怎么对应 · 检查点与走神救援
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
 <hr />
-<h2 id="_5">🧩 四、幂等：任务一定会被执行两次</h2>
-<p>⚠️ 不是「可能」，是「一定」：客户端超时后重试、worker 干完活但改状态前崩了、清扫脚本把一个其实还活着的 job 放回队列。</p>
+<h2 id="_5">🧩 四、幂等：任务可能被重复执行</h2>
+<p>⚠️ 客户端超时后重试、worker 完成副作用但确认前崩溃、失效租约重新入队，都可能造成重复。<strong>要按可能重复执行设计</strong>，不等于每项任务都会执行两次；投递和确认保证取决于队列配置。依据 <a href="https://aws.amazon.com/builders-library/making-retries-safe-with-idempotent-APIs/">AWS 幂等重试设计说明</a>。</p>
 <p>⭐ <strong>代价很具体</strong>：用户被扣两次钱、同一段文本在向量库里存两份（检索时占掉两个 top-k 名额）、同一封邮件发两遍。</p>
 <p>做法只有一个形状：<strong>给这件事算一个由输入决定的键，写进带唯一约束的表，写不进去就说明做过了。</strong></p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span><span class="o">,</span><span class="w"> </span><span class="nn">hashlib</span>
@@ -699,8 +699,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>这一章讲「一个请求做不完的活怎么扔到后台」。<strong>判据</strong>：可能超过网关默认硬超时（那个量级就是几十秒，超时后用户看到 504、<strong>后端还在烧钱</strong>）、批量处理、入库加 embedding、定时任务、需要重试的活——任意一条就别在请求里做完。⚠️ 单次对话生成<strong>不算</strong>，那是流式解决的问题。</p>
 <p>三档做法，⭐ <strong>关键是别直接跳到第三档</strong>。进程内后台任务有三个限制（抢 worker、重启全丢、状态在内存里导致多进程查不到）。⭐ <strong>数据库当队列覆盖中小规模的绝大多数场景</strong>，还能让任务状态和业务数据在同一个事务里改。</p>
 <p>⚠️⚠️ 认领必须原子，但<strong>「写成一条语句」只是必要条件不是充分条件</strong>：外层 <code>WHERE</code> 只比对 id、不再检查状态时，并发下要么重复认领要么空转——<strong>必须把锁写进子查询</strong>（当场锁行 + 让别人跳过去拿下一条）。⚠️ 某些数据库上示例能跑通是<strong>因为整库一把写锁，理由完全不同</strong>，别照抄结论。</p>
-<p><strong>状态怎么让前端知道</strong>：默认轮询（无状态、哪台机器都能答）。⚠️ 别把间隔写成几百毫秒——三分钟的任务会发出上千个「好了没」。⭐ <strong>进度报阶段不报百分比</strong>（LLM 时长不可预测，百分比一定卡在 90%），而且<strong>进度要写在表里不是 worker 内存里</strong>，否则它一崩前端永远停在 40%。</p>
-<p>⭐ <strong>幂等不是可选项：任务一定会执行两次。</strong> 键必须由输入算出来——⚠️ 用随机 UUID 等于没做，重试会算出新键。</p>
+<p><strong>状态怎么让前端知道</strong>：默认轮询（无状态、哪台机器都能答）。⚠️ 别把间隔写成几百毫秒——三分钟的任务会发出上千个「好了没」。⭐ <strong>进度报阶段不报百分比</strong>（LLM 时长不可预测，百分比可能长时间停在同一数值），而且<strong>进度要写在表里不是 worker 内存里</strong>，否则它一崩前端永远停在 40%。</p>
+<p>⭐ <strong>幂等不是可选项：任务可能重复执行。</strong> 键必须由输入算出来——随机 UUID 也能当业务幂等键，条件是首次生成后持久化，并在同一请求的重试中复用；不能每次重试重新生成。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="12-限流配额与成本护栏.html">12-限流配额与成本护栏.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
@@ -729,4 +729,4 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-ai-fullstack-reader.css"></body></html>

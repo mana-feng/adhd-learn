@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="polish-ai-fullstack-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -290,7 +290,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <button class="js-done-btn">☐ 打卡</button>
   <button id="themeToggle" title="切换深浅色">🌗</button>
 </div></header>
-<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<main><noscript><p class="polish-noscript" role="note">正文和导航链接仍可阅读；打卡、主题切换与代码、图解工具需要 JavaScript。</p></noscript><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#csrf">🎣 一、CSRF（跨站请求伪造）：请求发得出去，才是这件事的根</a></li>
@@ -304,6 +304,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="08c-csrf-xss">08c · CSRF 与 XSS：两种攻击，两套完全不同的防线</h1>
+<p class="polish-evidence-note">代码只演示 Cookie 属性与来源检查；<code>/api/transfer</code> 没有实现会话验签、权限和真实转账。来源检查通过不代表身份已验证。</p>
 <p>⏱ <strong>54 分钟</strong> ｜ ⭐ <strong>一个借用你用户的凭证，一个直接变成你这个源的代码</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
@@ -349,52 +350,51 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># Cookie 会话的第二道锁：写死 SameSite + 校验 Origin（pip install fastapi httpx）</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">Depends</span><span class="p">,</span> <span class="n">FastAPI</span><span class="p">,</span> <span class="n">HTTPException</span><span class="p">,</span> <span class="n">Request</span><span class="p">,</span> <span class="n">Response</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">fastapi.testclient</span><span class="w"> </span><span class="kn">import</span> <span class="n">TestClient</span>
+<div class="codehilite" data-code-language="python"><pre><code># Cookie 会话的第二道锁：写死 SameSite + 校验 Origin（pip install fastapi httpx）
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi.testclient import TestClient
 
-<span class="n">ALLOWED_ORIGINS</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;https://app.example.com&quot;</span><span class="p">}</span>     <span class="c1"># ⭐ 和 CORS 白名单是同一份，别抄两份</span>
-<span class="n">app</span> <span class="o">=</span> <span class="n">FastAPI</span><span class="p">()</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">same_site_only</span><span class="p">(</span><span class="n">request</span><span class="p">:</span> <span class="n">Request</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;⭐ 只对会改数据的方法查；GET 不查（它本来就不该改数据）。&quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">method</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;GET&quot;</span><span class="p">,</span> <span class="s2">&quot;HEAD&quot;</span><span class="p">,</span> <span class="s2">&quot;OPTIONS&quot;</span><span class="p">):</span>
-        <span class="k">return</span>
-    <span class="n">origin</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;origin&quot;</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">origin</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>                            <span class="c1"># ⚠️ 非浏览器客户端（curl / 服务端）没有这个头</span>
-        <span class="k">return</span>                                    <span class="c1"># 它们也带不了别人的 Cookie，交给鉴权管</span>
-    <span class="k">if</span> <span class="n">origin</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">ALLOWED_ORIGINS</span><span class="p">:</span>             <span class="c1"># ⭐ 只信白名单里的那几个字符串</span>
-        <span class="k">raise</span> <span class="n">HTTPException</span><span class="p">(</span><span class="n">status_code</span><span class="o">=</span><span class="mi">403</span><span class="p">,</span> <span class="n">detail</span><span class="o">=</span><span class="s2">&quot;来源不对&quot;</span><span class="p">)</span>
+ALLOWED_ORIGINS = {&quot;https://app.example.com&quot;}     # ⭐ 和 CORS 白名单是同一份，别抄两份
+app = FastAPI()
 
 
-<span class="nd">@app</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/api/login&quot;</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">login</span><span class="p">(</span><span class="n">resp</span><span class="p">:</span> <span class="n">Response</span><span class="p">):</span>
-    <span class="n">resp</span><span class="o">.</span><span class="n">set_cookie</span><span class="p">(</span><span class="s2">&quot;sid&quot;</span><span class="p">,</span> <span class="s2">&quot;signed-token-here&quot;</span><span class="p">,</span>   <span class="c1"># 真实值见第 8 章的验签凭证</span>
-                    <span class="n">httponly</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>                <span class="c1"># ⭐ JS 读不到 → XSS 偷不走</span>
-                    <span class="n">secure</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>                  <span class="c1"># ⭐ 只走 HTTPS</span>
-                    <span class="n">samesite</span><span class="o">=</span><span class="s2">&quot;lax&quot;</span><span class="p">,</span>               <span class="c1"># ⭐ 别人的页面发 POST 时不带它</span>
-                    <span class="n">max_age</span><span class="o">=</span><span class="mi">3600</span><span class="p">)</span>
-    <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;ok&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
+def same_site_only(request: Request):
+    &quot;&quot;&quot;⭐ 只对会改数据的方法查；GET 不查（它本来就不该改数据）。&quot;&quot;&quot;
+    if request.method in (&quot;GET&quot;, &quot;HEAD&quot;, &quot;OPTIONS&quot;):
+        return
+    origin = request.headers.get(&quot;origin&quot;)
+    # Cookie 写接口采用严格模式：缺失、null 和非白名单来源都拒绝。
+    if origin not in ALLOWED_ORIGINS:             # ⭐ 只信白名单里的那几个字符串
+        raise HTTPException(status_code=403, detail=&quot;来源不对&quot;)
 
 
-<span class="nd">@app</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/api/transfer&quot;</span><span class="p">,</span> <span class="n">dependencies</span><span class="o">=</span><span class="p">[</span><span class="n">Depends</span><span class="p">(</span><span class="n">same_site_only</span><span class="p">)])</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">transfer</span><span class="p">():</span>
-    <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;done&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
+@app.post(&quot;/api/login&quot;)
+def login(resp: Response):
+    resp.set_cookie(&quot;sid&quot;, &quot;signed-token-here&quot;,   # 真实值见第 8 章的验签凭证
+                    httponly=True,                # JS 不能直接读取；XSS 仍可能借会话发请求
+                    secure=True,                  # ⭐ 只走 HTTPS
+                    samesite=&quot;lax&quot;,               # 限制跨站携带，不防所有同站攻击
+                    max_age=3600)
+    return {&quot;ok&quot;: True}
 
 
-<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
-    <span class="n">c</span> <span class="o">=</span> <span class="n">TestClient</span><span class="p">(</span><span class="n">app</span><span class="p">)</span>
-    <span class="n">r</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/api/login&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Set-Cookie:&quot;</span><span class="p">,</span> <span class="n">r</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;set-cookie&quot;</span><span class="p">))</span>
-    <span class="k">for</span> <span class="n">origin</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;https://app.example.com&quot;</span><span class="p">,</span> <span class="s2">&quot;https://evil.example&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
-        <span class="n">h</span> <span class="o">=</span> <span class="p">{}</span> <span class="k">if</span> <span class="n">origin</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="p">{</span><span class="s2">&quot;Origin&quot;</span><span class="p">:</span> <span class="n">origin</span><span class="p">}</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Origin=</span><span class="si">%-26s</span><span class="s2"> → </span><span class="si">%d</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">origin</span><span class="p">,</span> <span class="n">c</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/api/transfer&quot;</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="n">h</span><span class="p">)</span><span class="o">.</span><span class="n">status_code</span><span class="p">))</span>
+@app.post(&quot;/api/transfer&quot;, dependencies=[Depends(same_site_only)])
+def transfer():
+    return {&quot;done&quot;: True}
+
+
+if __name__ == &quot;__main__&quot;:
+    c = TestClient(app)
+    r = c.post(&quot;/api/login&quot;)
+    print(&quot;Set-Cookie:&quot;, r.headers.get(&quot;set-cookie&quot;))
+    for origin in [&quot;https://app.example.com&quot;, &quot;https://evil.example&quot;, None]:
+        h = {} if origin is None else {&quot;Origin&quot;: origin}
+        print(&quot;Origin=%-26s → %d&quot; % (origin, c.post(&quot;/api/transfer&quot;, headers=h).status_code))
 </code></pre></div>
 
 <p>实跑输出：</p>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>Set-Cookie: sid=signed-token-here; HttpOnly; Max-Age=3600; Path=/; SameSite=lax; Secure</p><p>Origin=https://app.example.com → 200</p><p>Origin=https://evil.example → 403</p><p>Origin=None → 200</p></div></section>
-<p>⚠️ <strong>注意第三行</strong>：没有 <code>Origin</code> 头时上面这版<strong>放行</strong>了——留给 <code>curl</code> 和服务端调用方。🗓️ 现代浏览器对跨站 POST 一律会带 <code>Origin</code>，所以更严的做法是「没有 <code>Origin</code> 就拒」，代价是所有非浏览器调用方都得跟着改。两种都合理，但你要知道自己选的是哪种，并写下来。</p>
+<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>Set-Cookie: sid=signed-token-here; HttpOnly; Max-Age=3600; Path=/; SameSite=lax; Secure</p><p>Origin=https://app.example.com → 200</p><p>Origin=https://evil.example → 403</p><p>Origin=None → 403</p></div></section>
+<p>GET / HEAD / OPTIONS 不做本例的来源检查，因为它们不应承载改变状态的业务动作。<strong>Cookie 写接口在此采用缺失来源即拒绝</strong>；<code>Origin: null</code> 也不在白名单中。需要兼容缺失 Origin 的请求时，应设计并验证 Referer 回退或 CSRF 令牌策略，不能把“没带头”当成“非浏览器”。独立的 Bearer API 可另设认证契约。参见 <a href="https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html">OWASP CSRF 防御说明</a>。</p>
 <blockquote>
 <p>🗓️ <strong>这一格里会腐坏的东西，单独放在这里</strong>：<code>SameSite</code> 的<strong>默认值</strong>、第三方 Cookie 的处置、以及「跨站」到底怎么算，<strong>各家浏览器在不同版本里给过不同答案，而且还在变</strong>。
 ⭐ <strong>所以别依赖默认值，永远显式写 <code>samesite=</code></strong>；要查默认行为，<strong>以你的目标浏览器当前文档为准</strong>。
@@ -610,7 +610,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ol>
 <li>CSRF 的中文全称是什么？攻击三步是什么？⭐ 为什么 CORS 挡不住它，而 <code>Authorization: Bearer</code> 天然不受影响？</li>
 <li>防 CSRF 的三条防线各是什么？哪一部分属于「会过期、要以当前浏览器文档为准」的内容？</li>
-<li>⭐ 本章那段代码里，<code>same_site_only</code> 为什么对 <code>GET</code> 直接放行？为什么<strong>没有 <code>Origin</code> 头</strong>时也放行？更严的做法是什么、代价是什么？</li>
+<li>⭐ 本章 Cookie 写接口为什么拒绝缺失或不可信的 Origin？GET 不检查来源的前提是什么？来源检查是否等同于身份认证？</li>
 <li>⭐ 「接口只收 <code>application/json</code>」为什么白送了一层 CSRF 防护？实测里换成别的 <code>Content-Type</code> 会得到什么？⚠️ 为什么不能把它当唯一防线？</li>
 <li>⭐ XSS 成功之后，同源策略为什么反而成了攻击者的帮凶？<code>HttpOnly</code> 为什么只是减损？</li>
 <li>XSS 的三种经典形态是什么？各自的恶意内容存在哪？</li>
@@ -623,7 +623,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ol>
 <li><strong>跨站请求伪造（Cross-Site Request Forgery）</strong>。三步：① 用户在你站登录过，Cookie 还在 ② 他打开攻击者的页面 ③ 那个页面自动提交一个指向你站的表单，浏览器按规矩带上了你站的 Cookie。CORS 挡不住是因为攻击者根本不需要读响应——钱已经转了。Bearer 免疫是因为 <code>Authorization</code> 是 JS 手动加的：攻击者拿不到 token，也没法让浏览器替他加；一旦手动加就触发预检（见 <a href="08b-同源策略与CORS.html">08b</a>），过不了就发不出。自动带的凭证有 CSRF，手动带的没有。</li>
 <li>① <strong><code>SameSite</code></strong>（<code>Lax</code> 让跨站 POST 不带 Cookie，<code>Strict</code> 连 GET 都不带）② 校验 <code>Origin</code> 头（只对会改数据的方法查，白名单和 CORS 那份同一份）③ 双提交（随机值同时进 Cookie 和请求头，后端比对；原理是攻击者读不到你这个源的 Cookie 所以填不出那个头）。🗓️ 会过期的是 <code>SameSite</code> 的默认值、第三方 Cookie 处置、「跨站」怎么算——所以永远显式写 <code>samesite=</code>；攻击原理和三条防线本身不过期。</li>
-<li><code>GET</code> / <code>HEAD</code> / <code>OPTIONS</code> 不查，因为<strong>它们本来就不该改数据</strong>。⚠️ 没有 <code>Origin</code> 头时放行，是留给 <code>curl</code> 和服务端调用方——它们也带不了别人的 Cookie，交给鉴权管（实测第三行 <code>Origin=None → 200</code>）。🗓️ 更严的做法是「没有 <code>Origin</code> 就拒」（现代浏览器对跨站 POST 一律会带），代价是所有非浏览器调用方都得跟着改。两种都合理，关键是知道自己选了哪种并写下来。</li>
+<li>GET / HEAD / OPTIONS 不应承载改变状态的业务动作。Cookie 写接口采用可信 Origin 白名单，缺失、null 与非白名单来源均拒绝；兼容回退需另行设计 Referer 或 CSRF 令牌。Origin 不是身份凭证，仍需会话验签与授权。</li>
 <li>因为 <strong>HTML 表单发不出 <code>application/json</code></strong>（它只有 <code>x-www-form-urlencoded</code> / <code>multipart/form-data</code> / <code>text/plain</code> 三种），而用 <code>fetch</code> 设这个头又会触发预检。实测：同一份 <code>{"msg":"hi"}</code> 的 body，<code>application/json</code> 返回 200，换成 <code>text/plain</code> / 表单编码 / 不带全是 422，业务函数没执行。⚠️ 不能当唯一防线：哪天为了「兼容」让后端也收表单编码的 body，它就无声无息地没了。</li>
 <li>因为<strong>攻击者的代码变成了「你这个源」的代码</strong>：读 <code>localStorage</code>、发同源请求、拿走页面上的一切，在浏览器看来全都合法。⚠️ <code>HttpOnly</code> 只挡「偷 Cookie」，但脚本不需要偷——它就在页面里，直接以用户身份发请求就行。</li>
 <li><strong>存储型</strong>（⚠️ 存进了你的库，每个看到的人都中招：用户名、评论、上传的文档）、反射型（在 URL 里，服务端原样吐回页面：搜索结果页把关键词拼进 HTML）、DOM 型（服务端全程没参与，前端 JS 自己把不可信数据塞进 <code>innerHTML</code>）。</li>
@@ -670,4 +670,4 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-ai-fullstack-reader.css"></body></html>

@@ -177,20 +177,20 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .ckpt ol{padding-left:1.3em}.ckpt li{margin:.4em 0}
 .recap{background:var(--quote-bg);border-radius:12px;padding:16px 20px;margin:18px 0 0}
 .recap b{color:var(--accent)}
-</style></head><body>
+</style></head><body data-polish="claude-library" class="polish-claude-library-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner"><a href="../index.html">🏠 总目录</a>
 <a href="index.html">📚 资料库</a><span class="title">Claude Code 实践</span>
 <button id="themeToggle" title="切换深浅色">🌗</button></div></header>
 <main>
-<h1>How Anthropic Runs Large-Scale Code Migrations with Claude Code（Anthropic 如何用 Claude Code 做大规模代码迁移）</h1>
-<div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>How Anthropic Runs Large-Scale Code Migrations with Claude Code（Anthropic 如何用 Claude Code 做大规模代码迁移）</dd><dt>原文链接</dt><dd><a href="https://claude.com/blog/ai-code-migration" target="_blank" rel="noopener">https://claude.com/blog/ai-code-migration</a></dd><dt>作者</dt><dd>Anthropic（Claude 博客）</dd><dt>发布日期</dt><dd>2026-07-16</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。具体参数与功能名更新很快，落地前请点击上方链接核对原文。</div></div>
+<h1>Anthropic 如何用 Claude Code 做大规模代码迁移</h1>
 <div class="adhd-head">
 <p class="meta">⏱ <strong>12 分钟</strong> ｜ 🚚 <strong>批量任务的正确打开方式</strong></p>
 <h2 id="tldr">🎯 一句话</h2>
-<p class="tl">大规模迁移的关键不是「让模型改得更准」，而是<strong>把任务切成可独立验证、可独立回滚的小单元</strong>。⭐ 一次改 500 个文件不可控；一次改 1 个文件、跑一次测试、提交一次，才可控。</p>
+<p class="tl">迁移先建立<strong>规则手册、依赖图与行为验证</strong>，再拆成可定位失败、可恢复的小批次。切分依据是依赖和接口，并非所有任务都应按单文件提交。</p>
 </div>
-
+<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>迁移单元怎样切分，才能验证并恢复？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav>
+<div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>How Anthropic Runs Large-Scale Code Migrations with Claude Code（Anthropic 如何用 Claude Code 做大规模代码迁移）</dd><dt>原文链接</dt><dd><a href="https://claude.com/blog/ai-code-migration" target="_blank" rel="noopener">https://claude.com/blog/ai-code-migration</a></dd><dt>作者</dt><dd>Anthropic（Claude 博客）</dd><dt>发布日期</dt><dd>2026-07-16</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。版本、参数与案例数字属于原文所示条件，不是本资料库的实测结果；产品状态与接口以实施时官方文档为准。</div></div>
 <details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
 <ul>
 <li><a href="#tldr">🎯 一句话</a></li>
@@ -259,7 +259,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>把人力前置</strong>到规则手册和压力测试上；后续阶段基本是「烧队列」</li>
 <li><strong>关注失败的模式而非单个失败</strong>——人的注意力应该放在模式上</li>
 <li><strong>设计 token 高效的循环：</strong> 最大的模型留给审查者和写规则，实现工作用小模型</li>
-<li><strong>让工作队列机械化：</strong> 「完成」= 输出文件存在；迁移在构造上就是可恢复的</li>
+<li><strong>让工作队列机械化：</strong> 输出文件存在可作为队列进度信号；语义完成仍须编译、行为对齐和回归验证，恢复还需保留原件与检查点</li>
 <li><strong>坚持对抗式审查</strong>——长任务中它值那个 token 成本</li>
 <li><strong>别照搬本文：</strong> 每次迁移都不同，先和 Claude 一起做针对性规划</li>
 </ol>
@@ -276,7 +276,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <summary>👀 答案</summary>
 <ol>
 <li>⭐ <strong>按「可独立验证 + 可独立回滚」切</strong>，通常是单个文件或单个模块。每个单元走完整闭环：<strong>改 → 跑测试 → 通过就提交，不通过就回滚重试</strong>。</li>
-<li>因为<strong>错误会累积且无法定位</strong>。500 个文件一起改完再跑测试，挂了 30 个用例，<strong>你无法知道是哪些改动引起的</strong>，只能整体回滚重来。⭐ 而小单元提交时，<strong>每次失败都精确对应一个改动</strong>。</li>
+<li>因为<strong>错误会累积且无法定位</strong>。500 个文件一起改完再跑测试，挂了 30 个用例，<strong>你无法知道是哪些改动引起的</strong>，只能整体回滚重来。⭐ 而小单元提交时，<strong>小批次能缩小排查范围；跨模块依赖仍可能导致交互性失败</strong>。</li>
 <li>⭐ 人负责<strong>①定义迁移规则和边界情况 ②建立验证手段 ③处理模型报上来的例外</strong>。也就是<strong>「定规则 + 建尺子 + 处理异常」</strong>，而不是逐个 review 每处改动——<strong>那样规模上不去，也失去了自动化的意义</strong>。</li>
 </ol>
 </details>
@@ -297,4 +297,5 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
+<link rel="stylesheet" href="../assets/polish-claude-library-reader.css">
 </body></html>

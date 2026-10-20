@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="polish-ai-infra-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -293,7 +293,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
-<li><a href="#kernel-hbm">🔥 一、问题：kernel 之间必须过 HBM</a></li>
+<li><a href="#kernel-hbm">🔥 一、问题：kernel 边界可能增加显存读写与启动</a></li>
 <li><a href="#torchcompile">🪄 二、torch.compile：先试这个</a></li>
 <li><a href="#triton">✍️ 三、Triton：需要手写时的选择</a></li>
 <li><a href="#_3">📦 四、现成的融合实现（优先用这些）</a></li>
@@ -312,7 +312,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <a href="03-显存与带宽墙.html">第 3 章</a>算过逐元素操作的算术强度只有 0.17 ——
 <strong>融合就是把这个数字乘以 N 的手段。</strong></p>
 <hr />
-<h2 id="kernel-hbm">🔥 一、问题：kernel 之间必须过 HBM</h2>
+<h2 id="kernel-hbm">🔥 一、问题：kernel 边界可能增加显存读写与启动</h2>
 <section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">y = gelu(x @ W + b) * scale</span></div><div class="vb-flow-row"><span class="vb-flow-step">PyTorch eager 模式下会跑【四个】kernel：</span></div><div class="vb-flow-row"><span class="vb-flow-step">① tmp1 = x @ W</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">写 HBM</span></div><div class="vb-flow-row"><span class="vb-flow-step">② tmp2 = tmp1 + b</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">读 HBM，写 HBM</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ tmp3 = gelu(tmp2)</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">读 HBM，写 HBM</span></div><div class="vb-flow-row"><span class="vb-flow-step">④ y = tmp3 * scale</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">读 HBM，写 HBM</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 中间结果被写出去又读回来【三次】</span></div><div class="vb-flow-row"><span class="vb-flow-step">而每次 kernel 只做一点点计算</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">纯带宽浪费</span></div></div></section>
 <section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">融合后：</span></div><div class="vb-flow-row"><span class="vb-flow-step">① 一个 kernel：读 x 和 W</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">在寄存器/Shared Memory 里</span></div><div class="vb-flow-row"><span class="vb-flow-step">完成 matmul、加 bias、gelu、乘 scale</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">写 y</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ HBM 往返从 4 次降到 1 次</span></div></div></section>
 <p><strong>收益估算</strong>：</p>
@@ -376,7 +376,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><strong>代码里有 <code>.item()</code> / <code>print</code></strong></td>
-<td>强制同步 → 必然 graph break</td>
+<td>可能同步或触发 graph break，依版本与配置而变</td>
 <td>训练循环里删掉</td>
 </tr>
 <tr>
@@ -555,7 +555,7 @@ profiler 的时间轴上，<strong>GPU 行有大量空隙，CPU 行满满当当<
 <hr />
 <h2 id="_5">✅ 检查点</h2>
 <ol>
-<li>为什么 kernel 之间必须过 HBM？这造成什么浪费？</li>
+<li>为什么 kernel 边界可能增加显存读写与启动？这造成什么浪费？</li>
 <li>除了带宽，融合还省了什么开销？什么时候这一项更致命？</li>
 <li><code>torch.compile</code> 的三个阶段是什么？典型收益多少？</li>
 <li><code>reduce-overhead</code> 模式做了什么？适合什么场景？</li>
@@ -589,6 +589,7 @@ profiler 的时间轴上，<strong>GPU 行有大量空隙，CPU 行满满当当<
 <p>⭐ 最后一条判据最省事：<strong>profiler 时间轴上 GPU 那行有空隙、CPU 那行是满的，就说明 CPU 喂不饱 GPU——这时候做任何算力优化都毫无意义。</strong></p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="08-FlashAttention.html">08-FlashAttention.md</a> ⭐</p>
+<details class="g05-content-note"><summary>条件与依据</summary><p>示意中的四个 kernel 与读写次数是假定的 eager 分解；库也可能融合 epilogue，L2 缓存可能承接部分读写。torch.compile 不保证把 matmul 和所有后处理合为一个 kernel，需看所用版本的图断点、生成代码与实测。</p><p><a href="https://docs.pytorch.org/docs/stable/compile/programming_model.common_graph_breaks.html">官方文档</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="06-混合精度.html"><div class="dir">← 上一节</div>⭐ 混合精度</a><a class="next" href="08-FlashAttention.html"><div class="dir">下一节 →</div>⭐⭐ FlashAttention</a></nav>
@@ -615,4 +616,4 @@ profiler 的时间轴上，<strong>GPU 行有大量空隙，CPU 行满满当当<
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-ai-infra-reader.css"></body></html>

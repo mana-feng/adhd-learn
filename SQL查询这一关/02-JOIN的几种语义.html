@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="sql-query">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -306,12 +306,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="02-join">02 · JOIN 的几种语义，和扇出这个隐形杀手</h1>
+<details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>78 分钟</strong> ｜ ⭐ <strong>实测：JOIN 之后 SUM 从 150 变成 250——没报错，账就这么错了</strong></p>
-<hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong><code>JOIN</code> 不是「把两张表拼在一起」，是「按条件做一次配对」——配对的结果行数，可能比任何一张原表都多。</strong>
 一旦多出来，你后面所有的 <code>SUM</code> / <code>COUNT</code> / <code>AVG</code> 全部跟着放大，而数据库<strong>一个字都不会提醒你</strong>。</p>
-<hr />
 <h2 id="_2">🚦 一、五种连接，一次跑完</h2>
 <p>三个用户、四张单，其中「阿花」一张单都没有，而 <code>id=13</code> 那张单挂在一个不存在的用户 <code>99</code> 上（孤儿行，真实系统里非常常见）：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
@@ -398,7 +397,6 @@ LEFT JOIN 明细:
 <p>⚠️ <strong><code>RIGHT JOIN</code> / <code>FULL JOIN</code> 是 SQLite 3.39 才有的</strong>（本机 3.50.4）。老版本 SQLite 和老版本 MySQL 没有 <code>FULL JOIN</code>，
 习惯做法是「<code>LEFT JOIN</code> 一遍 + <code>UNION</code> + 反过来再 <code>LEFT JOIN</code> 一遍」。
 ⭐ 实践里 <code>RIGHT JOIN</code> 几乎不用 —— 把两张表调个位置写成 <code>LEFT JOIN</code> 就行，读起来还顺。</p>
-<hr />
 <h2 id="on-where-left-join">🧩 二、<code>ON</code> 和 <code>WHERE</code>，在 <code>LEFT JOIN</code> 上不是一回事</h2>
 <p>这是全章最容易被忽略、后果又最具体的一条。<strong>同样一个 <code>status='paid'</code> 条件，写在 <code>ON</code> 里和写在 <code>WHERE</code> 里，结果完全不同：</strong></p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
@@ -477,9 +475,11 @@ LEFT JOIN 明细:
 💀 <strong>所以这个坑是这样长出来的</strong>：先写了个 <code>INNER JOIN</code>，条件顺手放进 <code>WHERE</code>，一切正常；
 后来需求变成「没有单的人也要出现在报表里」，于是把 <code>INNER</code> 改成 <code>LEFT</code> —— 只改了一个词，<code>WHERE</code> 忘了动。
 报表还是少那几个人，而且不报错。</p>
-<p>⭐ <strong>唯一的例外是第④种写法</strong>：<code>LEFT JOIN</code> 之后 <code>WHERE 右表列 IS NULL</code>。
+<p>⭐ <strong>一种常见的有意用法是第④种写法</strong>：<code>LEFT JOIN</code> 之后 <code>WHERE 右表列 IS NULL</code>。
 它是<strong>故意</strong>利用这个退化行为来做「反连接」（找左边有、右边没有的），是标准手法，05 章还会再用它一次。</p>
 <hr />
+
+<figure class="polish-figure" style="margin:1.5em 0"><img src="../assets/polish-sql-query-figures/left-join-filter.svg" width="288" height="695" style="display:block;max-width:100%;height:auto" loading="lazy" alt="沿用原页三个用户：阿呆有paid和refunded订单，阿瓜只有refunded订单，阿花无订单。paid条件放ON时保留阿呆的paid单并为另两人补NULL，得到三行；放WHERE时只剩阿呆的paid单一行。"><figcaption><strong>LEFT JOIN：在哪一步筛</strong> — 同样的右表条件 o.status = &#x27;paid&#x27;：放在 ON 得 3 行，放在 WHERE 得 1 行。该结论针对这个拒绝 NULL 的条件；不要推广成所有 WHERE 条件都会消除外连接。 <a href="../assets/polish-sql-query-figures/left-join-filter.svg">单独打开图示</a></figcaption></figure>
 <h2 id="sum-150-250">💀 三、扇出：<code>SUM</code> 从 150 变成 250</h2>
 <h3 id="_3">症状</h3>
 <p>两张订单（100 元 + 50 元，真实总额 <strong>150</strong>），一张标签表。1 号单有两个标签，2 号单有一个。
@@ -580,8 +580,7 @@ JOIN 之后 SUM   = 250.0  参与求和的行数 = 3
 <div class="codehilite" data-code-language="sql"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="k">COUNT</span><span class="p">(</span><span class="o">*</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">1</span><span class="p">.</span><span class="mi">0</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="k">COUNT</span><span class="p">(</span><span class="k">DISTINCT</span><span class="w"> </span><span class="n">order_id</span><span class="p">)</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">tags</span><span class="p">;</span>
 </code></pre></div>
 
-<p>实跑是 <strong>1.5</strong> —— 只要这个数大于 1，<code>JOIN</code> 就会扇出，你后面的聚合就必须处理它。
-等于 1 就是安全的一对一（或一对零一）。</p>
+<p>本例的平均连接倍数是 <strong>1.5</strong>，说明结果行数被放大。<strong>平均数等于 1 并不能证明逐键一对一</strong>：例如左表有 id=1、2，右表有两条 id=1、没有 id=2，内连接仍得到两行，却重复了 id=1。应按左表主键 <code>GROUP BY</code>，检查 <code>HAVING COUNT(*) &gt; 1</code>；也检查未匹配行，不能让漏行和重复互相抵消。</p>
 <p>⚠️ <strong>1.5 这个平均值还会骗人</strong>：真正决定风险的是<strong>最大值</strong>，因为长尾那几个键会把误差集中放大：</p>
 <div class="codehilite" data-code-language="sql"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="k">MAX</span><span class="p">(</span><span class="n">n</span><span class="p">)</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="p">(</span><span class="k">SELECT</span><span class="w"> </span><span class="n">order_id</span><span class="p">,</span><span class="w"> </span><span class="k">COUNT</span><span class="p">(</span><span class="o">*</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">tags</span><span class="w"> </span><span class="k">GROUP</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">order_id</span><span class="p">);</span>
 </code></pre></div>
@@ -593,7 +592,6 @@ JOIN 之后 SUM   = 250.0  参与求和的行数 = 3
 <strong>后半章还有</strong>：连接键的基数，决定结果的行数 · 自连接：把「同一张表的两行」摆到一行上 · 四个安静的语义坑
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="_6">📋 四、连接键的基数，决定结果的行数</h2>
 <p><strong>在写 <code>JOIN</code> 之前，先回答一句话：「右表里，同一个连接键最多有几行？」</strong></p>
 <div class="tw"><table>
@@ -665,7 +663,6 @@ orders JOIN tags JOIN items -&gt; 7 行  ⚠️ 是相乘不是相加
 <p>💀 <strong>两张一对多的表连在同一个主表上，误差是乘出来的，不是加出来的。</strong>
 ⚠️ 而这正是「订单 + 商品明细 + 优惠券」这种最常见的报表结构。
 ⭐ <strong>正确做法是各自先聚合成一行一单，再分别连过来</strong>（第三节的修法②），或者干脆写成两条查询。</p>
-<hr />
 <h2 id="_7">🧯 五、自连接：把「同一张表的两行」摆到一行上</h2>
 <p>表连自己没有任何特殊之处，只是<strong>必须起别名</strong>（否则数据库分不清 <code>id</code> 是哪个 <code>id</code>）。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
@@ -717,7 +714,6 @@ orders JOIN tags JOIN items -&gt; 7 行  ⚠️ 是相乘不是相加
 删掉一行，链就断了。
 ⭐ <strong>「和上一行比」这件事的正确工具是窗口函数 <code>LAG()</code></strong>，那是 <a href="07-窗口函数.html">07 章</a>的正题 ——
 本章演示自连接是为了让你看清窗口函数在替你做什么，不是推荐这么写。</p>
-<hr />
 <h2 id="_8">🔎 六、四个安静的语义坑</h2>
 <p><strong>① <code>USING(col)</code> 是 <code>ON a.col = b.col</code> 的简写，但它会把那一列合并成一列。</strong>
 <code>SELECT *</code> 时 <code>ON</code> 版给你两个 <code>order_id</code>，<code>USING</code> 版只给一个。⭐ 两边列名一样时 <code>USING</code> 更干净。</p>
@@ -767,7 +763,6 @@ IS 而不是 = -&gt; [(&#39;x1&#39;, &#39;y1&#39;), (&#39;x-null&#39;, &#39;y-nu
 <p>⭐ <code>NULL = NULL</code> 判不出真（<a href="04-NULL与三值逻辑.html">04 章</a>的正题），所以两个 <code>NULL</code> 键<strong>配不上对</strong>。
 ⚠️ 这在多数时候是<strong>你想要的</strong>（「未知」和「未知」当然不该算同一个人），
 但如果你的连接键真的允许 <code>NULL</code> 并且希望它们相等，SQLite 用 <code>IS</code>、Postgres 用 <code>IS NOT DISTINCT FROM</code>。</p>
-<hr />
 <h2 id="_9">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -807,7 +802,6 @@ IS 而不是 = -&gt; [(&#39;x1&#39;, &#39;y1&#39;), (&#39;x-null&#39;, &#39;y-nu
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_10">✅ 检查点</h2>
 <ol>
 <li>三个用户、四张单（含一张孤儿单、一个没下过单的人）那组实测里，五种连接各返回几行？每个数字怎么来的？</li>
@@ -851,7 +845,6 @@ IS 而不是 = -&gt; [(&#39;x1&#39;, &#39;y1&#39;), (&#39;x-null&#39;, &#39;y-nu
     MySQL 会<strong>隐式转换连上</strong>，⚠️ 代价是索引失效。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_11">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
@@ -889,4 +882,4 @@ IS 而不是 = -&gt; [(&#39;x1&#39;, &#39;y1&#39;), (&#39;x-null&#39;, &#39;y-nu
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-sql-query-reader.css"></body></html>

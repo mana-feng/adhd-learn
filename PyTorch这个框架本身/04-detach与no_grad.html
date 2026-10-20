@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="pytorch-framework">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -309,8 +309,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="04-detach-no_grad-requires_grad">04 · <code>detach</code> / <code>no_grad</code> / <code>requires_grad</code>：三个都在断，断的不是一个东西</h1>
+<details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>94 分钟</strong> ｜ ⭐ <strong>实测：想冻住中间那一层，三种写法后果全不一样 —— 一种把上游一起冻了，一种冻错了对象</strong></p>
-<hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong><code>requires_grad</code> 标记的是「这个叶子要不要梯度」，<code>no_grad</code> 关的是「当前这段代码建不建图」，<code>detach</code> 剪的是「这一个张量往回的那条边」。</strong>
 三件事都被人叫做「断梯度」，但断的对象分别是<strong>一个属性、一段代码、一条边</strong> —— 尺度差了三个量级。</p>
@@ -320,7 +320,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 而第五节的实测会告诉你：三个写法里有两个会给你一个你不想要的结果，并且都不报错。</p>
 <p>（本章也接着 <a href="03-三种就地操作报错.html">03 章</a>第八节：那里实测过 <code>no_grad</code> 和 <code>detach</code> <strong>都拦不住版本计数器</strong>。
 那是从「它们拦不住什么」的角度说的，本章反过来讲<strong>它们各自拦得住什么</strong>。）</p>
-<hr />
 <h2 id="_2">🧩 一、先把三个摆在一起看</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
@@ -378,7 +377,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⚠️ <strong><code>is_leaf=True</code> 这一列容易误读</strong>：它不代表「这是参数」。
 <a href="02-autograd怎么建图.html">02 章</a>第五节说过，叶子的定义是「<strong>不是由要求导的运算算出来的</strong>」——
 <code>detach</code> 和 <code>no_grad</code> 的产物都符合这个定义，所以它们都是叶子，但它们的 <code>requires_grad</code> 是 <code>False</code>，也就拿不到 <code>.grad</code>。</p>
-<hr />
 <h2 id="requires_grad">🧩 二、<code>requires_grad</code>：一个属性，而且只能设在叶子上</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
@@ -430,7 +428,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⚠️ <strong><code>requires_grad=False</code> 的叶子会怎样</strong>：它照样参与前向计算、照样出现在表达式里，
 只是<strong>图里不给它挂 <code>AccumulateGrad</code> 节点</strong>（<a href="02-autograd怎么建图.html">02 章</a>第一节），
 反向走到它就停 —— 所以它的 <code>.grad</code> 永远是 <code>None</code>。</p>
-<hr />
 <h2 id="no_grad">🧩 三、<code>no_grad</code>：它是个开关，不是个标记</h2>
 <p>⭐ <strong>最常见的误解：以为 <code>with torch.no_grad():</code> 会把块里碰到的张量「设成不要梯度」。它不会。</strong></p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -498,7 +495,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 ⭐ 但这不影响别的路径：<code>a * w</code> 里 <code>w</code> 还是要梯度的，实测 <code>w.grad = [6.0]</code>（<code>a</code> 的值是 6，被当成常数）。
 💀 典型事故：在 <code>no_grad</code> 里算了个 embedding 或者一段特征，出来接着拿它算 loss，
 loss 能算出来、<code>backward()</code> 也不报错，但那一段的参数一步都不会动。</p>
-<hr />
 <h2 id="detach">🧩 四、<code>detach</code>：剪的是边，不是内存</h2>
 <p>⭐ <strong><code>detach()</code> 不拷贝数据。它返回的是同一块内存的另一个「说明书」</strong> ——
 这是 <a href="01-张量到底是什么.html">01 章</a>那条「一块 storage + 一份说明书」的直接后果。</p>
@@ -518,6 +514,8 @@ loss 能算出来、<code>backward()</code> 也不报错，但那一段的参数
 <strong>它影响，而且是完全影响。</strong></p>
 <p>⭐ <strong>要一份能随便改的副本，必须 <code>.detach().clone()</code>。</strong>（两个都要：<code>detach</code> 断图，<code>clone</code> 断内存。）
 ⚠️ 顺序上 <code>detach().clone()</code> 比 <code>clone().detach()</code> 略省一点（前者的 <code>clone</code> 不进图），实践中差别很小，但习惯写前者。</p>
+
+<figure class="polish-figure" style="margin:1.5em 0"><img src="../assets/polish-pytorch-framework-figures/detach-storage.svg" width="288" height="665" style="display:block;max-width:100%;height:auto" loading="lazy" alt="设x需要梯度，y=x乘3。y的梯度可回到x；d=y.detach()无该梯度路径，但d与y共享存储。c=y.detach().clone()既切断该路径又复制存储。单独clone通常可微。"><figcaption><strong>detach：断梯度，仍共享存储</strong> — 实线箭头表示存储共享；文字中的 → 表示梯度回溯。detach 与 clone 解决不同问题；不要通过共享副本原地修改仍被反向传播需要的数值。 <a href="../assets/polish-pytorch-framework-figures/detach-storage.svg">单独打开图示</a></figcaption></figure>
 <h3 id="_5">断掉之后就回不去了</h3>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
@@ -555,7 +553,6 @@ loss 能算出来、<code>backward()</code> 也不报错，但那一段的参数
 </tbody>
 </table></div>
 <p>⚠️ 还有第三种更隐蔽的：<strong>输入和参数全都 <code>requires_grad=False</code></strong> —— 比如你把整个模型都冻住了，那 loss 本来就没有图。</p>
-<hr />
 <h2 id="_6">🧩 五、⭐ 想冻住一层，到底该用哪个（最容易写反）</h2>
 <p>先看<strong>单独一层</strong>的情况：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -696,7 +693,6 @@ loss 能算出来、<code>backward()</code> 也不报错，但那一段的参数
 <strong>后半章还有</strong>：日常最常撞的两处 · <code>inference_mode</code>：比 <code>no_grad</code> 更狠的那个 · ⚠️ 这三个都断不了的那件事 · 反查表
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="_9">🧩 六、日常最常撞的两处</h2>
 <h3 id="1-loss-detach-epoch">① 累加 loss 做统计：不 detach 就是把整个 epoch 的图挂在一根线上</h3>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -797,7 +793,6 @@ loss 能算出来、<code>backward()</code> 也不报错，但那一段的参数
 ⚠️ 那一章的坑表里第一条就是「目标里忘了 <code>torch.no_grad()</code> → 梯度回传到目标网络，训练直接乱掉」。</p>
 <p>⭐ <strong>同一个模式在别处还有两个化身</strong>：GAN 训判别器时对生成器的输出 <code>detach()</code>；
 知识蒸馏时教师模型的 logits <code>detach()</code>。<strong>判据都是一句话：这个东西是【标签】，不是【预测】。</strong></p>
-<hr />
 <h2 id="inference_mode-no_grad">🧩 七、<code>inference_mode</code>：比 <code>no_grad</code> 更狠的那个</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
@@ -859,7 +854,6 @@ loss 能算出来、<code>backward()</code> 也不报错，但那一段的参数
 <p>⚠️ <strong>别为了那点速度在训练脚本里用 <code>inference_mode</code></strong> —— 一旦你后来想拿验证时算的某个东西参与训练
 （比如做个自蒸馏、算个正则项），就会撞上这条报错，而且它离现场很远。
 ⭐ <strong>报错原文自己给了两条修法</strong>：<code>clone()</code> 一份，或者换回 <code>no_grad()</code>。</p>
-<hr />
 <h2 id="_10">🧩 八、⚠️ 这三个都断不了的那件事</h2>
 <p>⭐ <strong>它们全都只管 autograd。凡是不走 autograd 的状态更新，一个都拦不住。</strong></p>
 <p>最典型的就是 <strong>BatchNorm 的 <code>running_mean</code> / <code>running_var</code></strong>：它们是在<strong>前向</strong>里用滑动平均直接改写的，
@@ -902,7 +896,6 @@ loss 能算出来、<code>backward()</code> 也不报错，但那一段的参数
 <strong>最后一段还有</strong>（约 26 分钟）：反查表 · 检查点与走神救援
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="_11">📋 九、反查表</h2>
 <div class="tw"><table>
 <thead>
@@ -972,7 +965,6 @@ loss 能算出来、<code>backward()</code> 也不报错，但那一段的参数
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_12">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -1024,7 +1016,6 @@ loss 能算出来、<code>backward()</code> 也不报错，但那一段的参数
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_13">✅ 检查点</h2>
 <ol>
 <li>用一句话分别说清 <code>requires_grad</code> / <code>no_grad</code> / <code>detach</code> 各自「断」的是什么？三者作用的对象分别是什么？</li>
@@ -1053,7 +1044,6 @@ loss 能算出来、<code>backward()</code> 也不报错，但那一段的参数
 <li>⚠️ 漏掉了 <strong>BatchNorm 的 <code>running_mean</code> / <code>running_var</code></strong> —— 它们在前向里用滑动平均直接改写，不是梯度也不经反向，所以 <code>no_grad</code>、<code>requires_grad_(False)</code>、<code>detach</code> 输入三个全都拦不住（<code>running_*</code> 根本不是参数，是 buffer）。只有 <code>bn.eval()</code> 能，它切的是那个 <code>training</code> 布尔。💀 这就是 ML 基础 17 章那条坑「冻结主干时忘了 <code>bn.eval()</code> → running stats 被新数据带跑」的机制：参数一个没动，模型行为却在漂，零报错。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_14">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
@@ -1092,4 +1082,4 @@ loss 能算出来、<code>backward()</code> 也不报错，但那一段的参数
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-pytorch-framework-reader.css"></body></html>

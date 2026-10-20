@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="pytorch-framework">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -298,7 +298,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#ctxsave_for_backwardx-ctxx-x">🧷 三、ctx.save_for_backward(x) 和 ctx.x = x 的差别</a></li>
 <li><a href="#80-mb-10-mb">♻️ 四、把「重算」写进反向：8.0 MB → 1.0 MB</a></li>
 <li><a href="#gradcheck">🧪 五、gradcheck：不要靠眼睛检查导数</a></li>
-<li><a href="#_6">🔁 六、二阶导：默认能，除非你明说不能</a></li>
+<li><a href="#_6">🔁 六、二阶导：取决于 backward 是否保持可微链路</a></li>
 <li><a href="#_7">🚦 七、这一章不讲什么</a></li>
 <li><a href="#_8">🔗 这一章连到哪里</a></li>
 <li><a href="#_9">✅ 检查点</a></li>
@@ -307,12 +307,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="09-autograd">09 · 自己写一个 autograd 算子</h1>
+<details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>114 分钟</strong> ｜ ⭐ <strong>实测：把 8 层 <code>tanh</code> 的中间结果一个都不存、反向时重算一遍，图里存下的字节从 8.0 MB 掉到 1.0 MB，梯度一位不差</strong></p>
-<hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong><code>autograd.Function</code> 是你和框架签的一份合同：前向那一格随便你怎么算（可以出去用 numpy、可以完全不建图、可以做一个数学上根本不可导的操作），代价是【反向那一格必须你自己填】。</strong>
 第 02 章讲的是框架<strong>自动</strong>建图；这一章讲的是手动往图里插一个节点 —— 插进去之后，它和内置算子在 autograd 眼里没有任何区别。</p>
-<hr />
 <h2 id="_2">🧩 一、什么时候真的需要它</h2>
 <p>先说清楚<strong>什么时候不需要</strong>，因为这是最常见的误用。</p>
 <p>⚠️ <strong>「我想让它更快」不在清单里。</strong> 如果你的操作只是把已有算子组合起来（<code>x.sigmoid() * w + b</code> 这种），autograd 自己求出来的导数既正确又不慢，手写一个 <code>Function</code> 只会多一层 Python 调用、多一个会写错的地方。</p>
@@ -373,7 +372,6 @@ RuntimeError: element 0 of tensors does not require grad and does not have a gra
 <p>同样的情形还包括：调一段自己写的 C++ / CUDA 核、调一个只有 Python 接口的第三方库、调一个跑在别的进程里的模拟器。</p>
 <h3 id="3">③ ⭐ 你想拿「反向时重算」去换显存</h3>
 <p>这是第四节的正题，也是本章唯一一个「<strong>优化</strong>」用途 —— 注意它优化的不是速度，是<strong>显存</strong>，而且是用速度去换。</p>
-<hr />
 <h2 id="_3">🔧 二、合同的四条条款</h2>
 <p>最小的一个 <code>Function</code>：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -566,7 +564,6 @@ RuntimeError: Legacy autograd function with non-static forward method is depreca
 <p>⭐ <strong>注意 <code>grad_fn</code> 从 <code>None</code> 变成了 <code>NpSqrtBackward</code></strong> —— 中间那段 numpy 计算对 autograd 来说变成了一个不透明的黑盒，但图是连着的。
 这就是「怎么把一个外部实现接进 PyTorch」的 Python 侧答案。</p>
 <p>⚠️ <strong>C++ / CUDA 侧的答案不在这里</strong> —— 一个真正的算子是怎么用 <code>TORCH_LIBRARY</code> 注册进去、怎么跟 dispatcher 打交道，在 <a href="../框架底下是C++/05-算子怎么注册进PyTorch.html">《框架底下是 C++》05 · 算子怎么注册进 PyTorch</a>。这一章只到 Python 这一层为止。</p>
-<hr />
 <h2 id="ctxsave_for_backwardx-ctxx-x">🧷 三、<code>ctx.save_for_backward(x)</code> 和 <code>ctx.x = x</code> 的差别</h2>
 <p>这两行看起来只是写法不同，实际上差着一整套<strong>版本检查</strong>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -638,10 +635,9 @@ RuntimeError: Legacy autograd function with non-static forward method is depreca
 <!--MIDSTOP-->
 <blockquote>
 <p>🛑 <strong>读到这里可以停</strong> —— 前半章讲完了（约 44 分钟）。
-<strong>后半章还有</strong>：把「重算」写进反向：8.0 MB → 1.0 MB · <code>gradcheck</code>：不要靠眼睛检查导数 · 二阶导：默认能，除非你明说不能 · 这一章不讲什么
+<strong>后半章还有</strong>：把「重算」写进反向：8.0 MB → 1.0 MB · <code>gradcheck</code>：不要靠眼睛检查导数 · 二阶导：取决于 backward 是否保持可微链路 · 这一章不讲什么
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="80-mb-10-mb">♻️ 四、把「重算」写进反向：8.0 MB → 1.0 MB</h2>
 <p>这是自定义算子最有工程价值的一个用法。</p>
 <p>先看问题：前向每做一步，autograd 就要为反向留下一份中间结果。做 8 次 <code>tanh</code>，就留 8 份。</p>
@@ -834,17 +830,16 @@ FlashAttention 那种「连注意力矩阵都不存、反向现算」的极端�
 <!--MIDSTOP2-->
 <blockquote>
 <p>🛑 <strong>第二个休息点</strong> —— 中段讲完了（约 22 分钟）。
-<strong>最后一段还有</strong>：<code>gradcheck</code>：不要靠眼睛检查导数 · 二阶导：默认能，除非你明说不能 · 这一章不讲什么
+<strong>最后一段还有</strong>：<code>gradcheck</code>：不要靠眼睛检查导数 · 二阶导：取决于 backward 是否保持可微链路 · 这一章不讲什么
 这一章确实长，分三次读完全没问题 —— 回来直接从下一节接着看。</p>
 </blockquote>
 <hr />
 <!--MIDSTOP-->
 <blockquote>
 <p>🛑 <strong>读到这里可以停</strong> —— 已经读了约 67 分钟。
-<strong>最后一段还有</strong>（约 24 分钟）：<code>gradcheck</code>：不要靠眼睛检查导数 · 二阶导：默认能，除非你明说不能 · 这一章不讲什么
+<strong>最后一段还有</strong>（约 24 分钟）：<code>gradcheck</code>：不要靠眼睛检查导数 · 二阶导：取决于 backward 是否保持可微链路 · 这一章不讲什么
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="gradcheck">🧪 五、<code>gradcheck</code>：不要靠眼睛检查导数</h2>
 <p>反向写错<strong>不会报错</strong>，只会让模型收敛得差一点 —— 这是本章所有坑里最贵的一个。
 PyTorch 自带一个数值验证工具：<strong>它拿有限差分算一遍数值梯度，和你的 <code>backward</code> 对答案。</strong></p>
@@ -915,8 +910,8 @@ PyTorch 自带一个数值验证工具：<strong>它拿有限差分算一遍数�
 <p>💀 <strong>这个 <code>Square</code> 的实现是【对】的</strong>（上面刚验过 <code>True</code>），只是换成 <code>float32</code> 就挂了。
 原因是有限差分要算 <code>(f(x+h) - f(x-h)) / 2h</code>，<code>h</code> 很小，两个相近的数相减在 float32 下几乎没有有效位剩下。
 ⚠️ <strong>所以 <code>gradcheck</code> 失败的第一件事不是改代码，是先确认输入是不是 <code>torch.double</code>。</strong> PyTorch 好心给了那条 warning，但它混在一堆输出里很容易被忽略。</p>
-<hr />
-<h2 id="_6">🔁 六、二阶导：默认能，除非你明说不能</h2>
+<h2 id="_6">🔁 六、二阶导：取决于 backward 是否保持可微链路</h2>
+<p>下面的 Square 能求二阶导，是因为 backward 使用可微的 PyTorch 运算并保留了所需链路；这不是所有自定义 Function 的默认保证。只保存 forward 内部的中间量、调用外部不可微代码或显式 detach 都可能断开二阶链路。需要高阶导时，另用 <code>gradgradcheck</code> 检查。参见 <a href="https://docs.pytorch.org/docs/stable/generated/torch.autograd.function.FunctionCtx.save_for_backward.html">保存中间张量与二阶导限制</a>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch.autograd.function</span><span class="w"> </span><span class="kn">import</span> <span class="n">once_differentiable</span>
 
@@ -963,7 +958,6 @@ PyTorch 自带一个数值验证工具：<strong>它拿有限差分算一遍数�
 <p>⚠️ <strong><code>@once_differentiable</code> 是你主动放弃这个能力</strong>：它在 <code>backward</code> 外面包了一层 <code>no_grad</code>，于是二阶导求不出来，报的还是那句 <code>element 0 of tensors does not require grad</code>。</p>
 <p>✅ <strong>什么时候该用它</strong>：你的 <code>backward</code> 里干了不可微的事（调 numpy、调外部库、写了 <code>.item()</code> 分支）。这时候主动挂上 <code>@once_differentiable</code>，让别人在第二次求导时收到一句明确的报错，好过让 autograd 在半路上给出一个悄悄错掉的结果。</p>
 <p>💡 需要二阶导的场景比你想的多：MAML 这类元学习、WGAN-GP 的梯度惩罚、以及任何要算 Hessian-vector product 的地方。</p>
-<hr />
 <h2 id="_7">🚦 七、这一章不讲什么</h2>
 <div class="tw"><table>
 <thead>
@@ -991,7 +985,6 @@ PyTorch 自带一个数值验证工具：<strong>它拿有限差分算一遍数�
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_8">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -1035,7 +1028,6 @@ PyTorch 自带一个数值验证工具：<strong>它拿有限差分算一遍数�
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_9">✅ 检查点</h2>
 <ol>
 <li>有人说「我这个 <code>x.sigmoid() * w + b</code> 写成 <code>autograd.Function</code> 会更快」，哪里不对？真正需要自定义算子的是哪三种情况？</li>
@@ -1066,7 +1058,6 @@ PyTorch 自带一个数值验证工具：<strong>它拿有限差分算一遍数�
 <li><strong>默认支持</strong> —— 因为 <code>backward</code> 里的 <code>g * 2 * x</code> 本身就是可微算子，配 <code>create_graph=True</code> 就能再求一次（实测 <code>x=3</code> 时一阶导 6.0、二阶导 2.0）。<code>@once_differentiable</code> 是主动放弃它（内部包了一层 <code>no_grad</code>）。✅ 该加的时候：<code>backward</code> 里干了不可微的事（调 numpy、调外部库、<code>.item()</code> 分支）—— 让别人求二阶导时收到明确报错，好过拿到一个悄悄错掉的结果。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_10">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
@@ -1105,4 +1096,4 @@ PyTorch 自带一个数值验证工具：<strong>它拿有限差分算一遍数�
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-pytorch-framework-reader.css"></body></html>

@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="polish-ai-infra-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -331,7 +331,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="c1"># → 和训练需要的速度对比</span>
 </code></pre></div>
 
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>⭐ 判据：数据管线的吞吐必须 ≥ 训练吞吐的 1.2 倍</p><p>否则 GPU 一定会有等待</p></div></section>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>⭐ 判据：数据供给需覆盖训练消耗并留抖动余量，1.2 倍只是压测起点</p><p>是否等待还取决于预取、缓存和耗时抖动</p></div></section>
 <blockquote>
 <p>💡 <strong>profiler 里的信号</strong>（<a href="04-Roofline与MFU.html">第 4 章</a>）：
 <strong>GPU 时间轴上有规律的空隙，且空隙出现在每个 step 的开头</strong> —— 就是数据没跟上。</p>
@@ -425,7 +425,7 @@ x = torch.from_numpy(tokens[i:i+seq_len].astype(np.int64))
 <hr />
 <h2 id="_6">✂️ 五、序列打包：一个常被忽略的大优化</h2>
 <section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 变长文本 + padding 的浪费：</span></div><div class="vb-flow-row"><span class="vb-flow-step">样本长度: [120, 2048, 340, 89, 1500]</span></div><div class="vb-flow-row"><span class="vb-flow-step">padding 到 2048</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">有效 token 只占 40%</span></div><div class="vb-flow-row"><span class="vb-flow-step">【60% 的算力在算 padding】💀</span></div></div></section>
-<section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">✅ 序列打包（packing）：</span></div><div class="vb-flow-row"><span class="vb-flow-step">把多条短样本【拼成】一条满长度的序列</span></div><div class="vb-flow-row"><span class="vb-flow-step">[样本A][样本B][样本C][样本D] ← 拼满 2048</span></div><div class="vb-flow-row"><span class="vb-flow-step">↑ 用 attention mask 或 position_ids 隔开，防止跨样本注意 ⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">有效 token 占比从 40% 提到 95%+</span></div><div class="vb-flow-row"><span class="vb-flow-step">等于【训练速度翻倍】⭐</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">✅ 序列打包（packing）：</span></div><div class="vb-flow-row"><span class="vb-flow-step">把多条短样本【拼成】一条满长度的序列</span></div><div class="vb-flow-row"><span class="vb-flow-step">[样本A][样本B][样本C][样本D] ← 拼满 2048</span></div><div class="vb-flow-row"><span class="vb-flow-step">↑ 用分块 attention mask 或匹配变长内核隔离样本；仅重置 position_ids 不能阻止跨样本注意 ⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">有效 token 占比从 40% 提到 95%+</span></div><div class="vb-flow-row"><span class="vb-flow-step">等于【训练速度翻倍】⭐</span></div></div></section>
 <blockquote>
 <p>⚠️ <strong>打包必须正确隔离</strong>：
 如果不隔离，样本 B 会 attend 到样本 A 的内容 —— <strong>模型会学到错误的关联</strong>。
@@ -519,6 +519,7 @@ FlashAttention 支持 <code>cu_seqlens</code>（变长序列），
 <p>⭐ 存储层次的实用技巧：<strong>后台预取下一轮的分片到本地盘，把网络存储的延迟藏起来。</strong></p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="23-可观测性与成本.html">23-可观测性与成本.md</a></p>
+<details class="g05-content-note"><summary>条件与依据</summary><p>预处理 token 的 dtype 必须覆盖词表最大 ID：uint16 仅容纳 0–65535，较大词表需 uint32 等。DistributedSampler 为各 rank 补齐时可能重复样本、drop_last 可能丢弃；要记录所选语义。CUDA 预取骨架还需在消费流对张量 record_stream 或保留其生命周期，避免分配器提前复用；不能把 wait_stream 等同内存生命周期管理。</p><p><a href="https://docs.pytorch.org/docs/stable/notes/cuda.html">官方文档</a>；<a href="https://docs.pytorch.org/docs/stable/data.html">官方文档</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="21-训练稳定性与故障恢复.html"><div class="dir">← 上一节</div>⭐ 稳定性与容错</a><a class="next" href="23-可观测性与成本.html"><div class="dir">下一节 →</div>⭐ 可观测性与成本</a></nav>
@@ -545,4 +546,4 @@ FlashAttention 支持 <code>cu_seqlens</code>（变长序列），
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-ai-infra-reader.css"></body></html>

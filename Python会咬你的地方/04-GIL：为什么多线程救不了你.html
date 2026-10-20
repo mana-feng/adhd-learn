@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="python-pitfalls">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -310,12 +310,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="04-gil">04 · GIL：为什么多线程救不了你</h1>
+<details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>94 分钟</strong> ｜ ⭐ <strong>判据不是「CPU 密集还是 I/O 密集」，是「这个操作放不放 GIL」——同样叫 CPU 密集，<code>np.sort</code> 开线程快 3 倍，<code>json.loads</code> 开线程一点不快</strong></p>
-<hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>一个 Python 进程里有一把全局锁，同一时刻只允许一个线程在执行 Python 字节码；但一个操作只要下沉到 C 里去干重活，它就可以把这把锁放开。</strong>
-所以「多线程有没有用」不取决于活重不重，取决于<strong>这段活是在解释器里跑还是在 C 里跑</strong>。这一章给的就是这条判据，以及判据两边分别该选线程、进程还是 async。</p>
-<hr />
+<p>本章首先讨论<strong>启用 GIL 的 CPython 解释器</strong>：同一解释器中通常只有一个线程执行 Python 字节码。阻塞 I/O 和某些明确释放 GIL 的原生计算可以并发；“用 C 实现”本身不保证释放 GIL。free-threaded 构建需另查实际运行状态。</p>
 <h2 id="gil">🧩 一、GIL 是什么：一个进程一把锁</h2>
 <p>GIL 全称 Global Interpreter Lock，全局解释器锁。它的规则用一句话讲完：</p>
 <blockquote>
@@ -339,7 +337,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong>最后那行 <code>0.005</code> 秒是全部机制</strong>：一个线程拿到锁之后，每隔 5 毫秒会被要求把锁交出来一次，让别的线程有机会跑。所以线程之间是<strong>轮流跑</strong>，不是同时跑——切换很密集，看起来像并行，加起来的吞吐却还是一个核的量。</p>
 <p>为什么会有这么一把锁：CPython 用<strong>引用计数</strong>管内存，每个对象身上挂着一个「有几个名字指着我」的计数器（这就是 <a href="01-名字、对象和绑定.html">01 章</a>里那些「标签」的实现）。这个计数器几乎每执行一条字节码都会被加减一次。如果两个线程同时改同一个计数器，就会出现「都以为自己是最后一个」于是重复释放，或者「都以为对方还在用」于是永远不释放。</p>
 <p>⭐ 给每个对象配一把锁在技术上可行，但<strong>代价是给每一次加减都加锁</strong>——单线程程序会因此显著变慢。GIL 是「一把大锁换掉几亿把小锁」的工程折衷：<strong>单线程最快，多线程受罚</strong>。</p>
-<hr />
 <h2 id="python-cpu">🧩 二、纯 Python 的 CPU 活：线程一点忙都帮不上</h2>
 <p>先把最常见的期待打掉。8 核机器，4 份一模一样的计算活：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 纯 Python 的 CPU 活：串行 / 4 线程 / 4 进程</span>
@@ -393,7 +390,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>起 4 个线程 + 跑 4 个空任务 0.002 s</p><p>起 4 个进程 + 跑 4 个空任务 0.387 s</p></div></section>
 <p>⭐ <strong>0.002 s 对 0.387 s，差了近 200 倍。</strong> 这 0.39 秒是净开销，从并行省下的时间里扣。<strong>任务总时长如果不到一秒，多进程大概率是亏的。</strong></p>
-<hr />
 <h2 id="gil_1">⭐ 三、真正的分界：这个操作放不放 GIL</h2>
 <p>上一节容易让人得出「CPU 密集就用进程」的结论。<strong>那个结论太粗，而且恰好在最常见的两个场景上给出相反的建议。</strong></p>
 <p>关键在于：<strong>GIL 是可以被主动放开的</strong>。任何 C 扩展在进入一段「不碰 Python 对象」的纯计算之前，都可以调用 <code>Py_BEGIN_ALLOW_THREADS</code> 把锁交出去，算完再拿回来。<strong>锁交出去的那段时间里，别的线程是真的在另一个核上跑。</strong></p>
@@ -523,7 +519,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong>站内有一处正好卡在这条分界线上</strong>。<a href="../AI全栈/03-后端骨架.html">AI全栈 03 · 后端骨架</a> 讲 async 服务时说：真 CPU 活——解析 50 MB JSON、本地算 embedding——async 救不了，只能扔线程池或独立进程。
 那句话把这类活<strong>指向了两个选项</strong>，而没说什么时候该选哪个。⭐ <strong>这一章补的就是那个判据</strong>：它举的两个例子分别落在分界线两边——<strong>本地算 embedding 走 numpy / torch，扔线程池就管用；解析 50 MB JSON 扔线程池基本没用，得扔进程。</strong></p>
 </blockquote>
-<hr />
 <h2 id="_2">🚦 四、三种并发怎么选</h2>
 <p>把「放不放 GIL」和「在等还是在算」两个问题交叉，答案就唯一了：</p>
 <div class="tw"><table>
@@ -599,8 +594,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <strong>后半章还有</strong>：进程模型：fork 和 spawn 是两件不同的事 · pickle 的账：搬数据的钱可能比省下的还多 · 站内的两处，全是这一章的账 · GIL 不等于线程安全 · GIL 会消失吗（这一节会过期） · 一张排查表
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="fork-spawn">🧩 五、进程模型：fork 和 spawn 是两件不同的事</h2>
+<p>先运行 <code>multiprocessing.get_start_method()</code>，不要只凭操作系统猜：Windows 使用 spawn，macOS 默认 spawn；Python 3.14 起，支持 forkserver 的 POSIX 平台默认改为 forkserver，fork 不再是任何平台的默认。下文 fork/spawn 的对照用于理解机制，不能代替本机检查。参见 <a href="https://docs.python.org/3.14/library/multiprocessing.html#contexts-and-start-methods">官方启动方式说明</a>。</p>
 <p>选了进程之后，第二类坑就来了：<strong>子进程是怎么诞生的</strong>。有两种造法，行为差得很远。</p>
 <div class="tw"><table>
 <thead>
@@ -676,7 +671,6 @@ terminated abruptly while the future was running or pending.
 
 <p>💀 <strong>这就是为什么它难查</strong>：你在终端里看到的第一屏是 <code>BrokenProcessPool</code>，字面意思是「池子里有个进程突然死了」，读起来像资源不足或者环境问题；<strong>真正的 <code>RuntimeError</code> 被埋在一大堆 <code>multiprocessing/spawn.py</code> 的栈帧中间</strong>。而在 Jupyter / IDE 里，子进程的 stderr 常常根本不显示，你只会看到那句 <code>BrokenProcessPool</code>，然后开始怀疑人生。</p>
 <p>📋 <strong>规矩</strong>：<strong>任何会用到多进程的脚本，一律把可执行代码放进 <code>if __name__ == "__main__":</code>。</strong> 顶层只留 import、常量和函数/类定义。这条在 Linux 上也照做——你写的脚本迟早会有人在 Windows 或 macOS 上跑。</p>
-<hr />
 <h2 id="pickle">⚠️ 六、pickle 的账：搬数据的钱可能比省下的还多</h2>
 <p>跨进程传参数和收结果，走的是 pickle：<strong>对象序列化成字节 → 通过管道传给子进程 → 子进程再反序列化成对象</strong>。这一来一回的钱经常被忽略。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 进程间传参要 pickle：大对象搬过去的钱，可能比并行省下的还多</span>
@@ -733,7 +727,6 @@ terminated abruptly while the future was running or pending.
 </tbody>
 </table></div>
 <p>📋 <strong>避开办法</strong>：<strong>别传数据，传「去哪拿数据」</strong>。把 4 个进程各自要读的文件路径 / 行号区间 / 分片编号传过去，让它自己读。大数组还可以放进 <code>multiprocessing.shared_memory</code> 共享一块内存，只传名字。</p>
-<hr />
 <h2 id="_3">💀 七、站内的两处，全是这一章的账</h2>
 <p><strong>① <code>DataLoader(num_workers=4)</code> 在 Windows 上一跑就炸。</strong></p>
 <p>PyTorch 的 <code>DataLoader</code> 在 <code>num_workers &gt; 0</code> 时就是一个进程池。所以第五节和第六节的账它一分不少：</p>
@@ -771,7 +764,6 @@ terminated abruptly while the future was running or pending.
 <p>⛔ <code>num_workers</code> / <code>prefetch_factor</code> / <code>pin_memory</code> <strong>具体该调到多少</strong>，归 <a href="../AI基础设施/22-数据管线与存储.html">AI基础设施 22 · 数据管线与存储</a>。本章只负责解释<strong>为什么会炸</strong>。</p>
 <p><strong>② <code>n_jobs=-1</code> 为什么有时候反而更慢。</strong>
 sklearn 的 <code>n_jobs</code> 走的是 joblib 的进程池，账和第六节一模一样。⚠️ <strong>交叉验证时每个进程都要拿到一份训练数据的副本</strong>——5 折 × 一份 2 GB 的矩阵，峰值就是 10 GB。小数据集上 <code>n_jobs=-1</code> 常常比 <code>n_jobs=1</code> 还慢，因为搬数据的钱超过了并行省下的。</p>
-<hr />
 <h2 id="gil_2">🧯 八、GIL 不等于线程安全</h2>
 <p>最后一个反直觉的地方：<strong>GIL 保护的是解释器自己的内部状态，不是你的代码。</strong></p>
 <p>「同一时刻只有一个线程在跑字节码」不等于「你的一行 Python 是一个整体」。<code>total = plus_one(total)</code> 是<strong>读 → 调用 → 写回</strong>三步，中间任何一步都可能被换下去：</p>
@@ -804,7 +796,6 @@ sklearn 的 <code>n_jobs</code> 走的是 joblib 的进程池，账和第六节�
 <strong>最后一段还有</strong>（约 28 分钟）：GIL 会消失吗（这一节会过期） · 一张排查表 · 检查点与走神救援
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="gil_3">🗓️ 九、GIL 会消失吗（这一节会过期）</h2>
 <p>PEP 703 给 CPython 加了一个<strong>可选的 free-threaded 构建</strong>（俗称 no-GIL），3.13 起作为实验特性提供，3.14 起转为官方支持但仍非默认。装的是那个构建时，<code>sys._is_gil_enabled()</code> 会返回 <code>False</code>，纯 Python 的多线程才能真正吃满多核。</p>
 <p>⚠️ <strong>今天不要按「GIL 快没了」来做设计决策</strong>，三个理由：</p>
@@ -831,7 +822,6 @@ sklearn 的 <code>n_jobs</code> 走的是 joblib 的进程池，账和第六节�
 </tbody>
 </table></div>
 <p>📋 <strong>今天的正确姿势</strong>：<strong>按本章的判据写代码</strong>（放锁的活用线程、不放锁的活用进程），这套写法在 GIL 消失之后依然正确，只是「不放锁的活」那一档会多出一个选项。</p>
-<hr />
 <h2 id="_4">📋 十、一张排查表</h2>
 <div class="tw"><table>
 <thead>
@@ -884,7 +874,6 @@ sklearn 的 <code>n_jobs</code> 走的是 joblib 的进程池，账和第六节�
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_5">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -924,7 +913,6 @@ sklearn 的 <code>n_jobs</code> 走的是 joblib 的进程池，账和第六节�
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_6">✅ 检查点</h2>
 <ol>
 <li>GIL 用一句话说是什么规则？为什么 CPython 需要它（和哪个内存管理机制有关）？</li>
@@ -953,7 +941,6 @@ sklearn 的 <code>n_jobs</code> 走的是 joblib 的进程池，账和第六节�
 <li><strong>会作废的</strong>：第二节「纯 Python 的 CPU 活开线程没用」——free-threaded 构建下线程能真正吃满多核。不会作废的：pickle 的开销、进程启动的开销、spawn 重新 import 主模块，这些和 GIL 无关；而第八节「线程安全要自己保证」会变得更重要，因为原来靠 GIL 侥幸没出问题的代码，那层侥幸没有了。今天默认装的仍是带 GIL 的构建（本机 <code>sys._is_gil_enabled()</code> 返回 <code>True</code>）。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_7">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
@@ -992,4 +979,4 @@ sklearn 的 <code>n_jobs</code> 走的是 joblib 的进程池，账和第六节�
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-python-pitfalls-reader.css"></body></html>

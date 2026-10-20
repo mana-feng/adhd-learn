@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="pytorch-framework">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -306,15 +306,14 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="08-dataloaderworker-dataset">08 · <code>DataLoader</code>：worker 手里的不是你那个 Dataset</h1>
+<details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>72 分钟</strong> ｜ ⭐ <strong>实测：<code>num_workers=2</code> 之后，<code>self.n_read</code> 在主进程里永远是 0，两个 worker 各自数到 4</strong></p>
-<hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong><code>num_workers &gt; 0</code> 的那一刻，你的 <code>Dataset</code> 就不再只有一份了 —— 每个 worker 进程拿到的是一份【副本】。</strong>
 副本上改的东西主进程看不见，副本里的随机数发生器也是复制过去的（这一条会直接让你的数据增强失效）。</p>
 <p>⚠️ 至于「六个参数怎么调才能喂饱 GPU」，<a href="../AI基础设施/22-数据管线与存储.html">《AI基础设施》22 · 数据管线与存储</a>已经讲透了，这一章一个字都不重复；
 「进程为什么要复制、fork 和 spawn 差在哪、Windows 上为什么必须写 <code>if __name__</code>」是<a href="../Python会咬你的地方/index.html">《Python 会咬你的地方》</a>并发那一章的正题。</p>
 <p><strong>这一章只讲一件事：数据集被复制之后，语义上发生了什么。</strong></p>
-<hr />
 <h2 id="_2">🧬 一、⭐ 副本：实测</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -374,7 +373,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>不要在 <code>__getitem__</code> 里写缓存</strong>（<code>self.cache[i] = ...</code>）。每个 worker 一份缓存，内存翻 <code>num_workers</code> 倍，命中率还低。</li>
 <li>⚠️ <strong>不要在 <code>__init__</code> 里打开文件句柄 / 数据库连接</strong>。句柄跟着副本走，多个进程共用一个偏移量的下场是读出乱数据。✅ 正确做法是<strong>在 <code>__getitem__</code> 里惰性打开</strong>，第一次用到才建，这样每个 worker 建自己的。</li>
 </ul>
-<hr />
 <h2 id="_3">🎲 二、随机数：先破一条过期的传言</h2>
 <p>网上流传很广的一条是「<strong>多个 worker 会生成完全相同的随机增强，因为 numpy 的种子没被重设</strong>」。
 这条在老版本上成立，<strong>在 torch 2.13 上已经不成立了</strong>。实测：</p>
@@ -437,7 +435,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong>两个 worker 的 seed 是连号的</strong>（<code>…167</code> 和 <code>…168</code>）：DataLoader 每个 epoch 抽一个 base seed，
 再给第 <code>i</code> 个 worker 发 <code>base_seed + i</code>。<strong>所以它们既互不相同，又能被 <code>torch.manual_seed()</code> 完整复现。</strong></p>
 <p>⚠️ <strong><code>get_worker_info()</code> 在主进程里返回 <code>None</code></strong> —— 上面那个 <code>if w is None</code> 分支不是防御性编程，<code>num_workers=0</code> 时它就是 <code>None</code>。</p>
-<hr />
 <h2 id="_4">💀 三、但这个坑只是换了个形态</h2>
 <p>上面破掉的是「<strong>全局</strong>发生器」那一版。把发生器<strong>存进 <code>self</code></strong>，它就跟着副本一起被复制了 —— 这才是今天真正会咬到你的形态，而且 <code>np.random.default_rng()</code> 正是 numpy 现在推荐的写法。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -511,7 +508,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <strong>后半章还有</strong>：<code>IterableDataset</code> 在多 worker 下会把数据重复一遍 · 默认 <code>collate_fn</code> 悄悄做了什么 · 这一章不讲什么
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="iterabledataset-worker">🌊 四、<code>IterableDataset</code> 在多 worker 下会把数据重复一遍</h2>
 <p><code>Dataset</code>（映射式）由主进程分配下标，所以 worker 之间天然不重叠。
 但 <code>IterableDataset</code> 是<strong>数据集自己吐数据</strong>的 —— 没人告诉它「你只该吐第几批」，于是每个 worker 都把<strong>整个流</strong>跑了一遍。</p>
@@ -550,7 +546,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong>判据一句话</strong>：<strong>映射式 Dataset 是「主进程发号，worker 取货」；<code>IterableDataset</code> 是「worker 自己去源头取」，所以分片必须你自己写。</strong>
 分片有两种写法：按下标取模（上面那种，简单但每条数据都要被读到才丢掉），或者在文件/分片层面切（<code>files[wid::n]</code>，⭐ 更快，因为根本不去读别的 worker 那份文件）。</p>
 <p>（流式数据怎么洗牌、缓冲区该开多大，在 <a href="../AI基础设施/22-数据管线与存储.html">《AI基础设施》22</a>。）</p>
-<hr />
 <h2 id="collate_fn">📦 五、默认 <code>collate_fn</code> 悄悄做了什么</h2>
 <p><code>DataLoader</code> 从 <code>__getitem__</code> 拿回来的是<strong>一个 list 的单条样本</strong>，把它们变成一个 batch 的那一步叫 collate。默认实现的规则可以直接看：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -615,7 +610,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <p>⭐ 这条是「你返回了个自定义对象」——<code>PIL.Image</code>、<code>dataclass</code>、<code>spacy</code> 的 Doc 都会撞上。</p>
-<hr />
 <h2 id="_5">🚦 六、这一章不讲什么</h2>
 <div class="tw"><table>
 <thead>
@@ -649,7 +643,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>设成 0 还是不对 → 问题在 <code>Dataset</code> / <code>collate_fn</code> 本身（第五节），和多进程无关。</li>
 </ul>
 <p>⚠️ 但要记得这个办法<strong>本身会掩盖第三节那个 bug</strong>（<code>num_workers=0</code> 时随机数完全正常）—— 所以「设成 0 就好了」不等于「多进程有 bug」，也可能是<strong>你的代码依赖了只有单进程才成立的假设</strong>。</p>
-<hr />
 <h2 id="_6">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -685,7 +678,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_7">✅ 检查点</h2>
 <ol>
 <li><code>num_workers=2</code> 时，<code>__getitem__</code> 里 <code>self.n_read += 1</code>，主进程读到的 <code>ds.n_read</code> 是多少？为什么？</li>
@@ -714,7 +706,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>先把 <code>num_workers</code> 设成 0 跑一遍</strong>：设成 0 就正常 → 问题在副本语义；设成 0 还是不对 → 问题在 <code>Dataset</code> / <code>collate_fn</code> 本身。⚠️ 盲区是它会掩盖第三节那个随机数 bug（单进程下随机数完全正常），所以「设成 0 就好了」也可能意味着你的代码依赖了只有单进程才成立的假设。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_8">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
@@ -752,4 +743,4 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-pytorch-framework-reader.css"></body></html>

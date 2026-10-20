@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="sql-query">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -306,13 +306,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="09">09 · 执行计划里的连接，和写法怎么毁掉索引</h1>
+<details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>104 分钟</strong> ｜ ⚠️ <strong>实测：索引在、计划里也写着 <code>COVERING INDEX</code>，它照样是 <code>SCAN</code> 全表</strong></p>
-<hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>执行计划里只有两个动词要认：<code>SCAN</code> = 从头读一遍，<code>SEARCH</code> = 直接定位过去。</strong>
 ⭐ <strong>索引名出现在计划里，不代表索引在起作用</strong> —— 判据是动词，不是索引名。
 本章只讲两件让 SQL 从「对」变成「快」的事：连接顺序，和写法怎么把已经建好的索引废掉。</p>
-<hr />
 <h2 id="_2">🧭 一、先划清这一章不讲什么</h2>
 <p><a href="01-一条查询是怎么跑的.html">01 章</a>第四节留了一句话：<strong>逻辑顺序回答「结果为什么是这样」，物理计划回答「为什么这么慢」</strong>，
 后半句欠到这里。但「慢」这个话题很大，本教程只拿走其中<strong>跟怎么写 SQL 有关</strong>的那一半：</p>
@@ -355,7 +354,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 MySQL 是 <code>EXPLAIN FORMAT=TREE</code>，输出的字面完全不一样。
 ⭐ 可迁移的是判据（「有没有做全表扫」「索引用上没有」「有没有额外排序」），不可迁移的是字面。
 所以下面每一处我都会先说结论、再给 SQLite 的原文，⚠️ <strong>别去背原文</strong>。</p>
-<hr />
 <h2 id="_3">🔤 二、怎么读一份计划：两个动词，一个陷阱</h2>
 <p>一张 20 万行的事件表，<code>user_id</code> 上有索引。六种查询各看一次计划：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span><span class="o">,</span><span class="w"> </span><span class="nn">random</span>
@@ -458,12 +456,11 @@ MySQL 是 <code>EXPLAIN FORMAT=TREE</code>，输出的字面完全不一样。
 ⭐ <strong>动词只告诉你「怎么找」，不告诉你「找到多少」。</strong></p>
 <p><strong>③④ 那一对值得单独说一句</strong>：同一个 <code>WHERE</code>，只多要了一列 <code>amount</code>，
 计划就从 <code>COVERING INDEX</code> 退回 <code>INDEX</code> —— 因为 <code>amount</code> 不在索引里，必须回表拿。
-⭐ <strong>这正是 <a href="01-一条查询是怎么跑的.html">01 章</a>说「<code>SELECT *</code> 让覆盖索引永远不可能生效」的完整版</strong>。
+⭐ <strong>这正是 <a href="01-一条查询是怎么跑的.html">01 章</a>说「<code>SELECT *</code> 往往要求索引之外的列」的完整版</strong>。
 ⚠️ 但请别倒过来读成「那就把所有列塞进索引」——<a href="../AI全栈/06-关系数据库.html">AI 全栈 06</a> 明确否掉了这条路（那等于把整张表再复制一遍）。</p>
 <p><strong>⑥ 是很多人不知道索引还能干的事</strong>：<code>ORDER BY user_id</code> 不需要排序，因为索引本来就是按 <code>user_id</code> 有序存的，
 计划里干干净净；换成 <code>ORDER BY amount</code> 就冒出 <code>USE TEMP B-TREE FOR ORDER BY</code>。
 ⭐ <strong><code>ORDER BY</code> + <code>LIMIT</code> 的分页查询要是慢，先去计划里找这一行。</strong></p>
-<hr />
 <h2 id="_4">🔀 三、连接顺序：同一对表，谁在外层差十倍</h2>
 <p><a href="02-JOIN的几种语义.html">02 章</a>讲了 <code>JOIN</code> 的<strong>语义</strong>，欠着<strong>代价</strong>。代价的核心只有一句话：</p>
 <blockquote>
@@ -571,11 +568,9 @@ Postgres / MySQL 8.0 还有 Hash Join（把小表做成哈希表，适合大表�
 <strong>后半章还有</strong>：sargability：六种把索引废掉的写法 · <code>OR</code> 的三种命运，和一个 <code>LIKE</code> 的意外 · 一条查询慢了，按什么顺序查
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="sargability">🧨 四、sargability：六种把索引废掉的写法</h2>
 <p>前面都是「索引够不够」，这一节反过来 —— ⭐ <strong>索引明明在，是你的写法让它用不上。</strong></p>
-<p>这件事有个专门的词：<strong>sargable</strong>（Search ARGument ABLE，「能当搜索条件用的」）。
-⭐ <strong>判据只有一句：索引列必须自己一个人待在比较符的一边，不能被任何东西包住。</strong></p>
+<p>对本例的<strong>普通列索引</strong>，将条件写成原列与常量范围的比较，通常更容易利用索引；用 <code>substr(ts,...)</code> 包住列未必能使用原来的 ts 索引。表达式索引、生成列索引、优化器改写是例外，最终仍需查看实际计划与耗时。参见 <a href="https://sqlite.org/expridx.html">SQLite 表达式索引</a>。日期筛选使用 <code>ts &gt;= 起点 AND ts &lt; 下一天</code>，避免漏掉秒内的小数部分。</p>
 <p>20 万行，<code>user_id</code> 和 <code>ts</code> 上都有索引：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span><span class="o">,</span><span class="w"> </span><span class="nn">random</span><span class="o">,</span><span class="w"> </span><span class="nn">time</span>
 
@@ -767,7 +762,6 @@ OR 两侧都有索引                   0.6862 ms   MULTI-INDEX OR
 <strong>最后一段还有</strong>（约 26 分钟）：<code>OR</code> 的三种命运，和一个 <code>LIKE</code> 的意外 · 一条查询慢了，按什么顺序查
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="or-like">🔧 五、<code>OR</code> 的三种命运，和一个 <code>LIKE</code> 的意外</h2>
 <p><code>OR</code> 值得单独一节，因为它是<strong>唯一一个「同一个写法，命运取决于另一侧」</strong>的坑：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span><span class="o">,</span><span class="w"> </span><span class="nn">random</span><span class="o">,</span><span class="w"> </span><span class="nn">time</span>
@@ -887,7 +881,6 @@ LIKE &#39;u00123%&#39;（默认）      10.3474 ms
 <a href="02-JOIN的几种语义.html">02 章</a>实测过 <code>'1'</code> 和 <code>1</code> 在 SQLite 里 <code>JOIN</code> 连不上（结果少一半、不报错），
 而 MySQL 会隐式转换连上、🗓️ 代价是索引失效。
 ⭐ <strong>两边加起来的结论是：别指望数据库替你转类型 —— 有的库转了会错，有的库转了会慢。数据进库之前把类型统一掉。</strong></p>
-<hr />
 <h2 id="_5">🧯 六、一条查询慢了，按什么顺序查</h2>
 <p>⭐ <strong>这一节是前面所有内容的使用说明。</strong></p>
 <p><strong>第 0 步：先确认慢的真是这条 SQL。</strong>
@@ -938,7 +931,6 @@ LIKE &#39;u00123%&#39;（默认）      10.3474 ms
 本章第二节 ⑤ 那条 <code>SCAN ev USING COVERING INDEX ix_user</code>，
 拿去给任何一个只扫一眼的人看，都会得到「索引用上了呀」的结论。</p>
 </blockquote>
-<hr />
 <h2 id="_6">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -982,7 +974,6 @@ LIKE &#39;u00123%&#39;（默认）      10.3474 ms
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_7">✅ 检查点</h2>
 <ol>
 <li>执行计划里必须认的两个动词是什么？各代表什么动作？</li>
@@ -1002,26 +993,25 @@ LIKE &#39;u00123%&#39;（默认）      10.3474 ms
 <ol>
 <li><strong><code>SCAN</code> = 把这个东西从头到尾读一遍</strong>；<code>SEARCH</code> = 拿索引直接定位过去，只读要的那几行。判据是动词，不是索引名。</li>
 <li><strong>动词是 <code>SCAN</code>，所以它把 <code>ix_user</code> 这个索引整个读了一遍</strong>（20 万行一行不落），只是省掉了回表 —— 这叫在索引上做全表扫，不叫用上了索引。它是卖点因为「索引名清清楚楚出现在计划里」会让人一眼判成「索引生效了」。⚠️ 反过来 <code>SEARCH</code> 也不等于快：<code>IS NOT NULL</code> 是 <code>SEARCH</code> 却要 2.5847 ms（命中单个 <code>user_id</code> 只要 0.0028 ms），因为它定位到的范围里装着几乎所有行。动词只说「怎么找」，不说「找到多少」。</li>
-<li>只要 <code>user_id</code> 时索引里什么都有 → <code>SEARCH … USING COVERING INDEX</code>；多要一列 <code>amount</code> 时索引里没有、必须<strong>回表</strong> → 退回 <code>SEARCH … USING INDEX</code>。这就是 01 章那句「<code>SELECT *</code> 让覆盖索引永远不可能生效」的完整版。⚠️ 但别倒过来把所有列塞进索引（AI 全栈 06 否掉了这条路）。</li>
+<li>只要 <code>user_id</code> 时索引里什么都有 → <code>SEARCH … USING COVERING INDEX</code>；多要一列 <code>amount</code> 时索引里没有、必须<strong>回表</strong> → 退回 <code>SEARCH … USING INDEX</code>。这就是 01 章那句「<code>SELECT *</code> 往往要求索引之外的列」的完整版。⚠️ 但别倒过来把所有列塞进索引（AI 全栈 06 否掉了这条路）。</li>
 <li><code>ORDER BY user_id</code> 时<strong>不出现</strong>（索引本来就按它有序）；<code>ORDER BY amount</code> 时出现（得先全捞出来再排）。<code>ORDER BY</code> + <code>LIMIT</code> 的分页慢，先去计划里找这一行。</li>
 <li>没索引时 <strong><code>events</code> 在外层快</strong>（0.0440 s vs 0.2380 s，约 5 倍）；建完 <code>events(user_id)</code> 索引后反过来，<code>users</code> 在外层快（0.0019 s vs 0.0140 s，约 7 倍）。说明最优连接顺序取决于有没有索引，所以不要手工钉死连接顺序（<code>CROSS JOIN</code> / hint 是最后一招，它把今天的数据分布和索引焊进了 SQL）。换回普通 <code>JOIN</code> 让优化器自己选，它给出的计划和手工最优那条一字不差。</li>
 <li>数据库在说「<strong>这儿缺一个索引，我先临时建一个</strong>」—— 而临时索引每次查询都要重建。看到它就该去 <a href="../AI全栈/06-关系数据库.html">AI 全栈 06</a> 补一个真索引。</li>
-<li><strong>索引列必须自己一个人待在比较符的一边，不能被任何东西包住。</strong> <code>substr()</code> 把列包住了，而索引里存的是 <code>ts</code> 本身的值，数据库没法反推出 <code>ts</code> 落在哪个区间。✅ 改成半开区间 <code>ts&gt;='2026-03-05' AND ts&lt;'2026-03-06'</code>：16.2629 ms → 0.2750 ms，约 59 倍。（<code>CAST</code> 也是函数，实测 10.5548 ms → 0.0028 ms。）</li>
+<li>对本例的<strong>普通列索引</strong>，将条件写成原列与常量范围的比较，通常更容易利用索引；用 <code>substr(ts,...)</code> 包住列未必能使用原来的 ts 索引。表达式索引、生成列索引、优化器改写是例外，最终仍需查看实际计划与耗时。参见 <a href="https://sqlite.org/expridx.html">SQLite 表达式索引</a>。日期筛选使用 <code>ts &gt;= 起点 AND ts &lt; 下一天</code>，避免漏掉秒内的小数部分。</li>
 <li><code>amount*2 &gt; 199</code> → <strong><code>amount &gt; 99.5</code></strong>；<code>YEAR(created)=2026</code> → <code>created &gt;= '2026-01-01' AND created &lt; '2027-01-01'</code>。改法永远是把变形从列这边挪到常量那边。右端用 <code>&lt;</code> 是因为 <code>&lt;= '2026-03-05 23:59:59'</code> 会漏掉那一秒里的毫秒。</li>
 <li>① 两侧都有索引 → <code>MULTI-INDEX OR</code>，各走各的索引再合并，<strong>0.0066 ms</strong>；② 手工改 <code>UNION</code> → 0.0179 ms，反而更慢（多了去重的 <code>TEMP B-TREE</code>）；③ 一侧没索引 → 整条塌成 <code>SCAN</code>，15.7034 ms，比①慢约 2400 倍。所以 <code>OR</code> 的真正危险不是「<code>OR</code> 慢」，是「速度由最差的那一侧决定」—— 加一个看起来无害的条件就能让查询慢一千倍。口诀不能背，因为①②的对比表明改写有可能更慢，先看计划。</li>
 <li>因为 SQLite 的 <code>LIKE</code> <strong>默认不区分大小写</strong>，而索引是区分的，对不上就不敢用。打开 <code>PRAGMA case_sensitive_like=ON</code> 之后同一句变成 <code>SEARCH</code>，10.3474 ms → 0.0033 ms，约 3100 倍。说明「能不能用上索引」不是 SQL 语言的性质，是这个库这一版这套设置下的性质 —— 判据永远是去看计划，清单只用来猜方向。（✅ 范围改写 <code>&gt;= AND &lt;</code> 不受这个开关影响，永远有效。）</li>
 <li><strong>第 0 步：先确认慢的真是这条 SQL</strong> —— 连接池排队、一次取十万行的序列化、尤其是循环里发了 200 条查询（N+1，每条 0.1 ms 单看都完美）。看到 <code>SCAN</code> 大表后按顺序问：① <code>WHERE</code> 里的列被包住了吗（最常中、最便宜）② 这列到底有没有索引（有就去 AI 全栈 06）③ 是不是本来就该全扫（统计全表、取走大半张表时 <code>SCAN</code> 就是正确答案，别硬掰优化器）。改完要同时看计划和量耗时。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_8">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
 <p>⭐ <strong>执行计划里只有两个动词要认：<code>SCAN</code> 是从头读一遍，<code>SEARCH</code> 是直接定位过去。</strong> 💀 <strong>索引名出现在计划里，并不代表索引在起作用——判据是动词不是索引名。</strong> 本章卖点就是那条「<code>SCAN … USING COVERING INDEX</code>」：索引名清清楚楚，动词却是 <code>SCAN</code>，它把索引整个读了一遍，<strong>这叫在索引上全表扫</strong>。</p>
 <p>⚠️ 反过来 <strong><code>SEARCH</code> 也不等于快</strong>：定位到的范围里如果装着几乎所有行，照样慢——<strong>动词只说「怎么找」，不说「找到多少」</strong>。</p>
-<p>另外三个记号：<strong><code>USING COVERING INDEX</code></strong>（要的列全在索引里，连表都不碰——多要一列就退回回表，⭐ 这正是「<code>SELECT *</code> 让覆盖索引永远不可能生效」的完整版）、<strong><code>USE TEMP B-TREE FOR ORDER BY</code></strong>（分页慢先找它）、<strong><code>AUTOMATIC INDEX</code></strong>（⭐ 数据库在说「这儿缺一个索引」）。</p>
+<p>另外三个记号：<strong><code>USING COVERING INDEX</code></strong>（要的列全在索引里，连表都不碰——多要一列就退回回表，⭐ 这正是「<code>SELECT *</code> 往往要求索引之外的列」的完整版）、<strong><code>USE TEMP B-TREE FOR ORDER BY</code></strong>（分页慢先找它）、<strong><code>AUTOMATIC INDEX</code></strong>（⭐ 数据库在说「这儿缺一个索引」）。</p>
 <p>🔗 <strong>连接的代价就一句话：嵌套循环，代价 ≈ 外层行数 × 内层每次查找的代价。</strong> ⭐ <strong>同一对表、同一个问题，最优连接顺序会因为有没有索引而反转</strong>——所以别手工钉死顺序，那等于把今天的数据分布焊进 SQL。</p>
-<p>🧨 <strong>全章最实用的是 sargability，判据只有一句：索引列必须自己一个人待在比较符的一边，不能被任何东西包住。</strong> 因为索引里存的是<strong>列本身的值</strong>。函数包住、类型转换、算术、拼接——全都让索引失效，实测差几十到几千倍。⭐ <strong>改法永远是把变形从列那边挪到常量这边</strong>，右端用 <code>&lt;</code> 不用 <code>&lt;=</code>（半开区间，否则会漏掉边界那一秒的毫秒）。⚠️ 前缀通配的 <code>LIKE '%…'</code> <strong>没有等价改写</strong>。</p>
+<p>对本例的<strong>普通列索引</strong>，将条件写成原列与常量范围的比较，通常更容易利用索引；用 <code>substr(ts,...)</code> 包住列未必能使用原来的 ts 索引。表达式索引、生成列索引、优化器改写是例外，最终仍需查看实际计划与耗时。参见 <a href="https://sqlite.org/expridx.html">SQLite 表达式索引</a>。日期筛选使用 <code>ts &gt;= 起点 AND ts &lt; 下一天</code>，避免漏掉秒内的小数部分。</p>
 <p>🔧 ⚠️ <strong><code>OR</code> 的速度由最差的那一侧决定</strong>：两侧都有索引时很快，<strong>一侧没索引整条就塌成全扫</strong>——加一个看似无害的条件就能慢上千倍。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="10-拿SQL审问一份数据.html">10-拿SQL审问一份数据.md</a></p>
@@ -1051,4 +1041,4 @@ LIKE &#39;u00123%&#39;（默认）      10.3474 ms
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-sql-query-reader.css"></body></html>

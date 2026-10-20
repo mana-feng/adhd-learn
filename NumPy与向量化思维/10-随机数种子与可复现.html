@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="numpy-vectorization">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -308,12 +308,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="10">10 · 随机数、种子与可复现</h1>
+<details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>64 分钟</strong> ｜ ⭐ <strong>四个 worker 各自 <code>np.random.seed(42)</code>，抽出来的「随机数」四个一模一样 —— 而且它和操作系统无关，Windows 上照样复现</strong></p>
-<hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong><code>np.random.seed(42)</code> 播的是一个全局状态，进程内谁都能动它、进程间又没法让它们各不相同。</strong>
 现代 API（<code>np.random.default_rng</code> / <code>SeedSequence.spawn</code>）把状态收进对象里，一次解决这两个问题。</p>
-<hr />
 <h2 id="_2">🧩 一、先把三块地让出去</h2>
 <p>「可复现」这个词太大，站内有三处在讲它，各管一层：</p>
 <div class="tw"><table>
@@ -344,7 +343,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </table></div>
 <p>⭐ <strong>本章是那两处的地基</strong>：它们都告诉你「要设种子」，<strong>但都没说设了之后为什么还是不一样</strong>。</p>
 <p><a href="../Kaggle竞赛方法论/04_超参数调优与工程实践.html">Kaggle 竞赛方法论 · 04 · 超参数调优与工程实践</a> 里那句「设置 Python、NumPy、PyTorch 的随机种子确保实验可复现」是<strong>那个板块唯一一次提到 NumPy</strong> —— ⭐ <strong>给了指令没给机制</strong>，本章补的正是机制那一半。</p>
-<hr />
 <h2 id="api">🧩 二、两代 API：同一个种子，给的数不一样</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
@@ -363,7 +361,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⚠️⚠️ <strong>两代 API 各自可复现，但互相之间不可复现。</strong> 底层的比特发生器不是同一个（遗留那套是 Mersenne Twister，现代默认是 PCG64），生成算法也不同。</p>
 <p>💀 <strong>这一条会以最讨厌的方式咬人</strong>：一份代码里前半段用 <code>np.random.seed(42)</code> 播种、后半段用 <code>default_rng(42)</code> 建 Generator，<strong>播的那个种子对后半段一点作用都没有</strong>。改半天「为什么结果还是变」，其实两半从来就没连上过。</p>
 <p>⭐ <strong>规矩：一个项目里只用一套。</strong> 遇到混用的老代码，把 <code>np.random.seed(42)</code> 那半改掉，别指望它们对齐。</p>
-<hr />
 <h2 id="_3">🧩 三、💀 全局状态：任何人都能动它</h2>
 <p>上一节看到的还只是「不一致」，真正的问题是<strong>遗留 API 的状态是全局的</strong>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -386,7 +383,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>💀 <strong>「别人」是谁，你根本控制不了</strong>：sklearn 的某个默认 <code>random_state=None</code> 的估计器、某个数据增强库、某个 pandas 的 <code>sample()</code>、甚至你自己两周前加的一行调试代码。<strong>换个版本、多导入一个包，序列就变了。</strong></p>
 <p>⭐ <strong><code>Generator</code> 免疫</strong>：状态在 <code>g</code> 这个对象里，全局 <code>np.random</code> 怎么折腾都碰不到它。</p>
 <p><strong>这就是「把状态从全局搬进对象」的全部理由</strong>——和面向对象那些大道理无关，纯粹是因为全局状态没法保证独占。</p>
-<hr />
 <h2 id="worker">🧩 四、💀💀 招牌坑：四个 worker，同一个种子</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">multiprocessing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pool</span>
@@ -460,7 +456,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <strong>后半章还有</strong>：<code>SeedSequence</code> 和 <code>spawn</code>：既独立又可复现 · <code>Generator</code> 的 API：改了名字的和改了行为的 · 存档读档：把「随机到哪儿了」存下来 · 五条规矩
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="seedsequence-spawn">🧩 五、<code>SeedSequence</code> 和 <code>spawn</code>：既独立又可复现</h2>
 <p><code>SeedSequence</code> 做的事只有一件：<strong>把一颗种子按一棵树展开成任意多颗互相独立的子种子</strong>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -505,7 +500,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </table></div>
 <p>⚠️ <strong>关键是「种子在主进程分好再发下去」</strong>，而不是「让每个 worker 自己想办法」。worker 自己算种子（比如用 <code>os.getpid()</code>）能拿到独立性，但<strong>丢掉可复现性</strong>——进程号每次都不一样。</p>
 <p>⚠️ <strong>PyTorch 的 <code>DataLoader</code> 有它自己的一套 worker 种子机制</strong>（<code>worker_init_fn</code>、每个 worker 拿到独立的 base_seed）。⭐ 那套机制解决的是同一个问题，但<strong>参数怎么调是 <a href="../AI基础设施/22-数据管线与存储.html">AI 基础设施 · 22 · 数据管线与存储</a> 的题</strong>，本章只讲 NumPy 这一侧。</p>
-<hr />
 <h2 id="generator-api">🧩 六、<code>Generator</code> 的 API：改了名字的和改了行为的</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
@@ -609,7 +603,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>💀 <strong>打乱样本和标签时，只能用 <code>permutation</code> 拿下标再一起索引</strong>，绝不能对 <code>X</code> 和 <code>y</code> 各 <code>shuffle</code> 一次——那样两边的顺序不一样，标签就和样本对不上了，<strong>而且不报错</strong>。</p>
-<hr />
 <h2 id="_4">🧩 七、存档读档：把「随机到哪儿了」存下来</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
@@ -626,7 +619,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>存档后重放，两次一致: True [0.479988 0.232373 0.801881]</p><p>state 的键: [&#x27;bit_generator&#x27;, &#x27;has_uint32&#x27;, &#x27;state&#x27;, &#x27;uinteger&#x27;] | bit_generator: PCG64</p></div></section>
 <p>⭐ <strong>用途</strong>：训练跑到第 30 个 epoch 挂了，想从检查点续跑并且<strong>接上原来的随机序列</strong>——光存种子不够（种子只能从头开始），得存 <code>bit_generator.state</code>。</p>
 <p>⚠️ 这个 dict 可以直接 JSON 化存进 checkpoint 元数据里。<strong>系统级怎么组织这些元数据</strong>（和 git commit、data_hash 一起）是 <a href="../模型上线之后/17-版本回溯与可复现.html">模型上线之后 · 17</a> 的题。</p>
-<hr />
 <h2 id="_5">🚦 八、五条规矩</h2>
 <div class="tw"><table>
 <thead>
@@ -665,7 +657,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>⭐ <strong>第 4、5 条合起来是本章最容易被忽略的一半</strong>：设种子的目的是<strong>让差异可归因</strong>（改了代码之后的变化确实来自代码），不是让数字好看。</p>
-<hr />
 <h2 id="_6">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -701,7 +692,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_7">✅ 检查点</h2>
 <ol>
 <li><code>np.random.seed(42)</code> 和 <code>np.random.default_rng(42)</code> 抽出来的数一样吗？各是什么？</li>
@@ -730,7 +720,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>⚠️ <strong>当噪声看</strong>。种子不是超参数。正确做法是跑多个种子报均值和标准差；如果改进只在某一个种子上成立，那它不是改进。设种子的目的是让差异可归因，不是让数字好看。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_8">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
@@ -769,4 +758,4 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-numpy-vectorization-reader.css"></body></html>

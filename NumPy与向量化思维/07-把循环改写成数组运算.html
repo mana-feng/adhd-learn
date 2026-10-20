@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="numpy-vectorization">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -310,12 +310,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="07">07 · 把循环改写成数组运算：六个套路</h1>
+<details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>66 分钟</strong> ｜ ⭐ <strong>前六章讲的是「为什么」和「怎么读」，这一章是唯一一章讲「拿到一个循环，手怎么动」</strong></p>
-<hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>大多数循环之所以能改写，是因为它其实在做六件事之一：累积、分组、取前 k 个、开窗、查区间、找相邻变化。</strong>
 认出是哪一件，对应的函数就只有一个。认不出来的那些，本章最后一节告诉你<strong>别硬改</strong>。</p>
-<hr />
 <h2 id="_2">🧩 一、动手之前，先问三个问题</h2>
 <p>上一章讲完索引，工具箱就齐了。但<strong>不是所有循环都该改写</strong>，先用这三个问题筛一遍：</p>
 <div class="tw"><table>
@@ -347,7 +346,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong>第 ① 条最容易判错</strong>。「用到上一次的结果」不等于「必须写循环」——前缀和明明是顺序依赖，<code>np.cumsum</code> 照样一行搞定。
 正确的判据是：<strong>这个顺序依赖有没有现成的 ufunc accumulate</strong>。有就用，没有（比如「每步的结果决定下一步读哪个下标」）就老实写循环。</p>
 <p>⚠️ 第 ③ 条不是玩笑。下面所有倍数都是在 <strong>N = 200,000</strong> 上测的；N = 100 时数组版经常<strong>更慢</strong>，因为你花在建临时数组上的时间比省下来的还多。</p>
-<hr />
 <h2 id="1-cumsum-cumprod-accumulate">🧩 二、① 累积：<code>cumsum</code> / <code>cumprod</code> / <code>accumulate</code></h2>
 <p>长什么样：循环里有一个「累加变量」，每轮更新它并记下来。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -401,7 +399,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>⚠️ <strong><code>cumsum</code> 的误差会累积</strong>。它是顺序相加的，N 很大且量级差异大时，末尾几位和「先排序再加」不同。要求高时用 <code>math.fsum</code>（慢但精确），或者分块加。</p>
-<hr />
 <h2 id="2-npbincount">🧩 三、② 分组求和：<code>np.bincount</code></h2>
 <p>长什么样：循环里有个 <code>dict</code>，按某个 key 往里 <code>+=</code>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -455,33 +452,35 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>⭐ <strong>和上一章的关系</strong>：<code>np.bincount</code> 处理的正是 06 章那个「重复索引」问题。<code>b[[1,1,1]] += 1</code> 只加一次，<code>np.add.at(b, [1,1,1], 1)</code> 才加三次——而 <code>bincount</code> 是同一件事的<strong>专用快速通道</strong>（<code>np.add.at</code> 通用但慢）。</p>
-<hr />
 <h2 id="3-top-knpargpartition">🧩 四、③ Top-K：<code>np.argpartition</code></h2>
 <p><strong>长什么样</strong>：<code>np.argsort(-x)[:k]</code>。⚠️ 它不是循环，但它是<strong>站内出现频率最高的一个「多做了很多功」的写法</strong>——为了拿前 10 个，把 20 万个全排了一遍。</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">timeit</span>
+<div class="codehilite" data-code-language="python"><pre><code class="language-python">import numpy as np
+import timeit
 
-<span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-<span class="n">N</span><span class="p">,</span> <span class="n">k</span> <span class="o">=</span> <span class="mi">200_000</span><span class="p">,</span> <span class="mi">10</span>
-<span class="n">x</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">random</span><span class="p">(</span><span class="n">N</span><span class="p">)</span>
+rng = np.random.default_rng(0)
+N, k = 200_000, 10
+x = rng.random(N)
 
-<span class="k">def</span><span class="w"> </span><span class="nf">topk_sort</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">k</span><span class="p">):</span>                     <span class="c1"># 全排序再切</span>
-    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="o">-</span><span class="n">x</span><span class="p">)[:</span><span class="n">k</span><span class="p">]</span>
+def topk_sort(x, k):                     # 全排序再切
+    return np.argsort(-x)[:k]
 
-<span class="k">def</span><span class="w"> </span><span class="nf">topk_part</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">k</span><span class="p">):</span>                     <span class="c1"># 只保证「前 k 个在前面」，不保证它们有序</span>
-    <span class="n">idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argpartition</span><span class="p">(</span><span class="o">-</span><span class="n">x</span><span class="p">,</span> <span class="n">k</span><span class="p">)[:</span><span class="n">k</span><span class="p">]</span>
-    <span class="k">return</span> <span class="n">idx</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="o">-</span><span class="n">x</span><span class="p">[</span><span class="n">idx</span><span class="p">])]</span>      <span class="c1"># ⭐ 需要有序的话，再对这 k 个排一次</span>
+def topk_part(x, k):                     # 只保证「前 k 个在前面」，不保证它们有序
+    if not 0 &lt;= k &lt;= len(x):
+        raise ValueError(&quot;k out of range&quot;)
+    if k == 0:
+        return np.array([], dtype=np.intp)
+    idx = np.argpartition(-x, k - 1)[:k]
+    return idx[np.argsort(-x[idx])]      # ⭐ 需要有序的话，再对这 k 个排一次
 
-<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;集合一致&quot;</span><span class="p">,</span> <span class="nb">set</span><span class="p">(</span><span class="n">topk_sort</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span> <span class="o">==</span> <span class="nb">set</span><span class="p">(</span><span class="n">topk_part</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">()))</span>
+print(&quot;集合一致&quot;, set(topk_sort(x, k).tolist()) == set(topk_part(x, k).tolist()))
 
-<span class="n">t_sort</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">timeit</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">topk_sort</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">k</span><span class="p">),</span> <span class="n">number</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">repeat</span><span class="o">=</span><span class="mi">5</span><span class="p">))</span>
-<span class="n">t_part</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">timeit</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">topk_part</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">k</span><span class="p">),</span> <span class="n">number</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">repeat</span><span class="o">=</span><span class="mi">5</span><span class="p">))</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;argsort </span><span class="si">{</span><span class="n">t_sort</span><span class="o">*</span><span class="mf">1e3</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> ms | argpartition </span><span class="si">{</span><span class="n">t_part</span><span class="o">*</span><span class="mf">1e3</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> ms | </span><span class="si">{</span><span class="n">t_sort</span><span class="o">/</span><span class="n">t_part</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">x&quot;</span><span class="p">)</span>
+t_sort = min(timeit.repeat(lambda: topk_sort(x, k), number=1, repeat=5))
+t_part = min(timeit.repeat(lambda: topk_part(x, k), number=1, repeat=5))
+print(f&quot;argsort {t_sort*1e3:.2f} ms | argpartition {t_part*1e3:.3f} ms | {t_sort/t_part:.1f}x&quot;)
 </code></pre></div>
 
 <section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>集合一致 True</p><p>argsort 9.50 ms | argpartition 2.148 ms | 4.4x</p></div></section>
-<p>⭐ <strong><code>argpartition</code> 返回的前 k 个是无序的</strong>，这是它最常被写错的地方。它只保证「第 k 位上的元素是正确的第 k 名，左边都不比它小」。要有序就像上面那样再对这 k 个排一次——k 很小时这一步几乎不要钱。</p>
-<hr />
+<p><code>argpartition</code> 的 <code>kth</code> 是<strong>从 0 开始</strong>的位置；分区内不保证有序。对有限的一维实数取最大的 k 个，可用 <code>np.argpartition(-x, k - 1)[:k]</code>（1 ≤ k ≤ len(x)），再对选中元素排序。k=0 应直接返回空结果；先确定 NaN 的处理规则。</p>
 <h2 id="4-sliding_window_view">🧩 五、④ 滑窗：<code>sliding_window_view</code></h2>
 <p>长什么样：<code>for i in range(N-w+1): out[i] = f(x[i:i+w])</code>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -525,7 +524,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <strong>后半章还有</strong>：⑤ 分桶：<code>np.searchsorted</code> · ⑥ 找相邻变化：<code>diff</code> + <code>flatnonzero</code> · 一张表：六个套路的倍数 · ⭐ 倍数是规模的函数，不是常数 · 什么时候<strong>不该</strong>改写
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="5-npsearchsorted">🧩 六、⑤ 分桶：<code>np.searchsorted</code></h2>
 <p>长什么样：循环里对每个元素做二分查找，或者一串 <code>if / elif</code> 判断落在哪个区间。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -554,7 +552,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>完全一致 True</p><p>循环 61.14 ms | np.searchsorted 6.436 ms | 9x</p></div></section>
 <p>⚠️ <strong><code>side</code> 那个参数决定边界归左还是归右</strong>：值正好等于某个边界时，<code>"left"</code> 把它算进<strong>左边</strong>那个桶（和 0.49 同桶），<code>"right"</code> 算进右边（和 0.51 同桶）。等值样本多的时候（比如大量 0），这一个字母会改变一整个桶的大小。</p>
 <p>⭐ <strong><code>searchsorted</code> 不止能分桶</strong>。它的本质是「<strong>在一个已排序数组里，问这些值该插在哪</strong>」，所以还能做：把一批 ID 映射到它们在排序表中的位置、两个有序数组求交、找最近邻的那个刻度。</p>
-<hr />
 <h2 id="6-diff-flatnonzero">🧩 七、⑥ 找相邻变化：<code>diff</code> + <code>flatnonzero</code></h2>
 <p>长什么样：循环比较 <code>x[i]</code> 和 <code>x[i+1]</code>，记下不一样的位置。游程编码、找变号点、找状态切换点都是这一类。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -610,7 +607,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>⚠️ <strong><code>flatnonzero(d)</code> 给的是 <code>d</code> 的下标，不是原数组的下标</strong>。<code>d = np.diff(y)</code> 比 <code>y</code> 短 1，<code>d[i]</code> 描述的是 <code>y[i]</code> 和 <code>y[i+1]</code> 之间——所以「变化发生在 <code>y</code> 的第 i+1 个」。差这个 1 是本套路唯一的高频错误。</p>
-<hr />
 <h2 id="_3">🧩 八、一张表：六个套路的倍数</h2>
 <p>⚠️ <strong>看倍数，不要看绝对耗时。</strong> 下面是同一台笔记本（Windows 11 · Python 3.13.14 · NumPy 2.4.6 · 无 GPU 参与）上 <strong>N = 200,000</strong>、<code>timeit.repeat(number=1, repeat=5)</code> 取 min、三次独立进程跑出来的区间。这台机器会热降频，所以给区间不给单点。</p>
 <div class="tw"><table>
@@ -677,7 +673,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </table></div>
 <p>⭐ <strong>你的绝对耗时一定和上表不同，看量级和倍数就行。</strong> 同一台机器上三次跑，④ 的倍数就在 89x 和 170x 之间摆——这不是测量出错，是<strong>笔记本降频</strong>。真要给出可比的数字，得用固定频率的机器多轮取分位数，那套口径归《Python》板块的性能剖析章。</p>
 <p>⚠️⚠️ <strong>③ 只有 3.5–5.7x，这个数没有粉饰。</strong> 六个套路里它最不划算，原因见下一节——<strong>它恰好是最有教学价值的一个</strong>。</p>
-<hr />
 <h2 id="_4">🧩 九、⭐ 倍数是规模的函数，不是常数</h2>
 <p>上表所有数字都只对 N = 200,000 成立。把 Top-K 这一条放到不同规模上看：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -696,7 +691,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>（三次独立跑：N=200,000 时 3.4x / 3.2x / 2.8x；N=5,000,000 时 10.8x / 8.6x / 14.7x。倍数抖，但<strong>趋势不抖</strong>。）</p>
 <p>⭐ 原因是复杂度不同：<code>argsort</code> 是 O(n log n)，<code>argpartition</code> 是 O(n)。<strong>它们的比值本身就含一个 log n</strong>，所以规模涨 25 倍，优势从 3 倍涨到 9–15 倍。</p>
 <p>💀 <strong>这条比六个漂亮的倍数都更值钱</strong>：任何「X 比 Y 快 N 倍」的说法，<strong>不写清楚 N 是多少就没有意义</strong>。你在 20 万行上量出的 3 倍，上线跑 500 万行时是 10 倍；反过来，你在 20 万行上量出的 100 倍，缩到 100 行时可能是 0.5 倍（更慢）。</p>
-<hr />
 <h2 id="_5">🚦 十、什么时候<strong>不该</strong>改写</h2>
 <p>改写不是免费的。这四种情况请直接停手：</p>
 <div class="tw"><table>
@@ -731,7 +725,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>⭐ <strong>一条经验</strong>：先把循环改对，<strong>再</strong>测。本章每段代码都是「先 <code>print</code> 最大差 / 是否完全一致，再打印耗时」——顺序不能反。改快了但改错了，是最难查的一类 bug，因为它不报错。</p>
-<hr />
 <h2 id="_6">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -771,7 +764,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_7">✅ 检查点</h2>
 <ol>
 <li>判断一个循环该不该改写，本章给了哪三个问题？</li>
@@ -790,7 +782,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>① 有没有顺序依赖 ② 中间体有多大 ③ 一次跑几个元素（几十个就别改，本章倍数全部在 <strong>N = 200,000</strong> 上测）。</li>
 <li><strong>不一定</strong>。前缀和就是顺序依赖，但 <code>np.cumsum</code> 一行搞定。真正的判据是「这个顺序依赖有没有现成的 ufunc accumulate」——<code>np.add.accumulate</code> / <code>np.maximum.accumulate</code> / <code>np.logical_and.accumulate</code> 都算。没有对应函数（比如每步结果决定下一步读哪个下标）才必须写循环。</li>
 <li>输出长度只到「<strong>实际出现过的最大组号 + 1</strong>」。某批数据里最后几组恰好没出现，输出就短一截，后面广播直接报错。</li>
-<li><strong>无序</strong>。<code>argpartition</code> 只保证第 k 位是正确的第 k 名、左边都不比它小。要有序就 <code>idx[np.argsort(-x[idx])]</code> 再对这 k 个排一次，k 小时几乎不花钱。</li>
+<li><strong>无序</strong>。<code>kth</code> 从 0 开始；在 <code>-x</code> 上分区时，左侧值不大于分区点，对应原数组较大的元素。要有序就 <code>idx[np.argsort(-x[idx])]</code> 再对这 k 个排一次，k 小时几乎不花钱。</li>
 <li><strong>不占</strong>（0 额外内存）。实测 <code>np.shares_memory(v, x)</code> 是 True ——它没复制，只是给同一块内存换了套 stride 读法。「如果真复制」是 76.3 MiB，而 <code>x</code> 本身只有 1.5 MiB。为什么能这样见 05 章。</li>
 <li><strong>③ Top-K，只有 3.5–5.7x</strong>。因为 <code>argsort</code> 和 <code>argpartition</code> 都是 C 实现的数组操作，两边都没有 Python 循环开销，差的只是 O(n log n) 和 O(n) 这个算法复杂度；其余五个是「Python 循环 vs C 循环」，差的是一整层解释器开销。</li>
 <li>从 <strong>3.4x 涨到 10.8x</strong>（三次跑：200,000 时 3.4/3.2/2.8x，5,000,000 时 10.8/8.6/14.7x）。因为两者比值里含一个 log n，规模涨 25 倍，优势就涨了一档。结论：倍数是规模的函数，不写清 N 的倍数没有意义。</li>
@@ -798,7 +790,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>中间体爆炸</strong>那一条：分块循环 + 块内向量化，外层留一个循环是完全正常的写法。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_8">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
@@ -836,4 +827,4 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-numpy-vectorization-reader.css"></body></html>

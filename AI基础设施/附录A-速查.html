@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="polish-ai-infra-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -439,12 +439,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td>&gt; 60%</td>
 <td>🤔</td>
-<td>检查公式是否算错</td>
+<td>核对精度、FLOP 与峰值口径；超过 60% 不自动代表错误</td>
 </tr>
 </tbody>
 </table></div>
 <blockquote>
-<p>⭐ <strong>天花板是 60% 不是 100%</strong>：通信、LayerNorm/Softmax、数据加载、
+<p>⭐ <strong>60% 只是示例参考 不是 100%</strong>：通信、LayerNorm/Softmax、数据加载、
 kernel 启动、优化器更新都占时间但不算有效 FLOP。</p>
 </blockquote>
 <hr />
@@ -486,9 +486,9 @@ kernel 启动、优化器更新都占时间但不算有效 FLOP。</p>
 </tbody>
 </table></div>
 <blockquote>
-<p>⭐ <strong>诊断分叉：把 batch 调到 1 还 OOM 吗？</strong>
-还 OOM → 前三块的问题（ZeRO / 量化 / LoRA），<strong>调 batch 没用</strong>
-不 OOM → 激活的问题（梯度检查点 / FlashAttention）</p>
+<p>⭐ <strong>排查入口：减小 batch 后，峰值和失败位置怎样变化？</strong>
+仍 OOM → 同时检查参数状态、激活峰值、工作区和分配器，不能直接定因<strong></strong>
+不再 OOM → 继续定位 batch 相关的激活、工作区或分配模式，再选择方法</p>
 </blockquote>
 <hr />
 <h2 id="_3">🧰 显存优化速查</h2>
@@ -535,7 +535,7 @@ kernel 启动、优化器更新都占时间但不算有效 FLOP。</p>
 <tr>
 <td>8-bit Adam</td>
 <td>优化器</td>
-<td>12→4 字节</td>
+<td>低精度矩与主权重分别核算</td>
 <td>极小质量损失</td>
 </tr>
 <tr>
@@ -585,7 +585,7 @@ kernel 启动、优化器更新都占时间但不算有效 FLOP。</p>
 <tr>
 <td>能跨机</td>
 <td>✅</td>
-<td>❌</td>
+<td>可以，需评估层内通信效率</td>
 <td>✅</td>
 </tr>
 <tr>
@@ -597,19 +597,19 @@ kernel 启动、优化器更新都占时间但不算有效 FLOP。</p>
 <tr>
 <td>主要缺点</td>
 <td>不省显存</td>
-<td>必须机内</td>
+<td>偏好高速互联</td>
 <td>气泡</td>
 </tr>
 </tbody>
 </table></div>
 <blockquote>
-<p>⭐ <strong>黄金法则：TP 机内（NVLink）／ PP 跨机 ／ DP 最外层。</strong>
+<p>⭐ <strong>常用起点：TP 优先高速互联域、PP/DP 可跨机；TP 也能跨机，需评估通信效率。</strong>
 记忆：<strong>通信最凶的贴着最快的线。</strong></p>
 <p>⭐ <strong>恒等式（全教程出现 3 次）：AllReduce = ReduceScatter + AllGather</strong>
 —— 它解释了 ZeRO-2 为什么免费、序列并行为什么不增加通信。</p>
 </blockquote>
 <p>决策顺序：装得下 → DP+ZeRO-2 ／ 不够 → FSDP ／ 多机 → HYBRID_SHARD ／
-单层装不下 → +TP(≤8) ／ 还不够 → +PP(M≥4P) ／ MoE → +EP ／ 长序列 → +CP</p>
+单层装不下 → 评估 TP（按容量与拓扑选度数，可跨机） ／ 还不够 → +PP(M≥4P) ／ MoE → +EP ／ 长序列 → +CP</p>
 <hr />
 <h2 id="_5">🚀 推理速查</h2>
 <div class="tw"><table>
@@ -629,7 +629,7 @@ kernel 启动、优化器更新都占时间但不算有效 FLOP。</p>
 <tr>
 <td>算术强度</td>
 <td>高</td>
-<td><strong>~2</strong> 💀</td>
+<td><strong>~1（BF16、batch=1）</strong></td>
 </tr>
 <tr>
 <td>瓶颈</td>
@@ -649,7 +649,7 @@ kernel 启动、优化器更新都占时间但不算有效 FLOP。</p>
 </tbody>
 </table></div>
 <blockquote>
-<p>⭐ <strong>Decode 的 MFU 只有 1–5% 是正常的</strong> —— 带宽瓶颈下算力本来就用不满。
+<p>⭐ <strong>Decode 的 MFU 可能较低，但不是固定 1–5% 区间</strong> —— 带宽瓶颈下算力本来就用不满。
 推理该看<strong>带宽利用率和吞吐</strong>，不是 MFU。</p>
 </blockquote>
 <p>优化顺序：
@@ -750,12 +750,12 @@ nsys<span class="w"> </span>profile<span class="w"> </span>-t<span class="w"> </
 </tr>
 <tr>
 <td>batch=1 也 OOM</td>
-<td>优化器状态</td>
+<td>核对参数状态、激活、工作区与分配器；不能单独定因</td>
 <td><a href="09-显存优化全家桶.html">09</a>、<a href="11-ZeRO与FSDP.html">11</a></td>
 </tr>
 <tr>
-<td>显存够却 OOM</td>
-<td>碎片</td>
+<td>显存看似够却 OOM</td>
+<td>核对峰值、其他占用与分配快照；碎片只是候选</td>
 <td><a href="09-显存优化全家桶.html">09</a></td>
 </tr>
 <tr>
@@ -1049,15 +1049,15 @@ Decode 阶段 <code>batch=1</code> 的算术强度是多少？<strong>batch 要�
 <div class="vb-calc">
 <p>FLOP = 2 × 7e9 = 1.4e10</p>
 <p>搬运字节 ≈ 权重 14 GB = 1.4e10</p>
-<p>→ 算术强度 = 1.4e10 ÷ 1.4e10 = 2 FLOP/字节 💀</p>
+<p>→ 算术强度 = 1.4e10 ÷ 1.4e10 = 1 FLOP/字节 💀</p>
 </div>
 </section>
-<p><strong>batch = B 时</strong>：权重仍然只读一遍，FLOP 变 B 倍 → 算术强度 ≈ <strong>2B</strong>
-要 ≥ 156 → B ≥ 78</p>
-<p>💡 这个数告诉你什么：这个 2 正是第 15 章那句"算术强度 ≈ 2，离平衡点 156 差 78 倍"的来源 ——
-<strong>"差 78 倍"和"batch 要 78"是同一个数，因为它们本来就是同一件事。</strong>
-而 78 并发在题 4(a) 的配置下（上限 108）虽然放得下，
-但那已经吃掉大半 KV 容量、TPOT 也会明显变差 —— <strong>要同时守 SLO，现实里很难稳定跑在那儿。</strong>
+<p><strong>batch = B 时</strong>：权重仍然只读一遍，FLOP 变 B 倍 → 算术强度 ≈ B（BF16 权重主导）<strong></strong>
+要 ≥ 156 → B ≥ 156</p>
+<p>💡 这个数告诉你什么：这个 1 才是第 15 章那句"算术强度 ≈ 1，离平衡点 156 差 156 倍"的来源 ——
+<strong>"差 156 倍"和"batch 要 156"是同一个数，因为它们本来就是同一件事。</strong>
+而 B=156 已超过题 4(a) 的容量上限 108，
+即使提高容量，也须检查 KV 读写、计算和 TPOT —— <strong>要同时守 SLO，现实里很难稳定跑在那儿。</strong>
 这就是"Decode 几乎永远待在访存这一侧"的完整逻辑链。</p>
 <p>🔗 <a href="04-Roofline与MFU.html">第 4 章 Roofline 与 MFU</a> · <a href="15-推理和训练是两回事.html">第 15 章 推理和训练是两回事</a></p>
 </details>
@@ -1072,7 +1072,7 @@ Decode 阶段 <code>batch=1</code> 的算术强度是多少？<strong>batch 要�
 <p>FLOP = 2 × 7e9 × 2048 = 2.87e13</p>
 <p>搬运字节 ≈ 权重 14 GB = 1.4e10</p>
 <p>→ 算术强度 = 2.87e13 ÷ 1.4e10 = 2048 FLOP/字节</p>
-<p>（注意它就是 2 × token 数，和上一题同构）</p>
+<p>（注意它约等于 token 数（BF16 权重主导），和上一题同构）</p>
 </div>
 </section>
 <p>2048 ≫ 156 → <strong>重度计算密集</strong>。
@@ -1100,7 +1100,7 @@ MFU 多少？落在哪一档？<strong>如果实测只有 12,000 tokens/秒呢�
 </section>
 <p><strong>12,000 tokens/秒的情况</strong>：分子 = 6 × 7e9 × 1.2e4 = 5.04e14 → <strong>MFU ≈ 2.5%</strong> 💀</p>
 <p>💡 这个数告诉你什么：44% 意味着"常规优化还有空间，但不必大改" ——
-而且要记得<strong>天花板是 60% 不是 100%</strong>（通信、LayerNorm、数据加载都占时间却不算有效 FLOP）。
+而且要记得<strong>60% 只是示例参考 不是 100%</strong>（通信、LayerNorm、数据加载都占时间却不算有效 FLOP）。
 至于 2.5% 那种量级：<strong>第一件事是查数据管线，不是调模型。</strong>
 差两个数量级的问题，不可能是算子融合能解释的。</p>
 <p>🔗 <a href="04-Roofline与MFU.html">第 4 章 Roofline 与 MFU</a> · 本页上面的「MFU 基准」表 · <a href="22-数据管线与存储.html">第 22 章 数据管线与存储</a></p>
@@ -1215,6 +1215,7 @@ MFU 多少？落在哪一档？<strong>如果实测只有 12,000 tokens/秒呢�
 </table></div>
 <hr />
 <p>👉 <a href="index.html">回到首页</a></p>
+<details class="g05-content-note"><summary>条件与依据</summary><p>本页与正文共用条件：容量示意按元素字节数核算，实际还要工作区和 SLO 余量；带宽不能混用每卡双向聚合与单链路单向值。第 5 题 BF16 权重主导算术强度应为 B，不是 2B，拐点约 B=156，已超出第 4(a) 题容量；70B BF16 无法装进单张 80GB 卡，第 8 题只能视为忽略容量的带宽算术，不能解释为可部署方案。MFU、ZeRO、nonce 以正文条件为准。</p><p><a href="https://docs.nvidia.com/deeplearning/performance/dl-performance-gpu-background/index.html">官方文档</a>；<a href="https://www.deepspeed.ai/tutorials/zero/">官方文档</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="24-实战与挑战项目.html"><div class="dir">← 上一节</div>⭐ 实战与挑战项目</a><a class="next" href="index.html"><div class="dir">完成 →</div>🏠 回首页看进度</a></nav>
@@ -1241,4 +1242,4 @@ MFU 多少？落在哪一档？<strong>如果实测只有 12,000 tokens/秒呢�
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-ai-infra-reader.css"></body></html>

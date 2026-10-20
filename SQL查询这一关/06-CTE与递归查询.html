@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="sql-query">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -306,12 +306,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="06-cte">06 · CTE 与递归：把「这份数据的全部上游」查出来</h1>
+<details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>80 分钟</strong> ｜ ⭐ <strong>血缘图就是一张边表，「全部上游」是一条递归查询</strong></p>
-<hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong><code>WITH</code> 把套了三层的子查询摊成一条流水线；<code>WITH RECURSIVE</code> 让一条查询能自己接着自己跑，于是「顺着边一直往上走」不再需要写 Python。</strong>
 前者是可读性，后者是能力 —— 没有它，「这份训练数据的全部上游是谁」这个问题在纯 SQL 里根本表达不出来。</p>
-<hr />
 <h2 id="17">🧭 一、先划清和《数据这一关 17》的分工</h2>
 <p><a href="../数据这一关/17-数据版本与血缘.html">数据这一关 · 17 数据版本与血缘</a> <strong>owns「血缘该记什么、为什么要记」</strong>：
 run manifest 里要有上游表 + 分区 + 每个上游的指纹 + 行数 + 数据截止时间，缺一项不许发版。</p>
@@ -340,7 +339,6 @@ run manifest 里要有上游表 + 分区 + 每个上游的指纹 + 行数 + 数�
 </tbody>
 </table></div>
 <p>⚠️ 反过来也成立：<strong>本章不重讲指纹怎么算、backfill 为什么危险、那场信贷事故</strong>，那些是 17 章的正题。</p>
-<hr />
 <h2 id="with">🧩 二、<code>WITH</code>：把嵌套读成流水线</h2>
 <p>先看一个真问题：<strong>manifest 都记下来了，怎么发现「分区名没变、内容却变了」？</strong>
 （这正是 17 章的「死法 B」，它说没有指纹就无法被发现 —— 有了指纹，发现它是一条查询。）</p>
@@ -432,9 +430,8 @@ run manifest 里要有上游表 + 分区 + 每个上游的指纹 + 行数 + 数�
 —— 而这正是 17 章第四节那句叹息的解法。</p>
 </blockquote>
 <p>⚠️ <strong>CTE 不是性能优化。</strong> 数据库可能把它算完存下来（物化），也可能把它展开进外层。
-SQLite 3.35 起可以用 <code>WITH x AS MATERIALIZED (...)</code> / <code>NOT MATERIALIZED</code> 显式要求（本机 3.50.4 两种写法都跑通了），
+SQLite 3.35 起可以用 <code>WITH x AS MATERIALIZED (...)</code> / <code>NOT MATERIALIZED</code> 提供物化提示（原文 3.50.4 记录两种语法均可运行；<code>NOT MATERIALIZED</code> 并不禁止物化），
 但⭐ <strong>默认不要去指定它</strong> —— 先让它可读，慢了再回到 09 章看计划。</p>
-<hr />
 <h2 id="with-recursive">🌲 三、<code>WITH RECURSIVE</code>：两段式结构</h2>
 <p>普通 CTE 只能引用<strong>前面</strong>定义好的 CTE。<code>RECURSIVE</code> 解开了这条限制：<strong>CTE 可以在自己的定义里引用自己</strong>。</p>
 <p>结构永远是两段，中间用 <code>UNION</code> 或 <code>UNION ALL</code> 连起来：</p>
@@ -482,7 +479,6 @@ SQLite 3.35 起可以用 <code>WITH x AS MATERIALIZED (...)</code> / <code>NOT M
 <p>⭐ <strong>这十行里最值钱的是那四行 <code>(缺)</code></strong>：表里只有 6 行，任何 <code>GROUP BY dt</code> 都只能数出 6 天，
 <strong>缺的四天不会以任何形式出现在结果里</strong>。骨架 <code>LEFT JOIN</code> 事实表，是把「不存在」变成「一行 NULL」的标准手法。
 ⚠️ 这个骨架在 08 章还会再用一次 —— 那里要处理的正是「数据有缺口时，<code>ROWS</code> 和 <code>RANGE</code> 不是一回事」。</p>
-<hr />
 <h2 id="inputs">🕸️ 四、血缘：<code>inputs</code> 数组就是一张边表</h2>
 <p>17 章的 manifest 里，<code>inputs</code> 每一项是「<strong>这次产出用了哪张上游表</strong>」。把它摊平，就是一张两列的边表：</p>
 <div class="codehilite" data-code-language="sql"><pre><span></span><code><span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">edges</span><span class="w"> </span><span class="p">(</span><span class="n">child</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span><span class="w"> </span><span class="n">parent</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">);</span><span class="w">   </span><span class="c1">-- child 的上游是 parent</span>
@@ -584,7 +580,6 @@ SQLite 3.35 起可以用 <code>WITH x AS MATERIALIZED (...)</code> / <code>NOT M
 <strong>后半章还有</strong>：三个坑：<code>UNION</code> 不是万能防环 · 可以照抄的安全写法
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="union">💀 五、三个坑：<code>UNION</code> 不是万能防环</h2>
 <p>上面那条查询能停下来，靠的是 <code>UNION</code> 去重：绕回已经见过的节点时不产生新行，递归自然收敛。
 ⚠️ <strong>但这个保护比你以为的脆弱得多，三处都亲手跑过。</strong></p>
@@ -685,7 +680,6 @@ SQLite 3.35 起可以用 <code>WITH x AS MATERIALIZED (...)</code> / <code>NOT M
 <p>⚠️ 顺带看第一行：<strong>没有环的时候是 8 个节点，加了那条回边变成 9 个</strong> ——
 多出来的正是 <code>train_v37</code> 自己。⭐ <strong>「一个产出物出现在自己的上游列表里」是环的报警信号</strong>，
 血缘查询里值得单独加一条断言。</p>
-<hr />
 <h2 id="_2">🧯 六、可以照抄的安全写法</h2>
 <p>把三个坑一次堵上：<strong><code>path</code> 判环 + <code>depth</code> 兜底刹车 + 最后按节点收敛</strong>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
@@ -753,7 +747,6 @@ SQLite 3.35 起可以用 <code>WITH x AS MATERIALIZED (...)</code> / <code>NOT M
 </blockquote>
 <p>⚠️ <strong>本章只解决「边表已经有了」之后的那一半。</strong> 边表怎么来（<code>inputs</code> 数组怎么落盘、指纹怎么算、
 临时表和跨库依赖怎么记）全部在 17 章 —— <strong>没有那一半，这一章的查询无处可跑。</strong></p>
-<hr />
 <h2 id="_3">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -789,7 +782,6 @@ SQLite 3.35 起可以用 <code>WITH x AS MATERIALIZED (...)</code> / <code>NOT M
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_4">✅ 检查点</h2>
 <ol>
 <li><code>WITH</code> 相比嵌套子查询，实际改变了什么、没有改变什么？</li>
@@ -805,7 +797,7 @@ SQLite 3.35 起可以用 <code>WITH x AS MATERIALIZED (...)</code> / <code>NOT M
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>改变的是<strong>可读性</strong>：从「括号最里层往外读」变成「从上往下读、每段有名字」。没有改变结果、语义，⚠️ 也不是性能优化 —— 数据库可能物化也可能展开（SQLite 3.35+ 可以用 <code>MATERIALIZED</code> / <code>NOT MATERIALIZED</code> 显式指定，本机 3.50.4 两种写法都能跑，但默认不要去指定）。</li>
+<li>改变的是<strong>可读性</strong>：从「括号最里层往外读」变成「从上往下读、每段有名字」。没有改变结果、语义，⚠️ 也不是性能优化 —— 数据库可能物化也可能展开（SQLite 3.35+ 可以用 <code>MATERIALIZED</code> / <code>NOT MATERIALIZED</code> 提供规划提示；<code>NOT MATERIALIZED</code> 不保证不物化。默认先不指定，查看实际计划再决定）。</li>
 <li><strong>想引用几次都行</strong>（后面的 CTE 能引用前面的、外层能引用任意一个）。嵌套子查询做不到，只能把整段复制一遍。</li>
 <li>① <strong>种子查询</strong>（第一批行，不引用自己）② 递归步（<code>JOIN</code> 自己，拿上一批算下一批），中间用 <code>UNION</code> / <code>UNION ALL</code> 连接。直到某一轮不再产生新行就停。</li>
 <li>因为缺的那 4 天在表里是<strong>不存在的行</strong>，聚合只能对已有的行分组，不存在的行不会以任何形式出现。办法是用 <code>WITH RECURSIVE</code> 造一根日历骨架，再 <code>LEFT JOIN</code> 事实表 —— 缺的天就变成 <code>n_rows IS NULL</code> 的行。实测：日历 10 天、缺 4 天、表里 6 行。</li>
@@ -816,7 +808,6 @@ SQLite 3.35 起可以用 <code>WITH x AS MATERIALIZED (...)</code> / <code>NOT M
 <li>多出来的是 <strong><code>train_v37</code> 自己</strong>（它经由回边成了自己的上游）。「一个产出物出现在自己的上游列表里」是环的报警信号，值得在血缘查询里单独加一条断言。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_5">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
@@ -854,4 +845,4 @@ SQLite 3.35 起可以用 <code>WITH x AS MATERIALIZED (...)</code> / <code>NOT M
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-sql-query-reader.css"></body></html>

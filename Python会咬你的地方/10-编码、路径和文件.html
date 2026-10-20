@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="python-pitfalls">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -307,12 +307,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="10">10 · 编码、路径和文件</h1>
+<details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>40 分钟</strong> ｜ ⭐ <strong>「在我机器上好好的」十次里有八次是这一章的内容</strong></p>
-<hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong><code>open()</code> 不写 <code>encoding=</code> 时用的是「平台默认」，而这个默认在 Windows 上是 GBK、在 Linux/Mac 上是 UTF-8 —— 同一份代码换台机器就炸。</strong></p>
+<p><code>open()</code> 的默认文本编码取决于 Python 版本、UTF-8 模式和系统区域设置；不能仅凭 Windows、Linux 或 macOS 判断。读写已知格式时，显式使用该格式约定的编码；下文 cp936 是原文环境的一次记录。</p>
 <p>这一章讲的全是<strong>跨机器才暴露</strong>的坑：编码、BOM、换行符、路径。它们在你自己电脑上一次都不会出现，一交给别人就全来了。</p>
-<hr />
 <h2 id="open">🧩 一、<code>open()</code> 的默认编码是个陷阱</h2>
 <p>先看本机（Windows 11，Python 3.13）真实的三个值：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">locale</span><span class="o">,</span><span class="w"> </span><span class="nn">sys</span>
@@ -341,13 +340,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>⭐ <strong>注意报错里出现的是 <code>'gbk' codec</code></strong> —— 你从头到尾没提过 GBK，是 <code>open()</code> 替你选的。</p>
 <blockquote>
-<p>⭐ <strong>一条规矩，没有例外</strong>：
-<strong>凡是 <code>open()</code> 处理文本，一律显式写 <code>encoding="utf-8"</code>。</strong>
-不是「最好写」，是「<strong>不写就是 bug，只是还没被触发</strong>」。</p>
+<p>读写文本前先确认格式：本站 UTF-8 源文件使用 <code>encoding="utf-8"</code>；带 BOM 的 UTF-8 可用 <code>utf-8-sig</code>；GBK 等旧文件必须按其实际编码读取。显式指定<strong>正确编码</strong>，比把所有文件都当 UTF-8 更可靠。</p>
 </blockquote>
 <p>⚠️ Python 3.15 起默认会改成 UTF-8（PEP 686），但<strong>你写的代码要在 3.9~3.14 上跑很多年</strong>。
 想提前统一，可以给命令加 <code>-X utf8</code> 或设 <code>PYTHONUTF8=1</code>，但<strong>别指望别人的环境有这个</strong>。</p>
-<hr />
 <h2 id="bom">🧩 二、BOM：多出来的那个看不见的字符</h2>
 <p>有些工具（Excel 导出的 CSV 是重灾区）会在文件开头塞三个字节 <code>EF BB BF</code>，叫 <strong>BOM</strong>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span><span class="o">,</span><span class="w"> </span><span class="nn">os</span>
@@ -370,10 +366,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>于是典型症状是：<strong><code>df["id"]</code> 报 KeyError，而你把列名打印出来看着一模一样。</strong></p>
 <p>⭐ <strong>解法</strong>：读可能带 BOM 的文件用 <code>encoding="utf-8-sig"</code>（没有 BOM 时它行为和 <code>utf-8</code> 一样，
 <strong>所以可以无脑用</strong>）；写给 Excel 看的 CSV 主动用 <code>utf-8-sig</code>，否则 Excel 打开中文是乱码。</p>
-<hr />
 <h2 id="print-emoji">🧩 三、💀 print 一个 emoji 就能崩掉整个构建</h2>
 <p>⚠️ <strong>这一节是本项目自己的事故</strong>，写在这里是因为它太典型了。</p>
-<p>Windows 控制台的默认编码不是 UTF-8。所以：</p>
+<p>若当前标准输出流的编码不能表示 emoji，例如原文环境的 GBK，则：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="nb">print</span><span class="p">(</span><span class="s2">&quot;✅ 全部链接有效&quot;</span><span class="p">)</span>
 <span class="c1"># UnicodeEncodeError: &#39;gbk&#39; codec can&#39;t encode character &#39;\u2705&#39; ...</span>
 </code></pre></div>
@@ -402,7 +397,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <strong>后半章还有</strong>：换行符与 CSV 的双回车 · <code>pathlib</code> · Windows 路径的三个坑 · 相对路径到底相对于谁。
 回来的时候不用重读，直接从下一节接着看。</p>
 </blockquote>
-<hr />
 <h2 id="csv">🧩 四、换行符：CSV 的双回车</h2>
 <p>Windows 的行尾是 <code>\r\n</code>，Unix 是 <code>\n</code>。Python 的<strong>文本模式</strong>会替你转换 —— 而这正是问题所在。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span><span class="o">,</span><span class="w"> </span><span class="nn">os</span><span class="o">,</span><span class="w"> </span><span class="nn">csv</span>
@@ -424,7 +418,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong>规矩</strong>：<code>csv</code> 读写一律加 <code>newline=""</code>。
 这个参数的意思是「<strong>别动换行符，我自己管</strong>」，不是「用空字符串当换行符」。</p>
 </blockquote>
-<hr />
 <h2 id="pathlib">🧩 五、<code>pathlib</code>：别再用字符串拼路径</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">pathlib</span>
 
@@ -476,7 +469,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>⚠️ 注意 <code>read_text</code> / <code>write_text</code> <strong>也要写 <code>encoding=</code></strong>，它们和 <code>open()</code> 一样默认跟平台。</p>
-<hr />
 <h2 id="windows">🧩 六、Windows 路径的三个坑</h2>
 <p><strong>① 反斜杠是转义符。</strong></p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="n">path</span> <span class="o">=</span> <span class="s2">&quot;C:\data</span><span class="se">\n</span><span class="s2">ew</span><span class="se">\t</span><span class="s2">est.txt&quot;</span>
@@ -499,11 +491,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p><strong>③ 长路径限制。</strong> 传统上限 260 字符。现代 Windows 可以解除，但<strong>别指望</strong>。
 深层嵌套的输出目录容易踩到，症状是莫名其妙的 <code>FileNotFoundError</code> 而路径明明是对的。</p>
 <blockquote>
-<p>⚠️ 关于「保留文件名」（<code>CON</code> / <code>PRN</code> / <code>AUX</code> / <code>NUL</code> / <code>COM1</code>…）：
-老资料说这些名字<strong>连带后缀</strong>都建不出来。本机（Windows 11 + Python 3.13）实测
-<strong><code>con.txt</code> 是能建出来的</strong> —— 行为随系统版本变。<strong>别把它当成可靠的规则记，但也别去踩。</strong></p>
+<p>Windows 的 <code>CON</code>、<code>PRN</code>、<code>AUX</code>、<code>NUL</code>、<code>COM1</code> 等是保留设备名，带扩展名也应避免，例如 <code>con.txt</code>。特殊路径命名空间下的个别行为不能当作可移植规则。参见 <a href="https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file#naming-conventions">Microsoft 文件命名约定</a>。</p>
 </blockquote>
-<hr />
 <h2 id="_2">🧩 七、⭐ 相对路径相对于谁</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">os</span><span class="o">,</span><span class="w"> </span><span class="nn">pathlib</span>
 
@@ -537,7 +526,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="n">ROOT</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">abspath</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)))</span>   <span class="c1"># 「本脚本上一级」</span>
 </code></pre></div>
 
-<hr />
 <h2 id="_3">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -569,7 +557,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_4">✅ 检查点</h2>
 <ol>
 <li><code>locale.getpreferredencoding(False)</code> 和 <code>sys.getdefaultencoding()</code> 各管什么？<code>open()</code> 用哪个？</li>
@@ -594,12 +581,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>因为<strong>校验脚本的 <code>ROOT</code> 也硬编码成了老目录</strong> —— 构建把产物写进老目录，校验脚本也去老目录查，两边对上了所以全绿。唯一破绽是产物 mtime 没变。现在一律用 <code>os.path.dirname(os.path.dirname(os.path.abspath(__file__)))</code>。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_5">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
 <p>⭐ <strong>这一章的坑有个共同点：在你自己机器上一次都不会出现，一交给别人就全来了。</strong></p>
-<p>头号问题是 <strong><code>open()</code> 不写 <code>encoding=</code> 时用平台默认</strong>——本机默认就是 GBK，所以读一个 UTF-8 中文文件直接抛解码错。⭐ <strong>报错里的那个编码是 <code>open()</code> 替你选的，你从没提过。</strong> ⚠️ 别被 <code>sys.getdefaultencoding()</code> 那个 utf-8 骗了，<strong>它管的是字符串和字节互转、和文件无关</strong>。⭐ <strong>规矩没有例外：凡是文本 <code>open()</code>，一律显式写 <code>encoding="utf-8"</code>。</strong></p>
+<p><code>open()</code> 的默认文本编码取决于 Python 版本、UTF-8 模式和系统区域设置；不能仅凭 Windows、Linux 或 macOS 判断。读写已知格式时，显式使用该格式约定的编码；下文 cp936 是原文环境的一次记录。</p>
 <p>第二个坑是 <strong>BOM</strong>：读出来的第一列名字前面多了一个看不见的字符，⭐ <strong>打印出来完全正常，取列却报 KeyError 而列名看着一模一样</strong>。读用 <code>utf-8-sig</code>（没 BOM 时行为一致，可以无脑用），写给 Excel 也用它。</p>
 <p>💀 第三个坑是控制台编码，<strong>本项目真栽过</strong>：构建最后一步因为打印一个 emoji 抛编码错，<strong>崩在「旧图已删、新图未注入」的中间态上</strong>，而 <code>except</code> 打印的是「不影响其他内容」——⭐ <strong>在站点已经坏掉时报平安</strong>，全站图当场只剩一半。对策是每个脚本开头钉死 utf-8 输出。</p>
 <p>换行符上，csv 不加 <code>newline=""</code> 会写出两个回车，Excel 里每行之间多一个空行。路径上：反斜杠是转义符、<strong>Windows 大小写不敏感（本地能跑、Linux 上找不到文件）</strong>、<code>.stem</code> 只脱一层。</p>
@@ -632,4 +618,4 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-python-pitfalls-reader.css"></body></html>

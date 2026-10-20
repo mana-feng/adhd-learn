@@ -177,20 +177,20 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .ckpt ol{padding-left:1.3em}.ckpt li{margin:.4em 0}
 .recap{background:var(--quote-bg);border-radius:12px;padding:16px 20px;margin:18px 0 0}
 .recap b{color:var(--accent)}
-</style></head><body>
+</style></head><body data-polish="claude-library" class="polish-claude-library-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner"><a href="../index.html">🏠 总目录</a>
 <a href="index.html">📚 资料库</a><span class="title">Harness 设计</span>
 <button id="themeToggle" title="切换深浅色">🌗</button></div></header>
 <main>
-<h1>Harness Design for Long-Running Application Development（长时应用开发的 Harness 设计）</h1>
-<div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>Harness Design for Long-Running Application Development（长时应用开发的 Harness 设计）</dd><dt>原文链接</dt><dd><a href="https://www.anthropic.com/engineering/harness-design-long-running-apps" target="_blank" rel="noopener">https://www.anthropic.com/engineering/harness-design-long-running-apps</a></dd><dt>作者</dt><dd>Prithvi Rajasekaran（Anthropic Labs）</dd><dt>发布日期</dt><dd>2026-03-24</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。具体参数与功能名更新很快，落地前请点击上方链接核对原文。</div></div>
+<h1>长时应用开发的 Harness 设计</h1>
 <div class="adhd-head">
 <p class="meta">⏱ <strong>14 分钟</strong> ｜ 🏗️ <strong>让任务跑得比上下文更久</strong></p>
 <h2 id="tldr">🎯 一句话</h2>
-<p class="tl">长时任务的根本矛盾是：<strong>任务比上下文窗口长</strong>。⭐ 解法都围绕一件事：<strong>把状态外置到上下文之外，让每一轮都能从外部恢复</strong>。</p>
+<p class="tl">长时应用开发既要保留跨会话状态，也要检查产物质量。本文用<strong>规划、生成、评估分工</strong>和明确的完成契约，展示怎样在真实页面反馈中迭代；案例收益仍取决于任务、模型和预算。</p>
 </div>
-
+<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>怎样让生成与评估各有标准并保留可恢复产物？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav>
+<div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>Harness Design for Long-Running Application Development（长时应用开发的 Harness 设计）</dd><dt>原文链接</dt><dd><a href="https://www.anthropic.com/engineering/harness-design-long-running-apps" target="_blank" rel="noopener">https://www.anthropic.com/engineering/harness-design-long-running-apps</a></dd><dt>作者</dt><dd>Prithvi Rajasekaran（Anthropic Labs）</dd><dt>发布日期</dt><dd>2026-03-24</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。版本、参数与案例数字属于原文所示条件，不是本资料库的实测结果；产品状态与接口以实施时官方文档为准。</div></div>
 <details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
 <ul>
 <li><a href="#tldr">🎯 一句话</a></li>
@@ -274,7 +274,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ol>
 <li><strong>专业化分工驱动性能：</strong> 针对规划、生成、评估分别优化的 Agent，优于一体化方案。</li>
 <li><strong>具体标准使主观改进成为可能：</strong> 把模糊判断转化为可衡量的设计原则。</li>
-<li><strong>生成/评估分离消除自评偏差：</strong> 外部评估器远比自我打分客观。</li>
+<li><strong>生成/评估分离有助于降低自评偏差：</strong> 外部评估器远比自我打分客观。</li>
 <li><strong>结构化交接支撑长时任务：</strong> 基于文件的通信和显式契约让多会话工作不发生上下文崩塌。</li>
 <li><strong>harness 调优需要实证依据：</strong> 阅读 Agent 日志、度量具体提示词选择的影响，是优化的必经之路。</li>
 </ol>
@@ -298,7 +298,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ol>
 <li>⭐ <strong>任务需要的信息量超过了上下文窗口</strong>。一个跑几小时、几百步的任务，<strong>不可能把所有中间过程都留在上下文里</strong>。</li>
 <li><strong>①进度和待办</strong>（做到哪了、还剩什么）<strong>②已经确定的结论和决策</strong>（避免反复推翻）<strong>③产出物本身</strong>（写进文件而不是留在对话里）<strong>④遇到过的坑</strong>（否则会重复踩）。⭐ 关键是<strong>这些都要写到文件或外部存储，且格式要便于下一轮读回</strong>。</li>
-<li>因为<strong>长任务里出错是必然的</strong>——工具超时、模型走偏、外部服务变更，跑几百步不可能一次不出错。⭐ <strong>所以设计目标不该是「不出错」，而是「出错后能从最近的检查点继续」</strong>。<strong>能恢复，长度就不再是问题；不能恢复，一次失败就要从头再来。</strong></li>
+<li>因为<strong>长任务里出错是必然的</strong>——工具超时、模型走偏、外部服务变更，跑几百步不可能一次不出错。⭐ <strong>所以设计目标不该是「不出错」，而是「出错后能从最近的检查点继续」</strong>。<strong>能恢复可降低重启损失，长任务仍受预算、状态一致性与验证能力限制；不能恢复，一次失败就要从头再来。</strong></li>
 </ol>
 </details>
 </div>
@@ -318,4 +318,5 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
+<link rel="stylesheet" href="../assets/polish-claude-library-reader.css">
 </body></html>

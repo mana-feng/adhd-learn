@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>16 · 重训练 · 模型上线之后</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{
+/* ⭐ 字号阶梯：正文 = 1em（body 18px）。其余一律从这几档取，
+   不要再写 .92 / .94 / .95 这种随手值 —— body 18px 下它们相差不到 0.5px，
+   分不出来，只会让后来的人不知道该抄哪一个。 */
+  --fs-xs:.8em;    /* 角标、方向标签 */
+  --fs-sm:.88em;   /* 代码、图注、注解 */
+  --fs-md:.93em;   /* 略小于正文：表格、面板、目录 —— 站内最常用 */
+  --fs-lg:1.14em;  /* h3 */
+  --fs-xl:1.42em;  /* h2 */
+  --fs-2xl:1.9em;  /* h1 */
+--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:var(--fs-2xl);line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:var(--fs-xl);margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:var(--fs-lg);margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+/* ⭐ 表格横向滚动兜底：`width:100%` 让表格只会挤不会溢出，实测 305px 宽下
+   最窄单元格只剩 40px。给单元格一个 min-width 让它不再无限压缩，超出的由 .tw 兜住。
+   2–4 列的表仍然占满不滚动，只有真挤不下的多列表才出现滚动条。 */
+.tw{overflow-x:auto;margin:1.2em 0;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;margin:0;font-size:var(--fs-md)}
+th,td{min-width:5.2em}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:var(--fs-sm);background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:var(--fs-sm)}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:var(--fs-md)}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:var(--fs-xs);color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:var(--fs-sm);color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:var(--fs-md)}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:var(--fs-xs);
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:var(--fs-md);border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:var(--fs-md)}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:var(--fs-md);line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:var(--fs-md)}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:var(--fs-sm);line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:var(--fs-md);line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:var(--fs-md)}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:var(--fs-lg);opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:var(--fs-sm);
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+/* ⭐ 块公式也要能自己横向滚动：pre/表格/图都有兜底，只有它没有 —— 一条长公式会把整页撑出横向滚动条 */
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:2px 0 6px}
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:var(--fs-xs);
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
+
+.dia-lead{color:var(--muted);font-size:var(--fs-md);margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:var(--fs-sm);margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:var(--fs-md);margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:var(--fs-md);line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.05em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:var(--fs-md);break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #FF4689 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #66D9EF } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #A6E22E } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #A6E22E } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
+<script defer src="../assets/vendor/katex/katex.min.js"></script>
+<script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="polish-model-operations-reading">
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">16 · 重训练</span>
+  <span class="prevnext"><a href="15-长期效应与代理指标.html">←</a>
+  <a href="17-版本回溯与可复现.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><noscript><p class="polish-noscript" role="note">正文和导航链接仍可阅读；打卡、主题切换与代码、图解工具需要 JavaScript。</p></noscript><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#_2">🚨 一、先问一句：这次真的该重训吗</a></li>
+<li><a href="#_3">⏰ 二、什么时候触发重训</a></li>
+<li><a href="#_5">📅 三、用多长的数据训（训练窗口）</a></li>
+<li><a href="#_7">🔬 四、训出来的怎么验证</a></li>
+<li><a href="#_9">🔁 五、自动重训流水线：五道闸门</a></li>
+<li><a href="#_10">🧊 六、几个特殊情况</a></li>
+<li><a href="#_11">⚠️ 七、一张坑表</a></li>
+<li><a href="#_12">🔗 八、和站内其他章的关系</a></li>
+<li><a href="#_13">✅ 检查点</a></li>
+<li><a href="#_14">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<h1 id="16">16 · 重训练</h1>
+<p>⏱ <strong>46 分钟</strong> ｜ ⭐ <strong>什么时候训、用什么数据训</strong></p>
+<hr>
+<h2 id="_1">🎯 一句话</h2>
+<p><strong>重训是一个待验证的改进方案，不是发现异常后的自动答案。</strong></p>
+<p>本章分开回答：什么时候启动检查、用哪些数据训练、怎样证明新模型值得上线。先看三项决策和五道闸门；代码与事故算例可以按需继续。</p>
+<hr>
+<h2 id="_2">🚨 一、先问一句：这次真的该重训吗</h2>
+<p><strong>先排查数据是否可信，再判断模型是否需要改变。</strong> 以下情况可能同时出现，不是互斥的“四种漂移”。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>观察到什么</th>
+<th>先做什么</th>
+<th>重训的边界</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>管道、单位或特征生成出了错</td>
+<td>隔离错误数据，修复并追溯污染范围</td>
+<td>不能直接拿仍有问题的数据自动重训；修复或重建数据后再评估</td>
+</tr>
+<tr>
+<td>输入分布变化</td>
+<td>看哪些人群变了、当前效果是否受影响</td>
+<td>分布变了不等于模型一定变差，重训也不一定改善</td>
+</tr>
+<tr>
+<td>输入与答案的关系变化</td>
+<td>收集可靠的新反馈，比较候选更新方案</td>
+<td>新数据覆盖、标签延迟及训练窗口都会影响效果</td>
+</tr>
+<tr>
+<td>类别比例变化</td>
+<td>核对标签口径及条件分布是否稳定</td>
+<td>满足标签漂移假设时可考虑先验修正或校准，不能仅凭比例变化确定方案</td>
+</tr>
+</tbody>
+</table></div>
+<p>为什么要先检查数据？错误可能进入新模型并在源故障修复后继续产生影响。它不一定是“永久损伤”，但恢复可能需要回滚、重建数据和重训。</p>
+<p>数据异常检测可以帮助发现问题，<strong>不是自动确认根因或自动批准重训</strong>。见<a href="06-%E6%95%B0%E6%8D%AE%E6%BC%82%E7%A7%BB%E4%B8%8E%E6%A6%82%E5%BF%B5%E6%BC%82%E7%A7%BB.html">第 6 章</a>与 <a href="https://www.tensorflow.org/tfx/data_validation/get_started">TensorFlow Data Validation 的 schema、skew 和 drift 检查说明</a>。</p>
+<hr>
+<h2 id="_3">⏰ 二、什么时候触发重训</h2>
+<p><strong>触发训练与批准发布要分开。</strong> 收到信号后，先检查数据和收益预期，不应直接替换线上模型。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>触发方式</th>
+<th>能提供什么</th>
+<th>还缺什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>定时</td>
+<td>固定的检查与候选训练节奏</td>
+<td>不证明这次重训有收益</td>
+</tr>
+<tr>
+<td>性能触发</td>
+<td>直接观察任务指标退化</td>
+<td>标签可能延迟，指标有抽样波动</td>
+</tr>
+<tr>
+<td>漂移触发</td>
+<td>没有标签也可看到部分输入变化</td>
+<td>PSI 等统计量不能证明任务效果变差</td>
+</tr>
+<tr>
+<td>数据量触发</td>
+<td>提醒已有一批新样本可用</td>
+<td>数量之外还需质量、覆盖与标签成熟度</td>
+</tr>
+</tbody>
+</table></div>
+<p>定时检查加异常调查是一种可选起点，不是所有业务的统一最佳方案。快变环境与稳定环境的成本权衡不同；只等性能跌破阈值也可能反应太晚。</p>
+<h3 id="_4">频率怎么定</h3>
+<p><strong>用历史回放比较候选周期，不用“越线时间除以二”代替验证。</strong></p>
+<ol>
+<li>选多个历史训练截止点，按当时可获得的数据和标签训练模型。</li>
+<li>冻结模型，逐个未来时间段评估，查看整体和关键人群。</li>
+<li>模拟不同重训周期，计入训练、标签等待、验证和发布耗时。</li>
+<li>比较质量、风险与资源成本；留出没有参与选周期的较晚时段复核。</li>
+</ol>
+<p>下面的函数展示第 2 步。输入需要整数周编号 <code>week</code>、二元标签 <code>y</code>、特征列，以及只在传入训练集上拟合的 <code>model_fn</code>。每个评估周需同时有两类样本。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">roc_auc_score</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">decay_curve</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">train_end_week</span><span class="p">,</span> <span class="n">model_fn</span><span class="p">,</span> <span class="n">feats</span><span class="p">,</span> <span class="n">horizons</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">12</span><span class="p">)):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;冻结一个在 train_end_week 之前训好的模型，逐个检查上线后第 k 周的效果</span>
+<span class="sd">    df 需要有 week 列；model_fn(训练集) 返回一个已 fit 的模型&quot;&quot;&quot;</span>
+    <span class="n">m</span> <span class="o">=</span> <span class="n">model_fn</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="n">df</span><span class="o">.</span><span class="n">week</span> <span class="o">&lt;=</span> <span class="n">train_end_week</span><span class="p">])</span>          <span class="c1"># ⭐ 训完就冻住，之后不再更新</span>
+    <span class="n">rows</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">horizons</span><span class="p">:</span>
+        <span class="n">seg</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">df</span><span class="o">.</span><span class="n">week</span> <span class="o">==</span> <span class="n">train_end_week</span> <span class="o">+</span> <span class="n">k</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">seg</span><span class="o">.</span><span class="n">empty</span> <span class="ow">or</span> <span class="n">seg</span><span class="o">.</span><span class="n">y</span><span class="o">.</span><span class="n">nunique</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;第 </span><span class="si">{</span><span class="n">k</span><span class="si">}</span><span class="s2"> 周不足以计算二分类 AUC&quot;</span><span class="p">)</span>
+        <span class="n">auc</span> <span class="o">=</span> <span class="n">roc_auc_score</span><span class="p">(</span><span class="n">seg</span><span class="o">.</span><span class="n">y</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">predict_proba</span><span class="p">(</span><span class="n">seg</span><span class="p">[</span><span class="n">feats</span><span class="p">])[:,</span> <span class="mi">1</span><span class="p">])</span>
+        <span class="n">rows</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;上线后第几周&quot;</span><span class="p">:</span> <span class="n">k</span><span class="p">,</span> <span class="s2">&quot;样本数&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">seg</span><span class="p">),</span> <span class="s2">&quot;AUC&quot;</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="n">auc</span><span class="p">,</span> <span class="mi">4</span><span class="p">)})</span>
+    <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">rows</span><span class="p">)</span>
+</code></pre></div>
+
+<p><strong>读输出时看“单周”。</strong> 第 8 周只使用该周样本，不把第 1–8 周混合成累计 AUC。累计窗口会掩盖最近的退化；AUC 本身也不是各周 AUC 的简单平均。</p>
+<p>原来的数字保留为<strong>假设性结果示例</strong>，不是这段函数自带的实跑数据：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th style="text-align: right;">上线后第几周</th>
+<th style="text-align: right;">假设 AUC</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0.8410</td>
+</tr>
+<tr>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">0.8395</td>
+</tr>
+<tr>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">0.8352</td>
+</tr>
+<tr>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">0.8218</td>
+</tr>
+<tr>
+<td style="text-align: right;">12</td>
+<td style="text-align: right;">0.8079</td>
+</tr>
+</tbody>
+</table></div>
+<p>第 1 到第 8 周相差 0.0192。如果容忍下降 0.015，第 8 周已经越线；但仅靠这些点<strong>不能确定第 6 周越线，更不能直接推出每 3 周重训最佳</strong>。</p>
+<p>多个起点能暴露季节性和偶然事件，不要求曲线形状完全一致才可用。还要报告样本量、误差范围与标签成熟时间。关于模型新鲜度的工程检查，见 <a href="https://developers.google.com/machine-learning/guides/rules-of-ml">Google Rules of ML，第 8 条</a>。</p>
+<hr>
+<h2 id="_5">📅 三、用多长的数据训（训练窗口）</h2>
+<p><strong>短窗口减少过时数据，却可能丢掉少见人群和季节性；长窗口增加样本，也可能混入过时规律。</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>策略</th>
+<th>做法</th>
+<th>需要验证的代价</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>固定窗口</td>
+<td>只用最近 N 天</td>
+<td>样本是否足够、是否覆盖完整周期</td>
+</tr>
+<tr>
+<td>全量累积</td>
+<td>保留所有可用历史</td>
+<td>旧数据是否仍相关，是否有历史污染</td>
+</tr>
+<tr>
+<td>加权衰减</td>
+<td>旧样本仍用，但权重逐渐减小</td>
+<td>权重实现、有效样本量与长期知识是否受损</td>
+</tr>
+</tbody>
+</table></div>
+<p>下面仍是接入业务训练代码的骨架，需要已有的 <code>df</code>、<code>model</code>、<code>X</code>、<code>y</code>。<code>days_ago</code> 应非负，<code>half_life</code> 应为正；权重是一维数组，并与训练样本顺序一致。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：`df` 来自你自己的代码，这一段只看写法</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">time_decay_weight</span><span class="p">(</span><span class="n">days_ago</span><span class="p">,</span> <span class="n">half_life</span><span class="o">=</span><span class="mi">30</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;指数衰减：半衰期 30 天 → 30 天前的样本权重是今天的一半&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="mf">0.5</span> <span class="o">**</span> <span class="p">(</span><span class="n">days_ago</span> <span class="o">/</span> <span class="n">half_life</span><span class="p">)</span>
+
+<span class="n">sample_weight</span> <span class="o">=</span> <span class="n">time_decay_weight</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s2">&quot;days_ago&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">,</span> <span class="n">half_life</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
+<span class="n">model</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">sample_weight</span><span class="o">=</span><span class="n">sample_weight</span><span class="p">)</span>     <span class="c1"># 先确认所用估计器接受 sample_weight</span>
+</code></pre></div>
+
+<p><strong>可观察的结果：</strong> 半衰期 30 天时，今天、30 天前、60 天前的权重分别为 1、0.5、0.25。</p>
+<p><strong>半衰期不等于重训周期。</strong> 前者控制旧样本的影响，后者控制多久更新模型。可以用同一套时间回放选候选值，但不能由“6 周退化”直接推出“半衰期 3–4 周”。</p>
+<h3 id="_6">⚠️ 一个反直觉的发现</h3>
+<p><strong>旧数据有时拖累模型，但不是“老数据一定有害”。</strong></p>
+<p>假设同一未来评估集上，最近三个月训练的 AUC 为 0.81、全两年训练为 0.78。这说明在这次设置里短窗口更好；原因还可能涉及样本权重、数据质量或分布变化，不能只凭两项分数证明概念漂移。</p>
+<p>下面比较候选窗口。先把 <code>df</code> 截到固定验证结束日；<code>model_fn(tr)</code> 必须只使用传入的训练行拟合模型和预处理。不能把用于选窗口的数据再当作最终独立测试。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">roc_auc_score</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">tune_window</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">valid_start</span><span class="p">,</span> <span class="n">model_fn</span><span class="p">,</span> <span class="n">feats</span><span class="p">,</span>
+                <span class="n">windows</span><span class="o">=</span><span class="p">(</span><span class="mi">30</span><span class="p">,</span> <span class="mi">60</span><span class="p">,</span> <span class="mi">90</span><span class="p">,</span> <span class="mi">180</span><span class="p">,</span> <span class="mi">365</span><span class="p">,</span> <span class="mi">10</span><span class="o">**</span><span class="mi">9</span><span class="p">)):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;按时间比较候选训练窗口；df 需预先截到同一验证结束日。&quot;&quot;&quot;</span>
+    <span class="n">va</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">df</span><span class="o">.</span><span class="n">day</span> <span class="o">&gt;=</span> <span class="n">valid_start</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">va</span><span class="o">.</span><span class="n">empty</span> <span class="ow">or</span> <span class="n">va</span><span class="o">.</span><span class="n">y</span><span class="o">.</span><span class="n">nunique</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;验证集不足以计算二分类 AUC&quot;</span><span class="p">)</span>
+    <span class="n">rows</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">w</span> <span class="ow">in</span> <span class="n">windows</span><span class="p">:</span>
+        <span class="n">tr</span> <span class="o">=</span> <span class="n">df</span><span class="p">[(</span><span class="n">df</span><span class="o">.</span><span class="n">day</span> <span class="o">&lt;</span> <span class="n">valid_start</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">df</span><span class="o">.</span><span class="n">day</span> <span class="o">&gt;=</span> <span class="n">valid_start</span> <span class="o">-</span> <span class="n">w</span><span class="p">)]</span>
+        <span class="k">if</span> <span class="n">tr</span><span class="o">.</span><span class="n">empty</span> <span class="ow">or</span> <span class="n">tr</span><span class="o">.</span><span class="n">y</span><span class="o">.</span><span class="n">nunique</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;窗口 </span><span class="si">{</span><span class="n">w</span><span class="si">}</span><span class="s2"> 天的训练集不足&quot;</span><span class="p">)</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="n">model_fn</span><span class="p">(</span><span class="n">tr</span><span class="p">)</span>
+        <span class="n">rows</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;窗口(天)&quot;</span><span class="p">:</span> <span class="n">w</span><span class="p">,</span> <span class="s2">&quot;训练样本&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">tr</span><span class="p">),</span>
+                     <span class="s2">&quot;AUC&quot;</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="n">roc_auc_score</span><span class="p">(</span><span class="n">va</span><span class="o">.</span><span class="n">y</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">predict_proba</span><span class="p">(</span><span class="n">va</span><span class="p">[</span><span class="n">feats</span><span class="p">])[:,</span> <span class="mi">1</span><span class="p">]),</span> <span class="mi">4</span><span class="p">)})</span>
+    <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">rows</span><span class="p">)</span>
+</code></pre></div>
+
+<p><strong>原教学数值对照（假设结果，不是代码内置数据）：</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>窗口</th>
+<th style="text-align: right;">训练样本</th>
+<th style="text-align: right;">假设 AUC</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>30 天</td>
+<td style="text-align: right;">62,000</td>
+<td style="text-align: right;">0.7902</td>
+</tr>
+<tr>
+<td>60 天</td>
+<td style="text-align: right;">124,000</td>
+<td style="text-align: right;">0.8071</td>
+</tr>
+<tr>
+<td>90 天</td>
+<td style="text-align: right;">186,000</td>
+<td style="text-align: right;">0.8118</td>
+</tr>
+<tr>
+<td>180 天</td>
+<td style="text-align: right;">371,000</td>
+<td style="text-align: right;">0.8043</td>
+</tr>
+<tr>
+<td>365 天</td>
+<td style="text-align: right;">742,000</td>
+<td style="text-align: right;">0.7961</td>
+</tr>
+<tr>
+<td>全量</td>
+<td style="text-align: right;">1,510,000</td>
+<td style="text-align: right;">0.7834</td>
+</tr>
+</tbody>
+</table></div>
+<p>这个例子中 90 天最好；其他数据可能随窗口增大而改善，或没有明显差别。不要期待 AUC 必须“先涨后跌”。</p>
+<p>换多个 <code>valid_start</code> 做滚动验证，比较平均表现、波动和关键人群，而不只数谁拿第一。面向未来预测的本章任务按时间切分；其他独立同分布任务并非一律禁止随机切分。见 <a href="https://scikit-learn.org/stable/modules/cross_validation.html#time-series-split">scikit-learn 时间序列验证说明</a>。</p>
+<hr>
+<h2 id="_7">🔬 四、训出来的怎么验证</h2>
+<p><strong>重训不是“跑通就上”，它和首次上线一样需要验证与回退安排。</strong></p>
+<ul class="reading-task-list">
+<li class="reading-task" data-reading-task="1"><label class="reading-task-title"><input type="checkbox" data-task-key="1"><span>验证未来流量</span></label><div class="reading-task-body"> 本章评估重训后的未来表现，用时间上靠后的数据验证，并检查时间泄漏。</div></li>
+<li class="reading-task" data-reading-task="2"><label class="reading-task-title"><input type="checkbox" data-task-key="2"><span>同一批数据比较</span></label><div class="reading-task-body"> 新模型与线上现役模型使用同一评估集，同时查看关键人群。</div></li>
+<li class="reading-task" data-reading-task="3"><label class="reading-task-title"><input type="checkbox" data-task-key="3"><span>特征重要性变化</span></label><div class="reading-task-body"> 记录排名与幅度变化，检查数据质量、特征相关性及模型差异。</div></li>
+<li class="reading-task" data-reading-task="4"><label class="reading-task-title"><input type="checkbox" data-task-key="4"><span>预测分布变化</span></label><div class="reading-task-body"> 比较新旧分数的分布，定位变化最大的人群与业务影响。</div></li>
+<li class="reading-task" data-reading-task="5"><label class="reading-task-title"><input type="checkbox" data-task-key="5"><span>分步上线</span></label><div class="reading-task-body"> 先影子验证，再按已定规则灰度；回退路径准备好后才扩大流量，见<a href="03-%E7%81%B0%E5%BA%A6%E5%BD%B1%E5%AD%90%E4%B8%8E%E5%9B%9E%E6%BB%9A.html">第 3 章</a>。</div></li>
+</ul>
+<blockquote>
+<p><strong>第 3 条是排查入口，不是故障诊断。</strong> 重要性变化可能来自坏数据、相关特征替代、训练随机性或有效的新规律。应结合数据检查和重复实验判断，不能仅凭排名变化下结论。</p>
+</blockquote>
+<h3 id="_8">🚧 一定要有的兜底：模型回退基线</h3>
+<p><strong>不只保存模型权重，还要保存能运行它的依赖。</strong></p>
+<ul>
+<li>保留线上现役版本、经过验证的回退版本，以及它们的数据、代码与特征版本。</li>
+<li>“至少 3 个版本”可以是团队起始规则，但保留范围应覆盖故障发现延迟、审计要求和可恢复窗口。</li>
+<li>发布前演练回退；旧模型若已不兼容当前特征，文件还在也不代表能立即切回。</li>
+</ul>
+<hr>
+<h2 id="_9">🔁 五、自动重训流水线：五道闸门</h2>
+<p>这五道检查组织了一个<strong>可用的教学流程</strong>，不是通过它们就不会出事的保证：</p>
+<ol>
+<li><strong>数据质量：</strong> 核对来源、schema、单位、时间范围、标签、缺失与分布。</li>
+<li><strong>训练健康：</strong> 排查 NaN、异常损失和耗时；收敛本身不证明学对了。</li>
+<li><strong>效果对比：</strong> 在相同评估集比较现役与候选模型，包含关键人群及不确定性。</li>
+<li><strong>影子与一致性：</strong> 使用真实请求验证特征、预测、延迟与资源；不能让两边共享同一个错误就算通过。</li>
+<li><strong>灰度与回退：</strong> 预先确定流量、观察时长、业务阈值和停止规则，通过后才扩大。</li>
+</ol>
+<p><strong>闸 1 的一个局部骨架：</strong> 下面只检查数值特征的行数、缺失与 PSI，不能作为生产完整放行条件。依赖<a href="06-%E6%95%B0%E6%8D%AE%E6%BC%82%E7%A7%BB%E4%B8%8E%E6%A6%82%E5%BF%B5%E6%BC%82%E7%A7%BB.html">第 6 章</a>的 <code>psi(base, live)</code>，基准在前。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">gate_data_quality</span><span class="p">(</span><span class="n">new</span><span class="p">,</span> <span class="n">ref</span><span class="p">,</span> <span class="n">feats</span><span class="p">,</span> <span class="n">psi_max</span><span class="o">=</span><span class="mf">0.25</span><span class="p">,</span> <span class="n">row_drop_max</span><span class="o">=</span><span class="mf">0.2</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;教学骨架：行数、缺失率与边际分布检查，不是完整放行标准。&quot;&quot;&quot;</span>
+    <span class="n">issues</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">new</span><span class="p">)</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">ref</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">row_drop_max</span><span class="p">):</span>
+        <span class="n">issues</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;行数骤降：</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">new</span><span class="p">)</span><span class="si">}</span><span class="s2"> vs 基准 </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">ref</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">feats</span><span class="p">:</span>
+        <span class="n">miss</span> <span class="o">=</span> <span class="n">new</span><span class="p">[</span><span class="n">f</span><span class="p">]</span><span class="o">.</span><span class="n">isna</span><span class="p">()</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">miss</span> <span class="o">&gt;</span> <span class="n">ref</span><span class="p">[</span><span class="n">f</span><span class="p">]</span><span class="o">.</span><span class="n">isna</span><span class="p">()</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span> <span class="o">+</span> <span class="mf">0.05</span><span class="p">:</span>
+            <span class="n">issues</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">f</span><span class="si">}</span><span class="s2"> 缺失率异常：</span><span class="si">{</span><span class="n">miss</span><span class="si">:</span><span class="s2">.1%</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">p</span> <span class="o">=</span> <span class="n">psi</span><span class="p">(</span><span class="n">ref</span><span class="p">[</span><span class="n">f</span><span class="p">],</span> <span class="n">new</span><span class="p">[</span><span class="n">f</span><span class="p">])</span>                       <span class="c1"># 第 6 章接口：基准在前</span>
+        <span class="k">if</span> <span class="n">p</span> <span class="o">&gt;</span> <span class="n">psi_max</span><span class="p">:</span>
+            <span class="n">issues</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">f</span><span class="si">}</span><span class="s2"> 分布突变：PSI=</span><span class="si">{</span><span class="n">p</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>   <span class="c1"># 分布告警还需调查原因</span>
+    <span class="k">return</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">issues</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">),</span> <span class="n">issues</span>
+</code></pre></div>
+
+<p><strong>这段不能保证识别“天变成小时”。</strong> PSI 只比较分桶后的边际分布，阈值受样本、分桶与场景影响；小比例污染可能被稀释。0.25、20% 和 5 个百分点在此只是示例阈值。</p>
+<p>接入前还要处理空批次、全缺失、重复分位点、非数值列和异常返回值。单位与枚举等语义最好有显式约束；按小时、来源和关键人群检查，不只比较全窗口。</p>
+<h3 id="26">💀 一次自动重训，把 26 小时的脏数据变成三周的损失</h3>
+<p><strong>教学假设案例，非已核实的真实事故。</strong> 以下时间和指标用于演示“总体指标遮住局部损失”，不是历史事件记录。</p>
+<ol>
+<li>风控模型每周一重训，窗口 90 天。</li>
+<li>假设周六将 <code>device_age_days</code> 从天误改为小时，26 小时后源故障修复。</li>
+<li>若污染记录未纠正或隔离，周一仍可能把它们用于训练。</li>
+</ol>
+<p><strong>五道检查为什么可能漏过：</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>检查</th>
+<th>假设看到的现象</th>
+<th>缺了什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>数据质量</td>
+<td>行数、缺失率正常</td>
+<td>单位约束及短时段排查</td>
+</tr>
+<tr>
+<td>训练健康</td>
+<td>loss 收敛</td>
+<td>正确数据与正确目标的验证</td>
+</tr>
+<tr>
+<td>效果对比</td>
+<td>AUC 0.842 → 0.836</td>
+<td>只看整体，并接受下降 0.01</td>
+</tr>
+<tr>
+<td>一致性</td>
+<td>两条路径结果一致</td>
+<td>独立的正确基准，防止共同犯错</td>
+</tr>
+<tr>
+<td>灰度</td>
+<td>整体拦截率无明显变化</td>
+<td>新设备人群的质量和业务反馈</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>局部结果另看：</strong> 假设新设备用户的欺诈召回率从 61% 降到 38%，三周后才被发现。下降是 <strong>23 个百分点，约相对下降 38%</strong>，不能由整体 AUC 或特征权重直接推导出来。</p>
+<p>这也不能证明模型一定“降低了设备年龄的权重”。原因需要回放、消融与数据排查，不能替未做的实验写结论。</p>
+<p><strong>26 / (90 × 24) ≈ 1.2% 是时间占比，不是已知样本占比。</strong> 只有流量均匀时，两者才近似相同。少量错误可能集中伤害重要群体；随机噪声也不保证一定被平均掉。</p>
+<p><strong>三项改进：</strong></p>
+<ul>
+<li>数据闸门增加单位契约、短时段和分群统计；PSI 只是其中一项。</li>
+<li>效果闸门增加关键人群、标签成熟度和样本量检查；阈值按风险设定。</li>
+<li>维护事故数据清单：能重建就重建，不能确认可靠的数据先隔离；不能只修线上而忘掉历史训练数据。</li>
+</ul>
+<hr>
+<h2 id="_10">🧊 六、几个特殊情况</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>情况</th>
+<th>处理方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>冷启动</td>
+<td>检查新标签是否足以支持更新；频繁训练不等于频繁发布</td>
+</tr>
+<tr>
+<td>强季节性</td>
+<td>保留相关周期或加入季节特征，比较近期与历史同期数据；不只允许去年同期</td>
+</tr>
+<tr>
+<td>反馈闭环</td>
+<td>记录哪些样本被策略筛选，评估选择偏差和反馈缺失</td>
+</tr>
+<tr>
+<td>增量与全量</td>
+<td>在相同未来评估集上比较；选法取决于数据、算法与恢复要求</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>反馈闭环不能靠一句“掺入随机流量”解决。</strong> 在经过风险评估、权限允许的情况下，受控探索可提供新反馈；还可能需要记录选择概率、人工复核或其他校正方法。不得为了收集标签随意放行风险请求。</p>
+<p>见<a href="../%E6%8E%A8%E8%8D%90%E7%AE%97%E6%B3%95/02-%E6%8E%A8%E8%8D%90%E7%B3%BB%E7%BB%9F%E5%88%B0%E5%BA%95%E6%98%AF%E4%BB%80%E4%B9%88.html">推荐算法 02</a>、<a href="07-%E6%B2%A1%E6%9C%89%E6%A0%87%E7%AD%BE%E6%80%8E%E4%B9%88%E5%8F%91%E7%8E%B0%E9%80%80%E5%8C%96.html">第 7 章</a>与<a href="14-%E8%BE%9B%E6%99%AE%E6%A3%AE%E6%82%96%E8%AE%BA%E4%B8%8E%E4%B8%83%E4%B8%AA%E9%99%B7%E9%98%B1.html">第 14 章的拒绝推断</a>。</p>
+<p><strong>增量训练 vs 全量重训，摊开说：</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>比较项</th>
+<th>增量训练</th>
+<th>从头重训</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>工作量</td>
+<td>在已有状态上更新，可减少重复计算</td>
+<td>重新拟合所选训练数据</td>
+</tr>
+<tr>
+<td>新旧规律</td>
+<td>受更新顺序、遗忘与回放策略影响</td>
+<td>受训练窗口和权重影响</td>
+</tr>
+<tr>
+<td>错误风险</td>
+<td>可能延续错误状态</td>
+<td>也可能重复学习脏数据或错误目标</td>
+</tr>
+<tr>
+<td>复现</td>
+<td>保存初始状态、优化器、数据顺序和更新记录</td>
+<td>保存数据、代码、环境与随机状态</td>
+</tr>
+<tr>
+<td>回滚</td>
+<td>保存兼容检查点并演练</td>
+<td>保存兼容版本并演练</td>
+</tr>
+</tbody>
+</table></div>
+<p>可以定期从头训练一个对照，但周期与计算成本要纳入预算。两者差距扩大是<strong>排查线索</strong>，不能单独证明增量“跑偏”；差异也可能来自窗口、随机性或对新规律的响应。</p>
+<p>这里的“全量重训”指从头拟合，不等于必须使用所有历史数据。</p>
+<hr>
+<h2 id="_11">⚠️ 七、一张坑表</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>坑</th>
+<th>风险</th>
+<th>修正方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>用未修复的数据自动重训</td>
+<td>源故障影响继续进入模型</td>
+<td>隔离、重建数据，再验证</td>
+</tr>
+<tr>
+<td>只看整体指标</td>
+<td>少数重要人群退化被遮住</td>
+<td>分群、样本量与风险阈值</td>
+</tr>
+<tr>
+<td>事故数据留在训练集</td>
+<td>下轮继续重复错误</td>
+<td>数据版本和事故清单</td>
+</tr>
+<tr>
+<td>默认全历史必胜</td>
+<td>过时数据或污染影响模型</td>
+<td>比较训练窗口，不先删光旧数据</td>
+</tr>
+<tr>
+<td>未来任务随机切分</td>
+<td>时间或标签泄漏、评估目标不匹配</td>
+<td>按当时可得信息做时间回放</td>
+</tr>
+<tr>
+<td>不与现役模型同集比较</td>
+<td>分数差可能来自不同评估样本</td>
+<td>同数据、同口径对照</td>
+</tr>
+<tr>
+<td>单凭触发信号发布</td>
+<td>把漂移告警当成重训有效的证明</td>
+<td>调查、训练和发布分开</td>
+</tr>
+<tr>
+<td>训练后直接全量替换</td>
+<td>缺少真实请求验证与回退机会</td>
+<td>影子、灰度与回退</td>
+</tr>
+<tr>
+<td>只存最新权重</td>
+<td>缺少可运行的回退版本</td>
+<td>保存依赖并演练恢复</td>
+</tr>
+<tr>
+<td>忽略反馈闭环</td>
+<td>自己选出的样本限制了可见反馈</td>
+<td>记录选择机制，受控评估偏差</td>
+</tr>
+</tbody>
+</table></div>
+<hr>
+<h2 id="_12">🔗 八、和站内其他章的关系</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>相关的地方</th>
+<th>和这一章的关系</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="06-%E6%95%B0%E6%8D%AE%E6%BC%82%E7%A7%BB%E4%B8%8E%E6%A6%82%E5%BF%B5%E6%BC%82%E7%A7%BB.html">第 6 章</a></td>
+<td>区分异常来源，再决定调查方向</td>
+</tr>
+<tr>
+<td><a href="03-%E7%81%B0%E5%BA%A6%E5%BD%B1%E5%AD%90%E4%B8%8E%E5%9B%9E%E6%BB%9A.html">第 3 章</a></td>
+<td>候选模型验证与回退</td>
+</tr>
+<tr>
+<td><a href="04-%E8%AE%AD%E7%BB%83%E6%8E%A8%E7%90%86%E4%B8%80%E8%87%B4%E6%80%A7.html">第 4 章</a></td>
+<td>训练和线上特征核对</td>
+</tr>
+<tr>
+<td><a href="07-%E6%B2%A1%E6%9C%89%E6%A0%87%E7%AD%BE%E6%80%8E%E4%B9%88%E5%8F%91%E7%8E%B0%E9%80%80%E5%8C%96.html">第 7 章</a></td>
+<td>标签缺失、反馈闭环与受控探索</td>
+</tr>
+<tr>
+<td><a href="../%E6%9C%BA%E5%99%A8%E5%AD%A6%E4%B9%A0%E4%B8%8E%E6%B7%B1%E5%BA%A6%E5%AD%A6%E4%B9%A0%E5%9F%BA%E7%A1%80/05-%E8%AF%84%E4%BC%B0%E4%B8%8E%E8%BF%87%E6%8B%9F%E5%90%88.html">ML 基础 05</a></td>
+<td>让数据切分匹配要预测的场景</td>
+</tr>
+</tbody>
+</table></div>
+<hr>
+<h2 id="_13">✅ 检查点</h2>
+<ol>
+<li>发现输入分布变化，为什么不能立即断言重训有效？</li>
+<li>四类触发信号是什么？触发与发布有什么区别？</li>
+<li>怎样检查模型新鲜度？本章函数算的是单周还是累计 AUC？</li>
+<li>训练窗口、权重半衰期、重训周期有什么不同？</li>
+<li>短窗口赢过全历史能证明“旧数据有害”吗？</li>
+<li>特征重要性变化为什么只是排查入口？</li>
+<li>五道闸门各查什么？PSI 能保证拦住单位错误吗？</li>
+<li>假设案例中的 1.2% 是什么比例？如何避免遗漏局部损失？</li>
+<li>增量与从头重训怎样比较？反馈闭环有哪些风险？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li>分布变化不等于任务效果变差；要排查管道、覆盖、标签和真实质量。仍有错误的数据不能直接用于自动重训。</li>
+<li>定时、性能、漂移、数据量都能触发检查或候选训练。发布还需要验证收益、质量、风险与回退能力。</li>
+<li>冻结历史模型，在多个未来时段和多个起点回放，并比较候选周期。函数已按第 k 周单独取样；不能从累计指标直接推断某周越线或周期减半。</li>
+<li>窗口选哪些样本，半衰期决定旧样本权重，周期决定何时更新；三者需要分别比较，不能互相直接换算。</li>
+<li>不能。它只说明该次数据与设置下短窗口更好，需要检查污染、覆盖与不确定性，并在其他时间段复核。</li>
+<li>变化可能来自坏数据、相关特征替代、训练随机性或有效的新规律，必须结合证据定位。</li>
+<li>数据、训练健康、同集效果、影子一致性、灰度回退。PSI 依赖分桶且可能稀释局部异常，不能替代单位约束、时间分段和分群检查。</li>
+<li>26 小时占 90 天约 1.2%，不必然等于样本比例。记录事故数据，检查关键人群并采用独立正确基准；案例数字是假设，不是事故实录。</li>
+<li>同集比较质量、成本和恢复要求。两种方法都可能学错，都需可复现记录；反馈偏差要结合选择机制处理，不是无条件随机放行。</li>
+</ol>
+</details>
+<hr>
+<h2 id="_14">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong></p>
+<section class="reading-recap" aria-label="走神救援"><p>回来时从这三点接上</p><ul><li>先查数据和效果：漂移信号不能直接证明该重训。</li><li>周期、窗口与半衰期分开验证，没有统一的“除以二”公式。</li><li>新旧模型同集、分群比较；通过真实请求验证并准备回退，才考虑扩大流量。</li></ul></section>
+
+<p><strong>下一节</strong> 👉 <a href="17-%E7%89%88%E6%9C%AC%E5%9B%9E%E6%BA%AF%E4%B8%8E%E5%8F%AF%E5%A4%8D%E7%8E%B0.html">17-版本回溯与可复现.md</a></p>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="15-长期效应与代理指标.html"><div class="dir">← 上一节</div>⏳ 15 · 长期效应与代理指标</a><a class="next" href="17-版本回溯与可复现.html"><div class="dir">下一节 →</div>🗂️ 17 · 版本、回溯与可复现</a></nav>
+</main>
+<script>(function(){
+  var KEY="ops-progress", FILE="16-\u91cd\u8bad\u7ec3.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-model-operations-reader.css"></body></html>

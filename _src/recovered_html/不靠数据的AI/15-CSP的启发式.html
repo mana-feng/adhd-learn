@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>15 · CSP 的启发式 · 不靠数据的 AI</title>
+<script>(function(){var t=localStorage.getItem('recsys-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);})();</script><style>
+@font-face{font-family:"CodeCJK";
+ src:url("../assets/code-cjk-mono.woff2") format("woff2");
+ font-weight:400;font-style:normal;font-display:swap;}
+
+:root{
+/* ⭐ 字号阶梯：正文 = 1em（body 18px）。其余一律从这几档取，
+   不要再写 .92 / .94 / .95 这种随手值 —— body 18px 下它们相差不到 0.5px，
+   分不出来，只会让后来的人不知道该抄哪一个。 */
+  --fs-xs:.8em;    /* 角标、方向标签 */
+  --fs-sm:.88em;   /* 代码、图注、注解 */
+  --fs-md:.93em;   /* 略小于正文：表格、面板、目录 —— 站内最常用 */
+  --fs-lg:1.14em;  /* h3 */
+  --fs-xl:1.42em;  /* h2 */
+  --fs-2xl:1.9em;  /* h1 */
+--bg:#faf9f6;--fg:#2a2a33;--muted:#6b6b76;--card:#fff;--border:#e6e2d9;
+ --accent:#e8590c;--accent-soft:#fff0e6;--link:#0b6bcb;--quote-bg:#f4f1ea;
+ --code-bg:#282923;--done:#2f9e44;--danger:#c92a2a;--shadow:0 1px 3px rgba(0,0,0,.07)}
+[data-theme="dark"]{--bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;
+ --border:#33343d;--accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;
+ --quote-bg:#24252c;--done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#191a1f;--fg:#e6e4de;--muted:#9a99a2;--card:#22232a;--border:#33343d;
+ --accent:#ff8a3d;--accent-soft:#33261c;--link:#6cb2ff;--quote-bg:#24252c;
+ --done:#51cf66;--danger:#ff6b6b;--shadow:0 1px 3px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:18px;line-height:1.85;
+ font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+#scrollbar{position:fixed;top:0;left:0;height:4px;background:var(--accent);width:0;z-index:99}
+header.site{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);
+ z-index:50;padding:0 16px;opacity:.98}
+header.site .inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:10px;
+ height:52px;font-size:14px}
+header.site a{color:var(--fg);text-decoration:none;white-space:nowrap}
+header.site a:hover{color:var(--accent)}
+header.site .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ color:var(--muted);text-align:center}
+header.site button{background:none;border:1px solid var(--border);border-radius:8px;
+ color:var(--fg);cursor:pointer;padding:4px 10px;font-size:14px}
+header.site button:hover{border-color:var(--accent)}
+header.site button.done{background:var(--done);color:#fff;border-color:var(--done)}
+main{max-width:880px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:var(--fs-2xl);line-height:1.35;margin:.4em 0 .6em;letter-spacing:-.01em}
+h2{font-size:var(--fs-xl);margin:2.2em 0 .7em;padding-top:.4em;border-top:2px dashed var(--border)}
+h3{font-size:var(--fs-lg);margin:1.6em 0 .5em}
+a{color:var(--link)}p{margin:.85em 0}
+hr{border:none;border-top:2px dashed var(--border);margin:2.2em 0}
+blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
+ border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
+blockquote p{margin:.4em 0}
+ul,ol{padding-left:1.5em}li{margin:.35em 0}
+/* ⭐ 表格横向滚动兜底：`width:100%` 让表格只会挤不会溢出，实测 305px 宽下
+   最窄单元格只剩 40px。给单元格一个 min-width 让它不再无限压缩，超出的由 .tw 兜住。
+   2–4 列的表仍然占满不滚动，只有真挤不下的多列表才出现滚动条。 */
+.tw{overflow-x:auto;margin:1.2em 0;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;margin:0;font-size:var(--fs-md)}
+th,td{min-width:5.2em}
+th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--quote-bg)}
+tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
+code{font-family:"CodeCJK","Sarasa Mono SC","Cascadia Mono","JetBrains Mono",Consolas,NSimSun,monospace;
+ font-size:var(--fs-sm);background:var(--quote-bg);padding:2px 6px;border-radius:5px}
+pre{background:var(--code-bg);border-radius:12px;padding:16px 18px;overflow-x:auto;
+ line-height:1.6;box-shadow:var(--shadow)}
+pre code{background:none;padding:0;color:#f8f8f2;font-size:var(--fs-sm)}
+.codehilite{background:var(--code-bg);border-radius:12px;overflow-x:auto;margin:1.2em 0}
+.codehilite pre{margin:0;background:none;box-shadow:none}
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:12px 18px;margin:1.2em 0;box-shadow:var(--shadow)}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details[open] summary{margin-bottom:.6em}
+.toc-box{background:var(--card);border:1px solid var(--border);border-radius:12px;
+ padding:10px 18px;margin:1.4em 0;font-size:var(--fs-md)}
+.toc-box summary{cursor:pointer;font-weight:600;color:var(--muted)}
+.toc-box ul{margin:.5em 0;padding-left:1.3em}.toc-box a{text-decoration:none}
+.pagenav{display:flex;gap:14px;margin-top:50px}
+.pagenav a{flex:1;padding:16px 18px;background:var(--card);border:1px solid var(--border);
+ border-radius:14px;text-decoration:none;color:var(--fg);box-shadow:var(--shadow)}
+.pagenav a:hover{border-color:var(--accent)}
+.pagenav .dir{font-size:var(--fs-xs);color:var(--muted)}.pagenav .next{text-align:right}
+.donebar{margin-top:36px;text-align:center}
+.donebar button{font-size:1.05em;padding:12px 34px;border-radius:999px;cursor:pointer;
+ border:2px solid var(--accent);background:var(--accent-soft);color:var(--fg);font-weight:600}
+.donebar button.done{background:var(--done);border-color:var(--done);color:#fff}
+.donebar .hint{font-size:var(--fs-sm);color:var(--muted);margin-top:8px}
+.srcbox{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--accent);
+ border-radius:0 14px 14px 0;padding:16px 20px;margin:0 0 26px;box-shadow:var(--shadow);font-size:var(--fs-md)}
+.srcbox .tag{display:inline-block;background:var(--accent);color:#fff;font-size:var(--fs-xs);
+ padding:2px 10px;border-radius:99px;margin-bottom:8px;font-weight:600}
+.srcbox dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.srcbox dt{color:var(--muted);white-space:nowrap}
+.srcbox dd{margin:0;word-break:break-all}
+.srcbox .warn{margin-top:10px;color:var(--muted);font-size:var(--fs-md);border-top:1px dashed var(--border);padding-top:8px}
+/* ── ASCII 边框图的替代组件 ──────────────────────────────────
+   站里原来用 ┌─┐│└─┘ 画方框。那玩意在窄屏上必然折行错位（中位宽 53 字符、
+   19 处超过 60），而且等宽字体下中英混排本来就对不齐 —— 看着永远是歪的。
+   下面三个组件覆盖了 71 处边框图里的绝大多数形态，全部：
+     · 只用 CSS 变量取色 → 自动跟随深浅色主题
+     · 不设固定宽度 → 任何屏宽都不溢出
+     · 窄屏自动改成单列堆叠                                       */
+
+/* ① 堆叠面板：原「一个大框 + ├──┤ 横隔成几段」 */
+.panels{margin:20px 0;border:1px solid var(--border);border-radius:12px;
+ overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.panels .panel{padding:15px 18px;border-top:1px solid var(--border)}
+.panels .panel:first-child{border-top:0}
+.panels .ph{font-weight:700;color:var(--accent);line-height:1.55;margin-bottom:9px}
+.panels .pl{margin:0;padding:0;list-style:none}
+.panels .pl li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:var(--fs-md)}
+.panels .pl li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.panels .pl b{color:var(--fg);font-weight:600}
+.panels .pt{margin-top:10px;background:var(--accent-soft);color:var(--accent);
+ border-radius:7px;padding:8px 11px;font-size:var(--fs-md);line-height:1.6}
+
+/* ② 单框卡片：原「一个方框，里面几行」 */
+.framecard{margin:18px 0;border:1px solid var(--border);border-radius:12px;
+ padding:15px 18px;background:var(--card);box-shadow:var(--shadow)}
+.framecard .fh{font-weight:700;color:var(--accent);margin-bottom:9px;line-height:1.55}
+.framecard ul{margin:0;padding:0;list-style:none}
+.framecard li{position:relative;padding:3px 0 3px 15px;line-height:1.7;font-size:var(--fs-md)}
+.framecard li::before{content:"";position:absolute;left:2px;top:.88em;width:5px;height:5px;
+ border-radius:50%;background:var(--accent);opacity:.45}
+.framecard .fnote{margin-top:10px;color:var(--muted);font-size:var(--fs-sm);line-height:1.6;
+ border-top:1px dashed var(--border);padding-top:8px}
+
+/* ③ 流程链：原「几个方框用 → 或 ↓ 串起来」。宽屏横排，窄屏自动竖排 */
+.flowchain{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin:18px 0}
+.flowchain .fstep{flex:1 1 150px;min-width:0;border:1px solid var(--border);border-radius:10px;
+ background:var(--card);padding:11px 13px;font-size:var(--fs-md);line-height:1.55}
+.flowchain .fstep b{display:block;color:var(--accent);margin-bottom:3px}
+.flowchain .fstep span{color:var(--muted);font-size:var(--fs-md)}
+.flowchain .farrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ padding:0 9px;color:var(--accent);font-size:var(--fs-lg);opacity:.75}
+@media(max-width:600px){
+ .flowchain{flex-direction:column}
+ .flowchain .fstep{flex:1 1 auto}
+ .flowchain .farrow{padding:5px 0;transform:rotate(90deg)}
+}
+
+/* 图例样式提到基础样式里：原本由 insert_figs 按需注入，但现在正文里也会
+   手写内联 SVG（把拓扑类字符画换掉），那些文件不一定被 insert_figs 碰过。
+   insert_figs 里有 `if "figure.dia{" not in c` 的判断，所以不会重复注入。 */
+figure.dia{margin:22px 0;padding:0}
+figure.dia svg{display:block;width:100%;height:auto;max-width:760px;margin:0 auto}
+figure.dia figcaption{text-align:center;color:var(--muted);font-size:var(--fs-sm);
+ margin-top:8px;line-height:1.6}
+figure.dia .dia-t{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+/* 手机端不要把一整张信息图压成几像素的字。图在自己的容器内横向滑动，
+   正文仍保持正常宽度；800px 覆盖当前图集中最大的 viewBox 宽度。 */
+@media(max-width:640px){
+/* ⭐ 块公式也要能自己横向滚动：pre/表格/图都有兜底，只有它没有 —— 一条长公式会把整页撑出横向滚动条 */
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:2px 0 6px}
+figure.dia{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0 0 8px;
+ -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+figure.dia::before{content:"图较宽，可左右滑动查看完整内容";display:block;width:max-content;
+ margin:0 0 8px;padding:4px 8px;border-radius:999px;color:var(--muted);font-size:var(--fs-xs);
+ background:var(--quote-bg);letter-spacing:.01em}
+figure.dia svg{width:800px;min-width:800px;max-width:none;margin:0}
+}
+
+.dia-lead{color:var(--muted);font-size:var(--fs-md);margin:14px 0 -6px;line-height:1.65}
+.dia-note{color:var(--muted);font-size:var(--fs-sm);margin:-8px 0 16px;line-height:1.65}
+
+.gapmap{margin:18px 0}
+.gapmap .lead{color:var(--muted);font-size:var(--fs-md);margin-bottom:14px}
+.gaprow{display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1.5fr) minmax(160px,1.6fr);
+ gap:0;align-items:stretch;border:1px solid var(--border);border-radius:14px;overflow:hidden;
+ margin-bottom:10px;background:var(--card);box-shadow:var(--shadow)}
+.gaprow>div{padding:13px 16px;display:flex;align-items:center;font-size:var(--fs-md);line-height:1.5}
+.gaprow .who{font-weight:700;background:var(--code-bg);color:#f8f8f2;border-right:1px solid var(--border)}
+.gaprow .has{color:var(--fg);border-right:1px dashed var(--border)}
+.gaprow .miss{color:var(--danger,#e5534b);font-weight:600}
+.gaprow .miss::before{content:"缺 ";opacity:.65;font-weight:400}
+.gapdown{text-align:center;font-size:1.6em;color:var(--accent);margin:4px 0 10px;line-height:1}
+.gapfill{border:2px solid var(--accent);border-radius:16px;padding:18px 20px;background:var(--card);
+ box-shadow:var(--shadow)}
+.gapfill b{color:var(--accent);display:block;margin-bottom:10px;font-size:1.05em}
+.gapfill ul{margin:0;padding-left:1.1em;columns:2;column-gap:26px}
+.gapfill li{margin:.28em 0;font-size:var(--fs-md);break-inside:avoid}
+@media(max-width:640px){
+ .gaprow{grid-template-columns:1fr}
+ .gaprow .who{border-right:none;border-bottom:1px solid var(--border)}
+ .gaprow .has{border-right:none;border-bottom:1px dashed var(--border)}
+ .gapfill ul{columns:1}
+}
+::selection{background:var(--accent);color:#fff}
+@media(max-width:640px){body{font-size:16px}header.site .prevnext{display:none}}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #49483e }
+.codehilite { background: #272822; color: #F8F8F2 }
+.codehilite .c { color: #959077 } /* Comment */
+.codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.codehilite .esc { color: #F8F8F2 } /* Escape */
+.codehilite .g { color: #F8F8F2 } /* Generic */
+.codehilite .k { color: #66D9EF } /* Keyword */
+.codehilite .l { color: #AE81FF } /* Literal */
+.codehilite .n { color: #F8F8F2 } /* Name */
+.codehilite .o { color: #FF4689 } /* Operator */
+.codehilite .x { color: #F8F8F2 } /* Other */
+.codehilite .p { color: #F8F8F2 } /* Punctuation */
+.codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.codehilite .cm { color: #959077 } /* Comment.Multiline */
+.codehilite .cp { color: #959077 } /* Comment.Preproc */
+.codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.codehilite .c1 { color: #959077 } /* Comment.Single */
+.codehilite .cs { color: #959077 } /* Comment.Special */
+.codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #FF4689 } /* Generic.Error */
+.codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.codehilite .go { color: #66D9EF } /* Generic.Output */
+.codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #959077 } /* Generic.Subheading */
+.codehilite .gt { color: #66D9EF } /* Generic.Traceback */
+.codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.codehilite .m { color: #AE81FF } /* Literal.Number */
+.codehilite .s { color: #E6DB74 } /* Literal.String */
+.codehilite .na { color: #A6E22E } /* Name.Attribute */
+.codehilite .nb { color: #A6E22E } /* Name.Builtin */
+.codehilite .nc { color: #A6E22E } /* Name.Class */
+.codehilite .no { color: #66D9EF } /* Name.Constant */
+.codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.codehilite .ne { color: #A6E22E } /* Name.Exception */
+.codehilite .nf { color: #A6E22E } /* Name.Function */
+.codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.codehilite .nx { color: #A6E22E } /* Name.Other */
+.codehilite .py { color: #F8F8F2 } /* Name.Property */
+.codehilite .nt { color: #FF4689 } /* Name.Tag */
+.codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.codehilite .ow { color: #FF4689 } /* Operator.Word */
+.codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.codehilite .bp { color: #A6E22E } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
+<script defer src="../assets/vendor/katex/katex.min.js"></script>
+<script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script><link rel="stylesheet" href="../assets/polish-non-data-ai-reader.css">
+</head><body data-polish-module="non-data-ai" class="overview-reading topic-reading">
+<div id="scrollbar"></div>
+<header class="site"><div class="inner">
+  <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
+  <span class="title">15 · CSP 的启发式</span>
+  <span class="prevnext"><a href="14-回溯与约束传播.html">←</a>
+  <a href="16-不确定性下的推理.html">→</a></span>
+  <button class="js-done-btn">☐ 打卡</button>
+  <button id="themeToggle" title="切换深浅色">🌗</button>
+</div></header>
+<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<ul>
+<li><a href="#_1">🎯 一句话</a></li>
+<li><a href="#_2">🎯 一、变量序：先处理选择少的变量</a></li>
+<li><a href="#_4">🎨 二、值序：用一个完整小例子看 LCV</a></li>
+<li><a href="#_5">⚠️ 三、为什么一个挑“紧”，一个挑“松”</a></li>
+<li><a href="#n">📊 四、n 皇后实验：次数减少，不等于同倍率提速</a></li>
+<li><a href="#_6">🔄 五、最小冲突：先有完整候选，再修它</a></li>
+<li><a href="#_7">🌳 六、利用约束图结构</a></li>
+<li><a href="#_8">🔗 这一章连到哪里</a></li>
+<li><a href="#_9">✅ 检查点</a></li>
+<li><a href="#_10">🛑 可以停在这里</a></li>
+</ul>
+</div>
+</details>
+<div class="ov-layout"><article class="ov-body"><h1 id="15-csp">15 · CSP 的启发式</h1>
+<!-- topic-reading -->
+
+<p>⏱ <strong>31 分钟</strong> ｜ ⭐ <strong>约束不变，改变的是先填谁、先试什么</strong></p>
+<p>时间只是阅读参考。先走完地图例子；想复算次数，再打开实验代码。</p>
+<h2 id="_1">🎯 一句话</h2>
+<p><strong>MRV 先选余地最小的变量，LCV 先试给邻居留下余地的值。</strong> 它们改变搜索顺序，不改变哪些完整答案算合法。</p>
+<p>在本章固定的地图实验中，静态顺序需要试值 17 次、失败返回 2 次；MRV 配合度启发后是 15 次、0 次。这个小结果不是“总能提速一个数量级”的保证。</p>
+<h2 id="_2">🎯 一、变量序：先处理选择少的变量</h2>
+<p>这里的“变量”是一块待涂色的区域，“值”是红、绿、蓝。相邻区域不能同色；地图和九条约束沿用<a href="13-CSP是什么.html">第 13 章</a>。</p>
+<p>第 14 章按 WA、NT、NSW、Q、SA、V、T 的静态顺序搜索。它曾走到 SA 没颜色可用的分支，但<strong>变量顺序没有让整个问题变成无解</strong>；回溯后仍找得到解。</p>
+<p>MRV（Minimum Remaining Values，最小剩余值）每一步都重新问：<strong>在当前赋值下，哪个未赋值变量还能选的值最少？</strong></p>
+<h3 id="_3">⚠️ “先失败”是在尽早发现什么</h3>
+<p>假设两个变量中，甲还剩 3 个合法值，乙已经剩 0 个。此时继续试甲没有意义：当前分支已经不可能补全，应该直接返回。</p>
+<p>乙若剩 1 个值，它在<strong>当前分支下</strong>是被迫取这个值。先填它可能进一步缩小问题，但后面仍可能出现矛盾，不能因此宣布已经找到解。</p>
+<p>这就是 fail-first（尽早暴露失败）的直觉。MRV 也要花时间计算合法域，不能保证每个实例都比静态顺序省时。<a href="https://inst.eecs.berkeley.edu/~cs188/textbook/csp/ordering.html">算法定义与取值排序</a></p>
+<h3 id="mrv">🔨 手算：先把所有并列规则说清楚</h3>
+<p>初始七块区域各有 3 个颜色，MRV 全部并列。我们固定使用下面三层规则，避免手算与程序各走各的：</p>
+<ol>
+<li>先选当前合法值最少的变量。</li>
+<li>若并列，选<strong>未赋值邻居最多</strong>的变量，这叫度启发（degree heuristic）。</li>
+<li>若仍并列，按 WA、NT、NSW、Q、SA、V、T 的原顺序选。颜色始终按红、绿、蓝试，本例尚未使用 LCV。</li>
+</ol>
+<div class="tw"><table data-audit-table="csp-15-0" style="min-width:0;width:100%">
+<thead><tr><th>本步赋值</th><th>为什么轮到它</th></tr></thead>
+<tbody>
+<tr><td>① SA = 红</td><td>所有域大小都是 3；SA 有 5 个未赋值邻居，最多。</td></tr>
+<tr><td>② NT = 绿</td><td>SA 的五个邻居都剩绿、蓝；NT、Q、NSW 各有 2 个未赋值邻居，再按原顺序选 NT。</td></tr>
+<tr><td>③ Q = 蓝</td><td>WA 和 Q 都只剩蓝；Q 还连着未赋值的 NSW，WA 已无未赋值邻居，因此选 Q。</td></tr>
+<tr><td>④ NSW = 绿</td><td>WA、NSW 都只剩 1 个值；NSW 还连着未赋值的 V，因此先选它。</td></tr>
+<tr><td>⑤ WA = 蓝</td><td>WA、V 都剩蓝，未赋值邻居数也都为 0，原顺序让 WA 在前。</td></tr>
+<tr><td>⑥ V = 蓝</td><td>V 剩 1 个值，T 仍有 3 个。</td></tr>
+<tr><td>⑦ T = 红</td><td>T 是孤立点，三种颜色都合法；按颜色顺序选红。</td></tr>
+</tbody>
+</table></div>
+
+<p><strong>看第 ③ 步：只剩一个值的并不只有 WA。</strong> 度数也必须在每一步重新计算，不能继续把已经填好的 SA 算成 NT 的未赋值邻居。</p>
+<p>此处找到首个解时没有失败返回，但 T 最后仍有三个选择。“这条轨迹没有回溯”不等于“从此每一步都只有唯一选择”。</p>
+<h2 id="_4">🎨 二、值序：用一个完整小例子看 LCV</h2>
+<p>选好变量后，还要决定它先试哪个值。LCV（Least Constraining Value，最少约束值）通常先试<strong>从未赋值邻居的当前域里排除选项最少</strong>的值。</p>
+<p>这是一个独立的小型着色 CSP，不是刚才地图轨迹的续步：中心变量 X 可选红、蓝，只与 A、B、C 三个邻居分别有“不等色”约束，邻居之间没有边。</p>
+<div class="tw"><table data-audit-table="csp-15-1" style="min-width:0;width:100%">
+<thead><tr><th>邻居</th><th>当前域</th></tr></thead>
+<tbody>
+<tr><td>A</td><td>红、绿</td></tr>
+<tr><td>B</td><td>红、蓝、绿</td></tr>
+<tr><td>C</td><td>红、绿</td></tr>
+</tbody>
+</table></div>
+
+<ul>
+<li>试 X = 红：A、B、C 各失去一个红色选项，共删 3 个。</li>
+<li>试 X = 蓝：只有 B 失去蓝色，共删 1 个。</li>
+</ul>
+<p><strong>LCV 会先试蓝。</strong> 这个分数只表示眼前少删了几个选项，不是成功概率；在一般 CSP 中，它不能保证这条分支有解。</p>
+<p>本例还能另做一步确切判断：因为 A、B、C 之间没有约束，选蓝后各有 2 个值，共有 $2\times2\times2=8$ 个补全；选红后有 $1\times2\times1=2$ 个。<strong>两分支都有解，是已知星形结构让我们证明了它，不是 LCV 分数自动给出保证。</strong></p>
+<p>打分也有成本；它常与 MRV、前向检查组合，但这些是可分别开关的选择。本章后面的计数实验只比较变量顺序，不加入 LCV。</p>
+<h2 id="_5">⚠️ 三、为什么一个挑“紧”，一个挑“松”</h2>
+<p>两种规则问的不是同一个问题：</p>
+<div class="tw"><table data-audit-table="csp-15-2" style="min-width:0;width:100%">
+<thead><tr><th>决策</th><th>眼前目标</th></tr></thead>
+<tbody>
+<tr><td>MRV：下一步填哪个变量？</td><td>优先处理选择少的变量，争取及早暴露当前分支的矛盾。</td></tr>
+<tr><td>LCV：这个变量先试哪个值？</td><td>尽量少删除邻居选项，争取较快找到一个可行补全。</td></tr>
+</tbody>
+</table></div>
+
+<p>在普通有限 CSP 的回溯搜索里，变量迟早都要填完，而同一变量的不同值会形成不同分支。<strong>它们都在改变搜索树的展开顺序。</strong></p>
+<p>因此，不宜说“变量序决定要不要搜索、值序才决定走哪条分支”，也不能把它们分别称为最坏情况和最好情况的复杂度优化定理。</p>
+<p>如果每个分支都被正确保留或安全剪掉，有限回溯搜索的完备性仍在；MRV、LCV 本身不是“无解证明”。</p>
+<h2 id="n">📊 四、n 皇后实验：次数减少，不等于同倍率提速</h2>
+<p>模型保持不变：每一行是一个变量，该行皇后所在的列是值；任意两行不能同列，也不能处在同一条对角线上。</p>
+<p>只找<strong>第一个解</strong>。静态序从第 0 行往下填；MRV 每次重算当前合法域。皇后约束图中所有未赋值行互相连接，度启发无法再破并列，于是按行号从小到大选。列号也从小到大试。</p>
+<h3 id="csp-counting">先约定怎样计数</h3>
+<p><strong>试值次数</strong>：程序进入一次候选值循环就加一，即使这个值随即被判不合法，也计入。</p>
+<p><strong>回溯次数</strong>：一次递归调用试完当前变量的所有候选、仍失败返回，才加一。它不是撤销赋值次数，也不是检查约束次数。这与第 14 章的实验口径一致。</p>
+<p>MRV 在挑变量时额外做的合法性检查不计入“试值”，但代码另有 checks 计数，不让这部分成本消失。</p>
+<h3 id="csp-trial-results">结果 A：检查了多少个候选值</h3>
+<p>下表已按本页算法重新运行，保留原实验的五个规模与计数：</p>
+<div class="tw"><table data-audit-table="csp-15-3" style="min-width:0;width:100%">
+<thead><tr><th>皇后数</th><th>静态序试值</th><th>MRV 试值</th></tr></thead>
+<tbody>
+<tr><td>8</td><td>876</td><td>572</td></tr>
+<tr><td>12</td><td>3,066</td><td>1,770</td></tr>
+<tr><td>16</td><td>160,712</td><td>584</td></tr>
+<tr><td>20</td><td>3,992,510</td><td>2,710</td></tr>
+<tr><td>24</td><td>9,878,316</td><td>756</td></tr>
+</tbody>
+</table></div>
+
+<p><strong>先看 16 皇后这一行：160,712 / 584 约为 275。</strong> 这是候选次数之比，不是“程序快了 275 倍”。</p>
+<h3 id="csp-backtrack-results">结果 B：多少次递归最终失败</h3>
+<div class="tw"><table data-audit-table="csp-15-4" style="min-width:0;width:100%">
+<thead><tr><th>皇后数</th><th>静态序回溯</th><th>MRV 回溯</th></tr></thead>
+<tbody>
+<tr><td>8</td><td>105</td><td>67</td></tr>
+<tr><td>12</td><td>249</td><td>141</td></tr>
+<tr><td>16</td><td>10,036</td><td>28</td></tr>
+<tr><td>20</td><td>199,615</td><td>125</td></tr>
+<tr><td>24</td><td>411,584</td><td>19</td></tr>
+</tbody>
+</table></div>
+
+<p>这组固定顺序下 MRV 减少了失败探索，但五个规模不能证明一般增长率。MRV 的试值也不单调：584、2,710、756 先升后降。</p>
+<p><strong>再看一次隐藏成本：</strong> 8 皇后的静态序做了 2,438 次两变量兼容性检查，MRV 做了 6,868 次，虽然 MRV 的候选试值更少。这说明计数口径不同，结论也可能不同。</p>
+<h3 id="csp-reproduce">按需运行：复算地图与皇后</h3>
+<p>下面是完整 Python 程序，只需标准库，不依赖前面的代码或变量。默认跑 8、12、16 皇后；想复算整张表，把最后的规模列表补上 20、24。</p>
+<p>运行后，地图两行应分别出现 static 17 2、MRV 15 0；皇后行最后三列是“试值、回溯、兼容性检查”。不同机器的耗时可以不同，但这里没有随机数，固定算法下计数应一致。</p>
+<details>
+<summary>打开完整可运行代码：同一个求解器，只切换变量顺序</summary>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">solve</span><span class="p">(</span><span class="n">variables</span><span class="p">,</span> <span class="n">domains</span><span class="p">,</span> <span class="n">neighbors</span><span class="p">,</span> <span class="n">compatible</span><span class="p">,</span> <span class="n">use_mrv</span><span class="p">):</span>
+    <span class="n">assigned</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">stats</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;trials&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;backtracks&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;checks&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">}</span>
+    <span class="n">rank</span> <span class="o">=</span> <span class="p">{</span><span class="n">var</span><span class="p">:</span> <span class="n">i</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">var</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">variables</span><span class="p">)}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">legal</span><span class="p">(</span><span class="n">var</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">other</span><span class="p">,</span> <span class="n">chosen</span> <span class="ow">in</span> <span class="n">assigned</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">other</span> <span class="ow">in</span> <span class="n">neighbors</span><span class="p">[</span><span class="n">var</span><span class="p">]:</span>
+                <span class="n">stats</span><span class="p">[</span><span class="s2">&quot;checks&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">compatible</span><span class="p">(</span><span class="n">var</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">other</span><span class="p">,</span> <span class="n">chosen</span><span class="p">):</span>
+                    <span class="k">return</span> <span class="kc">False</span>
+        <span class="k">return</span> <span class="kc">True</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">search</span><span class="p">():</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">assigned</span><span class="p">)</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">variables</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">assigned</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">remaining</span> <span class="o">=</span> <span class="p">[</span><span class="n">v</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">variables</span> <span class="k">if</span> <span class="n">v</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">assigned</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">use_mrv</span><span class="p">:</span>
+            <span class="c1"># MRV: recompute legal domains; degree counts unassigned neighbors.</span>
+            <span class="n">var</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">remaining</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">v</span><span class="p">:</span> <span class="p">(</span>
+                <span class="nb">sum</span><span class="p">(</span><span class="n">legal</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">domains</span><span class="p">[</span><span class="n">v</span><span class="p">]),</span>
+                <span class="o">-</span><span class="nb">sum</span><span class="p">(</span><span class="n">u</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">assigned</span> <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">neighbors</span><span class="p">[</span><span class="n">v</span><span class="p">]),</span>
+                <span class="n">rank</span><span class="p">[</span><span class="n">v</span><span class="p">],</span>
+            <span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">var</span> <span class="o">=</span> <span class="n">remaining</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="c1"># Deliberately count EVERY original candidate, including illegal ones.</span>
+        <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">domains</span><span class="p">[</span><span class="n">var</span><span class="p">]:</span>
+            <span class="n">stats</span><span class="p">[</span><span class="s2">&quot;trials&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">if</span> <span class="n">legal</span><span class="p">(</span><span class="n">var</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+                <span class="n">assigned</span><span class="p">[</span><span class="n">var</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+                <span class="n">answer</span> <span class="o">=</span> <span class="n">search</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">answer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="n">answer</span>
+                <span class="k">del</span> <span class="n">assigned</span><span class="p">[</span><span class="n">var</span><span class="p">]</span>
+        <span class="n">stats</span><span class="p">[</span><span class="s2">&quot;backtracks&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>  <span class="c1"># One failed recursive call, not one undo.</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+    <span class="n">answer</span> <span class="o">=</span> <span class="n">search</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">answer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">assert</span> <span class="nb">all</span><span class="p">(</span><span class="n">answer</span><span class="p">[</span><span class="n">v</span><span class="p">]</span> <span class="ow">in</span> <span class="n">domains</span><span class="p">[</span><span class="n">v</span><span class="p">]</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">variables</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="nb">all</span><span class="p">(</span><span class="n">compatible</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">answer</span><span class="p">[</span><span class="n">v</span><span class="p">],</span> <span class="n">u</span><span class="p">,</span> <span class="n">answer</span><span class="p">[</span><span class="n">u</span><span class="p">])</span>
+                   <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">variables</span> <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">neighbors</span><span class="p">[</span><span class="n">v</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">answer</span><span class="p">,</span> <span class="n">stats</span>
+
+
+<span class="n">order</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;WA&quot;</span><span class="p">,</span> <span class="s2">&quot;NT&quot;</span><span class="p">,</span> <span class="s2">&quot;NSW&quot;</span><span class="p">,</span> <span class="s2">&quot;Q&quot;</span><span class="p">,</span> <span class="s2">&quot;SA&quot;</span><span class="p">,</span> <span class="s2">&quot;V&quot;</span><span class="p">,</span> <span class="s2">&quot;T&quot;</span><span class="p">]</span>
+<span class="n">edges</span> <span class="o">=</span> <span class="p">[(</span><span class="s2">&quot;WA&quot;</span><span class="p">,</span> <span class="s2">&quot;NT&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;WA&quot;</span><span class="p">,</span> <span class="s2">&quot;SA&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;NT&quot;</span><span class="p">,</span> <span class="s2">&quot;SA&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;NT&quot;</span><span class="p">,</span> <span class="s2">&quot;Q&quot;</span><span class="p">),</span>
+         <span class="p">(</span><span class="s2">&quot;SA&quot;</span><span class="p">,</span> <span class="s2">&quot;Q&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;SA&quot;</span><span class="p">,</span> <span class="s2">&quot;NSW&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;SA&quot;</span><span class="p">,</span> <span class="s2">&quot;V&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;Q&quot;</span><span class="p">,</span> <span class="s2">&quot;NSW&quot;</span><span class="p">),</span>
+         <span class="p">(</span><span class="s2">&quot;NSW&quot;</span><span class="p">,</span> <span class="s2">&quot;V&quot;</span><span class="p">)]</span>
+<span class="n">neighbors</span> <span class="o">=</span> <span class="p">{</span><span class="n">v</span><span class="p">:</span> <span class="nb">set</span><span class="p">()</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">order</span><span class="p">}</span>
+<span class="k">for</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">edges</span><span class="p">:</span>
+    <span class="n">neighbors</span><span class="p">[</span><span class="n">a</span><span class="p">]</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+    <span class="n">neighbors</span><span class="p">[</span><span class="n">b</span><span class="p">]</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
+<span class="n">domains</span> <span class="o">=</span> <span class="p">{</span><span class="n">v</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;red&quot;</span><span class="p">,</span> <span class="s2">&quot;green&quot;</span><span class="p">,</span> <span class="s2">&quot;blue&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">order</span><span class="p">}</span>
+<span class="k">for</span> <span class="n">mrv</span> <span class="ow">in</span> <span class="p">[</span><span class="kc">False</span><span class="p">,</span> <span class="kc">True</span><span class="p">]:</span>
+    <span class="n">answer</span><span class="p">,</span> <span class="n">stats</span> <span class="o">=</span> <span class="n">solve</span><span class="p">(</span><span class="n">order</span><span class="p">,</span> <span class="n">domains</span><span class="p">,</span> <span class="n">neighbors</span><span class="p">,</span>
+                          <span class="k">lambda</span> <span class="n">a</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="n">x</span> <span class="o">!=</span> <span class="n">y</span><span class="p">,</span> <span class="n">mrv</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">answer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;map&quot;</span><span class="p">,</span> <span class="s2">&quot;MRV&quot;</span> <span class="k">if</span> <span class="n">mrv</span> <span class="k">else</span> <span class="s2">&quot;static&quot;</span><span class="p">,</span>
+          <span class="n">stats</span><span class="p">[</span><span class="s2">&quot;trials&quot;</span><span class="p">],</span> <span class="n">stats</span><span class="p">[</span><span class="s2">&quot;backtracks&quot;</span><span class="p">],</span> <span class="nb">list</span><span class="p">(</span><span class="n">answer</span><span class="o">.</span><span class="n">items</span><span class="p">()))</span>
+
+<span class="c1"># 8/12/16 are enough for a first comparison; add 20, 24 for the full table.</span>
+<span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">8</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">16</span><span class="p">]:</span>
+    <span class="n">rows</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">))</span>
+    <span class="n">domains</span> <span class="o">=</span> <span class="p">{</span><span class="n">r</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">))</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">rows</span><span class="p">}</span>
+    <span class="n">neighbors</span> <span class="o">=</span> <span class="p">{</span><span class="n">r</span><span class="p">:</span> <span class="nb">set</span><span class="p">(</span><span class="n">rows</span><span class="p">)</span> <span class="o">-</span> <span class="p">{</span><span class="n">r</span><span class="p">}</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">rows</span><span class="p">}</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">compatible</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">y</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">!=</span> <span class="n">y</span> <span class="ow">and</span> <span class="nb">abs</span><span class="p">(</span><span class="n">a</span> <span class="o">-</span> <span class="n">b</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">abs</span><span class="p">(</span><span class="n">x</span> <span class="o">-</span> <span class="n">y</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">mrv</span> <span class="ow">in</span> <span class="p">[</span><span class="kc">False</span><span class="p">,</span> <span class="kc">True</span><span class="p">]:</span>
+        <span class="n">answer</span><span class="p">,</span> <span class="n">stats</span> <span class="o">=</span> <span class="n">solve</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">domains</span><span class="p">,</span> <span class="n">neighbors</span><span class="p">,</span> <span class="n">compatible</span><span class="p">,</span> <span class="n">mrv</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">answer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="s2">&quot;MRV&quot;</span> <span class="k">if</span> <span class="n">mrv</span> <span class="k">else</span> <span class="s2">&quot;static&quot;</span><span class="p">,</span>
+              <span class="n">stats</span><span class="p">[</span><span class="s2">&quot;trials&quot;</span><span class="p">],</span> <span class="n">stats</span><span class="p">[</span><span class="s2">&quot;backtracks&quot;</span><span class="p">],</span> <span class="n">stats</span><span class="p">[</span><span class="s2">&quot;checks&quot;</span><span class="p">])</span>
+</code></pre></div>
+
+</details>
+<p>代码中的 legal 只与已赋值邻居检查；use_mrv 改变选变量的规则；search 找到首解就返回。<strong>两组都没有维护删值后的域，也没有前向检查。</strong> 不要把这一列与第 14 章 FC 的次数当成只差变量顺序的实验。</p>
+<h2 id="_6">🔄 五、最小冲突：先有完整候选，再修它</h2>
+<p>前面的回溯搜索逐步构造一个部分赋值。最小冲突（min-conflicts）改用<strong>完整但可能违约的赋值</strong>作为起点，每次修一个位置。</p>
+<ol>
+<li>为所有变量准备一个完整赋值。可以随机生成，也可以用贪心办法减少初始冲突。</li>
+<li>若所有约束都满足，返回答案；否则随机选一个正在冲突中的变量。</li>
+<li>尝试该变量的各个值，选择违约数最少的值，并列时随机选择。</li>
+<li>重复检查与修复；到达预设预算仍未成功，则报告“本次未找到”，按需重启。</li>
+</ol>
+<p>这四步中的预算不能省掉：允许同分移动也可能在平台上反复游走。<strong>未找到解不等于无解。</strong> <a href="https://github.com/aimacode/aima-python/blob/master/aima/csp.py">AIMA 的实现</a>包含贪心初始赋值、随机破并列和最大步数限制。</p>
+<h3 id="csp-million-queens">“百万皇后几十步”到底指什么</h3>
+<p>这是文献实验，不是上方回溯程序的实测。Minton 等人的实验先用贪心方法建立较少冲突的棋盘，再统计修复阶段；其大规模皇后实验的平均修复次数约为几十次。<a href="https://www.dcs.gla.ac.uk/~pat/cpM/papers/mintonAIJ.pdf">原论文 §4.1</a></p>
+<p><strong>一次修复不等于一次常数时间操作。</strong> 要判断一个皇后移到哪列更好，仍可能检查多个位置；初始化、选择、更新也都要耗时。原论文明确区分修复次数与运行时间。</p>
+<p>所以不能把它读成“任意随机棋盘只要几十次操作就能解”，更不能推出所有 CSP 都有相同表现。初始化方法、约束结构和搜索空间都很重要，单说“解很稠密”解释不了保证从哪里来——这里本来就没有这种保证。</p>
+<h3 id="csp-repair-use">它适合放在哪里</h3>
+<p>排班或调度发生小变化时，可以把旧排表当作初始完整赋值，只修新出现的冲突。这是一种可尝试的策略，不保证比重新搜索更快，也不保证修改后的问题仍有解。</p>
+<p>它与<a href="09-运动规划.html">第 9 章势场法</a>可作有限类比：都依靠局部信息推进，也可能停滞。但离散赋值修复与连续空间里的运动不是同一个算法，不能称为完全同构。</p>
+<h2 id="_7">🌳 六、利用约束图结构</h2>
+<p>这里暂限于有限域、二元约束的 CSP。n 是变量数，d 是最大域大小，并假设检查一对取值是否兼容只需常数时间。</p>
+<h3 id="csp-tree">无环：先删去没有支持的值，再依次赋值</h3>
+<p>如果约束图是一棵树，可任选一个根；如果是森林，则对每个连通部分各选一个根。</p>
+<p>先从叶子向根处理边：父节点某个值在子节点域里找不到兼容值，就删除这个父值。<strong>出现空域就判无解；所有域都非空，才进入赋值。</strong></p>
+<p>然后从根往叶子选值，每个孩子选一个与父值兼容的值。前一步已经保证这样的支持存在，因此这一阶段无需回溯。标准复杂度为 $O(nd^2)$，不是“树结构一定有解”。</p>
+<h3 id="csp-cutset">有少量环：先固定割集，不能把约束丢掉</h3>
+<p>割集条件化（cutset conditioning）先选出一些变量，使它们离开图后剩下的是森林。再逐个枚举割集赋值，检查它们互相之间的约束，并用这些赋值缩小其余变量的域。</p>
+<p>澳大利亚例子只需固定 SA。若试 SA = 红，它的五个邻居都不能再用红；剩余图如下：</p>
+<figure class="dia">
+<svg viewBox="0 0 560 210" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="固定SA为红并从五个邻居域中删红后，剩余约束图是一条WA NT Q NSW V链和孤立点T，共两个连通分量">
+<text x="280" y="24" text-anchor="middle" font-size="14" font-weight="700" fill="var(--fg)">SA 已固定为红；相邻节点的域均删去红</text>
+<path d="M65 83H435" fill="none" stroke="var(--muted)" stroke-width="2"/>
+<g fill="var(--card)" stroke="var(--border)" stroke-width="2">
+<circle cx="65" cy="83" r="26"/><circle cx="155" cy="83" r="26"/>
+<circle cx="245" cy="83" r="26"/><circle cx="335" cy="83" r="26"/>
+<circle cx="435" cy="83" r="26"/><circle cx="280" cy="163" r="24"/>
+</g>
+<g text-anchor="middle" fill="var(--fg)" font-size="14" font-weight="700">
+<text x="65" y="88">WA</text><text x="155" y="88">NT</text>
+<text x="245" y="88">Q</text><text x="335" y="88">NSW</text>
+<text x="435" y="88">V</text><text x="280" y="168">T</text>
+</g>
+<text x="280" y="125" text-anchor="middle" font-size="12" fill="var(--muted)">上方四条边仍要求相邻区域异色</text>
+<text x="320" y="168" font-size="12" fill="var(--muted)">独立部分，仍可选三色</text>
+</svg>
+<figcaption><strong>这里有两个连通部分，不是一棵连通的树。</strong> 上方的链可用绿、蓝交替着色；T 没有边，单独处理。</figcaption>
+</figure>
+
+<p>SA 另外两种颜色也可以对称处理，所以这张三色地图的三个割集赋值都可补全。换一个 CSP，某个割集赋值可能让剩余问题无解，必须换下一个，不能预先承诺成功。</p>
+<p>若割集有 c 个变量，至多尝试 $d^c$ 个赋值；每次还要付出检查割集、缩域和解森林的成本。“环被移走”不是这些约束被取消了。<a href="https://inst.eecs.berkeley.edu/~cs188/textbook/csp/ordering.html">树结构与割集算法</a></p>
+<h3 id="csp-tree-decomposition">环更多：树分解把交叠关系保留下来</h3>
+<p>树分解不是随便分组。它把变量装入若干可重叠的“袋子”，让袋子之间构成树，并要求：</p>
+<ul>
+<li>每个变量至少出现在一个袋子里。</li>
+<li>每条二元约束的两个端点至少同处一个袋子。</li>
+<li>同一变量出现的那些袋子在袋子树上必须连通。</li>
+</ul>
+<p>每袋可枚举局部赋值，袋子之间通过重叠变量核对一致性。这才是把小块视作“超级变量”的含义；重叠部分不能各填各的。</p>
+<p>成本通常对最大袋子的大小呈指数增长。<strong>块小才可能有帮助，不是任意约束图一分组就变容易。</strong> <a href="https://ics.uci.edu/~dechter/publications/r139.pdf">树分解定义与求解成本</a></p>
+<h2 id="_8">🔗 这一章连到哪里</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>去哪</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="14-回溯与约束传播.html">14 · 回溯与约束传播</a></td>
+<td>看相同地图的静态对照，并区分“改变赋值顺序”和“传播删值”。</td>
+</tr>
+<tr>
+<td><a href="13-CSP是什么.html">13 · CSP 是什么</a></td>
+<td>回看变量、值域、九条地图约束，以及孤立点 T。</td>
+</tr>
+<tr>
+<td><a href="09-运动规划.html">09 · 运动规划</a></td>
+<td>对比局部推进的停滞风险；别把两个算法当成同一回事。</td>
+</tr>
+<tr>
+<td><a href="07-启发式与A星.html">07 · 启发式与 A*</a></td>
+<td>A* 的 h 是剩余代价估计，可讨论可容许性；这里的 MRV/LCV 是搜索次序规则，没有同一个可容许性定义。</td>
+</tr>
+<tr>
+<td><a href="16-不确定性下的推理.html">16 · 不确定性下的推理</a></td>
+<td>普通 CSP 用确定的硬约束判断可行性；下一章转向如何表达和使用不确定信息。</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="_9">✅ 检查点</h2>
+<ol>
+<li>MRV 在数什么？如果某变量当前合法域为空，为什么应尽早处理？</li>
+<li>MRV 并列时，本章怎样继续选？度数要不要包含已经赋值的邻居？</li>
+<li>地图中前两个变量是谁？为什么第三个是 Q，不是 WA？本次回溯几次？</li>
+<li>LCV 的三邻居例子里，红和蓝各删几个选项？本例为什么能另外证明两分支都有解，而一般的 LCV 分数不能保证？</li>
+<li>MRV 和 LCV 为什么不矛盾？能否分别称为最坏与最好情况的复杂度保证？</li>
+<li>16 皇后试值减少多少？为何不能当成相同倍率的运行提速？</li>
+<li>最小冲突的四步是什么？它持有完整赋值还是部分赋值？</li>
+<li>最小冲突为什么不完备？它与势场法是完全同构吗？</li>
+<li>百万皇后文献里的“几十步”数的是什么？为什么不能直接外推？</li>
+<li>树结构算法何时报告无解？固定 SA 后怎样处理剩余图？</li>
+</ol>
+<details>
+<summary>👀 答案</summary>
+<ol>
+<li>数未赋值变量在当前状态下的合法取值。空域表示当前分支已不能补全，可以避免继续探索；剩一个值也只是在当前分支下被迫取值，不保证后续无矛盾。</li>
+<li>先比较未赋值邻居数，再按固定原顺序破并列。已经赋值的邻居不再计入本章的度启发。</li>
+<li>先 SA，再 NT。第三步 WA、Q 都剩一个值，但 Q 还有未赋值邻居 NSW，WA 没有，所以选 Q。本次 15 次试值、0 次失败返回；T 最后仍有三个选择。</li>
+<li>红删 3 个，蓝删 1 个，因此 LCV 先试蓝。本例邻居之间没有边，可分别组合剩余取值：选蓝有 8 个补全，选红有 2 个，所以两分支都有解。这个证明依赖完整已知的星形约束结构；一般 LCV 分数不考虑所有后续组合，不能保证有解或给出成功概率。</li>
+<li>一个选变量，一个排值序，都改变搜索展开次序。尽早暴露矛盾与少妨碍邻居可以配合，但不是两种复杂度保证。</li>
+<li>从 160,712 到 584，候选次数之比约为 275。MRV 额外重算合法域；本页 8 皇后甚至出现试值少、兼容性检查多的情况。五个规模也不足以证明一般增长曲线。</li>
+<li>准备完整赋值；检查是否完成并选冲突变量；改成冲突最少的值；重复至成功或预算用完。它在完整赋值之间修复，不是逐层扩展部分赋值。</li>
+<li>它可能停滞或反复游走，预算用完只能说本次未找到，不能证明无解。与势场法只能类比局部信息与停滞风险，不能称为同一个算法。</li>
+<li>数特定贪心初始化之后的修复次数，不是初始化加修复的所有操作数，也不是恒定耗时。问题结构、初始化和实现都影响表现。</li>
+<li>从叶到根删无支持值时若出现空域，就报告无解；否则可从根到叶无回溯赋值。固定 SA 后仍需从五个邻居域中删其颜色，再分别解剩余链和孤立点 T。</li>
+</ol>
+</details>
+<h2 id="_10">🛑 可以停在这里</h2>
+<p>⚡ <strong>走神救援</strong></p>
+<ul>
+<li>MRV：先选当前合法值少的变量；并列规则也要说清。</li>
+<li>LCV：先试少删邻居选项的值，不是成功概率保证。</li>
+<li>次数减少不等于同倍率提速，启发式计算本身也有成本。</li>
+<li>最小冲突修完整赋值；没找到不等于无解。</li>
+<li>无环结构能简化求解；固定割集后，关联约束仍须生效。</li>
+</ul>
+<p>如果只想会选变量和值，看到这里就够了。需要验证实现时回到<a href="#csp-reproduce">复算程序</a>，需要区分 MRV 与传播时回到<a href="14-回溯与约束传播.html">第 14 章</a>。</p>
+<p><strong>下一节</strong> 👉 <a href="16-不确定性下的推理.html">16-不确定性下的推理.md</a></p></article><aside class="ov-rail lesson-rail" aria-label="本页阅读导航">
+<button type="button" class="ov-route-toggle" aria-expanded="true" aria-controls="ov-route">本页跳读</button>
+<div id="ov-route"><p>按问题跳读，不代表已掌握</p><nav aria-label="正文小节"><a href="#_1">🎯 一句话</a><a href="#_2">🎯 一、变量序：先处理选择少的变量</a><a href="#_4">🎨 二、值序：用一个完整小例子看 LCV</a><a href="#_5">⚠️ 三、为什么一个挑“紧”，一个挑“松”</a><a href="#n">📊 四、n 皇后实验：次数减少，不等于同倍率提速</a><a href="#_6">🔄 五、最小冲突：先有完整候选，再修它</a><a href="#_7">🌳 六、利用约束图结构</a><a href="#_8">🔗 这一章连到哪里</a><a href="#_9">✅ 检查点</a><a href="#_10">🛑 可以停在这里</a></nav>
+<button type="button" class="ov-save">记住当前位置</button><p class="ov-save-status" role="status"></p>
+<a href="index.html">回到本模块目录</a></div></aside></div>
+<div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
+<div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
+<nav class="pagenav"><a href="14-回溯与约束传播.html"><div class="dir">← 上一节</div>🔁 14 · 回溯与约束传播</a><a class="next" href="16-不确定性下的推理.html"><div class="dir">下一节 →</div>🎲 16 · 不确定性下的推理</a></nav>
+</main>
+<script>(function(){
+  var KEY="gofai-progress", FILE="15-CSP\u7684\u542f\u53d1\u5f0f.md";
+  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return{}}}
+  function refresh(){var d=!!load()[FILE];
+    document.querySelectorAll('.js-done-btn').forEach(function(b){b.classList.toggle('done',d);
+      b.textContent=d?(b.dataset.long?'✅ 已完成本章（点击撤销）':'✅ 已完成')
+                     :(b.dataset.long?'完成了？点这里打卡 ✔':'☐ 打卡');});}
+  document.querySelectorAll('.js-done-btn').forEach(function(b){b.addEventListener('click',function(){
+    var p=load(); if(p[FILE]){delete p[FILE]}else{p[FILE]=Date.now()}
+    localStorage.setItem(KEY,JSON.stringify(p)); refresh();});});
+  refresh();
+
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('recsys-theme',next);});
+  var bar=document.getElementById('scrollbar');
+  addEventListener('scroll',function(){var h=document.documentElement,
+    m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>

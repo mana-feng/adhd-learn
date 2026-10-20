@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="polish-crypto-security-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -337,22 +337,30 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="merkle">🔍 二、Merkle 证明怎么工作</h2>
 <p>要证明 D₃ 在树里：</p>
-<section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>给验证者：D₃ + 【兄弟路径】= [H₄, H₁₂] ← 只要 2 个哈希</li><li>验证者自己算：</li><li>H₃&#x27; = H(D₃)</li><li>H₃₄&#x27; = H(H₃&#x27; ‖ H₄)</li><li>Root&#x27; = H(H₁₂ ‖ H₃₄&#x27;)</li><li>检查 Root&#x27; == 已知的 Root ✅</li></ol></section>
+<section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>给验证者：D₃ + 【兄弟路径】= [H₄, H₁₂] ← 还需 2 个兄弟哈希及左右位置/树形信息</li><li>验证者自己算：</li><li>H₃&#x27; = H(D₃)</li><li>H₃₄&#x27; = H(H₃&#x27; ‖ H₄)</li><li>Root&#x27; = H(H₁₂ ‖ H₃₄&#x27;)</li><li>检查 Root&#x27; == 已知的 Root ✅</li></ol></section>
 <section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>数据量 证明大小</p><p>1,000 条 → 10 个哈希 = 320 字节</p><p>100 万条 → 20 个哈希 = 640 字节</p><p>10 亿条 → 30 个哈希 = 960 字节 ⭐ 仍然不到 1KB</p></div></section>
 <blockquote>
 <p>🔑 <strong>这就是它的价值</strong>：<strong>验证成本从 O(n) 降到 O(log n)。</strong>
 一个手机可以在不下载整条区块链的情况下，验证"我这笔交易确实在第 80 万个区块里"。</p>
 </blockquote>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">hashlib</span>
-
-<span class="k">def</span><span class="w"> </span><span class="nf">h</span><span class="p">(</span><span class="n">b</span><span class="p">):</span> <span class="k">return</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">b</span><span class="p">)</span><span class="o">.</span><span class="n">digest</span><span class="p">()</span>
-
-<span class="k">def</span><span class="w"> </span><span class="nf">verify</span><span class="p">(</span><span class="n">leaf</span><span class="p">,</span> <span class="n">proof</span><span class="p">,</span> <span class="n">root</span><span class="p">,</span> <span class="n">index</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;proof: [(兄弟哈希, 是否在左边), ...] 自底向上&quot;&quot;&quot;</span>
-    <span class="n">cur</span> <span class="o">=</span> <span class="n">h</span><span class="p">(</span><span class="n">leaf</span><span class="p">)</span>
-    <span class="k">for</span> <span class="n">sibling</span><span class="p">,</span> <span class="n">sibling_is_left</span> <span class="ow">in</span> <span class="n">proof</span><span class="p">:</span>
-        <span class="n">cur</span> <span class="o">=</span> <span class="n">h</span><span class="p">(</span><span class="n">sibling</span> <span class="o">+</span> <span class="n">cur</span><span class="p">)</span> <span class="k">if</span> <span class="n">sibling_is_left</span> <span class="k">else</span> <span class="n">h</span><span class="p">(</span><span class="n">cur</span> <span class="o">+</span> <span class="n">sibling</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">cur</span> <span class="o">==</span> <span class="n">root</span>                       <span class="c1"># ⭐ 就这么简单</span>
+<div class="codehilite" data-code-language="python"><pre><code># 固定树形的教学验证器；root 必须来自可信渠道
+import hashlib
+def leaf_hash(data):
+    return hashlib.sha256(b&quot;\x00&quot; + data).digest()
+def node_hash(left, right):
+    return hashlib.sha256(b&quot;\x01&quot; + left + right).digest()
+def verify(leaf, proof, root, index):
+    &quot;&quot;&quot;proof: [(32字节兄弟哈希, 兄弟是否在左边), ...]，由叶向根。&quot;&quot;&quot;
+    if index &lt; 0 or index &gt;= 1 &lt;&lt; len(proof):
+        return False
+    cur = leaf_hash(leaf)
+    for sibling, sibling_is_left in proof:
+        if len(sibling) != 32 or bool(index &amp; 1) != sibling_is_left:
+            return False
+        cur = node_hash(sibling, cur) if sibling_is_left else node_hash(cur, sibling)
+        index &gt;&gt;= 1
+    return cur == root
+# 这不是完整 CT/任意树形解析器；叶子数、路径长度和树形由协议另行验证
 </code></pre></div>
 
 <hr />
@@ -365,7 +373,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h3 id="2-2">坑 ② 叶子数不是 2 的幂时怎么补</h3>
 <section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">❌ 危险做法：复制最后一个叶子来凑满</span></div><div class="vb-flow-row"><span class="vb-flow-step">💥 后果：[A, B, C] 和 [A, B, C, C] 会产生【相同的根】</span></div><div class="vb-flow-row"><span class="vb-flow-step">比特币早期版本就有这个缺陷（CVE-2012-2459）⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">可以构造出两个不同的区块却有相同的 Merkle 根</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 解法：把叶子数编进根里，或用不平衡树（RFC 6962 的做法）</span></div></div></section>
 <h3 id="3">坑 ③ 证明"不存在"要另想办法</h3>
-<section class="reading-information"><p class="reading-information-title">关键信息</p><ul><li><span>Merkle 树天然能证明"X 在里面"（包含证明）</span></li><li><span>❌ 但证明"X 【不】在里面"需要额外结构</span></li><li><span>✅ 解法：</span></li><li><span>【排序 Merkle 树】：证明相邻的两个元素 A &lt; X &lt; B 都在树里</span></li><li><span>→ 说明 X 不在（因为如果在，它必须排在 A 和 B 之间）⭐</span></li><li><span>稀疏 Merkle 树：为每个可能的 key 都留位置，证明那个位置是空的</span></li></ul></section>
+<section class="reading-information"><p class="reading-information-title">关键信息</p><ul><li><span>Merkle 树天然能证明"X 在里面"（包含证明）</span></li><li><span>❌ 但证明"X 【不】在里面"需要额外结构</span></li><li><span>✅ 解法：</span></li><li><span>【排序 Merkle 树】：证明相邻的两个元素 A &lt; X &lt; B 都在树里</span></li><li><span>→ 说明 X 不在（还必须证明 A、B 在承诺排序中相邻，并处理首尾边界；仅有两份包含证明不足以证明不存在）⭐</span></li><li><span>稀疏 Merkle 树：为每个可能的 key 都留位置，证明那个位置是空的</span></li></ul></section>
 <hr />
 <h2 id="_4">🌍 四、它在哪些地方支撑着现代系统</h2>
 <div class="tw"><table>
@@ -382,7 +390,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><strong>证书透明性 CT</strong></td>
-<td>所有签发的证书进入公开的 Merkle 日志，<strong>CA 无法偷偷发证</strong> ⭐</td>
+<td>所有签发的证书进入公开的 Merkle 日志，<strong>可在日志与监控覆盖范围内发现误签发；不自动阻止误签发</strong> ⭐</td>
 </tr>
 <tr>
 <td><strong>Git</strong></td>
@@ -470,6 +478,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>Merkle 树把大量数据汇总为根哈希，并用兄弟路径验证某个叶子。</li><li>验证时从叶子向上重算，最终与可信根比较。</li><li>节点编码、叶子数量与不存在证明都需要明确规则，不能只画一棵树。</li></ul></section>
 
 <p><strong>下一节</strong> 👉 <a href="13-数论工具箱.html">13-数论工具箱.md</a></p>
+<details class="g05-content-note"><summary>条件与依据</summary><p>根必须经可信渠道获得，并明确树形、叶子数和编码。下面示例按正文采用 0x00/0x01 域分隔；proof 中左右标志是路径的一部分，index 用于核对方向。证书透明性还需监控、一致性检查与防分视图措施，SCT 是纳入日志的承诺，不等同已取得包含证明。</p><p><a href="https://www.rfc-editor.org/rfc/rfc6962.html">官方文档</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="11-MAC与认证加密.html"><div class="dir">← 上一节</div>✍️ 11 · MAC 与认证加密</a><a class="next" href="13-数论工具箱.html"><div class="dir">下一节 →</div>🧮 13 · 数论工具箱</a></nav>
@@ -496,4 +505,4 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-crypto-security-reader.css"></body></html>

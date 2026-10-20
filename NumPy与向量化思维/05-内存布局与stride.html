@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body>
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="numpy-vectorization">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -295,7 +295,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">🧩 一、说明书里有什么</a></li>
 <li><a href="#_3">🧩 二、转置为什么是免费的</a></li>
-<li><a href="#base">🚦 三、⚠️ .base 不是「上一层」，是最终持有内存的那个</a></li>
+<li><a href="#base">🚦 三、⚠️ .base 不记录完整的视图链</a></li>
 <li><a href="#c-f">🧩 四、C 序和 F 序：同一张表，两种铺法</a></li>
 <li><a href="#reshape">🧩 五、reshape 什么时候白拿，什么时候掏钱</a></li>
 <li><a href="#contiguous">🧩 六、.contiguous() 到底在修什么</a></li>
@@ -308,8 +308,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="05-stride">05 · 内存布局与 stride</h1>
+<details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>50 分钟</strong> ｜ ⭐ <strong>数组在内存里永远是一条直线，形状只是「怎么读这条直线」的说明书</strong></p>
-<hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong><code>ndarray</code> = 一块连续的字节 + 一份说明书（shape / strides / dtype / offset），转置、切片、reshape 绝大多数时候只改说明书、一个字节都不搬。</strong></p>
 <p>上一章你已经知道「视图会跟着变、拷贝不会」。这一章回答为什么 —— 以及为什么有些 <code>reshape</code> 白拿，有些要掏钱。</p>
@@ -319,7 +319,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 这一章说的 stride 是内存步长：沿某个轴走一格，地址要挪多少字节。
 两者同名不同物，唯一的共同点是「跨着走」这个字面意思。</p>
 </blockquote>
-<hr />
 <h2 id="_2">🧩 一、说明书里有什么</h2>
 <p>数组本体只是一段字节。剩下的全在说明书里：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -368,7 +367,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <p>这就是<strong>索引 O(1)</strong> 的全部秘密：一次乘加，不是查表也不是遍历。</p>
-<hr />
 <h2 id="_3">🧩 二、转置为什么是免费的</h2>
 <p>既然地址是算出来的，那么<strong>把 strides 换个顺序，就等于换了一种读法</strong>：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -386,9 +384,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong>这解释了一个常见困惑</strong>：为什么 <code>a.T</code> 对 100 万行的矩阵也是瞬间返回？
 因为它根本没干活。<strong>干活的是后面真正读数据的那一步。</strong></p>
 </blockquote>
-<hr />
-<h2 id="base">🚦 三、⚠️ <code>.base</code> 不是「上一层」，是最终持有内存的那个</h2>
-<p>上一章教了用 <code>.base</code> 判断是不是视图。这里有个<strong>会让你判断错</strong>的细节：</p>
+<h2 id="base">🚦 三、⚠️ <code>.base</code> 不记录完整的视图链</h2>
+<p>上一章使用 <code>np.shares_memory(a, b)</code> 检查两数组是否有重叠内存；这一节解释为什么 <code>.base is a</code> 不能替代它。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="n">base</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">12</span><span class="p">)</span>
@@ -399,7 +396,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="nb">print</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">T</span><span class="o">.</span><span class="n">base</span> <span class="ow">is</span> <span class="n">base</span><span class="p">)</span>    <span class="c1"># ⭐ True —— 它一路指回真正持有内存的那个</span>
 </code></pre></div>
 
-<p><code>.base</code> <strong>不是一层一层往回指的</strong>。视图的视图，<code>.base</code> 直接指向<strong>最终持有那块内存的数组</strong>，中间层被跳过了。</p>
+<p><code>.base</code> 表示该数组借用内存的来源对象，不保证是创建它时的“上一层”，也不保证一定是 ndarray。下面这组普通数组的视图链跳过了中间层；不能把这个例子的对象身份推广为所有数组的恒定规则。</p>
 <p>⚠️ 所以上一章那个 <code>c.base is b</code> 的写法，<strong>只在 <code>b</code> 自己就是内存持有者时才成立</strong>。
 一旦 <code>b</code> 本身也是个视图，<code>c.base is b</code> 就会给你 <code>False</code>，但它们<strong>确实共享内存</strong>。</p>
 <p>⚠️⚠️ <strong>而且它还会朝另一个方向骗你</strong> —— <code>.base</code> 不是 <code>None</code>，却<strong>根本不共享内存</strong>：</p>
@@ -419,8 +416,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>前两个明明是<strong>拷贝</strong>，<code>.base</code> 却不是 <code>None</code> —— 因为求值过程中产生了一个<strong>中间临时数组</strong>，
 拷贝结果挂在那个临时数组上，而那个临时数组和 <code>a</code> 无关。</p>
-<p>⭐ <strong>所以 <code>.base</code> 两个方向都会判错</strong>：
-<code>is None</code> 不代表拷贝，<code>is not None</code> 也不代表共享。<strong>它根本不是用来做这个判断的。</strong></p>
+<p><code>.base</code> 说明当前数组是否借用其他对象的缓冲区；它不直接回答“是否与指定的 <code>a</code> 共享内存”。对两个具体数组使用 <code>np.shares_memory(a, b)</code>；复杂 stride 的精确检测可能很昂贵，可设置工作上限，保守判断则用 <code>np.may_share_memory</code>。参见 <a href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.base.html">base</a> 与 <a href="https://numpy.org/doc/stable/reference/generated/numpy.shares_memory.html">shares_memory</a> 文档。</p>
 <p>⭐ <strong>稳妥的判据永远是这个</strong>：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
@@ -434,7 +430,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⚠️ <code>np.shares_memory</code> 默认做的是<strong>精确判断</strong>，对巨大数组可能偏慢；
 赶时间可以用 <code>np.may_share_memory</code>（保守估计，可能误报「共享」但不会漏报）。</p>
 </blockquote>
-<hr />
 <h2 id="c-f">🧩 四、C 序和 F 序：同一张表，两种铺法</h2>
 <p>同样一个 2×3 的表，在内存里可以按行铺，也可以按列铺：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -481,7 +476,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <strong>后半章还有</strong>：reshape 什么时候要掏钱 · <code>.contiguous()</code> 到底在修什么 · 连续性对速度的真实影响 · <code>as_strided</code> 手搓滑动窗口。
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<hr />
 <h2 id="reshape">🧩 五、reshape 什么时候白拿，什么时候掏钱</h2>
 <p><strong><code>reshape</code> 的规则只有一条</strong>：能不能用「一组新的 shape + strides」把同一块内存重新读出来。</p>
 <ul>
@@ -510,7 +504,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="nb">print</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>          <span class="c1"># (4, 3)</span>
 </code></pre></div>
 
-<hr />
 <h2 id="contiguous">🧩 六、<code>.contiguous()</code> 到底在修什么</h2>
 <p>⚠️ 这个方法名是 PyTorch 的（NumPy 里对应的是 <code>np.ascontiguousarray</code>），
 但两边修的是同一件事：<strong>把一个「strides 乱了」的数组，重新拷贝成一块连续内存。</strong></p>
@@ -540,7 +533,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>📗 PyTorch 里 <code>.contiguous()</code> 的急救写法（什么时候要在 <code>.transpose()</code> 后面补一个）
 在 <a href="../机器学习与深度学习基础/附录C-手撕代码速查.html">ML 基础 · 附录C 手撕代码速查</a> 里已经给了，
 这一章只解释它为什么必须存在。</p>
-<hr />
 <h2 id="_4">🧩 七、连续性对速度的影响有多大</h2>
 <p>⚠️ <strong>先说一个我自己踩的坑</strong>，因为它太容易得出错误结论：</p>
 <p>❌ <strong>这个对比是【无效】的</strong>：<code>big.sum(axis=1)</code> 对 <code>big.T.sum(axis=0)</code>。</p>
@@ -571,7 +563,6 @@ CPU 一次从内存搬的是一整条 cache line（通常 64 字节），
 一个不连续的数组要被<strong>反复扫描很多次</strong>时，先花一次拷贝的钱把它压实，通常划算。
 只用一次就不必了 —— 拷贝本身也要遍历一遍。</p>
 </blockquote>
-<hr />
 <h2 id="as_strided">🧩 八、<code>as_strided</code>：直接手写说明书</h2>
 <p>既然形状只是说明书，那<strong>能不能自己编一份</strong>？能，而且这是滑动窗口的经典实现：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -605,7 +596,6 @@ shape 写大一格，它就去读数组后面那块不属于你的内存 —— 
 </code></pre></div>
 
 <p><code>as_strided</code> 值得知道，是因为它把「形状只是说明书」这件事演示到了极致 —— <strong>但别在生产代码里用它</strong>。</p>
-<hr />
 <h2 id="_5">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -637,7 +627,6 @@ shape 写大一格，它就去读数组后面那块不属于你的内存 —— 
 </tr>
 </tbody>
 </table></div>
-<hr />
 <h2 id="_6">✅ 检查点</h2>
 <ol>
 <li><code>a = np.arange(12).reshape(3, 4)</code> 的 <code>strides</code> 是多少？单位是什么？</li>
@@ -656,7 +645,7 @@ shape 写大一格，它就去读数组后面那块不属于你的内存 —— 
 <li><strong><code>(32, 8)</code>，单位是字节</strong>。行 +1 挪 32 字节（4 个 int64 = 一整行），列 +1 挪 8 字节（1 个 int64）。</li>
 <li>因为<strong>它一个字节都没搬</strong>，只是把 shape 和 strides 同时倒过来 —— <code>(3,4)/(32,8)</code> 变成 <code>(4,3)/(8,32)</code>。干活的是后面真正读数据的那一步。</li>
 <li><code>2 * 32 + 1 * 8 = 72</code> 字节，<code>72 // 8 = 9</code>，即第 9 个元素，<code>a.ravel()[9] == 9</code> ✅。</li>
-<li><strong><code>False</code></strong>。<code>.base</code> 不是「上一层」，而是最终持有那块内存的数组 —— <code>a.T.base is base</code> 才是 <code>True</code>（<code>base</code> 是原始的 <code>arange(12)</code>）。判断共享内存要用 <code>np.shares_memory(a, a.T)</code>，它不会被中间层骗到。</li>
+<li><strong><code>False</code></strong>。<code>.base</code> 不是「上一层」，在本例中跳过中间视图、指向原始数组 —— <code>a.T.base is base</code> 才是 <code>True</code>（<code>base</code> 是原始的 <code>arange(12)</code>）。判断共享内存要用 <code>np.shares_memory(a, a.T)</code>，它不会被中间层骗到。</li>
 <li>C 序 <code>[1, 2, 3, 4, 5, 6]</code>（按行铺），F 序 <code>[1, 4, 2, 5, 3, 6]</code>（按列铺）。strides 分别是 <code>(3,1)</code> 和 <code>(1,2)</code>。⚠️ 要用 <code>dtype=np.int8</code> 才看得出来，int64 前 7 个字节全是 0。</li>
 <li><strong>会拷贝</strong>，因为 <code>a.T</code> 不连续（<code>a.T.flags["C_CONTIGUOUS"]</code> 是 <code>False</code>），而且它不报错、悄悄拷。想要拷贝就报错，用直接给 <code>.shape</code> 赋值：<code>a.shape = (4, 3)</code>，做不到零拷贝时会抛 <code>AttributeError</code>。</li>
 <li><code>To change to a dtype of a different size, the last axis must be contiguous</code>。它抱怨的<strong>不是转置</strong>，而是「最后一个轴必须连续」—— <code>view</code> 要重新解释字节，前提是那些字节真的挨在一起。</li>
@@ -664,13 +653,12 @@ shape 写大一格，它就去读数组后面那块不属于你的内存 —— 
 <li>因为它<strong>不做任何边界检查</strong> —— shape 写大一格就会去读不属于你的内存，不报错、读出垃圾数，运气不好直接段错误。生产代码用 <code>np.lib.stride_tricks.sliding_window_view</code>，同样零拷贝但有边界检查。</li>
 </ol>
 </details>
-<hr />
 <h2 id="_7">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
 <p>⭐ <strong>数组在内存里永远是一条直线，形状只是一份「怎么读这条直线」的说明书</strong>：shape + strides + dtype + offset。</p>
 <p><code>np.arange(12).reshape(3, 4)</code> 的 strides 是 <code>(32, 8)</code>，单位是<strong>字节</strong>：行号 +1 挪 32 字节（一整行），列号 +1 挪 8 字节（一个元素）。任意下标一次乘加就出地址 —— <code>a[2,1]</code> = <code>2*32 + 1*8 = 72</code> 字节 = 第 9 个元素。这就是索引 O(1) 的全部秘密。转置因此是免费的：<code>a.T</code> 只把 shape 和 strides 同时倒过来，一个字节都没搬。</p>
-<p>⚠️ <strong>判断共不共享内存永远用 <code>np.shares_memory</code>，别用 <code>.base</code> —— 它两个方向都骗人</strong>：<code>a.T.base is a</code> 是 <code>False</code>（它指向最终持有内存的那个，不是上一层）；而 <code>a.T.reshape(12)</code> 明明是拷贝，<code>.base</code> 却不是 <code>None</code>（挂在中间临时数组上）。</p>
+<p>⚠️ <strong>判断共不共享内存永远用 <code>np.shares_memory</code>，别用 <code>.base</code> —— 它两个方向都骗人</strong>：<code>a.T.base is a</code> 是 <code>False</code>（本例跳过了中间视图）；而 <code>a.T.reshape(12)</code> 明明是拷贝，<code>.base</code> 却不是 <code>None</code>（挂在中间临时数组上）。</p>
 <p>C 序按行铺、F 序按列铺。<code>reshape</code> 的规则只有一条：<strong>能不能用一组新的 shape+strides 读同一块内存</strong> —— 能就白拿视图，不能就<strong>一声不吭地拷贝一份</strong>。想要「要拷贝就报错」，用 <code>a.shape = (4,3)</code> 这种直接赋值的写法。</p>
 <p>连续性的真实代价实测 <strong>1.75 倍</strong>（4000×2000，不连续 10.46 ms vs 连续 5.98 ms）—— CPU 一次搬一整条 cache line，隔列取等于搬进来一半就扔。<code>as_strided</code> 能手写说明书做出零拷贝滑动窗口，但它<strong>不做边界检查</strong>，生产代码用 <code>sliding_window_view</code>。</p>
 </blockquote>
@@ -701,4 +689,4 @@ shape 写大一格，它就去读数组后面那块不属于你的内存 —— 
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-numpy-vectorization-reader.css"></body></html>
