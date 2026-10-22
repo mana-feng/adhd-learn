@@ -293,7 +293,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
-<li><a href="#gil">🧩 一、GIL 是什么：一个进程一把锁</a></li>
+<li><a href="#gil">🧩 一、GIL 是什么：同一解释器内的锁</a></li>
 <li><a href="#python-cpu">🧩 二、纯 Python 的 CPU 活：线程一点忙都帮不上</a></li>
 <li><a href="#gil_1">⭐ 三、真正的分界：这个操作放不放 GIL</a></li>
 <li><a href="#_2">🚦 四、三种并发怎么选</a></li>
@@ -314,11 +314,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⏱ <strong>94 分钟</strong> ｜ ⭐ <strong>判据不是「CPU 密集还是 I/O 密集」，是「这个操作放不放 GIL」——同样叫 CPU 密集，<code>np.sort</code> 开线程快 3 倍，<code>json.loads</code> 开线程一点不快</strong></p>
 <h2 id="_1">🎯 一句话</h2>
 <p>本章首先讨论<strong>启用 GIL 的 CPython 解释器</strong>：同一解释器中通常只有一个线程执行 Python 字节码。阻塞 I/O 和某些明确释放 GIL 的原生计算可以并发；“用 C 实现”本身不保证释放 GIL。free-threaded 构建需另查实际运行状态。</p>
-<h2 id="gil">🧩 一、GIL 是什么：一个进程一把锁</h2>
+<h2 id="gil">🧩 一、GIL 是什么：同一解释器内的锁</h2>
 <p>GIL 全称 Global Interpreter Lock，全局解释器锁。它的规则用一句话讲完：</p>
 <blockquote>
-<p>⭐ <strong>一个 CPython 进程里，同一时刻只有一个线程能在执行 Python 字节码。</strong>
-你可以开 100 个线程，操作系统也确实把它们分配到了不同的核上，但它们要排队抢同一把锁。</p>
+<p>⭐ <strong>在本章启用 GIL 的 CPython 中，同一解释器里，同一时刻只有一个线程能执行 Python 字节码。</strong>
+这里的 100 个线程共享同一解释器；操作系统即使把它们分配到不同的核上，它们仍要排队抢同一把 GIL。</p>
 </blockquote>
 <p>先看你的解释器现在是什么形状：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 你的解释器现在是什么形状：启动方式 + GIL 在不在</span>
@@ -334,7 +334,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>本机（8 核 Windows 11 / CPython 3.13）输出：</p>
 <section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>平台 : win32</p><p>默认启动方式 : spawn</p><p>本平台可选 : [&#x27;spawn&#x27;]</p><p>GIL 还在吗 : True</p><p>线程切换间隔 : 0.005 秒</p></div></section>
-<p>⭐ <strong>最后那行 <code>0.005</code> 秒是全部机制</strong>：一个线程拿到锁之后，每隔 5 毫秒会被要求把锁交出来一次，让别的线程有机会跑。所以线程之间是<strong>轮流跑</strong>，不是同时跑——切换很密集，看起来像并行，加起来的吞吐却还是一个核的量。</p>
+<p>⭐ <strong>最后那行 <code>0.005</code> 秒是解释器线程切换的目标（理想）间隔，不是固定交锁周期</strong>：长时间运行的内部函数或方法可能使实际间隔更长。它既不保证每 5 毫秒交还 GIL，也不保证此时操作系统完成一次线程切换；接下来哪个可运行线程获得调度，由操作系统决定，解释器没有自己的线程调度器。在本章同一解释器内，持有 GIL 执行 Python 字节码的线程仍是<strong>轮流跑</strong>，不是同时跑。</p>
 <p>为什么会有这么一把锁：CPython 用<strong>引用计数</strong>管内存，每个对象身上挂着一个「有几个名字指着我」的计数器（这就是 <a href="01-名字、对象和绑定.html">01 章</a>里那些「标签」的实现）。这个计数器几乎每执行一条字节码都会被加减一次。如果两个线程同时改同一个计数器，就会出现「都以为自己是最后一个」于是重复释放，或者「都以为对方还在用」于是永远不释放。</p>
 <p>⭐ 给每个对象配一把锁在技术上可行，但<strong>代价是给每一次加减都加锁</strong>——单线程程序会因此显著变慢。GIL 是「一把大锁换掉几亿把小锁」的工程折衷：<strong>单线程最快，多线程受罚</strong>。</p>
 
@@ -559,7 +559,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td><strong>在算</strong>，纯 Python 代码（解析、循环、正则）</td>
 <td>⭐ <strong>进程池</strong></td>
-<td>只有换个进程才能换一把新的 GIL</td>
+<td>本章普通单解释器示例用进程池，让各进程拥有独立的解释器与 GIL</td>
 </tr>
 <tr>
 <td><strong>在算</strong>，纯 Python，但<strong>数据非常大</strong></td>
@@ -1003,7 +1003,7 @@ if __name__ == &quot;__main__&quot;:
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>一个 CPython 进程里，同一时刻只有一个线程能在执行 Python 字节码。</strong> 它存在是因为 CPython 用引用计数管内存——几乎每条字节码都要加减对象上的计数器，两个线程同时改会导致重复释放或永不释放。给每个对象配锁在技术上可行，但会让单线程程序显著变慢，GIL 是「一把大锁换掉几亿把小锁」的折衷。线程之间靠 <code>sys.getswitchinterval()</code>（本机 0.005 秒）轮流拿锁，是轮流跑不是同时跑。</li>
+<li><strong>在启用 GIL 的 CPython 中，同一解释器里，同一时刻只有一个线程能执行 Python 字节码。</strong> 它存在是因为 CPython 用引用计数管内存——几乎每条字节码都要加减对象上的计数器，两个线程同时改会导致重复释放或永不释放。给每个对象配锁在技术上可行，但会让单线程程序显著变慢，GIL 是「一把大锁换掉几亿把小锁」的折衷。<code>sys.getswitchinterval()</code>（原记录为 0.005 秒）给出目标切换间隔，实际间隔可能更长；它不保证每 5 毫秒交锁或发生 OS 切换，后续调度由操作系统决定。同一解释器内执行 Python 字节码仍是轮流跑。</li>
 <li>串行 <strong>0.56 s</strong>、4 线程 0.73 s、4 进程 0.38 s —— 开线程比串行还慢，慢的是抢锁和切换的净开销，活一点没少干。进程那档只快 1.5 倍而不是 4 倍，因为起 4 个进程本身就要 0.387 s（同样的空任务开 4 个线程只要 0.002 s，差近 200 倍）。</li>
 <li>判据是 <strong>「这个操作放不放 GIL」</strong>，等价问法是「这段活里有没有在造 Python 对象」。<code>np.sort</code> 排 800 万个 float：串行 0.80 s → 4 线程 0.25 s，3.2 倍，因为排序在 C 里做、全程放开 GIL；<code>json.loads</code> 解析 13.7 MB：1.51 s → 1.45 s，只有 1.04 倍，因为它全程在构造 dict / list / str 这些 Python 对象，碰 Python 对象就不能放锁。</li>
 <li>因为<strong>等待的时候 GIL 是放开的</strong>，8 个任务的等待可以完全重叠。实测串行 2.00 s、8 线程 0.25 s（正好 8 倍）、async 0.27 s。两者在这个规模上打平，区别要到几千个连接才显现：一个线程要几百 KB 到几 MB 的栈，一个协程只要几 KB。</li>
@@ -1018,7 +1018,7 @@ if __name__ == &quot;__main__&quot;:
 <h2 id="_7">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>⭐ <strong>GIL 是一把进程级的锁：同一时刻只有一个线程能执行 Python 字节码。</strong> 它存在是因为 CPython 用引用计数管内存，几乎每条字节码都要加减计数器——<strong>拿一把大锁换掉几亿把小锁</strong>。</p>
+<p>⭐ <strong>在本章启用 GIL 的普通单解释器运行方式下，同一时刻只有一个线程能执行 Python 字节码。</strong> 它存在是因为 CPython 用引用计数管内存，几乎每条字节码都要加减计数器——<strong>拿一把大锁换掉几亿把小锁</strong>。</p>
 <p>⚠️ 实测 4 份纯 Python 的 CPU 活：<strong>4 线程比串行还慢</strong>（慢的是抢锁和切换的净开销），4 进程只快一点点（起进程本身就很贵，而开线程几乎免费）。</p>
 <p>⭐ 但「CPU 密集就开进程」这个说法太粗，<strong>真正的判据是「这个操作放不放 GIL」</strong>，等价问法是「<strong>这段活里有没有在造 Python 对象</strong>」：<code>np.sort</code> 多线程能到三倍多（排序在 C 里做、全程放锁），而 <code>json.loads</code> 几乎没有加速（它全程在构造 dict / list / str）。</p>
 <p>选择表：<strong>等 I/O 且库是异步的 → async；等 I/O 但库是同步的 → 线程池；算的是 numpy / torch / 压缩 / 哈希 → 线程池；算的是纯 Python → 进程池。</strong> 等待类的活里线程和 async 打平，区别要到几千个连接的规模才显现。</p>

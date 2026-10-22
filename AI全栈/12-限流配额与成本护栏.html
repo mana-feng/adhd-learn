@@ -353,7 +353,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h2 id="_3">🧩 二、限流：令牌桶</h2>
 <p>令牌桶的形状是：<strong>一个桶按固定速率往里滴令牌，桶有容量上限；来一个请求就拿走一个，没得拿就拒绝。</strong>
 两个参数分别对应两件事：<strong>滴速 = 长期允许的速率</strong>，桶容量 = 允许多大的突发。</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<div class="codehilite" data-code-language="python"><p>下面的独立TokenBucket实验保留了两位小数的舍入返回。代码注释和print把它称作Retry-After，仅可按<strong>内部/展示等待值</strong>理解，不能直接用作合规HTTP响应头，也不代表未舍入精确等待；后面的中间件例会保留原始wait再转换。</p>
+<pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">TokenBucket</span><span class="p">:</span>
@@ -382,7 +383,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;等 3 秒后再连发 7 次:&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">b</span><span class="o">.</span><span class="n">take</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">7</span><span class="p">)])</span>
 </code></pre></div>
 
-<p>跑出来：桶满时前 <strong>5</strong> 次通过、后 <strong>2</strong> 次被拒，Retry-After 是 0.5 秒；等 3 秒后又是 5 通过 2 拒（补了 6 个但桶只装 5 个）。⭐ 令牌桶最值钱的一点就是它天然算得出 Retry-After ——「等多久才够」= 缺的令牌数 ÷ 滴速。</p>
+<p>这个假时钟实验中，桶满时前 <strong>5</strong> 次通过、后 <strong>2</strong> 次被拒，已舍入的内部/展示等待值为0.5秒；等3秒后又是5通过2拒（补了6个但桶只装5个）。缺的令牌数÷滴速给出内部等待秒数；这里保留的 <code>round(..., 2)</code> 结果不是未舍入精确值，也不能直接作为HTTP字段。该例0.5秒若以合法数字头表示，应为 <code>Retry-After: 1</code>。</p>
 <h3 id="_4">⚠️ 固定窗口的边界漏洞</h3>
 <p>另一种常见实现是<strong>固定窗口计数</strong>：按整分钟分桶，每桶限 N 次。省内存，但<strong>跨桶那一瞬间能放进两倍流量</strong>。</p>
 <p>实测（把 59.0–59.9 秒的 10 次和 60.0–60.9 秒的 10 次喂进去，限额是「每 60 秒 10 次」）：<strong>固定窗口放过 20 次，滑动窗口只放过 10 次</strong>。这 20 次落在 2 秒之内。</p>
@@ -511,7 +512,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <h3 id="_7">⭐ 中间件这一层怎么接线</h3>
 <p><a href="03-后端骨架.html">第 3 章第四节</a>埋了两个空壳依赖，其中 <strong><code>quota</code> 就是留给这一章的挂载点</strong>（另一个 <code>current_user</code> 留给第 8 章）。现在把它填上：</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Annotated</span>
+<div class="codehilite" data-code-language="python"><p><strong>本例的输入合同：</strong>rate为有限正数，桶配置有效，待序列化的原始wait为有限非负实数。负数、NaN、正负无穷和非数值明确排除，不应传入转换；本教学片段未实现这类配置校验，不能据此声称服务会拒绝非法配置。</p>
+<p><strong>内部小数不直接上HTTP头。</strong>Retry-After允许HTTP-date或非负十进制整数秒，本例选数字形式，语法为ASCII <code>[0-9]+</code>，对原始wait向上取整：0.004→1、0.5→1、1→1、1.004→2；精确零→0合法。不能先round再ceil，否则小正等待会变成0或偏小值。依据 <a href="https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.3">RFC9110 §10.2.3</a>。</p>
+<pre><span></span><code><span class="kn">import</span> <span class="nn">math</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Annotated</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">Depends</span><span class="p">,</span> <span class="n">FastAPI</span><span class="p">,</span> <span class="n">Header</span><span class="p">,</span> <span class="n">HTTPException</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">fastapi.testclient</span><span class="w"> </span><span class="kn">import</span> <span class="n">TestClient</span>
@@ -528,7 +532,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">tokens</span> <span class="o">&gt;=</span> <span class="mi">1</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">tokens</span> <span class="o">-=</span> <span class="mi">1</span>
             <span class="k">return</span> <span class="kc">True</span><span class="p">,</span> <span class="mf">0.0</span>
-        <span class="k">return</span> <span class="kc">False</span><span class="p">,</span> <span class="nb">round</span><span class="p">((</span><span class="mi">1</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">tokens</span><span class="p">)</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">rate</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>   <span class="c1"># 差多少 ÷ 滴速</span>
+        <span class="k">return</span> <span class="kc">False</span><span class="p">,</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">tokens</span><span class="p">)</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">rate</span>   <span class="c1"># 差多少 ÷ 滴速</span>
 
 
 <span class="n">app</span> <span class="o">=</span> <span class="n">FastAPI</span><span class="p">()</span>
@@ -545,7 +549,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     <span class="c1"># ⭐ 依赖套依赖：顺序天然就是「认证之后、业务之前」，不用在每个路由开头手写</span>
     <span class="n">ok</span><span class="p">,</span> <span class="n">wait</span> <span class="o">=</span> <span class="n">BUCKETS</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">user</span><span class="p">[</span><span class="s2">&quot;uid&quot;</span><span class="p">],</span> <span class="n">Bucket</span><span class="p">())</span><span class="o">.</span><span class="n">take</span><span class="p">()</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">ok</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="n">HTTPException</span><span class="p">(</span><span class="mi">429</span><span class="p">,</span> <span class="s2">&quot;rate limited&quot;</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;Retry-After&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">wait</span><span class="p">)})</span>
+        <span class="k">raise</span> <span class="n">HTTPException</span><span class="p">(</span><span class="mi">429</span><span class="p">,</span> <span class="s2">&quot;rate limited&quot;</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;Retry-After&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">wait</span><span class="p">))})</span>
     <span class="k">return</span> <span class="n">user</span>                                  <span class="c1"># 配额扣减（第三节的 reserve）也挂在这里</span>
 
 
@@ -562,7 +566,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;不带 token:&quot;</span><span class="p">,</span> <span class="n">c</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/chat&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">status_code</span><span class="p">)</span>
 </code></pre></div>
 
-<p>实跑输出：<code>[200, 200, 200, 429, 429]</code>，被拒时 <code>Retry-After: 0.5 秒</code>；换成 u2 是 <strong>200</strong>（⭐ <strong>桶是按用户分的</strong>，一个人打爆不该影响别人），不带 token 是 401（还没进到限流就被上一层依赖拦了）。</p>
+<p>示例预期输出：<code>[200, 200, 200, 429, 429]</code>，内部等待0.5秒在响应中表示为 <code>Retry-After: 1</code>；换成u2是 <strong>200</strong>（⭐ <strong>桶是按用户分的</strong>，一个人打爆不该影响别人），不带token是401（还没进到限流就被上一层依赖拦了）。这里区分标准库可核对的字段转换与需另行运行的FastAPI/TestClient服务示例。</p>
 <p>⭐ <strong>三件事值得注意</strong>：① 业务函数 <code>chat()</code> 里<strong>一行限流代码都没有</strong>——这就是第 3 章说「依赖注入不是花架子」的兑现；② ⚠️ 顺序是靠依赖链保证的，不是靠你记得把中间件注册在正确的位置（<a href="16-上线前检查单.html">第 16 章</a>那条「限流中间件挂在认证之前所以永远拿不到用户」就是手写顺序才会犯的错）；③ 换到 Node / Go 就是中间件，<code>Depends</code> 这个名字会过期，「每请求要做的事得有统一的地方挂」不会。</p>
 <hr />
 <!--MIDSTOP-->
@@ -586,7 +590,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td><strong>拒绝</strong></td>
 <td><code>429</code> + <code>Retry-After: 12</code></td>
-<td>默认。⭐ <strong>必须给 <code>Retry-After</code></strong>，否则客户端只会立刻重试，把你打得更狠</td>
+<td>默认。本应用能算出等待时应主动提供合法字段；RFC6585对429是MAY，客户端宜按合法值退避</td>
 <td>用户看到报错</td>
 </tr>
 <tr>
@@ -603,7 +607,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>⚠️ <strong><code>429</code> 一定要带 <code>Retry-After</code></strong>，而客户端一定要<strong>尊重它并加抖动</strong>。这两件事有一件没做，限流就从「保护」变成「放大器」—— 详见下面那场事故。</p>
+<p>⚠️ <strong>协议允许429携带Retry-After，并非强制必选。</strong>本应用能计算等待时应主动提供合法字段；客户端宜识别其支持的格式，尊重等待并结合有上限的退避与非负抖动，不能假定所有客户端都会遵守。忽略等待、立即反复重试可能放大负载。依据 <a href="https://www.rfc-editor.org/rfc/rfc6585.html#section-4">RFC6585 §4</a>。</p>
 <hr />
 <h2 id="_9">🧩 六、成本归因：别只知道总账单涨了</h2>
 <p>⭐ <strong>每次调用至少记三个维度：谁（<code>user_id</code>）、哪个功能（<code>feature</code>）、哪个模型（<code>model</code>）。少记一列，就有一个维度永远查不出来。</strong>月底账单涨了 40%，没有这三列你只能猜；有了，一条 <code>GROUP BY</code> 就知道是谁。</p>
@@ -757,7 +761,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ol>
 <li>三层护栏分别管什么？各自的单位是什么？</li>
 <li>为什么「每分钟 10 次」的限流挡不住配额要挡的事？给出算式。</li>
-<li>令牌桶的两个参数各对应什么？<code>Retry-After</code> 怎么从它算出来？</li>
+<li>令牌桶的两个参数各对应什么？内部等待秒数怎样转换成合法的数字形式 <code>Retry-After</code>？</li>
 <li>固定窗口的边界漏洞是什么？本章那个实测里两种实现分别放过了几次？</li>
 <li>为什么配额扣减的条件必须写在 <code>UPDATE</code> 的 <code>WHERE</code> 里？</li>
 <li>示例代码最后一次调用被谁拦下的？u2 的 <code>used</code> 为什么停在 40？</li>
@@ -770,7 +774,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ol>
 <li><strong>限流</strong>管「多快」（次/分钟）、配额管「多少」（token 或钱 / 月）、全局预算拉闸管「今天最多亏多少」（钱/天）。</li>
 <li>每分钟 10 次 × 1440 分钟 = <strong>一天 14400 次</strong>上限。一个用户每分钟 9 次跑一整天，从没触发过限流，但账单是真的。</li>
-<li><strong>滴速 = 长期允许的速率</strong>，桶容量 = 允许多大的突发。<code>Retry-After</code> = 缺的令牌数 ÷ 滴速；示例 rate=2、burst=5，被拒时算出 0.5 秒。</li>
+<li><strong>滴速 = 长期允许的速率</strong>，桶容量 = 允许多大的突发。缺的令牌数÷滴速是内部等待秒数；对有限非负原始wait，本例用 <code>str(math.ceil(wait))</code> 生成ASCII非负整数字段。0.5秒对应头值1，0.004→1、1.004→2；精确零→0合法。不能先做展示舍入；负数和非有限值明确排除。429允许而非强制携带该头，本应用能算出时应主动提供。</li>
 <li>按整分钟分桶，<strong>跨桶那一瞬间能放进两倍流量</strong>。实测（限「每 60 秒 10 次」）：固定窗口放过 20 次，滑动窗口放过 10 次。</li>
 <li>「先 <code>SELECT</code> 看够不够、再 <code>UPDATE</code> 扣」中间有一道缝，<strong>两个并发请求会都看到「还够」</strong>。写进 <code>WHERE</code> 才是一次原子的「判断 + 扣减」。</li>
 <li>被<strong>全局日预算拉闸</strong>拦的 —— u2 个人配额还够（40+40 ≤ 100），但日预算 120+40 &gt; 150。<code>used</code> 停在 40 是因为抛异常触发了回滚，没留下「全局扣了、个人没过」的脏账。</li>

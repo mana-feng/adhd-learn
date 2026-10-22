@@ -735,7 +735,9 @@ int main() {
 <p>实跑输出：</p>
 <section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>字段本身加起来: 1 + 8 + 1 + 4 = 14 字节</p><p>Bad 实际占 24 字节 (对齐要求 8)</p><p>flag 在偏移 0</p><p>value 在偏移 8 &lt;- 前面被塞了 7 字节空洞</p><p>tag 在偏移 16</p><p>id 在偏移 20 &lt;- 又塞了 3 字节</p><p>Good 实际占 16 字节 (对齐要求 8)</p><p>value 在偏移 0</p><p>id 在偏移 8</p><p>flag 在偏移 12</p><p>tag 在偏移 13</p><p>⭐ 同样四个字段，只换了声明顺序: 24 -&gt; 16 字节，省了 33%</p><p>一条 64 字节的 cache line 能装几个: Bad 2 个 / Good 4 个</p></div></section>
 <p>⭐ <strong>字段加起来只有 14 字节，<code>Bad</code> 却占 24 字节 —— 有 10 字节是空洞。</strong> 换个顺序变成 16 字节，<strong>一行逻辑都没改，省了 33%</strong>。</p>
-<p>⚠️ <strong>真正的代价在最后一行</strong>：一条 cache line 装 <code>Bad</code> 只能装 2 个，装 <code>Good</code> 能装 4 个。也就是说<strong>遍历一个 <code>Bad</code> 数组，搬内存的次数是 <code>Good</code> 的两倍</strong> —— 第二节那条判据在这里生效了。</p>
+<p><strong>先读准最后一行的 2 / 4：</strong>它是 <code>64 / sizeof</code> 的整数除法，表示从一条 64 字节行的起点起，能完整容纳几个这样的对象。<strong>不能把紧凑数组想成每行只摆 2 个 Bad、再空着 16 字节。</strong>C++ 数组元素连续排列，元素大小已包含 ABI 所需 padding；沿用上例 <code>Bad=24</code>、<code>Good=16</code> 的 ABI，第三个 Bad 位于相对字节地址 <code>[48,72)</code>，会跨过 64 字节边界，下一行继续放它的剩余部分。</p>
+<p><strong>只算地址跨度：</strong>明确假设两种数组起点都按 <code>64 B</code> 行边界对齐，<code>N=1024</code>。Bad 的 <code>24N=24576 B</code> 跨度覆盖 <code>384</code> 个不同 line ID；Good 的 <code>16N=16384 B</code> 覆盖 <code>256</code> 个，比值为 <code>384/256=1.5</code>，不是两倍。这里统计完整数组字节区间覆盖的行，未模拟某段程序具体读取哪些字段。</p>
+<p>起始偏移和有限 N 会改变边缘计数；上述大小与约 33% 空间节省沿用原 ABI 示例，不是跨平台 sizeof 保证。<strong>不同 line ID 数不等于实测缓存缺失、行填充或 DRAM 事务数，更不能推出 1.5 倍速度。</strong>实际还取决于访问字段、缓存驻留、预取与执行开销。依据：<a href="https://timsong-cpp.github.io/cppwp/n4659/dcl.array">C++17 数组连续排列</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/expr.sizeof">sizeof 与数组总大小</a>；本轮只核对有限地址模型，没有新增编译或硬件测量。</p>
 <p>📋 <strong>两条能直接用的规矩</strong>：</p>
 <div class="tw"><table>
 <thead>
@@ -1152,7 +1154,7 @@ int main() { // C++20 only
 <li>固定摸完 128 MB，间隔从 4 字节改成 64 字节：取的元素少了几倍？耗时少了几倍？为什么不成比例？</li>
 <li>那条「成本挂在什么上」的判据怎么说？</li>
 <li>随机跳一步的耗时，从 8 KB 涨到 32 MB 大约变了多少倍？为什么正文强调「要看形状不看绝对值」，还说了哪一条诚实声明？</li>
-<li><code>Bad</code> 和 <code>Good</code> 两个结构体字段完全一样，各占多少字节？字段本身加起来是多少？一条 cache line 各能装几个？</li>
+<li><code>Bad</code> 和 <code>Good</code> 两个结构体在原 ABI 示例中各占多少字节、字段合计多少？历史 <code>64/sizeof</code> 的 2 / 4 表示什么？若 1024 个元素的数组起点都按 64 B 对齐，各自完整字节跨度覆盖多少个不同 line ID，能否据此推出搬运次数或速度？</li>
 <li>字段该怎么声明？为什么不推荐用 <code>#pragma pack</code> 去掉空洞？</li>
 <li>AoS 和 SoA 分别是什么摆法？只求和 <code>x</code> 一个字段时实跑差几倍？<code>sizeof(Particle)</code> 是多少，一条 line 里有多少字节是白搬的？</li>
 <li>为什么框架里是「一个 <code>x</code> 张量 + 一个 <code>y</code> 张量」而不是「一个样本对象列表」？</li>
@@ -1168,7 +1170,7 @@ int main() { // C++20 only
 <li>元素从 33554432 个降到 2097152 个，<strong>少了 16 倍</strong>；耗时从 19.21 ms 降到 6.51 ms，只少了不到 3 倍。在本例的 64 字节行模型中，两种步长触及的行数基本相同；实际耗时还受预取、缓存层级和循环开销影响，不能据此反推行长。</li>
 <li><strong>成本挂在「你碰到了多少条 cache line」上，不挂在「你用了多少个数」上。</strong></li>
 <li>从 <strong>3.00 ns</strong>（8 KB）涨到 344.19 ns（32 MB），大约 100 倍。三条诚实声明：① 这些数不是纯粹的缓存延迟，含地址翻译等其它开销；② 绝对值只对这台机器有效，要看的是形状（平的一段、台阶、高原）；③ 表里没有任何一个数字来自资料，全部实跑。</li>
-<li>字段本身加起来 <strong>14 字节</strong>；<code>Bad</code> 实际 24 字节（有 10 字节空洞），<code>Good</code> 16 字节，省 33%。一条 64 字节的 line：<code>Bad</code> 装 2 个，<code>Good</code> 装 4 个 —— 所以遍历 <code>Bad</code> 数组搬内存的次数是 <code>Good</code> 的两倍。</li>
+<li>原 ABI 示例中，字段合计 <strong>14 字节</strong>；<code>Bad</code> 为 24 字节（有 10 字节空洞），<code>Good</code> 为 16 字节，省约 33%。历史 2 / 4 是单行从边界起能完整容纳的对象数，不代表紧凑数组每行尾部都空置；第三个 24 字节对象可跨行。按两数组起点均 64 B 对齐、N=1024 的完整字节跨度模型，分别覆盖 <strong>384 / 256</strong> 个不同 line ID，比值 <strong>1.5</strong>；改变偏移或有限 N 有边缘差异。这不是实测 miss、DRAM 事务或吞吐，不能推出两倍搬运，也不保证 1.5 倍加速。</li>
 <li><strong>按大小从大到小声明</strong>。不推荐 <code>#pragma pack</code>：它能去掉空洞，但会让某些字段落在没对齐的地址上，在有些平台上性能更差甚至直接出错。</li>
 <li><strong>AoS</strong> = 结构体数组（一个粒子的属性挨在一起）；SoA = 数组的结构（每个属性一个数组）。只求和 <code>x</code> 时实跑 2.37 / 2.44 / 2.09 倍。<code>sizeof(Particle) = 32</code> 字节，一条 line 装 2 个粒子而只用得上 2 个 <code>float</code> = 8 字节，87.5% 白搬。</li>
 <li>因为那<strong>就是 SoA</strong>。深度学习的每个算子都是「对所有元素做同一件事」，一次只碰一两个属性但要碰所有元素 —— 正好落在该选 SoA 的那一行。</li>
@@ -1183,7 +1185,7 @@ int main() { // C++20 only
 <p>🏁 <strong>全章一句话：CPU 不按元素取数，按固定大小的一整块取</strong>——本章按 64 字节行作教学推导，⭐ <strong>标准库打印的是实现建议间距，不能当作硬件实测行长</strong>。引子是同一个矩阵按行走和按列走：<strong>同样的数据量、同样的加法次数、同样的结果，只有访问顺序不同，慢了十几倍。</strong></p>
 <p>📏 ⭐⭐ <strong>判据：成本挂在「碰到了多少条 line」上，不挂在「用了多少个数」上。</strong> 证据是固定摸完同样大的内存、只改间隔——<strong>取的数少了十几倍，耗时只少不到三倍</strong>，在 64 字节行模型下可用触及行数相近来解释，但曲线不能证明硬件行长。</p>
 <p>⭐ 搬一条的价钱取决于它在哪一级，最近和最远差约两个数量级。由此得到 ⭐ <strong>「数据量刚好越过某一级缓存」是性能悬崖最常见的位置</strong>——<strong>「调大一点点反而慢了」经常不是玄学。</strong> ⚠️ 这些数<strong>绝对值只对本机有效，而且没有一个来自资料</strong>。</p>
-<p>📦 <strong>怎么摆同样要紧</strong>：对齐会插空洞，<strong>只把字段从大到小重排就能省掉三分之一</strong>——关键后果是一条 line 能装下的对象数差一倍。⚠️ 别用 <code>#pragma pack</code> 硬去空洞。放大到数组就是 <strong>AoS 与 SoA</strong> 之别，⭐ <strong>框架里「一个 <code>x</code> 张量加一个 <code>y</code> 张量」就是 SoA。</strong></p>
+<p>📦 <strong>怎么摆同样要紧</strong>：对齐会插空洞，<strong>只把字段从大到小重排就能省掉三分之一</strong>——历史 2 / 4 是单行完整件数的取整视图；紧凑数组允许对象跨行，不能由此推出两倍搬运。按上述 64 B 对齐、1024 元素的完整地址跨度模型，不同行数为 384 / 256，比值 1.5，也不是性能保证。⚠️ 别用 <code>#pragma pack</code> 硬去空洞。放大到数组就是 <strong>AoS 与 SoA</strong> 之别，⭐ <strong>框架里「一个 <code>x</code> 张量加一个 <code>y</code> 张量」就是 SoA。</strong></p>
 <p>💀 <strong>false sharing 兑现了上一章的欠账</strong>：几个线程各加各自的计数器、<strong>毫无逻辑共享</strong>，只因挤在同一条 line 里就慢了将近一个数量级。⭐ <strong>难查是因为代码完全正确、没有锁竞争、CPU 占用还高——症状只是「加线程越加越慢」。</strong></p>
 <p>🐍 Python 也逃不掉：同一批对象只打乱访问顺序就慢了两倍多。⚠️ 但换成紧凑数组只快了两成——<strong>每取一个还要造一个对象，瓶颈换了地方，布局收益就被摊薄</strong>。⭐ <strong>所以纯 Python 里追求 cache 友好基本不划算。</strong></p>
 </blockquote>

@@ -810,7 +810,9 @@ int main() {
 <span class="p">}</span>
 </code></pre></div>
 
-<p>⭐ <strong><code>AutoDispatchBelowADInplaceOrView guard;</code> 是全段重点</strong>，而且形状你已经见过 —— 它是个 <a href="02-值语义与所有权.html">RAII 对象</a>（和 <a href="01-Python调C++的那条边界.html">01 章</a>的 <code>gil_scoped_release</code> 同一个套路），作用域内把分派起点压到 autograd 之下。<strong>没有它，<code>forward</code> 里再调一次这个算子会又进 autograd kernel。</strong></p>
+<p>⚠️ <strong>原代码里“不写这行就无限递归”的注释不适用于本例的直接 backend 调用，不能据此断言去掉 guard 的结果。</strong>实际链路是：Autograd 注册的 lambda → <code>ScaledAdd::apply</code> → <code>forward</code> → 直接调用 C++ 函数 <code>scaled_add_cpu</code> → 其中 <code>a + b * s</code> 的内部 ATen 算子。这里没有通过同名 <code>myops::scaled_add</code> 的 dispatcher 包装再次调用自身的边。</p>
+<p>⭐ <code>AutoDispatchBelowADInplaceOrView guard;</code> 仍保留。它是个 <a href="02-值语义与所有权.html">RAII 对象</a>（和 <a href="01-Python调C++的那条边界.html">01 章</a>的 <code>gil_scoped_release</code> 同一个套路），在作用域内排除 Autograd 和 ADInplaceOrView 相关分派键，影响 <code>scaled_add_cpu</code> 内部 ATen 调用的分派路径；这与直接调用 C++ backend 函数是两件事。<strong>若另一种实现让 <code>forward</code> 经同名算子的 dispatcher 包装重入，且没有排除相应层，才可能再进入同一 Autograd kernel 而递归。</strong>官方旧 dispatcher 教程的 <code>forward → myadd → op.call</code> 属于这种情况；该教程自 PyTorch 2.4 起已废弃，这里仅作历史对照，不是 2.13 的新 API 推荐。</p>
+<p>还要分清梯度记录与分派键排除：固定 <code>v2.13.0</code> 的 <code>custom_function.h</code> 中，<code>Function::apply</code> 在 <code>AutoGradMode(false)</code> 作用域调用 <code>T::forward</code>；这控制梯度记录，并不等于上述 dispatch guard 的键排除。此次读到的 <code>LegacyTypeDispatch.h</code> 是滚动 <code>main</code>，固定 2.13 的该头文件未取得，不能把它当作固定版本的同字节证明。<strong>这不证明 guard 无用或可以删除；本例扩展、去 guard、梯度与递归行为均未实跑。</strong></p>
 <p>⚠️ <strong>只填 CPU 不填 Autograd 的症状</strong>：前向完全正常，反向时要么报 <code>element 0 of tensors does not require grad</code>，要么<strong>梯度悄悄变成 0</strong>。💀 后者不报错，训练看起来在跑、loss 就是不降 —— 它长得不像 bug，所以调试成本极高。</p>
 <h2 id="cuda">🧩 七、CUDA 那一格，和不想编译的路子</h2>
 <p>⭐ <strong>好消息：CUDA 没有新机制</strong>，同一套宏换个键：</p>
@@ -907,7 +909,7 @@ int main() {
 <li><strong>整个没有 <code>SparseCPU</code> 那一行</strong> —— 第一节的报错到此闭环，不是模糊的「不支持」，是格子确实空着。带 <code>build\</code> 的（<code>RegisterCPU_3.cpp</code>、<code>VariableType_1.cpp</code>）在 PyTorch 仓库里根本不存在，是构建时按 schema 生成的；原始输出里的 <code>C:\actions-runner\...</code> 是官方 CI 机器路径，本地找不到，但文件名行号是真的。<code>Meta</code> 那行注册在 <code>_meta_registrations.py</code>（一个 Python 文件） —— 说明 Python 也能往这张表里填格子，而且它下面的 <code>Meta (inactive)</code> 就是被它覆盖掉的 C++ 注册。</li>
 <li><code>TORCH_LIBRARY(ns,m)</code> + <code>m.def(schema)</code> = <strong>新开一行</strong>；<code>TORCH_LIBRARY_IMPL(ns,key,m)</code> + <code>m.impl(name,fn)</code> = 填一个格子；<code>m.fallback(fn)</code> = 填整整一列（这个键的兜底）。⚠️ <code>TORCH_LIBRARY</code> 对一个命名空间只能出现一次，分文件要用 <code>TORCH_LIBRARY_FRAGMENT</code>。</li>
 <li>展开成一个 <strong><code>static const torch::detail::TorchLibraryInit</code> 文件作用域全局对象</strong>（外加一个函数声明和函数头）。全局对象的构造函数在动态库被加载时自动执行，所以注册发生在 <code>.so</code>/<code>.dll</code> 载入进程的那一刻，不是你调用算子的时候。于是「装了扩展但 <code>torch.ops.myops</code> 报 AttributeError」= 库压根没被加载或加载失败了，表上没有这一行 —— 04 章那三种报错全发生在这一步之前。宏里的 <code>__FILE__</code> / <code>__LINE__</code> 就是 dump 里「registered at 文件:行号」的来源。</li>
-<li>前向完全正常，反向时要么报 <code>element 0 of tensors does not require grad</code>，要么<strong>梯度悄悄变成 0</strong>。💀 后者不报错，训练照跑、loss 就是不降 —— 长得不像 bug，调试成本极高（想避免就注册 <code>autogradNotImplementedFallback()</code> 让它当场报错）。不写那行 guard 会无限递归：<code>forward</code> 里再调这个算子又会进 autograd kernel。</li>
+<li>前向完全正常，反向时要么报 <code>element 0 of tensors does not require grad</code>，要么<strong>梯度悄悄变成 0</strong>。💀 后者不报错，训练照跑、loss 就是不降 —— 长得不像 bug，调试成本极高（想避免就注册 <code>autogradNotImplementedFallback()</code> 让它当场报错）。本例 <code>forward</code> 直接调用 <code>scaled_add_cpu</code>，没有同名 dispatcher 回边，旧注释“不写这行就无限递归”不能作为本例的结论。若 <code>forward</code> 改为通过同名 dispatcher 包装重入、且未排除相应层，才可能再次进入 Autograd kernel 而递归。保留 guard 对内部 ATen 分派的作用，并与 <code>Function::apply</code> 中 <code>AutoGradMode(false)</code> 的梯度记录控制区分；本轮没有去 guard 或梯度实测。</li>
 </ol>
 </details>
 <h2 id="_8">🛑 可以停在这里</h2>

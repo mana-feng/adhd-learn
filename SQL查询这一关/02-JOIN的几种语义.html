@@ -746,7 +746,7 @@ db.close()
 <code>SELECT *</code> 时 <code>ON</code> 版给你两个 <code>order_id</code>，<code>USING</code> 版只给一个。⭐ 两边列名一样时 <code>USING</code> 更干净。</p>
 <p><strong>② <code>NATURAL JOIN</code> 不要用。</strong> 它按「所有同名列」自动连接 ——
 💀 <strong>哪天有人给两张表都加了一个 <code>updated_at</code>，你的连接条件就悄悄多了一条，行数当场不对，而 SQL 一个字没改。</strong></p>
-<p><strong>③ 连接键类型不一致，会安静地连不上。</strong></p>
+<p><strong>③ 连接键的存储类型与列亲和性，要一起看。</strong>下面的原实验中，<code>a(k)</code>、<code>b(k)</code> 都没有声明类型，因此没有用于这次比较的数值或文本亲和性；它不是已声明 <code>INTEGER</code> 列对 <code>TEXT</code> 列的实验。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 
 <span class="n">db2</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
@@ -765,9 +765,27 @@ db.close()
 CAST 之后           -&gt; [(1, &#39;1&#39;), (2, 2)]
 </code></pre></div>
 
-<p>⚠️ 字符串 <code>'1'</code> 和整数 <code>1</code> <strong>连不上</strong>，结果少一半，<strong>不报错</strong>。
-真实场景：一边的 id 是从 CSV / JSON 导进来的字符串，另一边是自增整数。
-（MySQL 相反 —— 它会隐式转换然后连上，⚠️ 代价是索引失效，09 章会讲。）</p>
+<p data-r2-note="affinity-boundary">⚠️ 上面<strong>无类型声明列</strong>中的字符串 <code>'1'</code> 与整数 <code>1</code> 没有被亲和性转换成相同类型，所以原结果只剩 <code>[(2, 2)]</code>；旧代码、CAST 对照与历史输出均保留。<strong>不能据此断言 CSV/JSON 文本对自增整数一律连不上。</strong>实际还要看建表声明、存入后的类型和比较表达式。声明 <code>INTEGER</code> 与 <code>TEXT</code> 列时，SQLite 可在比较前对另一侧应用数值亲和性；可转换的文本 <code>'1'</code> 就能与整数 <code>1</code> 配对。</p>
+<p>只用同一对值核对这个边界（下面实际执行的是 SQLite，不测性能）：</p>
+<div class="codehilite" data-code-language="python" data-r2-example="join-affinity"><pre><code>import sqlite3
+db = sqlite3.connect(&quot;:memory:&quot;)
+db.executescript(&quot;&quot;&quot;
+CREATE TABLE a0(k); CREATE TABLE b0(k);
+CREATE TABLE ai(k INTEGER); CREATE TABLE bt(k TEXT);
+INSERT INTO a0 VALUES(1); INSERT INTO b0 VALUES(&#x27;1&#x27;);
+INSERT INTO ai VALUES(1); INSERT INTO bt VALUES(&#x27;1&#x27;);
+&quot;&quot;&quot;)
+plain = db.execute(&quot;SELECT a0.k,b0.k FROM a0 JOIN b0 ON a0.k=b0.k&quot;).fetchall()
+typed = db.execute(&quot;SELECT ai.k,bt.k FROM ai JOIN bt ON ai.k=bt.k&quot;).fetchall()
+assert plain == []
+assert typed == [(1, &quot;1&quot;)]
+assert db.execute(&quot;SELECT typeof(ai.k),typeof(bt.k) FROM ai CROSS JOIN bt&quot;).fetchone() == (&quot;integer&quot;, &quot;text&quot;)
+print(&quot;no affinity:&quot;, plain)
+print(&quot;INTEGER / TEXT:&quot;, typed)
+db.close()
+</code></pre></div>
+<p>断言与输出：无类型列 <code>[]</code>，<code>INTEGER / TEXT</code> 得到 <code>[(1, '1')]</code>；后者存储类型仍是 <code>integer / text</code>，相等来自比较时的转换。两行对照不保证任意脏字符串都会按业务含义相等。应在入库前明确 ID 的类型、格式与转换规则，避免把有前导零等业务标识误当数字。依据：<a href="https://www.sqlite.org/datatype3.html#type_conversions_prior_to_comparison">SQLite 比较前的类型转换</a>。</p>
+<p>MySQL 8.4 的对应限制也要具体说：<strong>字符串列与数字比较时，不能用该字符串列索引作快速值定位</strong>；这不等于所有索引或连接路径都失效。其他转换方向、连接策略与访问路径须看目标版本实际计划。此处仅核对<a href="https://dev.mysql.com/doc/refman/8.4/en/type-conversion.html">官方类型转换说明</a>，本轮没有运行 MySQL。</p>
 <p><strong>④ 连接键是 <code>NULL</code> 时永远连不上，哪怕两边都是 <code>NULL</code>。</strong></p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 
@@ -840,7 +858,7 @@ IS 而不是 = -&gt; [(&#39;x1&#39;, &#39;y1&#39;), (&#39;x-null&#39;, &#39;y-nu
 <li>三种修法各在什么时候用？为什么 <code>SUM(DISTINCT amount)</code> 是错的？</li>
 <li>连之前怎么一行 SQL 判断会不会扇出？实测那个数是多少？为什么还要看最大值？</li>
 <li>两张一对多的表连在同一个主表上，实跑的行数和 <code>SUM</code> 是多少？和真实值差几倍？</li>
-<li>为什么 <code>NATURAL JOIN</code> 不该用？连接键类型不一致时 SQLite 和 MySQL 的表现有什么不同？</li>
+<li>为什么 <code>NATURAL JOIN</code> 不该用？无类型声明列与 <code>INTEGER / TEXT</code> 列比较同一对 <code>1 / '1'</code> 时，SQLite 结果为何不同？MySQL 的字符串列对数字比较限制，具体针对哪个索引用途？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
@@ -868,8 +886,7 @@ IS 而不是 = -&gt; [(&#39;x1&#39;, &#39;y1&#39;), (&#39;x-null&#39;, &#39;y-nu
    <code>SUM(amount)</code> = <strong>650.0</strong>，是真实值 150 的 <strong>4.3 倍</strong>。💀 误差是乘出来的，不是加出来的。</li>
 <li><code>NATURAL JOIN</code> 按<strong>所有同名列</strong>自动连接 —— 哪天有人给两张表都加了 <code>updated_at</code>，
     连接条件就悄悄多一条、行数当场不对，而 SQL 一个字没改。
-    类型不一致时 SQLite <strong>连不上</strong>（<code>'1'</code> vs <code>1</code>，实跑只剩 <code>[(2, 2)]</code>，不报错、结果少一半）；
-    MySQL 会<strong>隐式转换连上</strong>，⚠️ 代价是索引失效。</li>
+    本例无类型声明列不做数值/文本亲和性转换，<code>'1'</code> 与 <code>1</code> 不匹配，原两行实验只剩 <code>[(2, 2)]</code>。声明 <code>INTEGER / TEXT</code> 后，可转换文本可按比较亲和性配对，新增单值对照为 <code>[(1, '1')]</code>。MySQL 8.4 所述限制针对字符串列与数字比较时该字符串索引的快速值定位；其他方向或访问路径需查实际计划，本轮未运行 MySQL。</li>
 </ol>
 </details>
 <h2 id="_11">🛑 可以停在这里</h2>
@@ -880,7 +897,7 @@ IS 而不是 = -&gt; [(&#39;x1&#39;, &#39;y1&#39;), (&#39;x-null&#39;, &#39;y-nu
 <p>💀💀 <strong>本章的正题是扇出</strong>：顺手连一下标签表，求和就变大了——<strong>因为一行不再代表一张订单，而是一个「订单加标签」的配对</strong>。⚠️ <strong>危险全在「不报错」三个字上</strong>：不抛异常、不返回空值，<strong>只给一个看起来合理、只是偏大的数</strong>；而且<strong>放大倍数不固定，趋势图上只会显示「增长」</strong>。</p>
 <p>三种修法：⭐ <code>EXISTS</code> 只筛不取列（首选）、⭐ 先把右表聚合成一行一键再连、<code>DISTINCT</code> 按主键去重（别当默认）。⚠️ <strong>按值去重是错的</strong>——两张真实订单金额相同会少算一张。事前体检一行 SQL 就够：总行数除以去重主键数，<strong>大于 1 就会扇出</strong>；⚠️ <strong>还要看最大值，长尾那几个键会集中放大</strong>。</p>
 <p>💀 <strong>多路 <code>JOIN</code> 是相乘不是相加</strong>——而「订单加明细加优惠券」正是最常见的报表结构。</p>
-<p>另外四个安静的坑：<code>USING</code> 会合并同名列；💀 <strong><code>NATURAL JOIN</code> 不要用</strong>（有人加个时间戳字段，连接条件就悄悄多一条）；⚠️ <strong>连接键类型不一致时，有的库少连一半且不报错，有的库隐式转换但索引失效</strong>；<strong>连接键是 NULL 永远配不上对</strong>。</p>
+<p>另外四个安静的坑：<code>USING</code> 会合并同名列；💀 <strong><code>NATURAL JOIN</code> 不要用</strong>（有人加个时间戳字段，连接条件就悄悄多一条）；⚠️ <strong>连接键要同时核存储类型、列亲和性与转换规则：无类型列的失败不能推广到 INTEGER/TEXT；MySQL 字符串列对数字比较的快速索引定位限制，也不是所有路径失效</strong>；<strong>连接键是 NULL 永远配不上对</strong>。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="03-聚合与分组.html">03-聚合与分组.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>

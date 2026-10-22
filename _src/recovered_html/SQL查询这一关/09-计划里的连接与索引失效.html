@@ -773,6 +773,7 @@ OR 两侧都有索引                   0.6862 ms   MULTI-INDEX OR
 </blockquote>
 <h2 id="or-like">🔧 五、<code>OR</code> 的三种命运，和一个 <code>LIKE</code> 的意外</h2>
 <p><code>OR</code> 值得单独一节，因为它是<strong>唯一一个「同一个写法，命运取决于另一侧」</strong>的坑：</p>
+<p data-r2-note="historical-like-boundary"><strong>先限定下面历史记录的前提：</strong>原代码生成统一小写的 ASCII <code>u</code> 加数字 ID，原列/索引采用默认 BINARY 比较；在这批固定数据上，<code>LIKE 'u00123%'</code> 与 <code>&gt;='u00123' AND &lt;'u00124'</code> 选中相同的行。原代码和旧输出中的“范围改写（永远有效）”标签保留作历史记录，<strong>不是当前的普遍建议</strong>：这个范围谓词不受 LIKE 开关影响，不代表它在允许大小写混合或不同排序规则的数据上仍与 LIKE 等价。先核结果语义，再核计划和耗时。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span><span class="o">,</span><span class="w"> </span><span class="nn">random</span><span class="o">,</span><span class="w"> </span><span class="nn">time</span>
 
 <span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
@@ -883,13 +884,24 @@ LIKE &#39;u00123%&#39;（默认）      10.3474 ms
 </tr>
 </tbody>
 </table></div>
-<p>⚠️⚠️ <strong>②③ 合起来给出本节最该带走的一条</strong>：
-<strong>「这个写法能不能用上索引」不是 SQL 语言的性质，是你这个数据库这一版这一套设置下的性质。</strong>
-⭐ 所以判据永远是去看计划，不是背清单。上面那张清单是给你猜方向用的，不是给你下结论用的。</p>
-<p>⭐ <strong>关于类型，02 章那条结论仍然成立且更重要</strong>：
-<a href="02-JOIN的几种语义.html">02 章</a>实测过 <code>'1'</code> 和 <code>1</code> 在 SQLite 里 <code>JOIN</code> 连不上（结果少一半、不报错），
-而 MySQL 会隐式转换连上、🗓️ 代价是索引失效。
-⭐ <strong>两边加起来的结论是：别指望数据库替你转类型 —— 有的库转了会错，有的库转了会慢。数据进库之前把类型统一掉。</strong></p>
+<p>⚠️⚠️ <strong>②③ 合起来给出本节最该带走的一条</strong>：<strong>访问路径取决于目标数据库版本、设置、比较规则与数据。</strong>先确认改写返回相同结果，再查看实际计划；清单只用来猜方向。</p>
+<p data-r2-note="like-counterexample">下面只加两行 ASCII ID，就能推翻无条件范围替换。新连接先断言默认 LIKE 对 ASCII 大小写不敏感，列显式使用 BINARY：</p>
+<div class="codehilite" data-code-language="python" data-r2-example="like-ascii-binary"><pre><code>import sqlite3
+db = sqlite3.connect(&quot;:memory:&quot;)
+assert db.execute(&quot;SELECT &#x27;a&#x27; LIKE &#x27;A&#x27;&quot;).fetchone() == (1,)
+db.execute(&quot;CREATE TABLE ids(user_id TEXT COLLATE BINARY)&quot;)
+db.executemany(&quot;INSERT INTO ids VALUES(?)&quot;, [(&quot;u00123a&quot;,), (&quot;U00123a&quot;,)])
+like = db.execute(&quot;SELECT user_id FROM ids WHERE user_id LIKE &#x27;u00123%&#x27; ORDER BY user_id&quot;).fetchall()
+span = db.execute(&quot;SELECT user_id FROM ids WHERE user_id &gt;= &#x27;u00123&#x27; AND user_id &lt; &#x27;u00124&#x27; ORDER BY user_id&quot;).fetchall()
+assert like == [(&quot;U00123a&quot;,), (&quot;u00123a&quot;,)]
+assert span == [(&quot;u00123a&quot;,)]
+print(&quot;default LIKE:&quot;, like)
+print(&quot;BINARY range:&quot;, span)
+db.close()
+</code></pre></div>
+<p>实际结果：默认 LIKE 返回 <code>U00123a</code>、<code>u00123a</code> 两行；BINARY 范围只返回小写一行。若业务确实约束全部 ID 为统一小写且范围边界与排序规则匹配，须先断言两种条件结果相等，再比计划；不能从更快推断答案没变。下面原有 NOCASE 受控例继续保留 LIKE，并配置匹配的内置 NOCASE 索引，是另一候选方案，仍须满足优化的其他前提。依据：<a href="https://www.sqlite.org/optoverview.html#the_like_optimization">SQLite LIKE 优化条件</a>。</p>
+<p data-r2-note="affinity-cross-reference">⭐ <strong>类型比较要承接 02 章的亲和性边界：</strong><a href="02-JOIN的几种语义.html">02 章</a>原来的 <code>a(k)/b(k)</code> 都未声明类型，字符串 <code>'1'</code> 与整数 <code>1</code> 不匹配，原两行结果少一半；这不能推广到所有 CSV 文本与整数连接。声明 <code>INTEGER / TEXT</code> 列时，SQLite 可在比较前应用数值亲和性，使这对可转换值配上。入库前应明确类型与格式契约，不能把自动转换当业务校验。</p>
+<p>🗓️ MySQL 8.4 官方说明的具体限制是：<strong>字符串列与数字比较时，不能使用该字符串列索引快速查找该值</strong>。不能由此断言所有索引、反方向比较或连接路径都失效；其他情况要查目标版本的实际计划。这里仅作<a href="https://dev.mysql.com/doc/refman/8.4/en/type-conversion.html">文档核对</a>，没有运行 MySQL 服务。</p>
 <details><summary>可选深入：把 IN、LIKE 与连接键放进同一个受控小例</summary>
 <h3 id="predicate-join-controlled">先核结果，再比较访问路径</h3>
 <p>下例保持 6000 行 ev、100 个用户和确定的分布。列使用内置 NOCASE，保留 SQLite 默认的 ASCII 大小写不敏感 LIKE；显式关闭自动索引，避免它掩盖连接键有无持久索引的差别。每次建索引后重新 ANALYZE。这里的参数是绑定的<strong>值/模式串</strong>，不把列名当参数。</p><div class="codehilite" data-code-language="python" data-g02-example="predicate-join-controlled"><pre><code>import sqlite3
@@ -1046,7 +1058,7 @@ db.close()
 <li>本例普通 ts 列索引为何未直接服务 <code>substr(ts,1,10)='2026-03-05'</code>？范围改写的结果和历史耗时怎样？若有匹配的表达式索引，结论还能直接照搬吗？</li>
 <li><code>amount * 2 &gt; 199</code> 和 <code>YEAR(created) = 2026</code> 分别该怎么改写？为什么右端要用 <code>&lt;</code> 不用 <code>&lt;=</code>？</li>
 <li>⭐ <code>OR</code> 的三种命运各是什么？实测差多少？为什么说「别背『<code>OR</code> 要改 <code>UNION</code>』」？</li>
-<li><code>user_id LIKE 'u00123%'</code> 没有前导通配，为什么实测还是 <code>SCAN</code>？这件事说明判据应该是什么？</li>
+<li><code>user_id LIKE 'u00123%'</code> 没有前导通配，为什么历史实测仍为 <code>SCAN</code>？若把默认 LIKE 换成 BINARY 范围，加入 <code>U00123a</code> 后结果还相同吗？应该先核什么、再核什么？</li>
 <li>一条查询慢了，第 0 步先确认什么？看到 <code>SCAN</code> 大表之后按顺序问哪三句？</li>
 </ol>
 <details>
@@ -1061,7 +1073,7 @@ db.close()
 <li>对本例的<strong>普通 ts 列索引</strong>，<code>substr(ts,...)</code> 条件未必能直接用它定位；语义等价的原列范围比较可作为候选改写。不能排除匹配的表达式/函数/生成列索引或可证明的优化器改写。SQLite 表达式索引还要求表达式匹配与函数确定性，其他引擎/版本另核；最终看实际计划与耗时。参见 <a href="https://sqlite.org/expridx.html">SQLite 表达式索引</a>。日期筛选的半开区间保留，避免漏掉秒内的小数部分。</li>
 <li><code>amount*2 &gt; 199</code> → <strong><code>amount &gt; 99.5</code></strong>；<code>YEAR(created)=2026</code> → <code>created &gt;= '2026-01-01' AND created &lt; '2027-01-01'</code>。这些改写要先确认语义等价，再核目标引擎的实际计划。右端用 <code>&lt;</code> 是因为 <code>&lt;= '2026-03-05 23:59:59'</code> 会漏掉那一秒里的毫秒。</li>
 <li>① 两侧都有索引 → <code>MULTI-INDEX OR</code>，各走各的索引再合并，<strong>0.0066 ms</strong>；② 手工改 <code>UNION</code> → 0.0179 ms，反而更慢（多了去重的 <code>TEMP B-TREE</code>）；③ 一侧没索引 → 整条塌成 <code>SCAN</code>，15.7034 ms，比①慢约 2400 倍。所以 <code>OR</code> 的真正危险不是「<code>OR</code> 慢」，是「速度由最差的那一侧决定」—— 加一个看起来无害的条件就能让查询慢一千倍。口诀不能背，因为①②的对比表明改写有可能更慢，先看计划。</li>
-<li>因为 SQLite 的 <code>LIKE</code> <strong>默认不区分大小写</strong>，而索引是区分的，对不上就不敢用。打开 <code>PRAGMA case_sensitive_like=ON</code> 之后同一句变成 <code>SEARCH</code>，10.3474 ms → 0.0033 ms，约 3100 倍。说明「能不能用上索引」不是 SQL 语言的性质，是这个库这一版这套设置下的性质 —— 判据永远是去看计划，清单只用来猜方向。（✅ 范围改写 <code>&gt;= AND &lt;</code> 不受这个开关影响，永远有效。）</li>
+<li>原 SQLite 实验的默认 LIKE 对 ASCII 大小写不敏感，与普通 BINARY 索引的模式不匹配；原连接打开 <code>PRAGMA case_sensitive_like=ON</code> 后，历史计划从 <code>SCAN</code> 变为 <code>SEARCH</code>，10.3474 ms → 0.0033 ms，约 3100 倍。这些数字仍是旧环境记录，不是本轮基准。范围条件虽不受 LIKE 开关影响，<strong>语义却不保证相同</strong>：默认 LIKE 在新增两行反例中返回大小写两行，BINARY 范围只返回小写一行。历史“永远有效”仅在原全小写固定数据、BINARY 边界匹配的等价前提下阅读；先断言结果相等，再查目标版本/设置下的计划和耗时。原 NOCASE 受控例保留 LIKE 与匹配索引，不要求靠改开关解决。</li>
 <li><strong>第 0 步：先确认慢的真是这条 SQL</strong> —— 连接池排队、一次取十万行的序列化、尤其是循环里发了 200 条查询（N+1，每条 0.1 ms 单看都完美）。看到 <code>SCAN</code> 大表后按顺序问：① <code>WHERE</code> 里的列被包住了吗（最常中、最便宜）② 这列到底有没有索引（有就去 AI 全栈 06）③ 是不是本来就该全扫（统计全表、取走大半张表时 <code>SCAN</code> 就是正确答案，别硬掰优化器）。改完要同时看计划和量耗时。</li>
 </ol>
 </details>
