@@ -312,6 +312,37 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>PyTorch 的算子分派就是一张二维表：行是算子名（<code>aten::gelu</code>），列是分派键（<code>CPU</code> / <code>SparseCPU</code> / <code>Autograd</code>），格子里放一个函数指针。</strong>
 所谓「注册一个算子」就是往表里填格子；<code>TORCH_LIBRARY</code> 和 <code>TORCH_LIBRARY_IMPL</code> 这两个宏，一个负责<strong>新开一行</strong>，一个负责填一个格子。</p>
+
+<!-- g06-callback-types START -->
+<details id="g06-callback-types" data-code-title="🔎 可选深入：先读懂“格子里放一个函数指针”"><summary>🔎 可选深入：先读懂“格子里放一个函数指针”</summary>
+
+<p>⭐ <code>int (*fp)(int)</code> 先把 <code>*fp</code> 括起来，意思是 <strong>fp 指向一个收 int、返 int 的函数</strong>；<code>int* f(int)</code> 则是 <strong>f 是函数，返回 int 指针</strong>。<code>using Unary = int (*)(int);</code> 能把复杂声明拆成一个可核对的类型名。</p>
+<div class="codehilite" data-code-language="cpp"><pre><code>// C++17，独立标准库小例；本轮未编译运行
+#include &lt;array&gt;
+#include &lt;cstdio&gt;
+int twice(int x) { return x * 2; }
+int negate(int x) { return -x; }
+using Unary = int (*)(int);      // 指向“收 int、返 int”的函数
+int (*fp)(int) = twice;          // fp 是函数指针变量
+int* make_buffer(int index) {    // 函数本身返回 int*，不是函数指针
+    static int values[] = {10, 20};
+    return index &gt;= 0 &amp;&amp; index &lt; 2 ? &amp;values[index] : nullptr;
+}
+int main() {
+    const std::array&lt;Unary, 2&gt; callbacks{twice, negate};
+    int* p = make_buffer(1);
+    std::printf(&quot;%d %d %d\n&quot;, callbacks[0](3), callbacks[1](3), p ? *p : 0);
+}
+// 源码推演预期：6 -3 20
+// Unary wrong = make_buffer;  // 签名不符：返回 int*，不能填这个表
+// 不调用空函数指针；返回指针也必须保证所指对象仍然存活。</code></pre></div>
+
+<p>这个两项回调表只演示：<strong>先约定签名 → 保存函数地址 → 运行时选择并调用</strong>。选择不同策略、比较器或事件回调都可用到它。真正的 PyTorch dispatcher 还包含 schema、分派键集合、boxed/unboxed 包装、fallback 与 redispatch；<strong>它不是这个裸函数指针数组的逐行实现</strong>，上文二维表是帮助定位的模型。</p>
+<p><code>Unary f = [](int x) { return x + 1; };</code> 这种无捕获且签名匹配的 lambda 可以转换；<code>[factor](int x) { return factor * x; }</code> 要保存捕获状态，不能直接塞进这个裸指针类型。若接口接收可调用对象，可用适当包装保留状态；不要假定本章后面的 <code>m.impl(..., callable)</code> 只允许裸函数指针。</p>
+<p>✅ 自检：把 <code>make_buffer</code> 放入 <code>std::array&lt;Unary, 2&gt;</code> 能行吗？<strong>不行，返回类型不符；指向函数与函数返回指针是两回事。</strong>依据：<a href="https://eel.is/c++draft/dcl.fct">函数声明</a>与<a href="https://eel.is/c++draft/expr.prim.lambda.closure">闭包转换</a>。本例返回的是静态数组内元素，未返回局部自动对象地址。</p>
+
+</details>
+<!-- g06-callback-types END -->
 <h2 id="_2">🧩 一、⭐ 先看一条查表失败的报错</h2>
 <p>本章 Python 侧的输出全是<strong>实跑的</strong>，环境 <code>torch 2.13.0+cpu</code> + CPython 3.13，<strong>CUDA 不可用</strong>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># c05_miss.py</span>
@@ -613,6 +644,38 @@ This could be because the operator doesn&#39;t exist for this backend, or was om
 </tbody>
 </table></div>
 <p>⚠️ <strong><code>TORCH_LIBRARY</code> 对同一个命名空间只能出现一次</strong> —— <code>library.h</code> 的注释里明写着「There may only be one TORCH_LIBRARY() for any given namespace」。分好几个文件写就用 <code>TORCH_LIBRARY_FRAGMENT</code>。</p>
+
+<!-- g06-macro-context START -->
+<details id="g06-macro-context" data-code-title="🔎 可选深入：常量能换成 constexpr，注册宏也能吗？"><summary>🔎 可选深入：常量能换成 constexpr，注册宏也能吗？</summary>
+
+<div class="tw" style="max-width:100%;min-width:0"><table style="table-layout:fixed;width:100%;min-width:0"><thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere">写法</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere">处理阶段与能力</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere">在这里该怎样用</th></tr></thead><tbody>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere"><code style="white-space:normal;overflow-wrap:anywhere">#define LIMIT 8</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">预处理记号替换；宏自身不是有类型的 C++ 对象，也不服从普通块/命名空间作用域</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">若只需常量，优先考虑有类型的 const/constexpr；预处理条件仍有自己的需求</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere"><code style="white-space:normal;overflow-wrap:anywhere">const / constexpr</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">C++ 类型、名字查找与作用域规则；const 并不自动表示值可用于所有常量表达式</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">constexpr 变量还要求可常量初始化；调试通常比追宏展开直接，优化后也不保证有可观察的存储</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere"><code style="white-space:normal;overflow-wrap:anywhere">TORCH_LIBRARY(ns, m) { ... }</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">函数式宏生成声明/注册胶水代码，再交给 C++ 编译</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">这里需要生成代码的语法位置；一个常量对象不能直接替代这个宏调用</td></tr>
+</tbody></table></div>
+<div class="codehilite" data-code-language="cpp"><pre><code>// C++17；逗号运算符明确先求左边，再求右边；本轮未编译运行
+#include &lt;cstdio&gt;
+#define LIMIT 8                  // 对象式宏：预处理记号替换
+constexpr int limit = 8;         // 有类型、服从 C++ 作用域的常量
+#define READ_TWICE(expr) ((expr), (expr))
+int calls = 0;
+int next_value() { ++calls; return 7; }
+constexpr int once(int value) { return value; }
+int main() {
+    const int a = READ_TWICE(next_value());
+    const int macro_calls = calls;
+    calls = 0;
+    const int b = once(next_value());
+    std::printf(&quot;%d %d %d %d\n&quot;, a, macro_calls, b, calls);
+}
+// 源码推演预期：7 2 7 1。两次函数调用被逗号明确排序，无求值次序 UB。</code></pre></div>
+
+<p>⚠️ <code>READ_TWICE</code> 故意把同一个实参表达式放进两处；函数的参数值则先求好一次再传入。这个计数例用逗号显式排序，不拿 <code>x++</code> 的未排序多次修改当稳定演示。由此也能看出：<strong>宏参数不是已经求值一次的函数参数</strong>，加括号只能处理部分优先级问题，不能自动消除重复求值。</p>
+<p>回到下文：<code>TORCH_LIBRARY</code> 与 <code>TORCH_LIBRARY_IMPL</code> 各自生成注册相关代码，<code>m.def</code> 声明 schema、<code>m.impl</code> 提供实现。这解释了它们为什么是代码宏，<strong>不是把一个数字换成 const 就能替掉的常量宏</strong>。不要由普通宏小例推断 PyTorch 内部全部注册机制。</p>
+<p>版本入口：原章保留 <strong>PyTorch 2.13.0+cpu</strong> 的实验环境；核对 API 时看 <a href="https://raw.githubusercontent.com/pytorch/pytorch/v2.13.0/torch/library.h">v2.13.0 固定头文件</a>。<a href="https://docs.pytorch.org/tutorials/advanced/dispatcher.html">官方 dispatcher 教程</a>会随发布更新，不能把新版文档的输出当成该环境的复跑。这里的小例只用 C++17；后面的 PyTorch C++ 扩展仍保持<strong>未实跑、无匹配构建环境</strong>的边界。宏替换规则见<a href="https://eel.is/c++draft/cpp.replace">标准草案</a>。</p>
+
+</details>
+<!-- g06-macro-context END -->
 <h3 id="_5">🚦 ⭐ 宏展开成什么 —— 一个静态初始化对象</h3>
 <p>这是本章最该记住的机制。下面是 <code>torch/include/torch/library.h</code> 里的<strong>真实源码</strong>（本机头文件第 975 行起）：</p>
 <div class="codehilite" data-code-language="cpp"><pre><span></span><code><span class="cp">#define TORCH_LIBRARY(ns, m)                                                   \</span>

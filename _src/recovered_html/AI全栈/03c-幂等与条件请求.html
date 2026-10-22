@@ -531,6 +531,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>⭐ <strong>它和 <a href="04-调用层.html">04 章</a>的 LLM 结果缓存是两件事</strong>：那一章问「同样的输入要不要<strong>再问一次模型</strong>」（省的是钱，判据是 <code>temperature=0</code>、不带工具、不流式），这一节问「同样的资源要不要再传一次字节」（省的是流量）。一个在调用层、一个在 HTTP 层，两层都做不冲突。</li>
 <li><strong>流式端点别做 ETag</strong>：发第一个字节的时候，你还不知道最终内容是什么。</li>
 </ul>
+<details id="http-freshness"><summary>可跳过：先判断新鲜，再决定是否发起条件验证</summary>
+<p><strong>新鲜度回答“可否直接复用”，ETag验证回答“旧表示是否仍可用”。</strong>以允许存储的私有HTTP缓存为例，响应max-age给新鲜寿命；没有它时，显式Expires可用Expires−Date算寿命。共享缓存还须处理s-maxage等适用规则，不能把这个私有缓存算例不加条件照搬。Age是已经积累的年龄，不是“还剩几秒”。</p>
+<p>按RFC9111的保守年龄计算：apparent_age=max(0,收到响应时刻−Date)，corrected_age_value=Age+本次响应延迟；初始年龄取二者最大值，再加驻留缓存的时间。只有 <code>current_age &lt; freshness_lifetime</code> 才是fresh，边界相等已经不新鲜；过期也不等于内容必定变化，通常再用If-None-Match验证，304可更新缓存元信息后继续使用。</p>
+<p><strong>教学手算：</strong>假设max-age=60秒，apparent_age=4秒，Age=10秒，本次请求到响应耗时2秒，之后在缓存里又待15秒，则初始年龄max(4,10+2)=12秒，当前年龄27秒，距寿命还有33秒。这里已明示输入，不是实际浏览器抓包；Date/时钟与传输时间不能都忽略后只看本机存了多久。</p>
+<p>无字段参数的响应 <code>no-cache</code> 允许存储，但每次复用前须成功验证；<code>no-store</code> 要求不存储该请求/响应相关内容，不是“照存、立刻过期”。它们不替代TLS、鉴权或当前ACL，也不保证擦除已存在的所有副本。含私人会话的数据还要明确private/no-store等缓存策略，不能只因有ETag就允许共享缓存。依据 <a href="https://www.rfc-editor.org/rfc/rfc9111.html#section-4.2">RFC9111 §4.2/5.2</a>。</p>
+</details>
 <hr />
 <h2 id="if-match-http">🔍 五、<code>If-Match</code> 就是 HTTP 层的乐观锁</h2>
 <p>把方向反过来：<code>If-None-Match</code> 用于读（「没变就别给我」），<code>If-Match</code> 用于写（「<strong>没被别人改过我才写</strong>」）。它治的是<strong>丢更新</strong>：</p>

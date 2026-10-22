@@ -477,6 +477,76 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>追问「<strong>为什么要除</strong>」：QK 点积的方差是 $d$，$d=512$ 时标准差约 22.6，softmax 输入这么大会<strong>饱和成 one-hot、梯度趋近 0 训不动</strong>。除以 $\sqrt d$ 把方差拉回 1。</li>
 </ul>
 <p>🔗 <strong>原理在</strong>：<a href="14-通往Transformer.html">14 · 通往 Transformer</a>（$\sqrt{d_k}$ 的方差推导、注意力 = 可微的软查表）</p>
+<p class="lesson-note">上面的PyTorch路径保留。若要求只用NumPy，可按需展开下面的单头前向与核对；掌握缩放、归一化轴和掩码含义后，可以继续第3题。</p>
+<details id="attention-numpy-forward"><summary>🔎 可选深入：只用NumPy实现并验证self-attention</summary>
+<p id="attention-numpy-contract"><strong>先约定输入：</strong>本例采用单头二维float64矩阵，Q为(Lq,dk)、K为(Lk,dk)、V为(Lk,dv)，维度和长度均非零。自注意力例中Q/K/V来自同一X的给定投影，Lq=Lk；这只是教学选择，原题没有规定头数或投影形式。</p>
+<p>分数QKᵀ/√dk为(Lq,Lk)，<strong>每个查询沿最后的键轴</strong>做softmax，再乘V，输出(Lq,dv)。<code>keep=True</code>表示允许，与上面用于屏蔽的布尔mask含义相反；它须能广播到分数形状。因果例用含对角线的下三角，每行至少保留一个键；全屏蔽行在本实现中报错，不偷偷归一化出NaN或伪概率。</p>
+<div class="codehilite" data-code-language="python"><pre><code>import numpy as np
+
+
+def attention_np(q, k, v, keep=None):
+    # 单头二维：q(Lq, dk), k(Lk, dk), v(Lk, dv)。
+    q, k, v = (np.asarray(a, dtype=np.float64) for a in (q, k, v))
+    if any(a.ndim != 2 for a in (q, k, v)):
+        raise ValueError('q/k/v必须是二维矩阵')
+    lq, dk = q.shape
+    lk = k.shape[0]
+    if min(lq, lk, dk, v.shape[1]) == 0:
+        raise ValueError('本例不接受空序列或零维特征')
+    if k.shape[1] != dk or v.shape[0] != lk:
+        raise ValueError('Q/K维度或K/V长度不匹配')
+    if not all(np.isfinite(a).all() for a in (q, k, v)):
+        raise ValueError('输入必须有限')
+    with np.errstate(over='raise', invalid='raise'):
+        scores = (q @ k.T) / np.sqrt(dk)
+    if not np.isfinite(scores).all():
+        raise ValueError('缩放分数不可表示，请检查输入尺度')
+    if keep is None:
+        allowed = np.ones(scores.shape, dtype=bool)
+    else:
+        keep = np.asarray(keep)
+        if keep.dtype != np.bool_:
+            raise TypeError('keep须为布尔掩码，True表示允许')
+        allowed = np.broadcast_to(keep, scores.shape)
+    if not allowed.any(axis=-1).all():
+        raise ValueError('每个查询至少保留一个键')
+    scores = np.where(allowed, scores, -np.inf)
+    shifted = scores - scores.max(axis=-1, keepdims=True)
+    exp_scores = np.exp(shifted)
+    weights = exp_scores / exp_scores.sum(axis=-1, keepdims=True)
+    with np.errstate(over='raise', invalid='raise'):
+        out = weights @ v
+    return out, weights</code></pre></div>
+<p><strong>稳定的范围：</strong>在softmax前先减每行最大分数，避免直接exp大正数；它不能挽救点积阶段已经溢出的数值。本例检查有限输入，点积或输出的浮点溢出会抛出异常；大幅值、混合精度、批次/多头、dropout和反向传播需另立合同，不从这个小前向例外推。</p>
+<p><strong>把“算出一个结果”变成可核对：</strong>下面的参考按查询/键/值逐项用Python标量循环和<code>math.fsum</code>计算，与矩阵乘法路径分开。固定三位置输入，因果第1行应只取第1个V；再比较输出、权重、行和与未来权重为0。</p>
+<div class="codehilite" data-code-language="python"><pre><code>import math
+
+def reference(q,k,v,keep):
+ rows=[];weights=[]
+ for i,qi in enumerate(q):
+  scores=[math.fsum(float(a)*float(b) for a,b in zip(qi,kj))/math.sqrt(len(qi)) for kj in k]
+  maximum=max(s for s,ok in zip(scores,keep[i]) if ok)
+  e=[math.exp(s-maximum) if ok else 0. for s,ok in zip(scores,keep[i])]
+  den=math.fsum(e);w=[x/den for x in e];weights.append(w)
+  rows.append([math.fsum(wj*float(vj[c]) for wj,vj in zip(w,v)) for c in range(v.shape[1])])
+ return np.array(rows),np.array(weights)
+
+# 教学选择：3个位置、单头；给定投影，不训练参数。
+x = np.array([[1., 0.], [0., 1.], [1., 1.]])
+q, k = x, x
+v = x @ np.array([[1., 2.], [3., 4.]])
+keep = np.tril(np.ones((3, 3), dtype=bool))
+out, weights = attention_np(q, k, v, keep)
+ref, ref_weights = reference(q, k, v, keep)
+np.testing.assert_allclose(out, ref, rtol=1e-12, atol=1e-12)
+np.testing.assert_allclose(weights, ref_weights, rtol=1e-12, atol=1e-12)
+np.testing.assert_allclose(weights.sum(-1), 1., rtol=1e-12, atol=1e-12)
+assert np.all(weights[np.triu_indices(3, 1)] == 0)
+print(np.round(out, 6))</code></pre></div>
+<p>作者在NumPy 2.3.5、float64小数组上实际核对：此例输出约为<code>[[1,2], [2.339523,3.339523], [3.006980,4.510470]]</code>，与逐项参考按<code>rtol=atol=1e-12</code>比较通过。另核无掩码手算、不同Lq/Lk、可广播键掩码、±1000量级有限分数、全屏蔽和非法输入。容差属于这些给定检查，不保证任意dtype/规模/硬件都同精度。</p>
+<p class="lesson-note">这是CPU小数组前向检查；没有训练模型、比较GPU时延或实现自动求导。原PyTorch结果区仍为原记录，不能和本次NumPy核算混作同一次实测。</p>
+<p>依据：<a href="https://arxiv.org/html/1706.03762v7" target="_blank" rel="noopener">Attention原论文第3.2节</a>；<a href="https://numpy.org/doc/2.3/reference/generated/numpy.matmul.html" target="_blank" rel="noopener">NumPy matmul</a>与<a href="https://numpy.org/doc/2.3/reference/generated/numpy.broadcast_to.html" target="_blank" rel="noopener">broadcast_to</a>定义矩阵/广播；<a href="https://docs.scipy.org/doc/scipy/reference/generated/scipy.special.softmax.html" target="_blank" rel="noopener">稳定softmax的数值说明</a>用于核对移位原理，代码不调用SciPy或深度学习框架。</p>
+</details>
 <hr />
 <h2 id="3-mha">3️⃣ 多头注意力 MHA ⭐ 最高频的一道</h2>
 <p>这段在干什么：把 $d_{model}$ 劈成 $h$ 份，每份独立做一次上面那个注意力（各抓一种模式），最后拼回来再过一个输出投影混合。</p>
@@ -636,10 +706,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <strong>② 原始 dropout</strong>——训练时不动，推理时整层乘 $1-p$。
   两者数学上等价，但②让<strong>推理</strong>多一次乘法。⭐ 面试答出「为什么选①」比背出公式更值钱。</li>
 <li><strong><code>p</code> 是丢弃概率不是保留概率</strong>。掩码要写 <code>rand &gt;= p</code>（保留 $1-p$），写反了就是丢 70% 留 30%。</li>
-<li><strong>推理时忘了关</strong>：自检方法很简单——<strong>同一个输入连跑两次，输出不一样就是忘了 <code>model.eval()</code></strong>。</li>
-<li>追问「<strong>为什么有效</strong>」：① 逼网络不能依赖某个特定神经元 → 学到冗余表示 ② 每次训练的是一个不同的子网络 → <strong>隐式集成</strong>（1000 个神经元的层相当于集成 $2^{1000}$ 个网络的平均）。</li>
+<li><strong>推理模式要直接核对</strong>：固定输入后输出变动只是排查线索；检查子模块的 <code>training</code> 状态和函数式调用的 <code>training</code> 参数，也排查随机采样、数据增强和非确定算子。<strong>两次不同不能证明忘了 <code>eval()</code>，两次相同也不能证明Dropout已关闭</strong>。</li>
+<li>追问「<strong>为什么有效</strong>」：随机丢弃可减少神经元间的过度共同适应。1000个可丢弃单元对应 $2^{1000}$ 种掩码配置，但训练只采样<strong>共享参数的子网络</strong>；推理缩放提供近似集成的直觉，不是独立训练并精确平均全部网络，也不保证每个任务都获益。</li>
 </ul>
-<p>🔗 <strong>原理在</strong>：<a href="10-正则化全家桶.html">10 · 正则化全家桶</a>（Dropout 为什么防过拟合、忘了 <code>eval()</code> 的两个症状）</p>
+<p>🔗 <strong>原理在</strong>：<a href="10-正则化全家桶.html">10 · 正则化全家桶</a>（Dropout 的作用、训练/推理缩放与模式自检条件）</p>
 <hr />
 <h2 id="7-conv2d">7️⃣ 卷积前向 Conv2d</h2>
 <p><strong>这段在干什么</strong>：一个小窗口在图上滑，每停一次做一次「逐元素相乘再求和」。⭐ <strong>写对这段的关键是记住：核在空间上滑动，但在通道上是「一次吃掉全部」。</strong></p>
@@ -774,7 +844,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
         <span class="n">p</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="p">(</span><span class="n">X</span> <span class="o">@</span> <span class="n">w</span> <span class="o">+</span> <span class="n">b</span><span class="p">)))</span>        <span class="c1"># sigmoid</span>
         <span class="c1"># ⭐ 梯度正好是 (预测 − 真实)：第 3 章那个经典考点</span>
         <span class="n">gw</span> <span class="o">=</span> <span class="n">X</span><span class="o">.</span><span class="n">T</span> <span class="o">@</span> <span class="p">(</span><span class="n">p</span> <span class="o">-</span> <span class="n">y</span><span class="p">)</span> <span class="o">/</span> <span class="n">n</span> <span class="o">+</span> <span class="n">l2</span> <span class="o">*</span> <span class="n">w</span>           <span class="c1"># ⭐ 别忘了 /n</span>
-        <span class="n">gb</span> <span class="o">=</span> <span class="p">(</span><span class="n">p</span> <span class="o">-</span> <span class="n">y</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>                       <span class="c1"># ⭐ 偏置不加 L2</span>
+        <span class="n">gb</span> <span class="o">=</span> <span class="p">(</span><span class="n">p</span> <span class="o">-</span> <span class="n">y</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>                       <span class="c1"># ⭐ 本例选择截距不加 L2</span>
         <span class="n">w</span> <span class="o">-=</span> <span class="n">lr</span> <span class="o">*</span> <span class="n">gw</span>
         <span class="n">b</span> <span class="o">-=</span> <span class="n">lr</span> <span class="o">*</span> <span class="n">gb</span>
     <span class="k">return</span> <span class="n">w</span><span class="p">,</span> <span class="n">b</span>
@@ -800,7 +870,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ul>
 <li><strong>忘了 <code>/n</code></strong>。梯度会随 batch 大小线性变化，换个数据量就要重调学习率。</li>
 <li><strong>忘了标准化，或者用全量数据 <code>fit</code> scaler</strong>。前者让梯度下降走「之」字形，收敛极慢；后者是<strong>数据泄漏</strong>——scaler 只能 fit 训练集。</li>
-<li><strong>偏置 <code>b</code> 不要加 L2</strong>。惩罚截距没有道理（它不控制模型对输入的敏感度），而且会让模型没法拟合类别先验。</li>
+<li><strong>本例不对截距 <code>b</code> 加 L2</strong>，这是建模选择，让基线log-odds不被该惩罚直接拉向0。截距会改变预测概率，也可以根据合理先验选择惩罚它；有限惩罚会改变估计与收缩，并不使拟合类别比例在数学上不可能。是否惩罚及强度应按建模假设与验证结果决定。</li>
 <li>⚠️ <strong><code>np.exp(-z)</code> 在 $z$ 很负时会溢出报 warning</strong>。标准化 + 零初始化下不会碰到，但真要上生产，写成分段的数值稳定版：$z\ge0$ 时用 $1/(1+e^{-z})$，$z&lt;0$ 时用 $e^{z}/(1+e^{z})$。</li>
 <li>追问「<strong>为什么可以零初始化</strong>」：逻辑回归只有一层、没有对称性可破，梯度 $X^\top(p-y)$ 对每个权重都不同。⭐ <strong>神经网络不行</strong>——全零会让同一层所有神经元梯度完全相同、永远学成一样的东西。</li>
 </ul>

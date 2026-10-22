@@ -716,6 +716,25 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p><code>'1' = 1</code> 是<strong>假</strong> —— 文本和数字属于不同的存储类，文本永远「大于」数字。
 🗓️ Postgres 和 MySQL 在这里会把字面量转成数字，结果是<strong>真</strong>。
 ⭐ 所以「把数字存成字符串」这件事，在 SQLite 上会以查不出行的形式发作，而不是报错。</p>
+<h4 id="mysql-types-bounds">🧭 换到 MySQL 8.4：类型上限、实际值与模式分开看</h4>
+<p>上面的 SQLite 长度实验不能预测 MySQL。以下按 <strong>MySQL 8.4</strong> 文档核对，字符例子明确使用 <code>utf8mb4</code>；是否拒绝越界还要同时看 <code>sql_mode</code>。本段未启动 MySQL 服务。</p>
+<div class="tw"><table data-qread-task="QREAD-005" data-qread-anchor="mysql-types-bounds" style="width:100%;min-width:0;max-width:100%;table-layout:fixed"><thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">问题</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">可带走的规则</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">别据此推出</th></tr></thead><tbody>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal"><code>INT</code>、显示宽度与 <code>UNSIGNED</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">INT 占 4 字节；有符号范围 −2<sup>31</sup>…2<sup>31</sup>−1，无符号为 0…2<sup>32</sup>−1。旧写法 <code>INT(11)</code> 的 11 是显示宽度，不改变字节数或范围；整数显示宽度与 ZEROFILL 在 8.4 已弃用</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">不是“最多存 11 位”；UNSIGNED 运算也不等于 C/C++ 环绕。无符号减法可能报越界，<code>NO_UNSIGNED_SUBTRACTION</code> 等模式会影响结果类型</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal"><code>CHAR(M)</code> / <code>VARCHAR(M)</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">M 是字符上限。CHAR 有定长与尾空格处理语义，VARCHAR 按实际内容长度存储并保留尾空格；比较时尾空格是否重要还取决于 collation。非空格超长输入在严格模式报错，非严格模式可截断并警告</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">不能把字符数当字节数，也不能仅凭“定长”断言总比 VARCHAR 快；具体物理占用还受引擎行格式影响</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal"><code>VARCHAR(100)</code> / <code>VARCHAR(10)</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">允许的最大字符数不同；相同短值不按 100 或 10 字节预留。声明上限、编码、长度元信息、整行限制与索引键限制都可能影响设计</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">不是固定十倍空间或固定性能倍数；上限更大也不自动意味着每条记录更慢</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal"><code>BOOL</code> / <code>BOOLEAN</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">是 <code>TINYINT(1)</code> 的别名；0 为假，非零为真，类型本身不把取值锁死在 0/1。需要二值约束可显式声明 <code>flag BOOLEAN NOT NULL CHECK (flag IN (0,1))</code>，使用 8.4 默认执行的 CHECK</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal"><code>TINYINT(1)</code> 仍可存 2；CHECK 允许 UNKNOWN，所以仅写 CHECK 不能代替 NOT NULL。不要外推到旧版忽略 CHECK 的行为</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal"><code>TEXT</code> / <code>BLOB</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">TEXT 按字符集及 collation 解释、比较；BLOB 按二进制字节解释、比较。普通 TEXT/BLOB 的载荷上限都是 65,535 字节，系列还有 TINY/MEDIUM/LONG</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">TEXT 不是任意字节的等价替身；大载荷是否参与查询、索引与备份，会改变 I/O、传输与备份量，不能只看类型名。应用存储取舍接 <a href="../AI全栈/06-关系数据库.html#_2">AI 全栈的数据分层</a></td></tr>
+</tbody></table></div>
+<p><strong>拿同一个值做长度手算：</strong><code>'北京'</code> 是 2 个字符，在 utf8mb4 中这两个汉字的内容编码为 6 字节，均能放入 VARCHAR(10) 与 VARCHAR(100)。它不占满各自上限。MySQL 的类型存储表还列长度元信息；InnoDB COMPACT/DYNAMIC 的记录格式又有具体规则，因此这里的 6 只算内容，不是“整行磁盘实占 6 字节”。索引与效率要在同一数据、字符集、行格式和查询计划下比较。</p>
+<p>类型依据：<a href="https://dev.mysql.com/doc/refman/8.4/en/numeric-type-attributes.html">数值属性</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/numeric-type-syntax.html">布尔别名与整数类型</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/char.html">CHAR/VARCHAR</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/blob.html">TEXT/BLOB</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/storage-requirements.html">存储需求</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-row-format.html">InnoDB 行格式</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/create-table-check-constraints.html">CHECK</a>。</p>
+<h4 id="mysql-datetime-timestamp">🕒 DATETIME / TIMESTAMP：先问“墙上时间”还是“同一个时刻”</h4>
+<div class="tw"><table data-qread-task="QREAD-005" data-qread-anchor="mysql-datetime-timestamp" style="width:100%;min-width:0;max-width:100%;table-layout:fixed"><thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">MySQL 8.4，普通无偏移字面量</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">DATETIME</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">TIMESTAMP</th></tr></thead><tbody>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">连接 time_zone 改变</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">存的日期时间字段不会随会话时区自动换算</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">写入按会话时区转 UTC；读出转回当前会话时区。列本身不保存原时区名</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">有效范围（这里取 fsp=0）</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">1000-01-01 00:00:00 … 9999-12-31 23:59:59</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">1970-01-01 00:00:01 … 2038-01-19 03:14:07 UTC</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">精度与类型存储量</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">基础 5 字节</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">基础 4 字节</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">两者共同的条件</td><td colspan="2" style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">均支持 fsp 0…6，省略为 0；小数秒再加 0…3 字节，这不是整行占用。默认值与自动更新应显式写 <code>DEFAULT CURRENT_TIMESTAMP</code> / <code>ON UPDATE CURRENT_TIMESTAMP</code>；不要把旧的首个 TIMESTAMP 隐式规则当成通用规则，检查 <code>explicit_defaults_for_timestamp</code></td></tr>
+</tbody></table></div>
+<p><strong>时区手推：</strong>连接 <code>+08:00</code> 写普通字面量 <code>'2026-10-22 10:00:00'</code>，再切到 <code>+00:00</code> 读：TIMESTAMP 应显示 <code>02:00:00</code>，DATETIME 仍显示 <code>10:00:00</code>。这是文档规则推导，未实跑；实际设计还要统一连接时区、输入约定及显示层转换。依据：<a href="https://dev.mysql.com/doc/refman/8.4/en/datetime.html">时间类型与范围</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/storage-requirements.html">类型存储量</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/timestamp-initialization.html">自动初始化属性</a>。</p>
 <h3 id="length">🧯 还有一条不算「算错」但值得知道：<code>LENGTH</code> 数的是什么</h3>
 <div class="codehilite" data-code-language="text"><pre><span></span><code>实测（SQLite）：SELECT LENGTH(&#39;北京&#39;), LENGTH(CAST(&#39;北京&#39; AS BLOB))  →  (2, 6)
 </code></pre></div>
@@ -826,6 +845,30 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
+<h3 id="mysql-delete-truncate-drop">🧹 删行、清表、删对象，不是一种语法糖</h3>
+<p>下面先限定为 <strong>MySQL 8.4 / InnoDB 的普通表</strong>；权限、外键、触发器与事务条件都属于语义，不能只背速度排序。</p>
+<div class="tw"><table data-qread-task="QREAD-005" data-qread-anchor="mysql-delete-truncate-drop" style="width:100%;min-width:0;max-width:100%;table-layout:fixed"><thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">操作</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">留下什么 / WHERE</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">事务与自增</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">约束与权限</th></tr></thead><tbody>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal"><code>DELETE FROM t WHERE ...</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">删匹配行，保留定义；省略 WHERE 则删全表行</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">未提交的 InnoDB DML 可 ROLLBACK；普通删除不重置自增计数</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">遵循外键动作，触发行删除触发器；需要 DELETE 权限，读取条件列还需 SELECT</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal"><code>TRUNCATE TABLE t</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">清空整表，保留可用表定义；无 WHERE</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">DDL 隐式提交，不能靠用户 ROLLBACK 撤回；自增重置到起始值</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">不触发 ON DELETE；被别的表外键引用的 InnoDB 表会被拒绝（自引用例外）；需要 DROP 权限</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal"><code>DROP TABLE t</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">表数据与定义一并删除；无 WHERE</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">普通表 DDL 隐式提交；用户 ROLLBACK 不能恢复这个表，自增对象也不再存在</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">有外键依赖须先按约束关系处理；需要 DROP 权限。TEMPORARY 的隐式提交规则另有例外</td></tr>
+</tbody></table></div>
+<p><strong>别把崩溃原子性读成事务回滚：</strong>支持原子 DDL 的引擎能保证 TRUNCATE 在服务器中断时整体提交或撤销，不代表执行完成后用户能用 ROLLBACK 反悔。MySQL 的 <code>DROP TEMPORARY TABLE</code> 虽不隐式提交，其删除本身仍不可由 ROLLBACK 恢复。</p>
+<p><strong>换库就要重新判断：</strong>SQLite 没有 <code>TRUNCATE TABLE</code> 语法，<code>DELETE FROM t</code> 的“truncate 优化”仍是 DELETE，不等于 MySQL DDL；SQLite 显式事务中的 DELETE / DROP TABLE 可回滚，AUTOINCREMENT 表 DELETE 清空后不会因此重置历史序号。PostgreSQL 18 的 TRUNCATE 则可随事务回滚，默认 CONTINUE IDENTITY，只有指定 RESTART IDENTITY 才重启相应序列；这些条件不能套回 MySQL。</p>
+<p>下面只在新建的 <strong>SQLite 内存连接</strong>演示删行、删表与回滚，不连接任何既有数据库。可逐句执行：</p><div class="codehilite" data-code-language="sql"><pre><code>CREATE TABLE scratch(id INTEGER PRIMARY KEY AUTOINCREMENT, v TEXT);
+INSERT INTO scratch(v) VALUES (&#x27;a&#x27;), (&#x27;b&#x27;);
+BEGIN;
+DELETE FROM scratch WHERE id = 1;
+SELECT COUNT(*) FROM scratch;  -- 1
+ROLLBACK;
+SELECT COUNT(*) FROM scratch;  -- 2
+BEGIN;
+DROP TABLE scratch;
+ROLLBACK;
+SELECT COUNT(*) FROM scratch;  -- 2，定义和行均恢复
+DELETE FROM scratch;
+INSERT INTO scratch(v) VALUES (&#x27;c&#x27;);
+SELECT id FROM scratch;        -- 3，未自动重置为 1
+</code></pre></div><p>依据：MySQL 8.4 的 <a href="https://dev.mysql.com/doc/refman/8.4/en/delete.html">DELETE</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/truncate-table.html">TRUNCATE</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/drop-table.html">DROP</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/implicit-commit.html">隐式提交</a>；SQLite 的 <a href="https://www.sqlite.org/lang_delete.html">DELETE</a>、<a href="https://www.sqlite.org/lang_transaction.html">事务</a>、<a href="https://www.sqlite.org/autoinc.html">AUTOINCREMENT</a>；<a href="https://www.postgresql.org/docs/18/sql-truncate.html">PostgreSQL 18 TRUNCATE</a>。MySQL / PostgreSQL 部分为文档核对，不能拿这段 SQLite 实跑代替。</p>
 <p>⭐ <strong>一条经验</strong>：迁移时<strong>先搜日期函数</strong>。它是三家分歧最密集的地方，而且几乎每个报表都用到。</p>
 <h2 id="_6">🧪 五、本机到底支不支持：逐条探测（全部实测）</h2>
 <p>⭐ 这一节不是从文档抄的，是<strong>在 SQLite 3.50.4 上逐条跑出来的</strong>：能跑就打印结果，
@@ -1010,11 +1053,18 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </table></div>
 <p>⚠️ 三家计划里最该盯的两处是一样的：<strong>扫的是索引还是全表</strong>、<strong>估算行数和真实行数差多少</strong>。
 ⭐ 而「计划里写着索引名，它照样可能是全表扫」是 <a href="09-计划里的连接与索引失效.html">09 章</a>整章的题目 —— 这里不重复。</p>
-<blockquote>
-<p>⭐ <strong><code>EXPLAIN ANALYZE</code> 会真的执行查询</strong>（Postgres / MySQL）。
-⚠️ 在生产库上对一条 <code>UPDATE</code> 或 <code>DELETE</code> 用它，<strong>语句真的会生效</strong>。
-要看写操作的计划，包在事务里跑完 <code>ROLLBACK</code>。</p>
-</blockquote>
+<h3 id="mysql-explain-columns">🔍 MySQL 8.4 传统 EXPLAIN：五列先读对</h3>
+<p>显式用 <code>EXPLAIN FORMAT=TRADITIONAL SELECT ...</code> 看下面这组列；JSON / TREE 的组织不同，不要按列位置硬套。</p>
+<div class="tw"><table data-qread-task="QREAD-005" data-qread-anchor="mysql-explain-columns" style="width:100%;min-width:0;max-width:100%;table-layout:fixed"><thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">列</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">含义</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">判断边界</th></tr></thead><tbody>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal"><code>type</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">访问/连接类型，如 ALL、index、range、ref、eq_ref、const</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">ALL 是全表扫描；index 也可能是全索引扫描。不能单凭一个名字给整条查询定快慢</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal"><code>key</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">实际选择的索引；possible_keys 只是候选</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">有索引名不代表只读少量记录，也不代表覆盖查询</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal"><code>rows</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">预计需检查的行数；InnoDB 中是估算</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">不是已返回行数，更不是计时结果</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal"><code>filtered</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">预计经表条件后留下的百分比</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">100 表示没有进一步过滤；不是“过滤掉了 100%”</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal"><code>Extra</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">补充操作，如 Using index、Using where、Using filesort、Using temporary</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">Using index 指覆盖读取，Using filesort 表示额外排序，不保证一定写磁盘</td></tr>
+</tbody></table></div>
+<p><strong>只手算一行估计：</strong>若 rows = 1000、filtered = 20，预计交给下一连接步骤的行数约为 <code>1000 × 20 / 100 = 200</code>。这是示意数字，既不是实际返回 200 行，也不是在说整条查询仅检查 200 行。再与实际执行比较，才知道估算差在哪。</p>
+<p><strong>估算与实跑分开：</strong>MySQL 8.4 的 <code>EXPLAIN ANALYZE</code> 实际执行并给出 actual time、rows、loops，使用 TREE 格式；不能要求它同时输出传统五列。它支持 SELECT、TABLE 及多表 UPDATE / DELETE，不能泛化成所有 DML。PostgreSQL 18 的 ANALYZE 支持范围不同；执行写语句会发生副作用。练习应使用隔离测试数据，事务回滚也不保证撤销外部函数等所有副作用。</p>
+<p>依据：<a href="https://dev.mysql.com/doc/refman/8.4/en/explain-output.html">MySQL 8.4 EXPLAIN 列与 Extra</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/explain.html">MySQL 8.4 ANALYZE 支持范围</a>、<a href="https://www.postgresql.org/docs/18/sql-explain.html">PostgreSQL 18 EXPLAIN</a>。连接与索引选择的实验仍看 <a href="09-计划里的连接与索引失效.html">09 章</a>，此处不重复展开。</p>
 <h2 id="sql">🔒 八、这一页不讲的：SQL 注入</h2>
 <p>⭐ <strong>SQL 注入整块归 <a href="../AI全栈/06b-列表接口与分页.html">《AI 全栈》06b 列表接口与分页</a></strong>，本教程一个字不重复。</p>
 <p>去那边的理由（那一章真的讲了这些）：

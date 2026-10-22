@@ -315,6 +315,17 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>FFN 本来就是每个 token 独立计算的部分，最适合让不同 token 去不同专家。注意力负责可见 token 间的信息聚合，做稀疏专家化需要另行设计通信与交互。本页只讨论常见的 FFN-MoE，不排除注意力专家化研究。</p>
 <h2 id="_3">一个必须知道的代价：别让专家闲着或挤爆</h2>
 <p>路由器如果总把 token 送给同一两个专家，其他专家学不到东西，热门专家还会拥堵。这叫负载不均衡。训练 MoE 需要处理路由与负载失衡，具体方法依实现而定；因此它不是“白捡的大模型”。</p>
+<p id="f09-routing-entry">“选少数专家”只是起点；还要决定<strong>怎样打分、怎样合并、容量不够时怎么办</strong>。需要看机制时再展开。</p>
+<details id="f09-routing-depth"><summary>选读：从 gate 到负载检查的一次最小账</summary>
+<style>#f09-routing-depth code{white-space:normal;overflow-wrap:anywhere}</style>
+<p><strong>先看一条 token：</strong>路由器把输入向量 x 变成每个专家的 logits，再用 softmax 得到 p。选 top-k 后，dispatch 把 x 送进选中的专家 FFN，combine 按门控权重合回相同输出维度。示意采用原 softmax 权重：p=(0.6,0.3,0.1)，top-2 的专家输出若为标量 10、4，则本 MoE 支路是 <code>0.6×10+0.3×4=7.2</code>；未选专家不计算。实际向量逐维加权，残差另算。</p>
+<p>权重口径要随实现说明：Switch 用 top-1 并保留所选 gate 值；GShard 的 top-2 变体会对所选权重归一化，并结合第二路随机选择与容量限制。不能把上述 7.2 手算直接当成所有 MoE 的 combine 规则。稀疏性减少的是专家支路工作，路由、通信和存储仍有成本。</p>
+<p><strong>给出一种具体均衡机制：</strong>Switch 在任务损失外加辅助项 <code>L辅助=αNΣ fᵢPᵢ</code>。N 是专家数；在同一个含 T 个有效 token 的路由批次/分组内，fᵢ 是容量裁剪前 top-1 选中专家 i 的 token 比例，Pᵢ 是所有这些 token 对专家 i 的平均 softmax 概率。离散选择计数不能直接求导，P 提供可微信号；该项鼓励分散路由，系数 α 仍要与任务损失一起验证。</p>
+<p id="f09-balance-example"><strong>独立的两专家手算：</strong>T=4，top-1 分配为 A、A、A、B，f=(0.75,0.25)，若 P=(0.7,0.3)，则辅助项为 <code>α×2×(0.75×0.7+0.25×0.3)=1.2α</code>。另一个手设均匀情形 f=P=(0.5,0.5) 得 α。这只比较两组人为输入，不是训练改善或对任意分布的最优性证明。</p>
+<p><strong>容量和 overflow：</strong>若上例每专家容量为 2，A 收到 3 个，至少一个装不下，即使 B 还空着也不自动改派。在 Switch 的 drop 规则下，该 token 跳过这一层专家计算，经残差继续，不是把整条 token 从序列删除。增大容量可减少溢出，但增加缓冲、填充计算与通信；改派或 dropless 路线也需相应实现和质量/资源验证，不能无代价替换。</p>
+<p><strong>监控两本账：</strong>逐层、逐路由组记录裁剪前选中比例与实际接收数、闲置专家数、gate 概率分布、overflow/drop 比例及设备负载；同时看任务损失和语言/领域切片质量。长期少数专家占满或多数闲置需要调查，不能只看总吞吐。token 数均衡不证明专家学成了不同语义，也不能单凭辅助 loss 下降宣布防止塌缩或保证稳定。</p>
+<p><small>原始依据：<a href="https://www.jmlr.org/papers/volume23/21-0998/21-0998.pdf">Switch Transformers §2.1–2.2</a>的 gate、容量和辅助损失；<a href="https://arxiv.org/html/2006.16668v1#S2.SS2">GShard §2.2–3.1</a>的 top-2、dispatch/combine 与容量机制。上述数值均为手算，未运行模型、训练、硬件或集群实验。</small></p>
+</details>
 <h2 id="_4">✅ 检查点</h2>
 <ul>
 <li>MoE = 很多 FFN 专家 + 路由器每次选少数。</li>

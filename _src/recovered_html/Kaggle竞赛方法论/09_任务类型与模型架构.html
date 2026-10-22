@@ -625,6 +625,36 @@ th,td{min-width:5.2em}
 </tr>
 </tbody>
 </table></div>
+<p><strong>把一个具体版本拆开看：</strong>下面以 Ultralytics <strong>v8.2.0 的 YOLOv8 detection</strong> 为例，沿 Backbone→Neck→Head 读到训练和交付。主线先记住“多尺度特征→框与类别→后处理”；<a href="#yolov8-v820-detect">结构图和排查例子可展开阅读</a>。分割、姿态、旋转框使用不同任务头，不能照搬这里的输出合同。</p>
+<details id="yolov8-v820-detect">
+<summary>🔎 深入可跳过：YOLOv8 的结构、训练与部署边界</summary>
+<p><strong>1. 三块分别负责什么？</strong>本例固定标准 P3–P5 配置；n/s/m/l/x 调整深度与宽度。<a href="https://raw.githubusercontent.com/ultralytics/ultralytics/v8.2.0/ultralytics/cfg/models/v8/yolov8.yaml">官方版本化 YAML</a> 把融合层也放在 <code>head</code> 段，下面按功能分出 Neck 与最终 Detect。</p>
+<section class="visual-block visual-block-flow" aria-label="YOLOv8 v8.2.0 检测结构流程">
+<p class="visual-block-title">从图像到多尺度候选框</p>
+<div class="vb-flow">
+<div class="vb-flow-row"><span class="vb-flow-step">输入：RGB 图像张量</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">Backbone：Conv → C2f → SPPF</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step">P3 / P4 / P5 特征</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">Neck：上采样、拼接、C2f，再下采样融合</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step">融合后的三个尺度</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">Detect：框分布分支 + 类别分支</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step">框解码与类别分数</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">筛选 / NMS → 原图坐标</span></div>
+</div></section>
+<p>Backbone 提取特征：C2f 把通道分流，串接 Bottleneck 后拼接融合；SPPF 汇集不同感受野。Neck 在高分辨率细节与低分辨率语义间双向融合，概念可接着看本章 <a href="#fpn">FPN</a>。Detect 在步长 8/16/32 的特征上分开预测类别与到参考点四边的距离分布。<strong>Anchor-free 指不预设框宽高模板，仍有网格参考点</strong>；不能因源码变量名含 <code>anchors</code> 就把它等同 YOLOv5 的模板框。依据：<a href="https://raw.githubusercontent.com/ultralytics/ultralytics/v8.2.0/ultralytics/nn/modules/block.py">C2f / DFL</a>、<a href="https://raw.githubusercontent.com/ultralytics/ultralytics/v8.2.0/ultralytics/nn/modules/head.py">Detect</a>。</p>
+<div class="tw"><table>
+<thead><tr><th>比较点</th><th>YOLOv5 v7.0 标准检测</th><th>本例 YOLOv8 v8.2.0 检测</th></tr></thead>
+<tbody>
+<tr><td>特征块</td><td>主要使用 C3</td><td>主要使用 C2f；两者都可有 SPPF</td></tr>
+<tr><td>预测头</td><td>按宽高模板框输出<br>框、objectness、类别</td><td>框回归与分类分支分开<br>无独立 objectness 通道</td></tr>
+<tr><td>训练匹配</td><td>与预设 anchor 宽高比匹配</td><td>Task-Aligned Assigner<br>结合类别分数与框重合度选择候选</td></tr>
+</tbody></table></div>
+<p>这是一组<strong>固定实现的结构比较</strong>，不是“v8 必然更快更准”的结论。YOLOv5 对照：<a href="https://raw.githubusercontent.com/ultralytics/yolov5/v7.0/models/yolov5s.yaml">v7.0 配置</a>、<a href="https://raw.githubusercontent.com/ultralytics/yolov5/v7.0/models/yolo.py">检测头</a>与<a href="https://raw.githubusercontent.com/ultralytics/yolov5/v7.0/utils/loss.py">损失 / anchor 匹配</a>。</p>
+<p><strong>2. 标签怎样接到损失？</strong>该版 <a href="https://raw.githubusercontent.com/ultralytics/ultralytics/v8.2.0/ultralytics/utils/loss.py">v8DetectionLoss</a> 使用分类 BCE、框回归 CIoU 和 DFL（Distribution Focal Loss），按配置加权；不是把文件中定义的 VarifocalLoss 自动用于分类。<a href="https://raw.githubusercontent.com/ultralytics/ultralytics/v8.2.0/ultralytics/utils/tal.py">TaskAlignedAssigner</a> 先考虑 GT 框内参考点，再结合分类分数与重合度筛选、处理冲突；损失入口设置 topk=10、alpha=0.5、beta=6.0。框与 DFL 损失作用于分配的前景，分类目标分数也与匹配质量有关。</p>
+<p>DFL 不直接给每条边一个数，而是预测 16 个 bin（0–15）的分布，再取期望解码。<strong>手算：</strong>某边目标距离为 2.25 个特征格，DFL 对相邻 bin 2、3 的交叉熵权重分别为 0.75、0.25；若预测概率恰为这两个值，期望就是 2×0.75+3×0.25=2.25。这只是距离表示示例，尚需结合参考点与步长还原框，不是一次模型输出。</p>
+<p><strong>3. 训练先让数据与评估可信。</strong>数据 YAML 指定 train/val 路径和类别 <code>names</code>；每个框采用从 0 开始的 class ID 和归一化 <code>x_center y_center width height</code>，按图宽、高分别归一化。先可视化标签，按采集来源、视频或对象划分数据，防止近重复帧跨集合；再选择预训练权重微调或从 YAML 训练。记录权重、数据拆分与类别映射、imgsz、batch、epochs、优化器/学习率、seed 和环境版本。</p>
+<p>Mosaic、翻转和颜色扰动是训练配置选择，图像与框要同步变换；先判断变换是否保留任务语义。该版有 <code>close_mosaic</code> 控制最后若干轮关闭 Mosaic，并非所有数据的最佳配方。验证不照搬训练随机增强；若使用 TTA 要明确记录。用验证集的 mAP50–95、PR 与小目标 / 密集 / 暗光等任务切片选方案，测试集留作最终评估。依据：<a href="https://raw.githubusercontent.com/ultralytics/ultralytics/v8.2.0/docs/en/modes/train.md">固定版训练说明</a>、<a href="https://raw.githubusercontent.com/ultralytics/ultralytics/v8.2.0/ultralytics/cfg/default.yaml">训练 / 验证配置</a>、<a href="https://docs.ultralytics.com/datasets/detect/">官方标签格式</a>。</p>
+<p><strong>4. 部署要对齐整个输入输出合同。</strong>对普通图像输入，该版先 LetterBox 缩放填充，再 BGR→RGB、HWC→NCHW、转浮点并除以 255；直接传张量时不能假设还会替你重复归一化。记录插值、填充、通道、dtype 与实际输入尺寸。<strong>手算：</strong>640×480（宽×高）原图，以固定 640×640、居中、<code>auto=False</code> 填充时比例为 1，上下各补 80；原框 (100,50,300,250) 变为 (100,130,300,330)，还原时纵坐标减 80。开启自动矩形或改变尺寸，padding 就可能不同。依据：<a href="https://raw.githubusercontent.com/ultralytics/ultralytics/v8.2.0/ultralytics/engine/predictor.py">预处理入口</a>与<a href="https://raw.githubusercontent.com/ultralytics/ultralytics/v8.2.0/ultralytics/data/augment.py">LetterBox</a>。</p>
+<p>仅对本例标准 COCO 80 类、640×640、batch=1：三个尺度有 80²+40²+20²=8400 个位置，默认 ONNX 检测输出为 <code>[1,84,8400]</code>（4 个 xywh 坐标 + 80 个类别分数），<strong>不是 8400 个最终目标，也不是带 objectness 的 85 维输出</strong>。该输出已在网络中完成 DFL 解码与步长换算；仍须筛选分数、转为 NMS 所需框格式，执行 NMS，再还原原图坐标与类别名。自定义类别数、输入尺寸或其他任务会改变合同，不要硬编码该形状。依据：<a href="https://raw.githubusercontent.com/ultralytics/ultralytics/v8.2.0/ultralytics/engine/exporter.py">固定版 ONNX 导出</a>与<a href="https://raw.githubusercontent.com/ultralytics/ultralytics/v8.2.0/ultralytics/models/yolo/detect/predict.py">NMS / 坐标还原</a>。</p>
+<p><strong>最后再谈导出与加速。</strong>先固定权重、输入张量、opset、动态尺寸与精度设置，在 PyTorch 与目标运行时逐级对拍：NMS 前数值误差，再比较同一阈值 / 类别策略下的框、分数与类别；分数接近阈值、并列或重叠边界时要单独检查。随后在同一验证集评估导出或量化后的精度变化，端侧延迟需说明设备、输入、batch、预热和是否计入前后处理。本节只核对结构与手算，模型训练、导出、量化和端侧测速均未执行。</p>
+<p>读到这里可以停：能串起“多尺度特征→解耦预测→匹配与损失→后处理”即可。题目若要求<strong>个人踩坑经历</strong>，另用自己的数据、异常现象、改动与复测记录补充；这里的排查方法和手算不能替代这些记录。</p>
+</details>
 <h3 id="_10">检测模型关键组件</h3>
 <div class="tw"><table>
 <thead>

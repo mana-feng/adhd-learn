@@ -589,40 +589,35 @@ CNN 不是"更聪明的 MLP"，而是<strong>一个被"图像的结构"约束过
 </blockquote>
 <p>⚠️ <strong>感受野不够的症状</strong>：模型能识别小物体但对大物体/整体结构判断差。
 <strong>解法</strong>：加深、加池化、或用空洞卷积（dilated conv）。</p>
-<h3 id="_7">🕳️ 三个变体（知道存在即可）</h3>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>变体</th>
-<th>做什么</th>
-<th>用在哪</th>
-</tr>
-</thead>
+<h3 id="_7">🕳️ 卷积变体：分清连接、尺寸与代价</h3>
+<p>前面是 <code>groups=1</code> 的普通卷积。选变体时，先问<strong>谁与谁相连、输出多大、在哪个预算下比较</strong>，不要只背“更省”或“能上采样”。下面以方形核说明，宽度方向同理。</p>
+<div class="tw"><table style="table-layout:fixed;width:52em">
+<caption>四种机制的对照；尺寸结论均需带上stride、padding和dilation</caption>
+<thead><tr><th>机制</th><th>每个输出怎么来</th><th>尺寸与代价</th><th>常见用途/取舍</th></tr></thead>
 <tbody>
-<tr>
-<td><strong>1×1 卷积</strong></td>
-<td>不看空间，只在<strong>通道间</strong>做线性组合</td>
-<td><strong>降/升通道数</strong>（省算力）、跨通道信息融合 ⭐</td>
-</tr>
-<tr>
-<td><strong>深度可分离卷积</strong></td>
-<td>空间卷积和通道卷积拆开做</td>
-<td>MobileNet，<strong>参数量降 8~9 倍</strong></td>
-</tr>
-<tr>
-<td><strong>空洞卷积</strong></td>
-<td>卷积核中间"留空"</td>
-<td>不降分辨率也能扩感受野（分割任务）</td>
-</tr>
-</tbody>
-</table></div>
-<blockquote>
-<p>💡 <strong>1×1 卷积值得单独理解</strong>：它看起来什么都没做，但
-<strong>它是所有"瓶颈结构"（bottleneck）的核心</strong>——
-先用 1×1 把 256 通道压到 64，做完 3×3 再用 1×1 升回 256，
-<strong>算力降到 1/4 而表达力几乎不变</strong>。ResNet-50 及以上全靠它。</p>
-</blockquote>
-<hr />
+<tr><td><strong>普通卷积</strong></td><td>局部窗口内，对全部输入通道加权求和，产生各输出通道</td><td>无偏置权重数为 $k^2C_{in}C_{out}$；stride/padding决定是否下采样</td><td>同时学习空间与通道组合，作为其他变体的比较基准</td></tr>
+<tr><td><strong>空洞卷积</strong></td><td>相邻核采样点间隔为dilation＝d；不是增加可学习的核元素</td><td>有效核跨度变为 $d(k-1)+1$；同Cin/Cout/k时权重数不因d增加</td><td>分割等需要更大上下文的任务；维持分辨率要相应选padding，不是自动不降采样</td></tr>
+<tr><td><strong>深度可分离卷积</strong></td><td>先depthwise逐通道做空间卷积，再用1×1 pointwise混合通道</td><td>这里取depth multiplier＝1：depthwise的groups＝Cin且Cout＝Cin；pointwise再映到目标Cout</td><td>移动端等预算受限场景；因子化约束改变表达能力，精度与实际速度需验证</td></tr>
+<tr><td><strong>转置卷积</strong></td><td>把输入按学到的权重向输出位置散布，重叠处相加；stride&gt;1可用插零后的卷积理解</td><td>输出尺寸用转置公式；是可学习的上采样候选，不是普通卷积的真逆</td><td>解码器/生成/分割中的分辨率恢复；留意重叠不均与棋盘伪影，也可比较resize＋conv</td></tr>
+</tbody></table></div>
+<p><strong>先把普通与空洞的尺寸算对。</strong>对称填充p、步幅s、dilation＝d，输入高H，核边长k：</p>
+<p>$$k_{eff}=d(k-1)+1,\qquad H_{out}=\left\lfloor\frac{H+2p-k_{eff}}{s}\right\rfloor+1$$</p>
+<p>例如H＝7、k＝3、s＝1，普通卷积d＝1配p＝1得7；空洞d＝2使有效跨度为5，配p＝2仍得7。<strong>采样点仍只有3×3个</strong>，不是把5×5个权重都学一遍；更大的跨度也不是插值补回细节。</p>
+<section class="visual-block visual-block-calc" aria-label="普通与深度可分离卷积参数量手算" id="conv-variant-count-example"><p class="visual-block-title">先算权重，再谈“省多少”</p><div class="vb-calc">
+<p>固定Cin＝8、Cout＝16、k＝3，忽略bias/BN参数。普通卷积：$9\times8\times16=1152$ 个权重。</p>
+<p>depthwise（multiplier＝1）：$9\times8=72$；随后pointwise：$8\times16=128$；合计200，是普通卷积的约17.4%，并非任何配置都固定省8～9倍。</p>
+<p>当两种方案的输出空间相同、depthwise与pointwise在同一输出网格运算时，相应卷积MAC也有比值 $\frac{1}{C_{out}}+\frac{1}{k^2}$。实际时延还受内存访问、实现、批量和硬件影响；这里没有运行模型或测速。</p>
+</div></section>
+<p><strong>1×1卷积仍值得单独理解：</strong>它不混合相邻空间位置，而是在每个位置混合通道；在上面的分离卷积里正是pointwise。它也可组成瓶颈：在相同空间网格上，用256→64的1×1、64→64的3×3、64→256的1×1，忽略bias/BN共有 $256\times64+9\times64^2+64\times256=69632$ 个权重，直接256→256的3×3为589824。这个例子约为原来的11.8%，<strong>不是通用“算力降到1/4、表达力几乎不变”的保证</strong>；空间尺寸变化、激活和实现都会影响代价，精度需验证。</p>
+<p><strong>转置不是求逆。</strong>固定权重后，把普通卷积的线性部分写成矩阵A，转置方向对应 $A^T$，通常不满足 $A^TA=I$。学出更大特征图不等于恢复原图中已经丢失的信息；实际转置卷积层也会学习自己的权重。</p>
+<p>PyTorch <code>ConvTranspose2d</code>的高度公式（对称p，宽度同理）是：</p>
+<p>$$H_{out}=(H_{in}-1)s-2p+d(k-1)+output\_padding+1$$</p>
+<section class="visual-block visual-block-calc" aria-label="转置卷积输出尺寸手算" id="transpose-size-example"><p class="visual-block-title">输出大一格，是形状选择，不是补回一个像素</p><div class="vb-calc">
+<p>取Hin＝3、k＝3、s＝2、p＝1、d＝1：output_padding＝0时输出高5；取1时为6。普通卷积用同一k/s/p/d，可把高5和高6都映到高3，所以反向尺寸不唯一。</p>
+<p><code>output_padding</code>用来消解这种尺寸歧义，<strong>不会在最终输出边缘实际添加一圈零</strong>。它也不能保证内容复原；不要把输出“变大”直接叫作逆运算。</p>
+</div></section>
+<p><strong>伪影与替代要分开评估：</strong>核大小不能被步幅整除时，不同输出位置可能收到不同次数的贡献，二维重叠会形成棋盘风险；即使整除，学到的核也可能产生伪影。可比较先nearest/bilinear插值、再普通卷积的 <strong>resize＋conv</strong>，把固定上采样与可学习特征变换拆开；它也不是所有任务上绝无伪影或精度更好的保证。</p>
+<details><summary>📚 机制、公式与伪影的第一方依据</summary><p>尺寸、groups及output_padding见 <a href="https://docs.pytorch.org/docs/2.14/generated/torch.nn.Conv2d.html">PyTorch Conv2d</a>与<a href="https://docs.pytorch.org/docs/2.14/generated/torch.nn.ConvTranspose2d.html">ConvTranspose2d</a>；depthwise＋pointwise及计算量条件见<a href="https://arxiv.org/html/1704.04861v1">MobileNet原论文第3.1节</a>；重叠、棋盘伪影及resize-convolution见<a href="https://distill.pub/2016/deconv-checkerboard/">Odena等人的原始分析</a>。本节的参数量与尺寸例为条件明确的教学手算，不是部署或图像效果实测。</p></details>
 <h2 id="_8">📜 五、架构演进（记思想，不必记细节）</h2>
 <div class="tw"><table>
 <thead>
@@ -821,7 +816,7 @@ CNN 不是"更聪明的 MLP"，而是<strong>一个被"图像的结构"约束过
 <li><strong>卷积核也是三维的，深度必须等于输入通道数</strong>，在通道上"一次吃掉全部"，只在空间上滑动。参数量 = k × k × C_in × C_out（+ C_out 个 bias）。</li>
 <li><code>padding = kernel_size // 2</code>，配合 <code>stride=1</code>。</li>
 <li>当之前累计步幅为1、dilation=1时，每层3×3使理论感受野边长加2；一般增量为 (k−1)×dilation×此前累计步幅。<strong></strong>两个 3×3 与一个 5×5 感受野相同，但参数少 28%、多一次 ReLU（表达力更强）——这是 VGG 的核心发现。</li>
-<li><strong>不看空间，只在通道间做线性组合</strong>——用来降/升通道数和跨通道融合。瓶颈结构：先 1×1 把 256 压到 64，做 3×3，再 1×1 升回去，算力降到 1/4 而表达力几乎不变。</li>
+<li><strong>不看空间，只在通道间做线性组合</strong>——用来降/升通道数和跨通道融合。瓶颈结构：在相同空间网格上，256→64的1×1、64→64的3×3、64→256的1×1，忽略bias/BN时共69632个权重，直接256→256的3×3为589824；权重比69632/589824≈11.8%，这些卷积在同一网格运算时MAC比也相同。精度和实际时延需验证。</li>
 <li>①<strong>梯度高速公路</strong>：反传时梯度可直接走捷径，不必穿过所有层，缓解梯度消失；②学残差比学完整映射容易，最差学成 0（恒等映射）就行。</li>
 <li><strong>定位、分割或文档位置任务需要保留空间信息。卷积特征图本来保留网格，可采用空间输出头；也可评估显式坐标或位置编码，不能把整个CNN排除。</strong></li>
 <li>迁移学习：用 ImageNet 预训练模型，<strong>冻结主干只训分类头</strong>，配合强数据增强。把预训练作为候选并与简单基线比较；第17章百分比为条件不完整的原稿参考值，不是通用保证。</li>

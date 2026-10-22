@@ -382,7 +382,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <section class="reading-information"><p class="reading-information-title">关键信息</p><ul><li><span>先问：它是【错误】还是【真实的极端值】？</span></li><li><span>错误（年龄=999）→ 修正或删除</span></li><li><span>真实（土豪用户）→ 别删！用变换压缩：log1p、分位数裁剪</span></li></ul></section>
 <hr />
 <h2 id="_6">🔢 二、数值特征的四种变换</h2>
-<div class="tw"><table>
+<div class="tw"><table style="table-layout:fixed;width:44em">
 <thead>
 <tr>
 <th>变换</th>
@@ -393,13 +393,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td><strong>标准化</strong></td>
-<td>(x−μ)/σ</td>
-<td>线性模型、神经网络<strong>必做</strong>（第 3 章）</td>
+<td>按训练列统计量做 (x−μ_train)/σ_train</td>
+<td>距离/梯度/正则受量纲影响时常用（见第3章），仍需按模型与验证结果选择</td>
 </tr>
 <tr>
-<td><strong>归一化</strong></td>
-<td>缩到 [0,1]</td>
-<td>需要固定范围时</td>
+<td><strong>MinMax缩放（按列）</strong></td>
+<td>先减训练列最小值，再除以训练列极差；非恒定训练列映到[0,1]</td>
+<td>需要约定训练范围时；新样本可能越界，异常值仍影响极值</td>
 </tr>
 <tr>
 <td><strong>log1p</strong> ⭐</td>
@@ -413,6 +413,14 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
+<p><strong>“归一化”先问沿哪条轴做。</strong>上表MinMax和标准化都按<strong>列（特征）</strong>使用训练集统计量；<code>Normalizer(norm="l2")</code>则对<strong>每行（样本）</strong>除以自身长度，不学习训练列的均值或极值。后者保留方向、去掉整体长度，适合方向有意义且特征量纲可比较的场景，不是MinMax的另一个名字。</p>
+<section class="visual-block visual-block-calc" aria-label="缩放与单位范数的最小手算" id="scaling-axis-example"><p class="visual-block-title">同叫归一化，算的不是一件事</p><div class="vb-calc">
+<p><strong>按列MinMax：</strong>训练这一列只有0和10，固定范围设为[0,1]。训练值映到0和1；新样本20仍用训练极值，得到 $(20-0)/(10-0)=2$，<strong>不会自动落回[0,1]</strong>。<code>clip=True</code>才把它截到1，但这会丢掉越界幅度，也不解决分布漂移。</p>
+<p><strong>按行L2：</strong>对一行 $(3,4)$，长度为 $\sqrt{3^2+4^2}=5$，所以变为 $(0.6,0.8)$，长度为1。这里没有查别的样本；它既不把每列极值映到0/1，也不让每列均值变0。</p>
+</div></section>
+<p><strong>边界一起记：</strong>只在训练部分（交叉验证时是当前训练折）fit列统计，再原样transform验证/未来样本；标准化不等于变成高斯分布。异常值会影响均值、方差及MinMax极值，可比较用中位数/IQR的 <code>RobustScaler</code>。常数列不能手除以0：<code>StandardScaler</code>用缩放因子1，默认中心化后训练常数列为0；MinMax也要使用库的常数列处理或移除无信息列。按行L2遇零向量应保留零或明确其他约定，不能直接套除法。</p>
+<p>🔗 先回看<a href="03-线性模型.html#_5">第3章标准化</a>，实战流程接<a href="../Kaggle竞赛方法论/01_数据策略与特征工程.html">Kaggle数据策略与特征工程</a>；不要为选缩放器在全量数据上fit。</p>
+<details><summary>📚 缩放术语与API边界</summary><p>核对 <a href="https://scikit-learn.org/stable/modules/preprocessing.html">预处理指南</a>、<a href="https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.StandardScaler.html">StandardScaler</a>、<a href="https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.MinMaxScaler.html">MinMaxScaler</a>、<a href="https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.Normalizer.html">Normalizer</a>与<a href="https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.RobustScaler.html">RobustScaler</a>。上面两个算例是给定数值的教学手算，不是模型效果测量。</p></details>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span><span class="o">,</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
 
 <span class="n">df</span><span class="p">[</span><span class="s2">&quot;log_amount&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log1p</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s2">&quot;amount&quot;</span><span class="p">])</span>              <span class="c1"># 长尾必备</span>
@@ -424,39 +432,40 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <hr />
 <h2 id="_7">🏷️ 三、类别特征（最容易出事的地方）</h2>
-<div class="tw"><table>
+<div class="tw"><table style="width:100%;min-width:0;table-layout:fixed">
+<colgroup><col style="width:24%"><col style="width:24%"><col style="width:52%"></colgroup>
 <thead>
 <tr>
-<th>编码</th>
-<th>做法</th>
-<th>注意</th>
+<th style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">编码</th>
+<th style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">做法</th>
+<th style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">注意</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>One-Hot</strong></td>
-<td>每个取值一列</td>
-<td>类别少（&lt;10）时用；多了会维度爆炸</td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top"><strong>One-Hot</strong></td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">每个取值一列</td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">名义类别的候选；类别数、稀疏支持与资源开销需验证</td>
 </tr>
 <tr>
-<td><strong>Label/序数编码</strong></td>
-<td>映射成 0,1,2...</td>
-<td>⚠️ <strong>只适合树模型</strong>——线性模型会误以为有大小关系</td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top"><strong>Label/序数编码</strong></td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">映射成 0,1,2...</td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">真实有序变量可按顺序编码；名义类别的任意编号会引入伪顺序，普通阈值树也受影响</td>
 </tr>
 <tr>
-<td><strong>目标编码</strong> ⭐</td>
-<td>用该类别的目标均值代替</td>
-<td>效果好但<strong>极易泄漏</strong>，见下</td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top"><strong>目标编码</strong> ⭐</td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">用该类别的目标均值代替</td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">效果好但<strong>极易泄漏</strong>，见下</td>
 </tr>
 <tr>
-<td><strong>频次编码</strong></td>
-<td>用出现次数代替</td>
-<td>不使用标签，但频次统计仍须限定训练集及预测时点</td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top"><strong>频次编码</strong></td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">用出现次数代替</td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">不使用标签，但频次统计仍须限定训练集及预测时点</td>
 </tr>
 <tr>
-<td><strong>Embedding</strong></td>
-<td>学一个低维向量</td>
-<td>高基数 + 神经网络（推荐算法第 7 章）</td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top"><strong>Embedding</strong></td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">学一个低维向量</td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">按任务、样本覆盖与预算比较；整数是查表索引，不强加数值距离（推荐算法第7章）</td>
 </tr>
 </tbody>
 </table></div>
@@ -538,40 +547,42 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <hr />
 <h2 id="_13">📊 六、特征筛选</h2>
-<div class="tw"><table>
+<div class="tw"><table style="width:100%;min-width:0;table-layout:fixed">
+<colgroup><col style="width:30%"><col style="width:70%"></colgroup>
 <thead>
 <tr>
-<th>方法</th>
-<th>说明</th>
+<th style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">方法</th>
+<th style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">说明</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>覆盖率</strong></td>
-<td>高缺失率列列为检查候选；先验证稀有信号与缺失模式再删</td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top"><strong>覆盖率</strong></td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">高缺失率列列为检查候选；先验证稀有信号与缺失模式再删</td>
 </tr>
 <tr>
-<td><strong>方差过滤</strong></td>
-<td>几乎是常数的列没信息</td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top"><strong>方差过滤</strong></td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">近常数只列为调查或过滤候选；先核稀有事件信号、量纲尺度与模型/任务，再用独立验证判断是否删除</td>
 </tr>
 <tr>
-<td><strong>相关性</strong></td>
-<td>两列相关系数 &gt;0.95，删一个</td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top"><strong>相关性</strong></td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">相关系数 &gt;0.95 只列为冗余调查候选；两列仍可能联合含信号，删列需验证</td>
 </tr>
 <tr>
-<td><strong>模型重要性</strong></td>
-<td>GBDT 的 importance（⚠️ 有第 4 章说的三个坑）</td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top"><strong>模型重要性</strong></td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">GBDT 的 importance（⚠️ 有第 4 章说的三个坑）</td>
 </tr>
 <tr>
-<td><strong>Permutation Importance</strong> ⭐</td>
-<td>打乱某列看性能掉多少，比自带 importance 可靠</td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top"><strong>Permutation Importance</strong> ⭐</td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">固定模型，在留出验证集按指定指标重复打乱单列；相关列可掩盖贡献，需结合特征组诊断</td>
 </tr>
 <tr>
-<td><strong>消融实验</strong></td>
-<td>去掉后 CV 掉多少 —— 最可靠但最慢</td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top"><strong>消融实验</strong></td>
+<td style="min-width:0;white-space:normal;overflow-wrap:anywhere;vertical-align:top">去掉单列或特征组后重新拟合，固定划分、指标和训练预算比较；相关替代与交互影响结果，没有普遍最可靠排名</td>
 </tr>
 </tbody>
 </table></div>
+<p>筛选结论依赖具体模型、指标、验证数据和训练配置，不是特征的固有价值排名。相关特征可能互相替代，单列低重要性不证明整组无用；按组诊断也须明确置换规则或重新拟合方式，并检查划分与重复结果。参考<a href="https://scikit-learn.org/stable/modules/preprocessing.html#encoding-categorical-features">官方类别编码说明</a>与<a href="https://scikit-learn.org/stable/modules/permutation_importance.html">置换重要性及相关特征限制</a>。</p>
 <blockquote>
 <p>⚠️ <strong>特征筛选必须放进 Pipeline / 在 CV 内部做</strong>——否则就是第 5 章那个 76.5% 的假象。</p>
 </blockquote>
@@ -608,7 +619,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ol>
 <li>特征工程的价值来自哪里？为什么说"先广后深"？配套的纪律是什么？</li>
 <li>缺失值有哪几种处理策略？为什么"加一列是否缺失"常常有用？</li>
-<li>Label 编码为什么只适合树模型？</li>
+<li>名义类别、真实有序变量与Embedding索引的整数编码有何区别？普通阈值树为何也受任意顺序影响？</li>
 <li>目标编码怎么防泄漏？</li>
 <li>为什么时间的小时特征要用 sin/cos？</li>
 <li>聚合统计里最容易被漏掉的三个是什么？</li>
@@ -620,7 +631,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ol>
 <li>价值 = <strong>你知道多少模型不知道的事</strong>（领域知识）。"先广后深"是因为你对"哪个特征有用"的直觉经常是错的，快速造 30 个跑 CV 比精雕细琢 3 个更快找到有用的。纪律：每加一批就跑一次 CV 并记录，否则不知道是哪个在起作用（甚至有的在拖后腿）。</li>
 <li>删行/删列/统计量填充/单独当一类/树模型直接不管。因为<strong>"缺失"本身可能携带信息</strong>（没填收入的可能是特定人群），填充会抹掉这个信号。</li>
-<li>Label 编码把类别映射成 0,1,2...，线性模型会误以为"2 比 1 大"存在数值关系；普通数值树也会受人为类别排序影响；无序类别需比较 one-hot 或原生类别支持。</li>
+<li>名义类别的0,1,2编号只是标识，直接作为数值会引入伪顺序；普通阈值树也会沿该顺序切分。真实有序变量可用与含义一致的顺序，但整数间距不自动有等距意义。无序类别可比较one-hot、原生类别处理或合适的Embedding；Embedding的整数仅作查表索引。选择要看模型、任务、样本覆盖及验证结果。</li>
 <li><strong>K 折内部编码（OOF）</strong>：算某一折的编码时只用其他折的数据；再加平滑，让样本少的类别向当前训练折均值收缩。</li>
 <li>直接用 0-23 的话，23 点和 0 点在数值上差 23，但实际只差 1 小时。sin/cos 编码保留了周期性。</li>
 <li><strong><code>std</code>（波动性）、<code>nunique</code>（多样性）、<code>max/mean</code>（集中度）</strong>。大多数人只做 count/sum/mean 就停了。</li>

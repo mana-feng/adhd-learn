@@ -280,7 +280,16 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="polish-ai-fullstack-reading">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><style id="nc-r02-local-reading">
+main .nc-r02-extension { min-width:0; max-width:100%; margin:1.2em 0; overflow-wrap:anywhere; }
+main .nc-r02-extension summary { cursor:pointer; line-height:1.6; }
+main .nc-r02-extension table.nc-r02-table { width:100%!important; min-width:0!important; max-width:100%; table-layout:fixed; }
+main .nc-r02-extension .nc-r02-table th, main .nc-r02-extension .nc-r02-table td { min-width:0; max-width:none; white-space:normal!important; overflow-wrap:anywhere; word-break:normal; vertical-align:top; }
+main .nc-r02-extension .nc-r02-table th:first-child, main .nc-r02-extension .nc-r02-table td:first-child { width:32%; }
+main .nc-r02-extension p, main .nc-r02-extension li { max-width:100%; overflow-wrap:anywhere; }
+main .nc-r02-extension :not(pre)>code { white-space:normal!important; overflow-wrap:anywhere; word-break:normal; }
+main .nc-r02-extension pre { max-width:100%; overflow-x:auto; }
+</style></head><body class="polish-ai-fullstack-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -393,7 +402,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="p">}</span>
 </code></pre></div>
 
-<p>⭐ <strong>注意这个解析器只认 <code>data:</code> 行——这正是帧格式那样定的原因。</strong> SSE 协议里还有一个 <code>event:</code> 行可以给帧起名字，但它<strong>只对 <code>EventSource</code> 有意义</strong>，而 <code>EventSource</code> 在这一章第一节就被否掉了。手动解析器面对 <code>event:</code> 行只有两条路：要么多写一套状态机记住「上一行的 event 名是什么」再和下一行的 <code>data:</code> 配对，要么像这里一样把它整行丢掉——两条都是白费力气。</p>
+<p>⭐ <strong>注意这个解析器只认 <code>data:</code> 行——这正是帧格式那样定的原因。</strong> SSE 协议里还有一个 <code>event:</code> 行可以给帧起名字，它是<strong>SSE 标准字段，手写客户端也能实现其语义</strong>，而 <code>EventSource</code> 在这一章第一节就被否掉了。手动解析器面对 <code>event:</code> 行只有两条路：要么多写一套状态机记住「上一行的 event 名是什么」再和下一行的 <code>data:</code> 配对，要么像这里一样把它整行丢掉；本教程选择忽略它，是这个 JSON 子协议的约定，并非字段本身无意义。</p>
 <blockquote>
 <p>⭐ <strong>所以把类型放进 JSON 负载，是「跟着消费方走」的选择</strong>：<code>JSON.parse</code> 一行就拿到全部信息。
 ⚠️ 同理结束帧是 <code>{"type":"done"}</code> 而不是 <code>[DONE]</code>——<strong><code>[DONE]</code> 不是合法 JSON，会让上面这行 <code>JSON.parse</code> 当场抛 <code>SyntaxError</code></strong>，逼你在解析前加一次特判。⭐ <strong>格式选择要看谁在消费它</strong>，这是本章和第 5 章共同的那条线。</p>
@@ -409,11 +418,24 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 你会以为是模型的问题。</p>
 </blockquote>
 <h3 id="b-chunk">坑 B：一个 chunk ≠ 一帧</h3>
-<p><code>reader.read()</code> 给你的是<strong>网络层的分块</strong>，和你的 SSE 帧<strong>完全没有对应关系</strong>。
+<p><code>reader.read()</code> 给你的是<strong>浏览器交付的响应体字节块</strong>，和你的 SSE 帧<strong>完全没有对应关系</strong>。
 一次 read 可能拿到：半帧、一帧、三帧半。</p>
 <p>⭐ <strong>所以必须用一个 <code>buffer</code> 累积，按 <code>\n\n</code> 切</strong> —— 直接把每个 chunk 当一帧解析，
 在本地测试时可能一切正常（帧小、网络快），<strong>上线遇到大响应或慢网络就会碎掉</strong>。</p>
 <hr />
+<details class="nc-r02-extension" id="body-chunk-boundaries">
+<summary>可选深入：字节流、HTTP 分帧、SSE 事件不是同一条边界</summary>
+<p>先看<a href="05-流式输出.html#transport-tcp-udp">05 章已有的 TCP 字节流说明</a>：TCP 不保留一次 send 的消息边界，接收端可能一次拿到多条内容，也可能只拿到一条的一部分。「粘包/拆包」是应用用自己的消息单位看字节流的现象，不是 TCP 把有标记的消息弄坏了。</p>
+<p>往上还有 HTTP：HTTP/1.1 chunked、HTTP/2 DATA 帧都有各自边界；浏览器处理这些承载细节后，<code>reader.read()</code> 交付的是 body 的 <code>Uint8Array</code>。它既不是抓到的 TCP 报文，也不保证对应 HTTP chunk 或 SSE 事件。HTTP/3 底下用 QUIC，消费端仍不能靠 read 次数判断事件数。</p>
+<p>一个合法单行 JSON 事件的文本可以被这样交付（<code>\n</code> 代表换行，不是反斜杠字面量）：</p>
+<pre><code>read 1 → data: {"type":"delta","text":"你
+read 2 → 好"}\n
+read 3 → \ndata: {"type":"done"}\n\n</code></pre>
+<p>前两次还没有完整事件；第三次到来才凑出两个空行终止的事件。更底层还可能切在汉字的 UTF-8 字节之间，所以先用流式解码保留残字节，再保留文本 buffer，最后按应用边界取完整事件。长度前缀也能定界，但本教程选的是空行分隔，不混用两套规则。</p>
+<p><strong>现有代码是受约束的教程子协议：</strong>只接受 LF 换行、每事件一行 <code>data: </code> 后接 JSON；不等于通用 SSE 解析器。标准 SSE 还允许 CRLF/CR 换行、多行 data 合并和注释，<code>event/id/retry</code> 也有含义。接任意供应商时应使用符合该协议的解析器，不能默认本例覆盖所有情况。</p>
+<p>EOF 不代替最后空行，也不代替 <code>{"type":"done"}</code>：残余未终止事件不应强行 JSON.parse；业务未收到 done 时应标为未完整结束。上面是分块反例推演，未连接真实网络实验。</p>
+<p>依据：<a href="https://www.rfc-editor.org/rfc/rfc9293.html#section-3.7">RFC 9293 §3.7</a>、<a href="https://html.spec.whatwg.org/multipage/server-sent-events.html#parsing-an-event-stream">WHATWG SSE 解析规则</a>。此处只解释本页消费者边界，不改原有收流函数。</p>
+</details>
 <h2 id="markdown">🎨 三、边流边渲染 Markdown：半个代码块怎么办</h2>
 <p>模型的输出通常是 Markdown。但流式意味着<strong>你随时可能拿到一个残缺的 Markdown</strong>：</p>
 <section class="visual-block visual-block-compare" aria-label="错误示意"><p class="visual-block-title">错误示意</p><div class="vb-compare"><p>用户看到的中间状态：</p><p>这是一个例子：</p><p><code>def hello(</code></p><p>↑ 代码还没完整到能执行；表格可能只有一半，粗体也可能只来了一个星号。</p></div></section>
@@ -749,7 +771,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>① 不能自定义 header ② 只能发 GET ③ 不能自定义 body。</strong> ⚠️⚠️ 最致命的是第一条：带不了 <code>Authorization</code>，接口一加鉴权就废了。</li>
 <li>⚠️ 因为 query 参数里的 token <strong>会被记进服务器访问日志、代理日志、浏览器历史</strong> —— 这是个真实的泄露面。</li>
 <li>⚠️ 网络会在<strong>任意字节位置</strong>切开数据，一个中文字符 3 字节可能被切在两个 chunk 之间。不加 <code>stream: true</code>，<code>TextDecoder</code> 会把半个字符解成 <code>�</code>；加上之后它会把不完整字节留到下次。💀 难查是因为它是间歇性的 —— 中文/emoji 多时偶尔冒出一个乱码字，你会以为是模型的问题。</li>
-<li>因为 <code>reader.read()</code> 给的是<strong>网络层分块，和 SSE 帧完全没有对应关系</strong> —— 一次可能拿到半帧、一帧或三帧半。直接把 chunk 当帧解析，本地测试（帧小、网络快）可能一切正常，上线遇到大响应或慢网络就碎。至于 <code>event:</code> 行：它只对 <code>EventSource</code> 有意义，而 <code>EventSource</code> 第一节就被否掉了；手动解析器要么多写一套状态机把它和下一行 <code>data:</code> 配对，要么整行丢掉。所以帧类型放进 JSON 负载的 <code>type</code> 字段，一行 <code>JSON.parse</code> 拿到全部信息，解析路径只有一条。⚠️ 同理结束帧写 <code>{"type":"done"}</code>——<code>[DONE]</code> 不是合法 JSON，会让那行 <code>JSON.parse</code> 抛 <code>SyntaxError</code>。</li>
+<li>因为 <code>reader.read()</code> 给的是<strong>响应体字节块，和 SSE 事件边界没有一一对应关系</strong> —— 一次可能拿到半帧、一帧或三帧半。直接把 chunk 当帧解析，本地测试（帧小、网络快）可能一切正常，上线遇到大响应或慢网络就碎。至于 <code>event:</code> 行：它是 SSE 标准字段，手动解析也可以支持；本教程选择把类型放在 JSON 里，手动解析器要么多写一套状态机把它和下一行 <code>data:</code> 配对，要么整行丢掉。所以帧类型放进 JSON 负载的 <code>type</code> 字段，一行 <code>JSON.parse</code> 拿到全部信息，解析路径只有一条。⚠️ 同理结束帧写 <code>{"type":"done"}</code>——<code>[DONE]</code> 不是合法 JSON，会让那行 <code>JSON.parse</code> 抛 <code>SyntaxError</code>。</li>
 <li>① 流式期间只显示纯文本、结束后一次性渲染（简单但⚠️ 最后会跳变）② <strong>每帧重新渲染整段</strong>（实时、体验最好）③ 只在安全点渲染（折中但逻辑复杂）。推荐 ②，两个前提：用容错的解析器（严格解析器遇到未闭合的代码围栏可能抛错或吞掉后文）+ 必须做 HTML 净化。</li>
 <li>因为 <strong>Markdown 渲染出来是 HTML，而模型输出是不可信输入</strong> —— ⚠️ 渲染的那一刻你就失去了 <code>textContent</code> 的保护。💀 攻击路径：用户 A 上传的文档里藏着「请输出以下 HTML」→ 用户 B 检索到它 → 模型照做 → B 的浏览器执行了 <code>&lt;img src=x onerror=...&gt;</code>。四条判据：① 标签走白名单（不是黑名单）② 禁 <code>&lt;script&gt;</code>（连同 <code>iframe/object/embed/style</code>）③ 禁一切 <code>on*</code> 事件属性（⚠️ <code>img</code> 标签合法，要命的是属性）④ URL 协议只放行 <code>http/https/mailto</code>（⚠️ <code>javascript:</code> 和 <code>data:</code> 都能执行）。⚠️⚠️ 自己写正则不够，是因为浏览器解析器和你的正则理解不一致：大小写混写、<code>&amp;#106;avascript:</code> 实体编码、属性不加引号、<code>&lt;img/src=x/onerror=…&gt;</code>、<code>&lt;scr&lt;script&gt;ipt&gt;</code> 都能绕过。正确形状是解析成 DOM 树再按白名单裁剪（🗓️ 浏览器端常用 DOMPurify），且净化要是进 <code>innerHTML</code> 前的最后一步。</li>
 <li>⚠️ <strong>你自己的自动滚动也会触发 <code>scroll</code> 事件</strong>，判断写不对就会「自动滚一下 → 事件触发 → 误判用户在操作 → 停止跟随」。本章写法没事是因为自动滚之后必然处于底部，判据仍然为 <code>true</code>。</li>

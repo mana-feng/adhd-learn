@@ -331,11 +331,23 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <blockquote>
 <p><strong>实用提醒</strong>：问模型接口价格、上下文长度、输出上限时，都看 token，不看汉字数。中文、代码、JSON 的 token 密度通常不同；不能只拿字符数去猜。</p>
 </blockquote>
+<p id="token-framework-entry">BPE 说明怎样构造子词；实际使用还要认准<strong>实现工具、词表和模型版本</strong>。只想理解文字进模型的主线，可以跳过这段落地核对。</p>
+<details id="token-framework-depth"><summary>选读：BPE 与 SentencePiece 为什么不是同一层的名字？</summary>
+<p><strong>BPE 是子词算法；SentencePiece 是训练和使用分词模型的工具框架。</strong>以 SentencePiece v0.2.1 为例，它支持 BPE、Unigram 等模型类型，并把词片、编号映射和归一化配置保存进模型文件。因此“用了 SentencePiece”还不能推出“用了哪种子词算法”。它也不等于每个 LLM 的实际分词器。</p>
+<ol><li><strong>先配对：</strong>使用模型发布的 tokenizer 文件与精确版本，核对词表大小、特殊 token ID、归一化及聊天模板；不能给现成模型随意换一套相同大小的词表，编号对应的嵌入会变。</li><li><strong>再测 OOV：</strong>OOV 是词表外输入问题。子词能把罕见词拆开，但仍须检查字符覆盖和 unknown 处理。SentencePiece 的 <code>character_coverage</code>、<code>unk_id</code> 与 <code>byte_fallback</code> 是具体配置；v0.2.1 中 byte fallback 默认关闭，启用时把未知片段拆成 UTF-8 字节，不能仅凭“子词”二字保证没有未知字符。</li><li><strong>看真实编码：</strong>用中文、代码、罕见字、emoji、空白和全角字符分别检查 pieces、IDs、数量与解码结果。归一化可能改变原字符串，应按预期归一化文本核对，不把任意原字节往返相等当通用保证。这里不预报某个模型的真实切法或 token 数。</li><li><strong>最后算完整请求：</strong>按实际 tokenizer 和服务端口径计入指令、历史、示例、检索资料、模板与特殊 token，另留输出额度；本地字符数不等于供应方最终计费量。更换 tokenizer、模板或服务版本后重新核对。</li></ol>
+<p><small>依据：<a href="https://github.com/google/sentencepiece/blob/v0.2.1/README.md">SentencePiece v0.2.1 README</a>及<a href="https://github.com/google/sentencepiece/blob/v0.2.1/src/sentencepiece_model.proto">同版模型配置定义</a>。这里只给核对流程，未运行真实分词模型。</small></p></details>
 <h2 id="_5">上下文窗口：它能带多少张名片进来？</h2>
 <p>上下文窗口就是一次能放进模型的 token 总数，包含：你的指令、历史聊天、检索到的资料，以及模型刚刚生成的内容。窗口大不等于每一段都能被同样好地利用；重要信息仍要放得清楚、取得精准。</p>
 <h3 id="_6">容量和效果是两件事</h3>
 <p>“支持 128K 上下文”只说明这 128K token 能塞进模型；它不保证模型能把每一段都用好。真实长文任务还要处理干扰、相似段落、跨段关联和“中间信息容易被忽略”等问题。</p>
 <p>实际写提示词时，可以把内容按作用放：稳定规则放开头，当前任务与最关键的材料放靠近结尾的位置；长资料不要无差别整本塞入，而是先检索、压缩，再把少量真正相关的片段给模型。</p>
+<p id="token-shot-entry">上下文里还可能放任务示范。<strong>示范数量改变输入条件；把示范用于参数训练是另一件事。</strong>需要分清 zero/one/few-shot 时再展开。</p>
+<details id="token-shot-depth"><summary>选读：同一道分类题，0、1、多个示例有什么区别？</summary>
+<p>这里按 <strong>LLM 推理时上下文中的完整示范数量</strong>计数：zero-shot 没有示范，仍可有任务指令；one-shot 有一个；few-shot 有若干个。不要把别处“少样本训练”的术语直接套到这里。</p>
+<p>教学自造任务：把用户消息分为“退款 / 物流”，只输出类别；待判消息始终是“包裹还没到”。下面只展示输入组织，没有展示模型实跑输出：</p>
+<ol><li><strong>Zero-shot：</strong>只给任务指令和待判消息，不放已标好答案的示范。</li><li><strong>One-shot：</strong>先加一个示范“我想退钱 → 退款”，再给同一条待判消息。</li><li><strong>Few-shot（本例两个）：</strong>给上述示范，再加“帮我查快递 → 物流”，然后给同一条待判消息。两个只是示意，不是 few-shot 的固定上限。</li></ol>
+<p id="token-context-budget">三种设置在这一次推理中都<strong>不做梯度更新</strong>；若用样本、损失和优化器改变参数，就进入<a href="04-训练三阶段.html#sft">监督微调</a>等训练流程。示范会占 token 预算，也可能带入错误或偏置，不保证越多越好。假设已经按实际 tokenizer 数过：指令/模板 200、两例 80、资料 600、预留输出 200，总计 <code>1,080</code>；若可用窗口仅 <code>1,000</code>，就需要减少内容或调整输出预算，且不能把关键适用条件裁掉。这是预算算例，不是某个接口的实测计费。</p>
+<p>任务目标、规则和输出合同的写法已有<a href="../智能体工程教程/03-提示词工程.html#agent">智能体03</a>；这里补的是示范数量、参数更新和容量之间的区别。定义依据：<a href="https://arxiv.org/html/2005.14165v4#S2">Language Models are Few-Shot Learners §2</a>。</p></details>
 <h2 id="_7">✅ 检查点</h2>
 <ul>
 <li>为什么“模型看到的不是汉字”？</li>

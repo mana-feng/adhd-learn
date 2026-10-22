@@ -362,7 +362,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <hr />
 <h2 id="_4">⚙️ 三、"混合"精度：哪些用低精度，哪些不能</h2>
-<section class="reading-information"><p class="reading-information-title">关键信息</p><ul><li><span>✅ 用 BF16/FP16：</span></li><li><span>矩阵乘、卷积（占 90%+ 的计算量）</span></li><li><span>激活值（占大部分显存）</span></li><li><span>前向和反向的中间结果</span></li><li><span>❌ 必须保持 FP32：</span></li><li><span>⭐ 主权重副本（master weights）</span></li><li><span>优化器状态（Adam 的 m、v）</span></li><li><span>Softmax / LayerNorm 的【累加部分】</span></li><li><span>损失的求和归约</span></li></ul></section>
+<p id="nc-f06-implementation"><strong>先固定本例实现：</strong>下图采用 FP32 主权重更新、低精度计算副本和 FP32 Adam m/v 的一种常见方案。混合精度的定义是组合多种数值精度；是否另存 master 副本、状态 dtype 与归约/累加精度，要按框架、优化器和算子核对，不能由“用了 BF16”直接推定。</p>
+<section class="reading-information"><p class="reading-information-title">关键信息</p><ul><li><span>本例中适合尝试 BF16/FP16 的部分：</span></li><li><span>矩阵乘、卷积（占 90%+ 的计算量）</span></li><li><span>激活值（占大部分显存）</span></li><li><span>前向和反向的中间结果</span></li><li><span>本例采用的 FP32 保存/累加策略（非统一规定）：</span></li><li><span>⭐ 主权重副本（master weights）</span></li><li><span>优化器状态（Adam 的 m、v）</span></li><li><span>Softmax / LayerNorm 的【累加部分】</span></li><li><span>损失的求和归约</span></li></ul></section>
 <h3 id="fp32">⭐ 为什么本例使用 FP32 主权重副本</h3>
 <section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">典型情况：权重 = 1.0，学习率 × 梯度 = 0.0001</span></div><div class="vb-flow-row"><span class="vb-flow-step">FP16 下：1.0 的最小可表示间隔约 0.001</span></div><div class="vb-flow-row"><span class="vb-flow-step">1.0 + 0.0001 = 1.0 ⭐ 更新【完全丢失】💀</span></div><div class="vb-flow-row"><span class="vb-flow-step">所以：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 用 FP32 保存主权重，更新累加在 FP32 上</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 每步把它转成 BF16 拿去做前向/反向</span></div></div></section>
 <figure class="dia">
@@ -388,17 +389,19 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <rect x="470" y="182" width="170" height="52" rx="9" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/>
 <text class="dia-t" x="555" y="213" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="600">BF16 梯度</text>
 </svg>
-<figcaption>FP32 主权重每步都<b>转一份</b> BF16 出去算，梯度回来后<b>转回 FP32 再累加</b> —— 小到 BF16 表示不了的更新，就是靠这一步不被丢掉的。</figcaption>
+<figcaption>本图是一种显式主副本方案：FP32 主权重转成 BF16 供计算，所得梯度转回 FP32 更新。高精度权重累加可减少小更新被权重舍入吞掉的风险；已在低精度梯度中丢失的信息，不能靠事后转回 FP32 恢复。图示不代表每个 autocast 实现都另存一份持久低精度权重。</figcaption>
 </figure>
 
 <blockquote>
-<p>🔑 <strong>这就是<a href="03-显存与带宽墙.html">第 3 章</a>那个 "12 字节/参数" 的来源</strong>：
+<p>🔑 <strong>这给出<a href="03-显存与带宽墙.html">第 3 章</a>所用的一种 "12 字节/参数" 预算</strong>：
 FP32 主权重 4 + Adam 的 m 4 + v 4 = 12。
-<strong>省显存的是激活，不是优化器状态。</strong></p>
+<span id="nc-f06-budget">这里的 12 仅计这三项；若另计 FP32 梯度 4 字节，才得到该假设下的 16。持久低精度权重副本若另占 2 字节，还要另外计入；激活、工作区和分片/卸载也须单独核算。这不是所有 AMP/BF16 训练的固定总量。</span>
+<strong>本例可减少适用激活/计算张量的字节数；FP32 m/v 本身不因 autocast 自动减半，其他实现需重算预算。</strong></p>
 </blockquote>
 <hr />
 <h2 id="loss-scalingfp16">🩹 四、Loss Scaling：FP16 专属的补丁</h2>
-<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 问题：梯度普遍很小（1e-7 量级很常见）</span></div><div class="vb-flow-row"><span class="vb-flow-step">FP16 的最小正规值约 6e-5</span></div><div class="vb-flow-row"><span class="vb-flow-step">大量梯度【下溢成 0】💀</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 解法：</span></div><div class="vb-flow-row"><span class="vb-flow-step">① loss × S（比如 S = 65536）再反向</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 梯度全部被放大 S 倍</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">落进 FP16 的可表示范围</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ optimizer.step() 之前把梯度 ÷ S 还原</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 动态 loss scaling：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 没溢出</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">每隔 N 步把 S 翻倍（试探更大的范围）</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 溢出（出现 inf/nan）</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">S 减半，【跳过这一步更新】</span></div></div></section>
+<p id="nc-f06-fp16-range"><strong>正规下限不是非零下限：</strong>IEEE binary16 的最小正正规值为 2<sup>−14</sup>，最小正次正规值为 2<sup>−24</sup>。因此不能仅因 1e−7 小于约 6e−5 就断言它一定变成 0；次正规区的相对精度更低，足够小的数仍可能舍入为 0。算子是否支持次正规或采用 flush-to-zero，要核对具体指令/内核/设置，不能当作所有 GPU 的通则。</p>
+<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 问题：某些低精度梯度过小，可能舍入或被实现清零</span></div><div class="vb-flow-row"><span class="vb-flow-step">FP16 最小正规值约 6.10e-5；最小正次正规值约 5.96e-8</span></div><div class="vb-flow-row"><span class="vb-flow-step">小于正规范围不等于必为 0；须区分次正规、舍入和 flush 条件</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 解法：</span></div><div class="vb-flow-row"><span class="vb-flow-step">① loss × S（比如 S = 65536）再反向</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 理想链式法则下梯度同乘 S；实际仍有舍入/溢出风险</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">尽量保留小梯度，S 不能保证每个值都可表示</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ optimizer.step() 之前把梯度 ÷ S 还原</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 动态 loss scaling：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 没溢出</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">每隔 N 步把 S 翻倍（试探更大的范围）</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 溢出（出现 inf/nan）</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">S 减半，【跳过这一步更新】</span></div></div></section>
 <blockquote>
 <p>⭐ <strong>BF16 通常不需要 loss scaling</strong> —— 它的指数位和 FP32 一样宽，
 梯度下溢风险通常比 FP16 小，仍可能出现数值问题。<strong>这是 BF16 在工程上最大的省心之处。</strong></p>
@@ -428,39 +431,39 @@ FP32 主权重 4 + Adam 的 m 4 + v 4 = 12。
 </blockquote>
 <hr />
 <h2 id="_5">⚠️ 五、五个真实的坑</h2>
-<div class="tw"><table>
+<div class="tw"><table style="width:100%;min-width:0;table-layout:fixed">
 <thead>
 <tr>
-<th>坑</th>
-<th>症状</th>
-<th>解法</th>
+<th style="white-space:normal;overflow-wrap:anywhere;word-break:normal">坑</th>
+<th style="white-space:normal;overflow-wrap:anywhere;word-break:normal">症状</th>
+<th style="white-space:normal;overflow-wrap:anywhere;word-break:normal">解法</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>维度没对齐</strong></td>
-<td>精度改了但速度没变</td>
-<td>维度补到 <strong>8 的倍数</strong>（FP16）/ 16 的倍数（INT8）⭐</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><strong>维度没对齐</strong></td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">精度改了但速度没变</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">维度补到 <strong>8 的倍数</strong>（FP16）/ 16 的倍数（INT8）⭐</td>
 </tr>
 <tr>
-<td><strong>在 autocast 里手动 <code>.half()</code></strong></td>
-<td>类型混乱、报错或静默降速</td>
-<td><strong>让 autocast 自己管</strong>，别手动转</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><strong>在 autocast 里手动 <code>.half()</code></strong></td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">类型混乱、报错或静默降速</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><strong>让 autocast 自己管</strong>，别手动转</td>
 </tr>
 <tr>
-<td><strong>LayerNorm/Softmax 用低精度累加</strong></td>
-<td>loss 抖动、NaN</td>
-<td>PyTorch 的 autocast <strong>默认已把它们留在 FP32</strong> ✅</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><strong>LayerNorm/Softmax 用低精度累加</strong></td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">loss 抖动、NaN</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">PyTorch CUDA autocast 对符合条件的这些算子有 FP32 策略，须核对版本/调用方式及内核<strong></strong> ✅</td>
 </tr>
 <tr>
-<td><strong>梯度裁剪前没 unscale</strong></td>
-<td>裁剪失效，训练发散</td>
-<td>见上面代码</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><strong>梯度裁剪前没 unscale</strong></td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">裁剪失效，训练发散</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">见上面代码</td>
 </tr>
 <tr>
-<td><strong>FP16 训练中期突然 NaN</strong></td>
-<td>某个激活溢出 65504</td>
-<td><strong>换 BF16</strong>（首选）或降低 loss scale ⭐</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><strong>FP16 训练中期突然 NaN</strong></td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">某个激活溢出 65504</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><strong>换 BF16</strong>（首选）或降低 loss scale ⭐</td>
 </tr>
 </tbody>
 </table></div>
@@ -485,37 +488,37 @@ FP32 主权重 4 + Adam 的 m 4 + v 4 = 12。
 </blockquote>
 <hr />
 <h2 id="_6">🔗 和站内其他章的关系</h2>
-<div class="tw"><table>
+<div class="tw"><table style="width:100%;min-width:0;table-layout:fixed">
 <thead>
 <tr>
-<th>相关的地方</th>
-<th>这里的位置</th>
+<th style="white-space:normal;overflow-wrap:anywhere;word-break:normal">相关的地方</th>
+<th style="white-space:normal;overflow-wrap:anywhere;word-break:normal">这里的位置</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><a href="02-GPU到底是什么.html">第 2 章</a> Tensor Core</td>
-<td><strong>混合精度快的真正原因</strong> ⭐</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><a href="02-GPU到底是什么.html">第 2 章</a> Tensor Core</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><strong>混合精度快的真正原因</strong> ⭐</td>
 </tr>
 <tr>
-<td><a href="03-显存与带宽墙.html">第 3 章</a> 带宽瓶颈</td>
-<td>数据减半 → 带宽压力减半</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><a href="03-显存与带宽墙.html">第 3 章</a> 带宽瓶颈</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">数据减半 → 带宽压力减半</td>
 </tr>
 <tr>
-<td><a href="03-显存与带宽墙.html">第 3 章</a> 12 字节/参数</td>
-<td><strong>FP32 主权重的来源</strong></td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><a href="03-显存与带宽墙.html">第 3 章</a> 12 字节/参数</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><strong>FP32 主权重的来源</strong></td>
 </tr>
 <tr>
-<td><a href="18-量化.html">第 18 章</a> 量化</td>
-<td>更激进的同一思路（INT8/INT4）</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><a href="18-量化.html">第 18 章</a> 量化</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">更激进的同一思路（INT8/INT4）</td>
 </tr>
 <tr>
-<td><a href="../机器学习与深度学习基础/11-训练调试手册.html">ML 基础第 11 章</a> NaN 排查</td>
-<td>FP16 溢出是常见原因</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><a href="../机器学习与深度学习基础/11-训练调试手册.html">ML 基础第 11 章</a> NaN 排查</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">FP16 溢出是常见原因</td>
 </tr>
 <tr>
-<td><a href="../机器学习与深度学习基础/09-优化器与学习率.html">《机器学习与深度学习基础》09 优化器与学习率</a> lr 常在 1e-4 量级</td>
-<td><strong><code>lr × 梯度</code> 比权重小几个数量级 —— 这才是必须留 FP32 主权重的原因</strong> ⭐</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><a href="../机器学习与深度学习基础/09-优化器与学习率.html">《机器学习与深度学习基础》09 优化器与学习率</a> lr 常在 1e-4 量级</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><strong><code>lr × 梯度 可能小于低精度权重的间隔，这是本例选 FP32 更新累加的动机，不是所有实现必存额外 master 的证明</code></strong> ⭐</td>
 </tr>
 </tbody>
 </table></div>
@@ -525,9 +528,9 @@ FP32 主权重 4 + Adam 的 m 4 + v 4 = 12。
 <li>BF16 和 FP16 的区别是什么？为什么现在默认用 BF16？</li>
 <li>混合精度快的三个来源是什么？哪个最主要？</li>
 <li>为什么即使不用 Tensor Core 的操作也会变快？</li>
-<li>为什么必须保留 FP32 主权重副本？举个具体数字。</li>
-<li>混合精度省的是哪部分显存？不省哪部分？</li>
-<li>Loss scaling 解决什么问题？动态版本怎么工作？</li>
+<li>本例为什么使用 FP32 主权重更新？举个数字，并说明它是不是所有实现的统一要求。</li>
+<li>本例的 12 字节/参数计了什么？为什么实际混合精度显存预算仍须按实现重算？</li>
+<li>Loss scaling 解决什么风险？FP16 正规下限与非零下限有什么区别，动态缩放怎样工作？</li>
 <li>为什么 BF16 通常不需要 loss scaling？</li>
 <li>"开了 AMP 但没变快"的四步排查顺序？</li>
 <li>FP8 的两种格式各用在哪？它的主要代价是什么？</li>
@@ -538,9 +541,9 @@ FP32 主权重 4 + Adam 的 m 4 + v 4 = 12。
 <li><strong>BF16 指数 8 位（范围同 FP32）尾数 7 位；FP16 指数 5 位（最大 65504）尾数 10 位</strong>。BF16 牺牲精度换范围。默认用 BF16 是因为深度学习更怕溢出而不是不精确——梯度本来就是噪声估计，但变成 inf/0 训练直接崩。</li>
 <li>①<strong>Tensor Core</strong>（最主要，16 倍）②带宽减半 ③显存减半能开更大 batch。</li>
 <li>因为<strong>数据量减半，同样的带宽一次能搬两倍元素</strong>——对带宽瓶颈的操作（逐元素、LayerNorm、Softmax 等）直接快一倍。</li>
-<li>因为低精度下小更新会丢失。例：权重 1.0，更新量 0.0001，<strong>FP16 在 1.0 附近的最小间隔约 0.001，所以 1.0 + 0.0001 = 1.0，更新完全丢失</strong>。</li>
-<li>省的是<strong>激活值</strong>（占大部分显存）。不省优化器状态——FP32 主权重 4 + m 4 + v 4 = 12 字节/参数照样要。</li>
-<li>解决 <strong>FP16 下梯度普遍太小（1e-7）会下溢成 0</strong> 的问题。动态版：没溢出就每隔 N 步把 S 翻倍试探；出现 inf/nan 就 S 减半并跳过这一步更新。</li>
+<li>按本例的舍入设定，FP16 权重 1.0 加 0.0001 会舍入回 1.0；在 FP32 主权重上累加可减少这种损失。是否额外存 master、副本/状态用何 dtype，仍取决于具体实现，不能由这个例子推出统一要求。<strong></strong></li>
+<li>本例 FP32 主权重 4 + Adam m 4 + v 4 = 12 字节/参数；这三项没有因计算用低精度而缩小。若另计 FP32 梯度则加 4，低精度持久副本/激活/工作区等继续另算。其他优化器、状态 dtype 或分片方案须重算，不能说混合精度只省激活。<strong></strong></li>
+<li>缩放用于降低小梯度在低精度路径中丢失的风险。FP16 的 2^−14 是正规下限，2^−24 才是最小正次正规值；1e−7 并非必为 0，flush 还须核对实现。图中动态策略在无溢出若干步后增大 S，出现 inf/nan 时降低 S 并跳过更新；更新/裁剪前先 unscale，不保证修复所有数值问题。<strong></strong></li>
 <li>因为 <strong>BF16 的指数位和 FP32 一样宽（8 位）</strong>，梯度下溢风险通常比 FP16 小，仍可能出现数值问题。这是它工程上最省心之处。</li>
 <li>①矩阵维度是 8 的倍数吗（4095→4096）②模型是不是太小（kernel 启动开销占主导）③瓶颈是不是根本不在 GPU（dataloader 实验）④profiler 确认 Tensor Core kernel 真被调用。</li>
 <li><strong>E4M3 用于前向的激活和权重</strong>（精度稍好），E5M2 用于反向的梯度（范围稍大）。代价：动态范围极窄，必须 per-tensor scaling。</li>
@@ -553,14 +556,14 @@ FP32 主权重 4 + Adam 的 m 4 + v 4 = 12。
 <p><strong>用一半位数存数据：快一倍、省一半显存。</strong> ⭐ <strong>它能 work 是因为深度学习需要的是动态范围，而不是小数点后多少位。</strong></p>
 <p>⭐⭐ <strong>BF16 和 FP16 的对比是全章的核心</strong>：一个把位数花在<strong>指数</strong>上（范围和单精度一样），一个花在<strong>尾数</strong>上（精度更高但范围小得多）。⭐ <strong>而深度学习更怕溢出、不怕不精确</strong>——梯度本来就是噪声估计，可一旦变成无穷或零就直接崩。<strong>所以默认选前者。</strong></p>
 <p>快的三个来源：<strong>只有半精度才用得上专用的矩阵乘单元</strong>、<strong>带宽减半（所以连不吃那个单元的操作也变快）</strong>、显存减半能开大 batch。</p>
-<p>⭐ <strong>「混合」的含义</strong>：矩阵乘和激活用半精度，⭐ <strong>但主权重副本、优化器的动量、归一化和 softmax 的累加必须留全精度</strong>——⚠️ <strong>因为权重加上一个很小的更新时，半精度的最小间隔比更新本身还大，更新会完全丢失。</strong> ⭐ <strong>这也解释了为什么混合精度省的是激活，不是优化器状态。</strong></p>
-<p>⭐ <strong>只有小范围那种格式才需要 loss scaling</strong>（先把损失放大再反向，更新前还原），⭐ <strong>而大范围那种根本不需要——这是它工程上最省心的地方。</strong></p>
+<p>⭐ <strong>「混合」的含义</strong>：矩阵乘和激活用半精度，⭐ <strong>本例主权重更新、Adam m/v 和敏感归约选用 FP32，实际保存与累加精度须按实现确认</strong>——⚠️ <strong>当低精度权重的小更新小于相应舍入间隔时，更新可能被吞掉；保留 FP32 更新路径是本例的应对策略。</strong> ⭐ <strong>本例 m/v 的字节数不因 autocast 自动减半；总显存节省要把权重、副本、梯度、状态和激活逐项核算。</strong></p>
+<p>⭐ <strong>FP16 路径常用 loss scaling 来减少小梯度丢失</strong>（先把损失放大再反向，更新前还原），⭐ <strong>BF16 通常不需要这种缩放，但仍可能舍入或溢出，不能把它当数值稳定保证。</strong></p>
 <p>⚠️ 五个坑里最典型的是<strong>「改了精度速度没变」</strong>：多半是<strong>维度没对齐到硬件要求的倍数</strong>。排查顺序：先查对齐 → 模型是不是太小 → <strong>瓶颈是不是根本不在 GPU</strong> → 最后用 profiler 确认那个单元真的被调用了。
 ⚠️ 另一个隐蔽的：<strong>梯度裁剪之前忘了还原缩放，裁剪阈值就完全失效了。</strong></p>
 <p>🗓️ 更低精度的格式<strong>推理已经成熟、训练仍需谨慎</strong>——⭐ <strong>它的动态范围极窄，必须逐张量地做缩放，敏感层还要保持高精度。</strong></p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="07-算子融合与编译.html">07-算子融合与编译.md</a></p>
-<details class="g05-content-note"><summary>条件与依据</summary><p>FP32 主权重、优化器状态和归约精度依实现选择；表中 16 字节/参数沿用一种常见预算，不能反推所有 BF16 实现都保留相同副本。BF16 的范围较宽，仍会舍入或溢出；FP16 的最小正规值也不是最小非零值。</p><p><a href="https://docs.nvidia.com/deeplearning/performance/mixed-precision-training/index.html">官方文档</a></p></details>
+<details class="g05-content-note" id="nc-f06-conditions" style="max-width:100%;min-width:0;overflow-wrap:anywhere"><summary>条件与依据</summary><p>FP32 主权重、优化器状态和归约精度依实现选择；本页 12 字节只计 FP32 主权重与 Adam m/v，另计 FP32 梯度才是 16，持久低精度副本和其他张量另算。BF16 的范围较宽，仍会舍入或溢出；FP16 正规下限为 2^−14、最小正次正规值为 2^−24。代码保留常见 FP16 GradScaler 骨架，不能由此认定每条 FP16 运算都 flush，或每个实现都另有持久 master 副本。</p><p>进一步核对：<a href="https://docs.pytorch.org/docs/2.14/amp.html">PyTorch 2.14 的逐算子策略与 gradient scaling</a>、<a href="https://numpy.org/doc/stable/reference/generated/numpy.finfo.html">NumPy 的正规/次正规区分</a>、<a href="https://docs.nvidia.com/cuda/parallel-thread-execution/#half-precision-floating-point-instructions-add">PTX half add 的次正规与 .ftz 条件</a>。例如该 PTX half add 默认支持次正规，而 .ftz 变体会清零次正规输入/结果；这只说明具体指令条件，不能外推所有内核。本页修订未运行 GPU、训练或性能实验。</p><p><a href="https://docs.nvidia.com/deeplearning/performance/mixed-precision-training/index.html">官方文档</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="05-互联与集群拓扑.html"><div class="dir">← 上一节</div>⭐ 互联与拓扑</a><a class="next" href="07-算子融合与编译.html"><div class="dir">下一节 →</div> 算子融合与编译</a></nav>

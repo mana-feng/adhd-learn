@@ -280,7 +280,16 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="polish-ai-fullstack-reading">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><style id="nc-r02-local-reading">
+main .nc-r02-extension { min-width:0; max-width:100%; margin:1.2em 0; overflow-wrap:anywhere; }
+main .nc-r02-extension summary { cursor:pointer; line-height:1.6; }
+main .nc-r02-extension table.nc-r02-table { width:100%!important; min-width:0!important; max-width:100%; table-layout:fixed; }
+main .nc-r02-extension .nc-r02-table th, main .nc-r02-extension .nc-r02-table td { min-width:0; max-width:none; white-space:normal!important; overflow-wrap:anywhere; word-break:normal; vertical-align:top; }
+main .nc-r02-extension .nc-r02-table th:first-child, main .nc-r02-extension .nc-r02-table td:first-child { width:32%; }
+main .nc-r02-extension p, main .nc-r02-extension li { max-width:100%; overflow-wrap:anywhere; }
+main .nc-r02-extension :not(pre)>code { white-space:normal!important; overflow-wrap:anywhere; word-break:normal; }
+main .nc-r02-extension pre { max-width:100%; overflow-x:auto; }
+</style></head><body class="polish-ai-fullstack-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -457,6 +466,31 @@ node_modules/
 <blockquote>
 <p>⭐ <strong>compose 是开发工具，不是生产编排。</strong> 它让新同事 <code>git clone</code> 之后一条命令就能起全套（对照第 13 章：<code>.env.example</code> 告诉他要填哪些变量，compose 告诉他要起哪些服务）。生产上数据库该用托管的，别自己在 compose 里跑一个没人备份的 Postgres。</p>
 </blockquote>
+<details class="nc-r02-extension" id="deployment-redis-recovery">
+<summary>可选深入：开发 Redis 能起，不代表生产能恢复</summary>
+<p>上面的 <code>cache: redis:7</code> 没有显式持久化卷和 AOF 配置，也只等待进程启动，不能把它当持久化或高可用承诺。先确认 Redis 存的是可丢缓存、限流计数，还是不能丢的任务状态；恢复后计数清零可能放过突发流量，业务事实仍需可靠存储。</p>
+<table class="nc-r02-table"><caption>重启后从哪里恢复</caption><thead><tr><th scope="col">机制</th><th scope="col">收益与丢失边界</th></tr></thead><tbody>
+<tr><td>RDB 快照</td><td>保存某时点的数据集，便于备份和恢复；异常退出可能丢最后一次成功快照后的写入。间隔是策略，不是固定保证。</td></tr>
+<tr><td>AOF 日志</td><td>记录写操作，恢复时重放；重写用于压缩历史，不等于定期全量备份。两者同时启用时，Redis 通常优先用更完整的 AOF 恢复。</td></tr>
+<tr><td>AOF 的 fsync 策略</td><td><code>always</code> 更积极同步、成本更高；<code>everysec</code> 常见灾难窗口约一秒；<code>no</code> 交给 OS 刷盘，窗口更难约束。都不能替代可靠磁盘与恢复演练。</td></tr>
+</tbody></table>
+<p>把数据文件挂到持久化卷，只解决容器替换时文件是否还在；宿主机或卷损坏仍可丢。异机/异地备份与实际恢复校验解决另一类故障，复制也会传播误删，不能冒充历史备份。</p>
+<table class="nc-r02-table"><caption>增加副本后，还缺什么</caption><thead><tr><th scope="col">部署形态</th><th scope="col">故障时谁接手</th></tr></thead><tbody>
+<tr><td>单机或普通主从复制</td><td>副本复制数据；仅有主从不代表自动提升和客户端切换。异步复制可能还没追上已确认写入。</td></tr>
+<tr><td>Sentinel</td><td>监测非分片主从、判故障并协调提升副本，客户端需支持发现新主；通常部署至少三个 Sentinel 到独立故障域。检测 quorum 与授权故障转移所需多数派不是同一门槛；网络分区时可暂停切换，不能保证零丢写。</td></tr>
+<tr><td>Redis Cluster</td><td>把键分到 16384 个哈希槽，主节点分担槽，副本供故障转移；客户端要处理 <code>MOVED/ASK</code>。跨键操作通常要求同槽。多数主节点不可达或槽缺失时可拒绝服务（受完整覆盖配置影响），读副本也可能旧。</td></tr>
+</tbody></table>
+<p>Sentinel 解决非分片故障转移，Cluster 同时提供分片；都不把异步复制变成零丢失的强一致存储。主节点故障和主从同时故障的可用性不同，选型要一起写清可丢多少、可停多久、客户端怎样重连。</p>
+<p>依据：Redis 官方的<a href="https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/">持久化</a>、<a href="https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/">Sentinel</a>与<a href="https://redis.io/docs/latest/operate/oss_and_stack/reference/cluster-spec/">Cluster 规范</a>。这里只做部署决策对照，未运行容器恢复或故障切换。</p>
+</details>
+<details class="nc-r02-extension" id="deployment-port-reachability">
+<summary>可选深入：监听、端口发布、内外网可达，是三件事</summary>
+<p>容器中的 <code>127.0.0.1</code> 指向容器自己。让 app 接收容器网络流量需监听相应接口（常用 <code>0.0.0.0:8000</code>），但 <code>0.0.0.0</code> 只是通配监听地址，不是客户端要访问的地址。其他容器用 <code>app:8000</code>；主机访问还要检查端口发布和防火墙，外网访问再检查入口与路由。</p>
+<p>例如 <code>127.0.0.1:8000:8000/tcp</code> 只把宿主机回环地址的 TCP 端口发布到容器，适合主机上的入口代理访问；不指定宿主 IP 的发布通常对宿主机所有接口开放。若代理也在独立容器里，它的 localhost 不是宿主机，应使用相应容器网络。最终可达范围仍取决于 Docker 网络模式、主机版本及防火墙。</p>
+<p><strong>同一个数字不代表同一个协议端口。</strong>Docker 可分别发布 <code>8000:8000/tcp</code> 和 <code>8000:8000/udp</code>；前提是对应宿主地址/协议的绑定不冲突，容器内也确实有 TCP 和 UDP 服务。本章 app 只演示 TCP 服务，另加 UDP 映射不会自动产生 UDP 服务，也不等于两个 TCP 监听者可随意抢同一绑定。</p>
+<p><strong>路由选择下一跳，NAT 改写地址，NAPT 还改写端口。</strong>一个示意的出站连接可把 <code>10.0.0.7:51000</code> 映射为网关的 <code>198.51.100.10:62000</code> 后访问外部服务；返回流量按映射状态还原。外部主动请求若无允许的映射、转发和防火墙规则，不会因此自动找到内网进程。NAT 不是身份认证，也不能替代访问控制。</p>
+<p>依据：<a href="https://docs.docker.com/engine/network/port-publishing/">Docker 端口发布</a>、<a href="https://www.rfc-editor.org/rfc/rfc3022.html">RFC 3022 的传统 NAT/NAPT</a>。上述地址和映射仅为说明，未执行真实网络实验。</p>
+</details>
 <p>⭐ <strong>一个容器跑一个进程。</strong> 别在容器里起 supervisor 再拉四个 worker —— 信号、日志、健康检查、扩缩容全都以容器为单位，塞多个进程进去等于让这四样一起失真。要多副本就多起几个容器。</p>
 <hr />
 <!--MIDSTOP-->
@@ -499,8 +533,41 @@ node_modules/
 <p>⚠️ <strong>这些不是信号</strong>：「PaaS 显得不专业」「反正以后总要上 K8s」。和上一章密钥三档一样 —— <strong>早上一档，换来的是一个需要有人值班的新组件，它自己也会挂。</strong></p>
 <p>⭐ 三种形态<strong>唯一必须一致的东西</strong>是第 1 章那五条：常驻进程、单请求超时 ≥ 5 分钟、不缓冲响应体、能设环境变量、自带 HTTPS。Serverless 默认过不了前三条，AI 应用别去踩。</p>
 <hr />
+<details class="nc-r02-extension" id="deployment-network-boundaries">
+<summary>可选深入：从部署地址走一遍最短请求链</summary>
+<p>以首次打开 <code>https://chat.example/</code> 为例，只追踪部署能观察到的环节；缓存、Service Worker 或连接复用可能省掉部分步骤，不是每次都重新走完。</p>
+<ol>
+<li>浏览器从 URL 取协议、主机、端口和路径；片段 <code>#...</code> 留在客户端。域名解析不携带页面路径。</li>
+<li>本地缓存未满足时，请配置的递归解析器找答案；它可用缓存，必要时沿根 → 顶级域 → 域的权威服务器查询。得到可用地址后，浏览器选择连接。</li>
+<li>按协商协议建立或复用安全连接：HTTP/1.1、HTTP/2 常经 TCP + TLS；HTTP/3 经 QUIC/UDP。TLS 核验证书和主机名，DNS 解析成功不替代这一步。</li>
+<li>发送 HTTP 请求。若经过 CDN，满足规则的缓存命中可直接回应；否则回源到入口代理，再按路由交给 app。静态 HTML 与 <code>/api/chat</code> 可以由不同上游处理。</li>
+<li>浏览器消费 HTML，按依赖获取 CSS/JS，构建和更新 DOM、样式、布局并绘制；前端再调用聊天 API 时会产生另一条请求链。拿到 HTTP 200 并不证明页面交互已正确完成。</li>
+</ol>
+<p><strong>DNS 里最容易混的两种角色：</strong>递归解析器替客户端找答案并缓存，权威服务器回答自己负责区域的记录。<code>NS</code> 指出权威服务，<code>A/AAAA</code> 提供 IPv4/IPv6 地址，<code>CNAME</code> 指向别名后还需继续解析。记录 TTL 限制其缓存使用时间；改记录不等于所有旧缓存立刻消失，也不是必须等固定的「全球传播时长」。</p>
+<p>根服务在根区配置为 <strong>13 个命名权威（A–M）</strong>，不是全世界只有 13 台机器；每个名字可由多个物理实例、任播部署共同提供服务。根通常告诉解析器下一层去哪里，不替你的域维护应用 IP。</p>
+<p>依据：<a href="https://www.rfc-editor.org/rfc/rfc1034.html">RFC 1034</a>、<a href="https://www.iana.org/domains/root/servers">IANA Root Servers</a>、<a href="https://www.rfc-editor.org/rfc/rfc9110.html">HTTP 语义</a>及<a href="https://html.spec.whatwg.org/multipage/browsing-the-web.html">浏览器导航模型</a>。这是一条部署检查用的简化轨迹，不展开 ARP、路由协议或内核收包。</p>
+</details>
+<details class="nc-r02-extension" id="deployment-cdn-boundaries">
+<summary>可选深入：CDN 缓住了什么，谁会看到它</summary>
+<p>CDN 把可共享内容放在更靠近用户的边缘，命中时省回源延迟和源站流量；未命中、需验证或规则不允许时才到源站。边缘并非每次都回源，也不是加了域名就会缓存全部页面。</p>
+<table class="nc-r02-table"><caption>给本应用设置缓存边界</caption><thead><tr><th scope="col">内容</th><th scope="col">部署时应确认的条件</th></tr></thead><tbody>
+<tr><td>带版本名的静态 CSS/JS/图片</td><td>适合共享缓存；用新文件名发布新内容，并验证 HTML 引用。旧 URL 需要改变时按实际产品清除或失效，不靠刷新源站文件强迫所有边缘同步。</td></tr>
+<tr><td>可变的公开页面</td><td>定义新鲜度和验证器。过期可回源验证，未变时使用 304；<code>Age</code> 估计已存活时间，不等于 TTL 还剩多少。</td></tr>
+<tr><td>用户会话、聊天响应和流</td><td>默认绕过共享缓存；敏感响应明确 <code>Cache-Control: no-store</code>。<code>private</code> 禁共享缓存但可允许私有缓存，<code>no-cache</code> 可存但使用前需验证，它们不是同义词。</td></tr>
+</tbody></table>
+<p>缓存键和 <code>Vary</code> 共同决定哪些请求能复用表示，但 <strong>Vary 不是租户权限检查</strong>。不要只按 URL 把 A 用户的回答回给 B；带凭据的响应须满足共享缓存的授权规则，产品的自定义缓存规则也不能把隔离条件抹掉。</p>
+<p>供应商默认值、缓存键支持和规则覆盖次序必须查具体产品。例如 <a href="https://developers.cloudflare.com/cache/concepts/cache-control/">Cloudflare Origin Cache Control</a> 说明源站指令与配置的关系，不能据此推断所有 CDN 的行为。协议依据见 <a href="https://www.rfc-editor.org/rfc/rfc9111.html">RFC 9111</a>。本段未做 CDN 配置或命中实验。</p>
+</details>
 <h2 id="_5">🔀 五、反向代理：三个坑，坑坑都在「本地正常」</h2>
 <p>不管哪种形态，你的应用前面几乎一定站着一层代理（平台的入口网关，或你自己的 Nginx）。它有自己的一套默认值，而<strong>那套默认值是给传统 Web 应用调的</strong>。</p>
+<details class="nc-r02-extension" id="deployment-trusted-client-ip">
+<summary>可选深入：代理后的「客户端 IP」要先过信任边界</summary>
+<p>app 的 TCP 对端往往是入口代理，不能直接当浏览器地址。<code>Forwarded</code> 的 <code>for=</code>、常见约定 <code>X-Forwarded-For</code> 可传递来源链，但客户端自己也能发送这些头；收到一个字符串不是完成身份验证。</p>
+<p>反例：攻击者自带 <code>X-Forwarded-For: 203.0.113.66</code>，若入口只是追加地址、app 永远取最左项，审计和按 IP 限流就被伪造。第一道受控入口应清理外部自带的同类头，从实际连接对端重建来源；后续代理只按约定追加，并保护代理间链路和源站入口。</p>
+<p>应用只在<strong>直接对端属于明确的可信代理集合</strong>时使用这些头，再从最近一跳向客户端方向核对可信链，停在第一个不可信地址。不能信任所有网段，也不能只为绕过解析错误随便取最左/最右项；允许客户端绕过入口直连源站，也会破坏这套假设。</p>
+<p>Nginx 中 <code>set_real_ip_from</code> 指定可信代理，<code>real_ip_header</code> 选择字段，<code>real_ip_recursive on</code> 在可信链中找最后一个非可信地址；实际地址范围由你的入口供应商和网络配置确定。<code>Forwarded</code> 与 XFF 不同格式，不能把一种的解析器直接套给另一种。</p>
+<p>最终得到的仍是该链路观察到的来源地址，可能是企业代理或 NAT 出口，不等于唯一用户。依据：<a href="https://www.rfc-editor.org/rfc/rfc7239.html#section-8.1">RFC 7239 §8.1</a>、<a href="https://nginx.org/en/docs/http/ngx_http_realip_module.html">Nginx realip 模块</a>。此处未改真实代理配置。</p>
+</details>
 <div class="codehilite" data-code-language="nginx"><pre><span></span><code><span class="k">location</span><span class="w"> </span><span class="s">/api/</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kn">proxy_pass</span><span class="w"> </span><span class="s">http://app:8000</span><span class="p">;</span>
 <span class="w">    </span><span class="kn">proxy_http_version</span><span class="w"> </span><span class="mi">1</span><span class="s">.1</span><span class="p">;</span>
@@ -551,6 +618,12 @@ node_modules/
 <p>⭐ 第一个坑第 1 章埋过伏笔：那里的 <code>X-Accel-Buffering: no</code> 是<strong>应用侧</strong>向代理喊的话，这里的 <code>proxy_buffering off</code> 是<strong>代理侧</strong>自己的开关。⚠️ 你只控制得了应用侧那句 —— 用托管入口时去文档确认它认不认这个头。</p>
 <p>💀 <strong>超时那条最坏的形态</strong>：代理在 60 秒切断连接，但<strong>后端进程还在继续生成</strong>。用户看到半截回答，你的 token 照花，而应用日志里这次请求写着「成功，耗时 95 秒」。三方证据互相矛盾，查起来极慢 —— 所以代理超时必须大于你最长的一次生成，而不是反过来让生成去迁就它。</p>
 <hr />
+<details class="nc-r02-extension" id="deployment-ping-health">
+<summary>可选深入：ping 有回声，HTTP 就健康吗？</summary>
+<p>一次 IPv4 ping 的最短轨迹是<strong>发送 ICMP Echo Request → 对方返回 Echo Reply → 用标识/序号匹配并计算往返时间</strong>。ICMP 也报告目的不可达等网络差错；它不使用 TCP/UDP 服务端口。</p>
+<p>ping 成功只说明该 ICMP 路径这次有响应：8000 端口可能没监听，TLS 证书可能不对，app 也可能还没准备好。反过来，网络可禁 ICMP 但允许 HTTPS，ping 失败不能单独判服务宕机。继续检查下面的 <code>/healthz</code>、<code>/readyz</code>，再验证一条真实业务请求；三者问的问题不同。</p>
+<p>依据：<a href="https://www.rfc-editor.org/rfc/rfc792.html">RFC 792 Echo 与差错消息</a>。这里只说明机制和证据范围，未运行 ping 或线上健康实验。</p>
+</details>
 <h2 id="_6">🩺 六、健康检查：两个端点，问的是两个问题</h2>
 <p>⭐ <strong><code>/healthz</code>（活着吗）和 <code>/readyz</code>（现在能接活吗）必须分开</strong>，因为它们的失败处理完全相反：<strong>前者失败 = 重启我，后者失败 = 先别给我派活，但别重启我。</strong></p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># ⚠️ 未实跑：要真的起 uvicorn、并由平台按「先摘流量、再发 SIGTERM」的顺序动作才看得出效果</span>

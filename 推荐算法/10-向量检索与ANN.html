@@ -695,6 +695,15 @@ body.rec-ann-reading .ann-parameter-table td:first-child code{white-space:nowrap
 </svg>
 <figcaption>看 10 ms 预算线：在给定的五个人为候选点中，D 是预算内 Recall@k 最高的配置。两轴线性，纵轴从 0.50 起；连线只引导读数。这不是实测 P99，也不是所有系统的通用最优点。</figcaption>
 </figure>
+<p><strong>从单索引到分片：</strong>查询必须说明本次合法库、编码器/预处理、metric与版本。把同一查询发到各分片（fan-out），再按同一分数协议归并候选，才谈全局top-k；多路召回并集不等于这个分片协议。</p>
+<details id="g03-ann-shards"><summary>可跳过：两分片归并与更新清单</summary>
+<p>手设统一为“分数越大越好”，严格同分时小ID在前，物品ID全局唯一。分片A返回 ID10:0.90、ID12:0.60；分片B返回 ID11:0.95、ID13:0.70。合并后全局top-2是<strong>11、10</strong>。若各片在同一合法快照上都返回精确局部top-k，候选足以归并同一协议的全局top-k；局部ANN若漏掉11，后续排序无法把它补回。这是手设候选，不是索引库实测。</p>
+<ul><li><strong>分数能否比较：</strong>统一metric方向、归一化、模型/特征与过滤语义；独立训练的强压缩索引可能使近似距离难比较，需统一训练或回到一致表示重打分。并列、缺候选、重复ID也要定义。</li>
+<li><strong>分片与副本不同：</strong>分片拆分物品集合；副本保存同一分片，用于可用性或读扩展。说明每片由哪个版本的副本响应；缺片/超时应标记partial，不能冒称全库足量结果。</li>
+<li><strong>新增、删除与切换：</strong>更新要带模型/索引代际与稳定业务ID；删除或墓碑应在合法库及所有相关副本生效，不能只删一个列表。索引的删除能力与ID重排取决于具体实现。</li>
+<li><strong>整版发布：</strong>先构建并校验所有分片、向量/码本和ID映射，待路由与副本就绪后按一致版本协议切换；记录失败/回滚与读取快照。不能把混合版本结果默认为同一个语义空间，也不能把Python归并当分布式原子发布。</li></ul>
+<p>已有本节exact与Recall@K协议继续复用；更新的模型兼容性见<a href="#1">原更新段</a>。完整快照的<a href="../智能体工程教程/11g-缓存与索引一致性实验.html#_6">SQLite教学例</a>只作协议参照，不是多节点切换实测。官方依据：<a href="https://github.com/facebookresearch/faiss/wiki/FAQ#how-can-i-distribute-index-building-on-several-machines">Faiss多机器训练/IndexShards及距离比较限制</a>、<a href="https://github.com/facebookresearch/faiss/wiki/Faiss-indexes">各类索引操作</a>。</p>
+</details>
 <h2 id="_4">⚠️ 工业落地的四个真实问题</h2>
 <h3 id="1">① 向量多久更新？先看哪些输入会变化</h3>
 <p><strong>更新频率来自时效要求，不是固定日历。</strong>“物品天级全量重建 + 分钟级增量”是一种部署例子；新品可按需加入，量化训练或模型换版则可能需要重建评估。</p>

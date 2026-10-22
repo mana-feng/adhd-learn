@@ -280,7 +280,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="polish-ai-fullstack-reading">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><style id="g04-reading-fix-qread-003">
+/* Bound only this added prose table; preserve its scroll wrapper and all content. */
+body main table.g04-reading-storage-conditions { table-layout:fixed; width:100%; min-width:36rem; max-width:none; }
+body main table.g04-reading-storage-conditions :is(th,td) { white-space:normal; overflow-wrap:anywhere; word-break:normal; vertical-align:top; }
+</style>
+</head><body class="polish-ai-fullstack-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -311,8 +316,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⏱ <strong>85 分钟</strong> ｜ ⭐ <strong>文件不该流过你的后端，你只该发一张通行证</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>上传的正确形状是：浏览器把文件直接交给对象存储，你的后端只负责发一张限时、限权、限大小的通行证 —— 全程不碰字节流。</strong>
-剩下的难点全在这个形状的外围：413 到底是哪一层给的、传完之后你怎么知道、以及那个文件接下来会被模型读到。</p>
+<p><strong>本应用选择的大文件上传形状是：浏览器把文件直接交给对象存储，Web 后端负责发一张限时、限权、限大小的通行证；文件字节不经过 Web 请求进程，后续由 worker 读取处理。</strong>
+剩下的难点在这个形状的外围：413 到底是哪一层给的、传完之后你怎么知道、以及那个文件接下来会被模型读到。<strong>本章后续的“正确形状”均针对这一大文件直传场景，不是说数据库永远不能存文件。</strong>小型附件与大媒体的取舍见 <a href="#storage-blob-tradeoff">第七节的可跳过对照</a>。</p>
 <hr />
 <h2 id="_2">🧩 一、这一章补的是哪个洞</h2>
 <p><a href="07-向量检索落地.html">第 7 章</a>第五节画了一张流程图，第一步是这样的：</p>
@@ -712,8 +717,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="_9">💰 七、存储成本与生命周期</h2>
 <p>⚠️ <strong>这一节不写任何价格数字</strong> —— 各家不同、随时在变（🗓️），写下来第二年就是错的。
-⭐ <strong>只写相对关系，那部分不怎么变。</strong></p>
-<p><strong>对象存储收三笔钱，很多人只算第一笔</strong>：</p>
+⭐ <strong>只列计费维度与访问量；相对高低也要按供应商、区域、流向、免费额度和存储类别核算。</strong></p>
+<p><strong>先检查三类常见费用，别只算容量</strong>（这是检查入口，账单还可能有取回、复制等项）：</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -728,7 +733,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td>⭐ <strong>取出去多少</strong>（出网流量）</td>
-<td><strong>通常按每 GB 算下来比存储贵得多</strong> —— 这是本节最该记住的一条相对关系</td>
+<td>按实际流向和服务规则核算；与按月存储费不是脱离访问次数就可直接比较的同一项</td>
 </tr>
 <tr>
 <td><strong>操作了多少次</strong></td>
@@ -736,9 +741,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>那条相对关系直接决定一个设计</strong>：<strong>别把「每次回答都把原文件下发给前端」当成默认。</strong>
+<p>⭐ <strong>减少不必要的下载可以降低传输和请求负担</strong>：<strong>别把「每次回答都把原文件下发给前端」当成默认。</strong>
 文本切片已经在你的库里（第 7 章），回答时引用切片就够；只有用户点「看原文」时才回源取一次。</p>
-<p>存储分层（🗓️ 各家叫法不同）：越冷越便宜，但<strong>取回越慢、还要付取回费</strong>。
+<p>存储分层（🗓️ 各家叫法与规则不同）：部分冷/归档类别降低容量单价，但可能有取回等待、取回费和最短保存期等条件。
 ⚠️ <strong>别把 RAG 要用的原文件放归档层</strong> —— 那是给「三年前的合规备份」用的，不是给「用户随时可能点开」用的。</p>
 <p>生命周期规则，至少配三条：</p>
 <ol>
@@ -746,16 +751,36 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>清理 <strong><code>pending</code> 超时</strong>留下的孤儿对象 —— 签了证但用户没传完，或者传了但没走到 <code>/complete</code></li>
 <li>⭐ <strong>用户删文档时的清理</strong>，下面单独说</li>
 </ol>
+<p>如果已按本章采用大文件直传，可以继续；想判断“这次附件是否更适合入库”，再看 <a href="#storage-blob-tradeoff">可跳过的 BLOB / 外置对象对照</a>。</p>
+<details id="storage-blob-tradeoff"><summary>可选对照：数据库能存文件，为什么本应用仍把大媒体外置？</summary>
+<p>这里的“入库”指把二进制数据交给数据库管理：例如 PostgreSQL 17 的 <code>bytea</code>，或 MySQL 8.4 的 BLOB 类型族。列在逻辑上属于表，不等于物理上每行都内联全部字节；具体布局与限制取决于引擎/版本。<strong>选择取决于大小分布、读写并发、访问方式、恢复目标和运维能力，没有统一的“超过X就绝不能入库”阈值。</strong></p>
+<h3 id="storage-comparison-conditions">先比较需要承担的条件</h3>
+<div class="tw"><table class="g04-reading-storage-conditions"><colgroup><col style="width:18%"><col style="width:41%"><col style="width:41%"></colgroup><thead><tr><th>关注点</th><th>数据库二进制列</th><th>外置对象 + uploads元数据</th></tr></thead><tbody>
+<tr><td>提交与一致性</td><td>在支持事务的引擎/表中，附件字节与业务记录可在同库事务一起提交/回滚，减少跨系统中间状态</td><td>对象写入与关系库提交分开；需pending/完成确认/幂等更新等状态机。对象强一致读取不等于跨库事务</td></tr>
+<tr><td>备份与恢复</td><td>正确覆盖该数据类型的数据库备份可把记录与字节一并纳入一致快照；数据量同时增加备份/恢复时间和空间</td><td>数据库备份只保存键/元数据，不能恢复文件字节；需要对象版本/备份、清单与数据库恢复点协调，防止恢复到引用已删除对象的旧记录</td></tr>
+<tr><td>连接、日志与复制</td><td>读取大字段会占用数据库连接、IO和网络；写入也会给对应日志/复制/备份链路增加数据，具体路径依引擎与模式。驱动可流式读取，不能一概说必定全读进内存</td><td>上传/下载可绕开Web与数据库的数据通道，容量和分发独立扩展；仍要运维对象服务/权限/元数据与失败恢复</td></tr>
+<tr><td>访问与权限</td><td>可沿用应用对业务行的授权；列权限并不自动等于最终用户鉴权。大文件Range/CDN分发通常还需应用网关等额外路径</td><td>对象键不是授权。私有桶、应用ACL、短期签名或受控CDN访问要配合，不能把“知道URL”当已获业务权限</td></tr>
+<tr><td>成本</td><td>计入数据库容量、IO、连接、日志/副本、备份恢复及运维，不能只算BLOB占几字节</td><td>按所选供应商核对容量×时间、PUT/GET等请求、取回/传输、复制和生命周期条件；CDN命中与流向会改变费用，不能说一定比数据库便宜</td></tr>
+<tr><td>生命周期</td><td>普通二进制列可随行事务删除；独立大对象引用则要单独核实其释放语义</td><td>可能出现孤儿对象或悬空记录；需要可靠删除意图、重试、对账和版本保留规则</td></tr>
+</tbody></table></div>
+<p><strong>两个条件例：</strong>一个内部系统的几KiB附件，数量/并发受控，要求和一条业务记录同事务生效、一起备份恢复，且数据库团队能承担容量与恢复目标，入库是合理候选。另一端是大视频/批量PDF，用户上行慢、常需断点续传和独立分发，本章选择预签名直传更自然。这是比较条件，不是按文件扩展名或一条固定大小线自动决策；应测目标负载的延迟、吞吐、备份和恢复时间。</p>
+<p><strong>引擎细节不能混用：</strong>PostgreSQL 17 的 <code>bytea</code> 列与独立 Large Object（LO）不是同一机制。LO按OID引用，可被多行共享，删除引用行不会自动释放对象，须按引用关系处理 <code>lo_unlink</code> 等生命周期；<code>pg_dump</code> 完整数据库导出通常包含LO，但按表/模式筛选时须检查选项。17版内置逻辑复制不复制LO，不能把“有数据库副本”当作LO也已复制。MySQL 8.4 BLOB族有不同容量上限，实际还受客户端和服务端 <code>max_allowed_packet</code> 等限制；这不意味着调大包限制就解决大对象的所有性能问题。</p>
+<h3 id="storage-external-lifecycle">沿本页 uploads 补上跨系统恢复条件</h3>
+<p>保持已有流程：服务端生成对象键与 <code>uploads.pending</code>；收到 <code>/complete</code> 或事件后，按已认证用户/租户与预期对象核实大小等元信息，再幂等推进 ready→processing→indexed。完成回调不是跨存储提交证明；对象可被覆盖时应绑定不可变键或明确版本，不能让稍后的worker无意读到另一个版本。</p>
+<p>清扫也需要状态条件：pending超时后核实对象、条件推进expired/ready，避免清理器与迟到的complete互相覆盖。已标expired却仍有有效上传凭证时，迟到上传仍可能重新留下对象，须有后续对账/保留窗口；不要一次扫完就声称没有孤儿。删除使用上面的持久意图与可重试处理，并审计仍被引用的键/版本。</p>
+<p><strong>以S3为例，不能外推到全部厂商：</strong>S3对象PUT/DELETE提供强一致读取、单key更新原子，但没有关系库与对象或多个key的共同原子提交。启用版本控制后，普通DELETE可能只增加delete marker，历史版本仍在；若目标包含实际释放空间/删除历史数据，就要按保留、合规和权限要求明确处理版本与生命周期，不能把当前GET返回404等同所有字节已永久删除。</p>
+<p>一个费用数量级手算：存100份、每份2MiB，原始字节约200MiB；若简化为1000次完整下载且每次仅一个GET、忽略Range/CDN/其他调用，则读取2000MiB并产生1000次GET。它分别是存量、传输量与请求数，乘的价格和时间单位不同；还没计算副本、备份、归档取回等项。<strong>这里不报价，也未执行数据库/对象存储性能或恢复测试。</strong></p>
+<p class="muted">依据：<a href="https://www.postgresql.org/docs/17/datatype-binary.html">PostgreSQL17 bytea</a> / <a href="https://www.postgresql.org/docs/17/lo.html">LO生命周期</a> / <a href="https://www.postgresql.org/docs/17/app-pgdump.html">pg_dump选项</a> / <a href="https://www.postgresql.org/docs/17/logical-replication-restrictions.html">逻辑复制限制</a>、<a href="https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/blob.html">MySQL8.4 BLOB</a>、<a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html">S3一致性</a> / <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/DeletingObjectVersions.html">版本删除</a> / <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lifecycle-mgmt.html">生命周期</a> / <a href="https://aws.amazon.com/s3/pricing/">计费维度</a>。</p>
+</details>
 <h3 id="7-on-delete-cascade">⚠️⚠️ 删除：第 7 章那个 <code>ON DELETE CASCADE</code> 管不到对象存储</h3>
 <p><a href="07-向量检索落地.html">第 7 章</a>第一节的核心论证是：向量和业务数据分开存，删除就是<strong>两步、不在一个事务里</strong>，
 而 pgvector 把它变成一行 <code>ON DELETE CASCADE</code>。</p>
-<p>⭐ <strong>但对象存储永远在那个事务外面。</strong> 所以「删一份文档」在这里又变回了两步：</p>
+<p>⭐ <strong>本章的对象存储不在关系库事务中。</strong> 所以「删一份文档」在这里又变回了两步：</p>
 <ul>
 <li>删库记录成功、删对象失败 → <strong>孤儿文件</strong>，一直占着钱，没人知道它是谁的</li>
 <li>删对象成功、删库记录失败 → 💀 <strong>更糟</strong>：列表里还有这份文档，点开是 404</li>
 </ul>
-<p>⭐ <strong>解法和顺序</strong>：<strong>先删库记录</strong>（用户立刻就看不见了），再由后台任务异步删对象，失败就重试。
-反过来做，用户会先看到一个坏掉的条目。</p>
+<p>⭐ <strong>把逻辑删除与可靠删除意图一起提交</strong>：在同一关系库事务中撤销用户可见性，并保存对象键/版本与待删任务（例如outbox）。后台按该意图异步删对象、失败重试；只有“先删记录，提交后再发一条任务”，仍会在两步间崩溃而丢失删除意图。物理删记录时也要先在事务内留下清理所需的键，不能把唯一线索一起删掉。</p>
 <p>⚠️ <a href="16-上线前检查单.html">第 16 章</a>那条验收项写的是「删业务记录时<strong>向量库里的分片也要没</strong>」——
 ⭐ <strong>有了这一章，它要多一句：对象存储里的那个文件也要没。</strong></p>
 <hr />
@@ -765,6 +790,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <strong>最后一段还有</strong>（约 23 分钟）：换个栈怎么对应 · 检查点与走神救援
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
+<details id="delete-transaction-boundaries"><summary>可跳过：删除这两步，分别需要本地事务、2PC还是补偿？</summary>
+<p><strong>本地事务</strong>只覆盖参与同一数据库事务的记录：撤销文档可见性、保存对象键/版本和删除意图可以一起提交/回滚。本章对象DELETE不是这次数据库事务的参与者，不能把SDK调用放在BEGIN/COMMIT之间就称为跨存储原子提交。</p>
+<p><strong>2PC</strong>要求各参与资源支持prepare/commit协议，并由外部协调者可靠记录决定、恢复未决状态。PostgreSQL17提供PREPARE TRANSACTION等接口，但准备后仍需完成或回滚，故障可能留下占用资源的未决事务。普通对象存储HTTP DELETE没有因为数据库支持2PC就自动加入它；不能用数据库的一条PREPARE来包住任意外部服务。</p>
+<p><strong>Saga</strong>把跨系统业务拆成本地提交与显式补偿，不能依赖全局SQL ROLLBACK。已经永久删除的对象未必能补回；若业务要求可撤销，必须事先设计版本/保留或延迟物理删除。补偿本身也是可能失败的新操作，且不自动提供事务隔离，不能悄悄掩盖已发生的外部效果。</p>
+<p><strong>Outbox</strong>解决的是“数据库提交了，却忘了通知后台”的窗口：业务变更与意图同库提交，后台按意图投递/执行。投递成功后、标记完成前崩溃可能重复，所以按稳定删除操作号/对象版本核验、幂等处理并保留失败重试与人工入口。它不把所有系统变成一个原子事务。这里沿本页删除实践比较职责，没有实施分布式事务服务。</p>
+<p class="muted">依据：<a href="https://www.postgresql.org/docs/17/two-phase.html">PostgreSQL17 2PC</a>、<a href="https://microservices.io/patterns/data/transactional-outbox.html">Transactional Outbox</a>、<a href="https://microservices.io/patterns/data/saga.html">Saga</a>。</p>
+</details>
 <hr />
 <h2 id="_10">🔄 换个栈怎么对应</h2>
 <div class="tw"><table>

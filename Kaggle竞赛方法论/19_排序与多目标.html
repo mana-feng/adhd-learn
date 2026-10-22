@@ -960,7 +960,7 @@ th,td{min-width:5.2em}
 </tr>
 <tr>
 <td><strong>优势</strong></td>
-<td>在全样本空间训练，避免选择偏差；CTR和CVR共享Embedding缓解稀疏</td>
+<td>在论文设定内，用全曝光目标应对点击样本训练的选择偏差<br>CTR和CVR共享Embedding缓解稀疏<br>不保证消除所有业务偏差，详见下方边界</td>
 </tr>
 <tr>
 <td><strong>竞赛应用</strong></td>
@@ -968,6 +968,20 @@ th,td{min-width:5.2em}
 </tr>
 </tbody>
 </table></div>
+<p><strong>先分清分母。</strong>给定一次曝光的特征 $x$，令 $y$ 表示是否点击；点击后是否转化记为 $z$。原模型采用曝光→点击→转化链：</p>
+<div class="tw"><table>
+<thead><tr><th>概率</th><th>含义</th><th>手算：20 曝光 / 5 点击 / 1 转化</th></tr></thead>
+<tbody>
+<tr><td>pCTR = $P(y=1\mid x)$</td><td>曝光后点击的概率</td><td>5 / 20 = 25%</td></tr>
+<tr><td>pCVR = $P(z=1\mid y=1,x)$</td><td>已点击条件下转化的概率</td><td>1 / 5 = 20%</td></tr>
+<tr><td>pCTCVR = $P(y=1,z=1\mid x)$</td><td>曝光后既点击又转化的概率</td><td>1 / 20 = 5% = 25% × 20%</td></tr>
+</tbody></table></div>
+<p>这组频率只是<strong>教学手算</strong>，不是模型预测或训练结果。同一 $x$ 下的概率链为 $pCTCVR=pCTR\times pCVR$。别把 1/20 当成点击后的 CVR；日志总体频率也不代表每个 $x$ 都有同样的概率。</p>
+<p><strong>监督信号接在哪里？</strong>设两支网络输出 $a_i=\widehat{pCTR}_i$、$b_i=\widehat{pCVR}_i$，CTCVR 输出是 $a_i b_i$。在统一归因窗口内，$t_i$ 表示已发生“点击且转化”。原论文用两项二元交叉熵（BCE），求和都遍历全部曝光记录：</p>
+<p>$$L_{CTR}=\sum_i BCE(y_i,a_i)$$</p>
+<p>$$L_{CTCVR}=\sum_i BCE(t_i,a_i b_i)$$</p><p>总损失 $L=L_{CTR}+L_{CTCVR}$。</p>
+<p>手算例的 20 条记录中，CTR 有 5 个正例，CTCVR 有 1 个正例。未点击记录的两个标签均为 0；这<strong>不等于给它强造一个已观测的 CVR=0 标签</strong>。原 ESMM 不另加直接监督的 CVR 损失；CVR 支路经乘积损失学习，并与 CTR 共享 Embedding。</p>
+<p><strong>“全空间”的边界：</strong>这里是已记录的全部曝光，不是所有可能的用户—物品组合，也不自动消除曝光策略偏差。点击链、日志与归因窗口要一致；窗口未结束的转化不能简单当作最终负例，延迟反馈需另行处理。依据：<a href="https://arxiv.org/html/1804.07931v2#S2.SS3">ESMM 原论文 §2.1–2.3、式 (1)/(3)</a>。</p>
 <h3 id="dbmtldeep-bayesian-multi-task-learning">DBMTL（Deep Bayesian Multi-Task Learning）</h3>
 <div class="tw"><table>
 <thead>
@@ -1077,6 +1091,7 @@ th,td{min-width:5.2em}
 <li>多目标建模里，Shared-Bottom 和 MMoE 的关键区别是什么？</li>
 <li>推荐赛题里最常见的踩坑点是什么？</li>
 <li>为什么推荐赛里「特征工程」的权重比很多人以为的高？</li>
+<li>20 次曝光、5 次点击、1 次转化时，CTR、CVR、CTCVR 各是多少？原 ESMM 在全部曝光上监督哪两项？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
@@ -1086,12 +1101,13 @@ th,td{min-width:5.2em}
 <li><strong>Shared-Bottom 底层完全共享</strong>，任务冲突时会互相拖后腿（跷跷板效应）；<strong>MMoE 用多个专家网络 + 每个任务一个门控</strong>，<strong>让每个任务自己决定用哪些专家</strong>，任务冲突时能各取所需。PLE 进一步区分「共享专家」和「任务专属专家」。</li>
 <li><strong>训练和预测的候选集不一致</strong>。训练时用的负样本分布，和线上/测试时实际面对的候选分布不同，导致<strong>离线指标很好但提交后崩掉</strong>。其次是<strong>时间穿越</strong>——用了预测时点之后才产生的行为统计特征。</li>
 <li>因为<strong>推荐赛的信号大量藏在「交互统计」里而不是原始 ID 里</strong>：用户近 N 天的行为次数、类目偏好分布、物品的近期热度和衰减、用户-物品的历史共现次数……<strong>这些聚合统计特征往往比换一个更复杂的模型收益大得多</strong>，而且树模型就能吃得很好。</li>
+<li>CTR=5/20=25%，CVR=1/5=20%，CTCVR=1/20=5%。原 ESMM 监督 CTR 和 CTCVR 两项损失，CVR 经乘积间接学习；未点击的 CTCVR=0 不表示观测到其 CVR=0。全曝光指日志内的曝光空间，仍需核对归因窗口与数据偏差。</li>
 </ol>
 </details>
 <hr />
 <h2 id="recap">🛑 可以停在这里</h2>
 <blockquote>
-<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>排序模型在候选集中学习匹配，特征交互与多目标共享方式各有取舍。</li><li>交互统计可能提供重要信号，但每一项都要遵守预测时间。</li><li>训练与预测候选分布保持一致，避免验证好看而提交失效。</li></ul></section>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>排序模型在候选集中学习匹配，特征交互与多目标共享方式各有取舍。</li><li>交互统计可能提供重要信号，但每一项都要遵守预测时间。</li><li>训练与预测候选分布保持一致，避免验证好看而提交失效。</li><li>ESMM 的点击后 CVR 与曝光后 CTCVR 分母不同；全曝光监督 CTR 和 CTCVR，不为未点击记录虚造 CVR 标签。</li></ul></section>
 </blockquote>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>

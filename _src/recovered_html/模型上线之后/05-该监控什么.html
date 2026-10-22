@@ -417,8 +417,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <blockquote>
-<p>⭐ <strong>关键设计</strong>：<strong>用训练集的 std 做归一化</strong>，而不是线上自己的 std。
-否则线上分布整体平移时，用它自己的 std 算 z 分数会看不出异常。</p>
+<p>⭐ <strong>关键设计</strong>：本例<strong>用固定训练基线的 std 归一化均值差</strong>，让不同时段沿用同一比较尺度。线上方差增大时，改用线上 std 会缩小这个分数；但<strong>纯平移不改变标准差，均值差仍能反映平移</strong>。例如基线[0,2]、线上[5,7]，均值由1变6，两边总体标准差均为1，任取一边作分母，均值差分数都是5。这是算术反例，不是生产测量。</p>
 </blockquote>
 <h3 id="_4">⚠️ 数据层监控的三个坑</h3>
 <div class="tw"><table>
@@ -717,7 +716,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>三层监控分别是什么？为什么说只做第一层等于没监控模型？</li>
 <li>系统层最容易漏的模型特有指标是哪个？为什么？</li>
 <li>数据层监控哪四件事？</li>
-<li>为什么归一化要用训练集的 std 而不是线上的？</li>
+<li>本例为什么用固定训练基线的 std 归一化均值差？纯平移会被线上 std 抵消吗？</li>
 <li>数据层监控的三个坑是什么？</li>
 <li>预测值方差塌缩通常意味着什么？</li>
 <li>定阈值时最关键的是哪一步？</li>
@@ -734,7 +733,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>系统层</strong>（还活着吗）、数据层（喂进去的还对吗）、模型层（答案还合理吗）。只做第一层等于没监控模型，因为模型出问题时系统层几乎总是正常的——特征算错、埋点变了、分布漂移，服务照样 200 OK、延迟正常。</li>
 <li><strong>降级触发次数</strong>。因为降级时不报错、"正常工作"着，不监控它可能几个月都不知道模型根本没在跑。</li>
 <li>缺失率、取值范围、分布、<strong>类别集合</strong>（新类别/消失的类别）。</li>
-<li>因为<strong>线上分布整体平移时，用它自己的 std 算 z 分数会看不出异常</strong>——基准必须是固定的训练集。</li>
+<li><strong>固定基线的 std 提供稳定、可跨时段比较的尺度</strong>；线上方差变化会改变以线上 std 为分母的灵敏度。纯平移不改变标准差，不能说用线上 std 就看不出均值差。基线[0,2]与线上[5,7]用任一标准差所得分数均为5。</li>
 <li>①只监控入模特征不监控上游原始字段 ②<strong>按天聚合掩盖小时级异常</strong>（上游挂 3 小时，按天看均值只动一点）③告警阈值一刀切。</li>
 <li><strong>特征大面积缺失</strong>。模型不报错，会退化成"只用剩下的特征+偏置"预测，表现就是所有人分数挤在一起。监控预测值标准差能第一时间发现。</li>
 <li><strong>用剩下的历史数据回测这个阈值会报多少次警</strong>。如果一个月报 50 次，它一定会被无视。</li>
@@ -752,7 +751,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <blockquote>
 <p>⭐ <strong>三层监控：系统层「还活着吗」、数据层「喂进去的还对吗」、模型层「答案还合理吗」。</strong></p>
 <p>⭐⭐ <strong>反直觉的关键事实：模型出问题时，系统层几乎总是正常的</strong>——特征算错、埋点变了、分布漂移，<strong>服务照样返回 200、延迟照样很低</strong>。⭐ <strong>只监控系统层等于没监控模型。</strong> ⚠️ 系统层最容易漏的是<strong>降级次数</strong>——降级不报错，它「正常工作」着。</p>
-<p><strong>数据层性价比最高</strong>：缺失率、取值范围、分布、类别集合。⭐ <strong>归一化要用训练集的标准差</strong>，否则线上整体平移时反而看不出异常。三个坑：只盯入模特征不看上游原始字段、<strong>按天聚合掩盖小时级异常</strong>、阈值一刀切。</p>
+<p><strong>数据层性价比最高</strong>：缺失率、取值范围、分布、类别集合。⭐ <strong>本例用固定训练基线的标准差比较均值差</strong>，保持跨时段尺度一致；纯平移不改变标准差，用线上 std 也不会自动抵消均值差。三个坑：只盯入模特征不看上游原始字段、<strong>按天聚合掩盖小时级异常</strong>、阈值一刀切。</p>
 <p>模型层看预测分布，⭐ <strong>方差塌缩意味着特征大面积缺失</strong>——模型退化成只用偏置，<strong>所有人的分数挤在一起</strong>。</p>
 <p>⭐⭐ <strong>定阈值最关键的一步是拿历史数据回测「这个阈值会报多少次警」</strong>——<strong>一个月报几十次的阈值一定会被无视。</strong></p>
 <p>⭐ <strong>最容易被整类漏掉的是新鲜度</strong>：分布全对，<strong>而那个值是几天前算的</strong>——<strong>所有分布检查都会通过</strong>。⭐ <strong>它是唯一能在坏数据进入模型之前就报警的检查。</strong></p>

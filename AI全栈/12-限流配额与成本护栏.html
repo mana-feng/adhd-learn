@@ -417,6 +417,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>⚠️ <strong>多实例部署时，桶必须是共享的</strong>。每个进程各持一个桶 = 实际限额乘以进程数。放 Redis 里，并且<strong>用一个 Lua 脚本把「读 + 算 + 写」做成一次原子操作</strong> —— 分成三次命令，中间那道缝就是超发的来源。</p>
+<details id="redis-atomic-options"><summary>可跳过：共享限流里的原子性，不等于SQL式回滚</summary>
+<p><strong>Pipeline</strong>把命令批量发送，主要减少往返和协议开销；它自身不承诺一组命令隔离执行。若第二条依赖第一条读回的结果，客户端仍要等待/计算，不能把“批量GET/SET”当作原子限流。</p>
+<p><strong>MULTI/EXEC</strong>把命令排队，在EXEC时按序执行、不与其他客户端命令交错；DISCARD丢弃尚未执行的队列，不是EXEC后的撤销。排队期的语法/参数等错误可能使EXEC整体拒绝；执行期类型错误则在对应回复中报错，其他已排队命令仍会执行，不能假定都自动回滚。</p>
+<p><strong>一个教学预期轨迹（未跑Redis）：</strong>初始quota=0，MULTI中排入INCR quota、对字符串key错误使用LPUSH、INCR quota；执行期中间那条类型错误不自动撤销两次合法INCR，quota可到2。客户必须检查EXEC中每条结果，不能只看“发过EXEC”。</p>
+<p><strong>WATCH</strong>用于乐观比较更新：先监视key、读取并计算，再MULTI提交；被监视值在EXEC前变化会使提交中止，客户端重新读取并有界重试。它不是长期持有的互斥锁，连接状态/连接池使用要正确。Redis7.2中相关过期变化也在监视语义内；不要套用旧版本的例外。</p>
+<p><strong>Lua</strong>适合把当前限流的读、条件判断和写放到服务器一次执行，执行期间不与其他客户端操作交错；长脚本也会阻塞服务。这里的原子执行不应被理解成遇任何运行错误都自动恢复SQL事务前的状态：先验证类型、参数和上限，再写，并设计失败/重试结果检查。跨数据库/对象服务的副作用更不在脚本原子性里。依据 <a href="https://redis.io/docs/latest/develop/using-commands/transactions/">Redis事务</a>、<a href="https://redis.io/docs/latest/develop/using-commands/pipelining/">Pipeline</a>、<a href="https://redis.io/docs/latest/develop/programmability/eval-intro/">Lua执行说明</a>；本节不做服务器线程或全局分布式事务教程。</p>
+</details>
 <hr />
 <h2 id="_5">🧩 三、配额与全局预算拉闸</h2>
 <p>这两件事的形状是一样的：<strong>一个账本 + 一条带条件的扣减语句</strong>。关键是<strong>判断和扣减必须在同一条语句里</strong> —— 「先 <code>SELECT</code> 看看够不够、再 <code>UPDATE</code> 扣掉」中间那道缝，会让两个并发请求都看到「还够」。</p>

@@ -462,6 +462,19 @@ MySQL 是 <code>EXPLAIN FORMAT=TREE</code>，输出的字面完全不一样。
 计划里干干净净；换成 <code>ORDER BY amount</code> 就冒出 <code>USE TEMP B-TREE FOR ORDER BY</code>。
 ⭐ <strong><code>ORDER BY</code> + <code>LIMIT</code> 的分页查询要是慢，先去计划里找这一行。</strong></p>
 <h2 id="_4">🔀 三、连接顺序：同一对表，谁在外层差十倍</h2>
+<details data-g02-natural="NC-R02-MYSQL-PLAN-SORT-T01" style="min-width:0;max-width:100%;overflow-wrap:anywhere;word-break:normal">
+<summary>选读 · MySQL 8.4：统计怎样连到计划与排序？</summary>
+<p><strong>本块只解释 MySQL 8.4 的有限机制。</strong>后面的 SQLite 连接实验与 6000 行夹具、历史计划和耗时均保持原义，不能拿它们证明 MySQL 的执行过程。</p>
+<p><strong>统计 → 估计行数 → 候选代价 → 选计划。</strong>优化器在语义和适用条件允许的候选中比较表扫描、索引范围/查找等访问路径，以及不同连接顺序和可用连接算法；不会保证穷举所有计划。表/索引统计及可用直方图等帮助估计选择性，影响各步输入、输出行数，再结合取行、比较等操作的代价模型比较候选。代价是估计值，不是保证的毫秒数。</p>
+<p>例如，若先过滤的一表预计只留下少量行，后续连接的预计组合数可能降低；若估计偏差大，选择也可能不佳。传统格式里的 <code>rows × filtered / 100</code> 可理解为当前表每次访问后预计传给下一连接阶段的行数，完整连接还涉及前序循环。<code>EXPLAIN</code> 看估计，<code>EXPLAIN ANALYZE</code> 会实际执行并报告行数、循环和时间；本块没有新增 MySQL 实测。</p>
+<ul>
+<li><strong>能按索引顺序交付：</strong>索引键顺序、排序方向及前导键等值约束等满足要求时，可能省去额外排序。例如有 <code>(a,b)</code> 索引、<code>WHERE a=常量 ORDER BY b</code> 是候选形状；是否选它还要比较取额外列/回表等成本。多表连接又有适用限制，不是存在同名索引就一定采用。</li>
+<li><strong>不能这样交付：</strong>MySQL 可增加 <code>filesort</code> 排序阶段。<code>Using filesort</code> 表示额外排序，<strong>不等于一定落盘</strong>，也不表示过滤条件没用索引。</li>
+<li><strong>排序数据能放入内存：</strong>排序缓冲按需增长，受 <code>sort_buffer_size</code> 限制，可在内存完成。放不下时可能把有序分段写入临时文件，再归并；排序元组宽度、行数、LIMIT 等都会影响过程，没有固定行数阈值或提速保证。</li>
+</ul>
+<p>诊断时把排序标记与实际证据分开：优化器 trace 的临时文件/峰值内存信息、同一受控时段的 <code>Sort_merge_passes</code> 变化可帮助判断；仅凭 <code>Using filesort</code> 不能判断是否用了磁盘。这里的排序临时文件也不等同于所有内部临时表。</p>
+<p>依据：<a href="https://dev.mysql.com/doc/refman/8.4/en/condition-filtering.html">MySQL 8.4 条件过滤与行数</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/cost-model.html">代价模型</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/order-by-optimization.html">ORDER BY 与 filesort</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/explain.html">EXPLAIN / ANALYZE</a>。</p>
+</details>
 <p><a href="02-JOIN的几种语义.html">02 章</a>讲了 <code>JOIN</code> 的<strong>语义</strong>，欠着<strong>代价</strong>。代价的核心只有一句话：</p>
 <blockquote>
 <p>⭐ <strong>最基础的连接算法是「嵌套循环」：外层表每出一行，就拿连接键去内层表找一次。</strong>
@@ -556,11 +569,8 @@ events 在外层      0.0140 s
 手工调顺序（<code>CROSS JOIN</code>、MySQL 的 <code>STRAIGHT_JOIN</code>、各种 hint）是<strong>最后一招</strong>——
 它把「今天的数据分布」和「今天的索引」焊进了 SQL 里，⚠️ 而这两样都会变。</p>
 </blockquote>
-<p>⚠️ 🗓️ <strong>未实跑 —— SQLite 只有嵌套循环这一种连接算法。</strong>
-Postgres / MySQL 8.0 还有 Hash Join（把小表做成哈希表，适合大表连大表且没有合适索引）
-和 Merge Join（两边都已排好序时像拉链一样合并）。
-⭐ <strong>你只需要知道：看到计划里写着 Hash / Merge，说明它没在走「逐行去索引里找」那条路</strong>，
-剩下的细节属于数据库调优，不在本教程范围内。</p>
+<p>⚠️ <strong>连接算法要按引擎与版本看：</strong>SQLite 的连接计划由嵌套扫描组成；PostgreSQL 18 的规划器可考虑 Nested Loop、Hash Join、Merge Join；MySQL 8.4 有嵌套循环与适用条件下的 Hash Join，不能把 PostgreSQL 的 Merge Join 清单照搬过去。Hash 的构建/探测与内存、Merge 的排序/已有顺序、循环的内层索引与重复次数都是不同成本项；没有一种对所有表规模和谓词必胜。</p>
+<p>上述跨库能力为文档核对，未实跑相应服务。依据：<a href="https://www.sqlite.org/eqp.html">SQLite 计划</a>、<a href="https://www.postgresql.org/docs/18/planner-optimizer.html">PostgreSQL 18 规划器</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/hash-joins.html">MySQL 8.4 Hash Join</a>。</p>
 <hr />
 <!--MIDSTOP-->
 <blockquote>
@@ -733,11 +743,10 @@ OR 两侧都有索引                   0.6862 ms   MULTI-INDEX OR
 </tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>①②③ 是同一个错误的三种衣服</strong>：<code>substr()</code>、<code>date()</code>、<code>CAST()</code>、<code>*2</code>、<code>|| ''</code> ——
-<strong>只要索引列被任何东西包住，索引就用不上了</strong>，因为索引里存的是列本身的值，
-而数据库没法从「<code>substr(ts,1,10)</code> 等于某值」反推出「<code>ts</code> 落在哪个区间」。</p>
+<p data-r02-repair="ordinary-index">⭐ <strong>①②③说明的是本例普通列索引的限制。</strong>原索引按列值组织；对列再做 <code>substr()</code>、<code>date()</code>、<code>CAST()</code>、<code>*2</code> 或 <code>|| ''</code> 等变换，查询未必还能直接使用原列索引定位。本例 <code>substr(ts,1,10)</code> 的计划不能推广成“列外只要包一层，所有索引都不能用”。</p>
+<p data-r02-repair="expression-index-boundary">表达式/函数索引、适当的生成列索引，或优化器可证明的等价改写，可能提供其他访问路径。<strong>SQLite 的表达式索引要求查询中的表达式与索引表达式匹配</strong>（容许空白等少量语法差异），不依赖数学上等价就自动交换写法；其中函数须满足确定性要求。是否实际采用仍看计划与成本，不能承诺更快。这里按 SQLite 的条件解释；其他引擎与版本要分别核对支持和限制，不能直接套用。依据：<a href="https://sqlite.org/expridx.html">SQLite 官方 Indexes On Expressions</a>。</p>
 <blockquote>
-<p>⭐ <strong>改法几乎永远是同一句：把变形从列这边挪到常量那边。</strong></p>
+<p>⭐ <strong>本例优先尝试：在语义等价的前提下，把变形从列这边挪到常量那边，再核实际计划。</strong></p>
 <ul>
 <li><code>date(ts) = '2026-03-05'</code> → <code>ts &gt;= '2026-03-05' AND ts &lt; '2026-03-06'</code></li>
 <li><code>amount * 2 &gt; 199</code> → <code>amount &gt; 99.5</code></li>
@@ -881,6 +890,47 @@ LIKE &#39;u00123%&#39;（默认）      10.3474 ms
 <a href="02-JOIN的几种语义.html">02 章</a>实测过 <code>'1'</code> 和 <code>1</code> 在 SQLite 里 <code>JOIN</code> 连不上（结果少一半、不报错），
 而 MySQL 会隐式转换连上、🗓️ 代价是索引失效。
 ⭐ <strong>两边加起来的结论是：别指望数据库替你转类型 —— 有的库转了会错，有的库转了会慢。数据进库之前把类型统一掉。</strong></p>
+<details><summary>可选深入：把 IN、LIKE 与连接键放进同一个受控小例</summary>
+<h3 id="predicate-join-controlled">先核结果，再比较访问路径</h3>
+<p>下例保持 6000 行 ev、100 个用户和确定的分布。列使用内置 NOCASE，保留 SQLite 默认的 ASCII 大小写不敏感 LIKE；显式关闭自动索引，避免它掩盖连接键有无持久索引的差别。每次建索引后重新 ANALYZE。这里的参数是绑定的<strong>值/模式串</strong>，不把列名当参数。</p><div class="codehilite" data-code-language="python" data-g02-example="predicate-join-controlled"><pre><code>import sqlite3
+db = sqlite3.connect(&quot;:memory:&quot;)
+db.execute(&quot;PRAGMA automatic_index=OFF&quot;)
+db.execute(&quot;CREATE TABLE ev(id INTEGER PRIMARY KEY,user_id TEXT COLLATE NOCASE,uid_int INT,amount REAL)&quot;)
+db.execute(&quot;CREATE TABLE users(id INTEGER PRIMARY KEY,city TEXT)&quot;)
+data = [(i, f&quot;u{i%100:03d}&quot;, i%100, float(i%10)) for i in range(6000)]
+db.executemany(&quot;INSERT INTO ev VALUES(?,?,?,?)&quot;, data)
+db.executemany(&quot;INSERT INTO users VALUES(?,?)&quot;, [(i,&quot;A&quot; if i in (7,9) else &quot;B&quot;) for i in range(100)])
+db.execute(&quot;CREATE INDEX ix_ev_user ON ev(user_id)&quot;)
+db.execute(&quot;ANALYZE&quot;)
+print(&quot;SQLite&quot;, sqlite3.sqlite_version)
+tests = [
+ (&quot;IN&quot;, &quot;user_id IN (?,?)&quot;, (&quot;u007&quot;,&quot;u009&quot;), [r[0] for r in data if r[2] in (7,9)]),
+ (&quot;prefix LIKE&quot;, &quot;user_id LIKE ?&quot;, (&quot;u00%&quot;,), [r[0] for r in data if r[1].startswith(&quot;u00&quot;)]),
+ (&quot;leading wildcard&quot;, &quot;user_id LIKE ?&quot;, (&quot;%007&quot;,), [r[0] for r in data if r[1].endswith(&quot;007&quot;)])]
+for label, predicate, args, expected in tests:
+    sql = &quot;SELECT id FROM ev WHERE &quot; + predicate + &quot; ORDER BY id&quot;
+    actual = [r[0] for r in db.execute(sql,args)]
+    assert actual == expected
+    print(label, len(actual), db.execute(&quot;EXPLAIN QUERY PLAN &quot;+sql,args).fetchall())
+join = &quot;SELECT e.id FROM users u JOIN ev e ON e.uid_int=u.id WHERE u.city=? ORDER BY e.id&quot;
+expected = [(r[0],) for r in data if r[2] in (7,9)]
+for indexed in [False,True]:
+    if indexed:
+        db.execute(&quot;CREATE INDEX ix_ev_uid ON ev(uid_int)&quot;)
+        db.execute(&quot;ANALYZE&quot;)
+    actual = db.execute(join,(&quot;A&quot;,)).fetchall()
+    assert actual == expected
+    print(&quot;join index&quot;, indexed, &quot;rows&quot;, len(actual), db.execute(&quot;EXPLAIN QUERY PLAN &quot;+join,(&quot;A&quot;,)).fetchall())
+db.close()
+</code></pre></div><p>本轮 SQLite 3.53.1 核查的结果数依次为 <strong>120、600、60</strong>；连接两种状态均返回同一 120 行。计划只作为该版本/分布/索引/统计信息的观察，不断言未来必须出现某段文本，也没有据此发布固定倍速。</p>
+<div class="tw"><table data-qread-task="QREAD-004" data-qread-anchor="predicate-join-controlled" style="width:100%;min-width:0;max-width:100%;table-layout:fixed"><thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">条件</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">为何有这条机会 / 限制</th></tr></thead><tbody>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">IN 的两个离散键</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">可能做多次索引等值访问；列表很大或命中占比高时也可能选扫描，不能写“IN 必走索引”</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">LIKE 'u00%'</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">存在固定前缀，可变成有序范围候选；还须符合 SQLite 的 TEXT 亲和性、内置 LIKE、collation/大小写设置与绑定准备接口等条件</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">LIKE '%007'</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">没有可用的起始前缀，这种范围优化不适用；仍可能扫描覆盖索引，扫描索引不等于缩小成选择性 SEARCH</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">JOIN 键是否有索引</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">外层候选、连接键匹配数与内层定位成本一起改变工作量；不是“表越少越快”</td></tr>
+</tbody></table></div>
+<p>按此例数据手算：外层 city='A' 留 2/100 个用户，每个键对应 60 条事件，共 120 个匹配。若用外层用户逐个扫内层，就是约 2×6000 次候选检查；有连接键访问时可定位两个匹配段。实际优化器还可能反转内外层，改成扫 6000 个事件再查用户；<strong>这份访问次数手算不是声明实际计划一定做了其中哪条路径</strong>。连接语义还受一对多、过滤位置与外连接保留行影响，改写后要继续断言结果。</p>
+<p>物理索引结构与复合键顺序见 <a href="../AI全栈/06-关系数据库.html#index-dimensions">AI 全栈 06 的可选深入</a>，本页只解释查询路径。依据：<a href="https://www.sqlite.org/optoverview.html">SQLite 优化器与 LIKE 条件</a>、<a href="https://www.sqlite.org/eqp.html">EXPLAIN QUERY PLAN</a>。</p></details>
 <h2 id="_5">🧯 六、一条查询慢了，按什么顺序查</h2>
 <p>⭐ <strong>这一节是前面所有内容的使用说明。</strong></p>
 <p><strong>第 0 步：先确认慢的真是这条 SQL。</strong>
@@ -931,6 +981,17 @@ LIKE &#39;u00123%&#39;（默认）      10.3474 ms
 本章第二节 ⑤ 那条 <code>SCAN ev USING COVERING INDEX ix_user</code>，
 拿去给任何一个只扫一眼的人看，都会得到「索引用上了呀」的结论。</p>
 </blockquote>
+<h3 id="slow-query-evidence-loop">从线上现象到回归：先找负载入口</h3>
+<p>单条计划只是闭环中间一步。先固定观察时间窗，按<strong>标准化语句/查询类别</strong>聚合，保留有代表性的参数分布与返回行数；同一 SQL 模板在不同参数上可能选择不同计划。</p>
+<div class="tw"><table data-qread-task="QREAD-004" data-qread-anchor="slow-query-evidence-loop" style="width:100%;min-width:0;max-width:100%;table-layout:fixed"><thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">阶段</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">最少留下的证据</th></tr></thead><tbody>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">日志 / 监控召回</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">频次、平均与分位耗时、总耗时，以及数据库耗时与应用排队/取数耗时的边界</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">按负载排序</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">高频中等耗时也可能比偶发慢查询更贵；p95 不能从一个平均值推出来</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">代表性重现</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">语句、参数分布、数据量/选择性、索引、统计信息与目标引擎版本</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">计划与运行对照</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">扫描/返回行数、连接重复次数、排序与估算偏差；普通 EXPLAIN 不等于实际耗时</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">受控修改 / 回归</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">一次改变一个索引或写法，先核结果，再在相同负载比较延迟、写入/空间成本与其他代表查询</td></tr>
+</tbody></table></div>
+<p><strong>MySQL 8.4 文档入口，未启动服务实测：</strong>慢日志受 <code>long_query_time</code>、<code>min_examined_row_limit</code> 等配置影响，记录 Query_time、Lock_time、Rows_sent、Rows_examined 等信息；阈值/限流或外部采样会改变观察范围，日志没出现不能证明它没有消耗。启用相应采集时，Performance Schema 的 <code>events_statements_summary_by_digest</code> 可按摘要看 COUNT_STAR、SUM_TIMER_WAIT、AVG_TIMER_WAIT、SUM_ROWS_EXAMINED 等累计指标；它们有自身统计窗、重置和采集条件。慢日志与摘要统计各补一面，不能当同一个无偏样本。</p>
+<p>例如一类请求 20 ms、每分钟 10000 次，另一类 2 s、每分钟 1 次：仅把平均耗时乘频次作粗算，前者累计 200 s、后者 2 s。它提示优化优先级，却不代表 200 s 墙钟串行耗时，也不提供 p95 或生产提速承诺。依据：<a href="https://dev.mysql.com/doc/refman/8.4/en/slow-query-log.html">MySQL 8.4 慢日志</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/performance-schema-statement-summary-tables.html">语句摘要统计</a>；计划命令的执行副作用继续看 <a href="附录A-速查.html#mysql-explain-columns">原速查</a>。</p>
 <h2 id="_6">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -982,7 +1043,7 @@ LIKE &#39;u00123%&#39;（默认）      10.3474 ms
 <li><code>USE TEMP B-TREE FOR ORDER BY</code> 什么时候出现、什么时候不出现？</li>
 <li>⭐ 2000 用户 / 20 万事件那组实测：没索引时谁在外层快？建完索引之后呢？这个反转说明了什么实践判据？</li>
 <li>计划里出现 <code>AUTOMATIC COVERING INDEX</code> 是什么意思？该怎么办？</li>
-<li>sargable 的判据是哪一句话？<code>substr(ts,1,10)='2026-03-05'</code> 为什么用不上索引、该怎么改、实测快了多少？</li>
+<li>本例普通 ts 列索引为何未直接服务 <code>substr(ts,1,10)='2026-03-05'</code>？范围改写的结果和历史耗时怎样？若有匹配的表达式索引，结论还能直接照搬吗？</li>
 <li><code>amount * 2 &gt; 199</code> 和 <code>YEAR(created) = 2026</code> 分别该怎么改写？为什么右端要用 <code>&lt;</code> 不用 <code>&lt;=</code>？</li>
 <li>⭐ <code>OR</code> 的三种命运各是什么？实测差多少？为什么说「别背『<code>OR</code> 要改 <code>UNION</code>』」？</li>
 <li><code>user_id LIKE 'u00123%'</code> 没有前导通配，为什么实测还是 <code>SCAN</code>？这件事说明判据应该是什么？</li>
@@ -997,8 +1058,8 @@ LIKE &#39;u00123%&#39;（默认）      10.3474 ms
 <li><code>ORDER BY user_id</code> 时<strong>不出现</strong>（索引本来就按它有序）；<code>ORDER BY amount</code> 时出现（得先全捞出来再排）。<code>ORDER BY</code> + <code>LIMIT</code> 的分页慢，先去计划里找这一行。</li>
 <li>没索引时 <strong><code>events</code> 在外层快</strong>（0.0440 s vs 0.2380 s，约 5 倍）；建完 <code>events(user_id)</code> 索引后反过来，<code>users</code> 在外层快（0.0019 s vs 0.0140 s，约 7 倍）。说明最优连接顺序取决于有没有索引，所以不要手工钉死连接顺序（<code>CROSS JOIN</code> / hint 是最后一招，它把今天的数据分布和索引焊进了 SQL）。换回普通 <code>JOIN</code> 让优化器自己选，它给出的计划和手工最优那条一字不差。</li>
 <li>数据库在说「<strong>这儿缺一个索引，我先临时建一个</strong>」—— 而临时索引每次查询都要重建。看到它就该去 <a href="../AI全栈/06-关系数据库.html">AI 全栈 06</a> 补一个真索引。</li>
-<li>对本例的<strong>普通列索引</strong>，将条件写成原列与常量范围的比较，通常更容易利用索引；用 <code>substr(ts,...)</code> 包住列未必能使用原来的 ts 索引。表达式索引、生成列索引、优化器改写是例外，最终仍需查看实际计划与耗时。参见 <a href="https://sqlite.org/expridx.html">SQLite 表达式索引</a>。日期筛选使用 <code>ts &gt;= 起点 AND ts &lt; 下一天</code>，避免漏掉秒内的小数部分。</li>
-<li><code>amount*2 &gt; 199</code> → <strong><code>amount &gt; 99.5</code></strong>；<code>YEAR(created)=2026</code> → <code>created &gt;= '2026-01-01' AND created &lt; '2027-01-01'</code>。改法永远是把变形从列这边挪到常量那边。右端用 <code>&lt;</code> 是因为 <code>&lt;= '2026-03-05 23:59:59'</code> 会漏掉那一秒里的毫秒。</li>
+<li>对本例的<strong>普通 ts 列索引</strong>，<code>substr(ts,...)</code> 条件未必能直接用它定位；语义等价的原列范围比较可作为候选改写。不能排除匹配的表达式/函数/生成列索引或可证明的优化器改写。SQLite 表达式索引还要求表达式匹配与函数确定性，其他引擎/版本另核；最终看实际计划与耗时。参见 <a href="https://sqlite.org/expridx.html">SQLite 表达式索引</a>。日期筛选的半开区间保留，避免漏掉秒内的小数部分。</li>
+<li><code>amount*2 &gt; 199</code> → <strong><code>amount &gt; 99.5</code></strong>；<code>YEAR(created)=2026</code> → <code>created &gt;= '2026-01-01' AND created &lt; '2027-01-01'</code>。这些改写要先确认语义等价，再核目标引擎的实际计划。右端用 <code>&lt;</code> 是因为 <code>&lt;= '2026-03-05 23:59:59'</code> 会漏掉那一秒里的毫秒。</li>
 <li>① 两侧都有索引 → <code>MULTI-INDEX OR</code>，各走各的索引再合并，<strong>0.0066 ms</strong>；② 手工改 <code>UNION</code> → 0.0179 ms，反而更慢（多了去重的 <code>TEMP B-TREE</code>）；③ 一侧没索引 → 整条塌成 <code>SCAN</code>，15.7034 ms，比①慢约 2400 倍。所以 <code>OR</code> 的真正危险不是「<code>OR</code> 慢」，是「速度由最差的那一侧决定」—— 加一个看起来无害的条件就能让查询慢一千倍。口诀不能背，因为①②的对比表明改写有可能更慢，先看计划。</li>
 <li>因为 SQLite 的 <code>LIKE</code> <strong>默认不区分大小写</strong>，而索引是区分的，对不上就不敢用。打开 <code>PRAGMA case_sensitive_like=ON</code> 之后同一句变成 <code>SEARCH</code>，10.3474 ms → 0.0033 ms，约 3100 倍。说明「能不能用上索引」不是 SQL 语言的性质，是这个库这一版这套设置下的性质 —— 判据永远是去看计划，清单只用来猜方向。（✅ 范围改写 <code>&gt;= AND &lt;</code> 不受这个开关影响，永远有效。）</li>
 <li><strong>第 0 步：先确认慢的真是这条 SQL</strong> —— 连接池排队、一次取十万行的序列化、尤其是循环里发了 200 条查询（N+1，每条 0.1 ms 单看都完美）。看到 <code>SCAN</code> 大表后按顺序问：① <code>WHERE</code> 里的列被包住了吗（最常中、最便宜）② 这列到底有没有索引（有就去 AI 全栈 06）③ 是不是本来就该全扫（统计全表、取走大半张表时 <code>SCAN</code> 就是正确答案，别硬掰优化器）。改完要同时看计划和量耗时。</li>
@@ -1011,7 +1072,7 @@ LIKE &#39;u00123%&#39;（默认）      10.3474 ms
 <p>⚠️ 反过来 <strong><code>SEARCH</code> 也不等于快</strong>：定位到的范围里如果装着几乎所有行，照样慢——<strong>动词只说「怎么找」，不说「找到多少」</strong>。</p>
 <p>另外三个记号：<strong><code>USING COVERING INDEX</code></strong>（要的列全在索引里，连表都不碰——多要一列就退回回表，⭐ 这正是「<code>SELECT *</code> 往往要求索引之外的列」的完整版）、<strong><code>USE TEMP B-TREE FOR ORDER BY</code></strong>（分页慢先找它）、<strong><code>AUTOMATIC INDEX</code></strong>（⭐ 数据库在说「这儿缺一个索引」）。</p>
 <p>🔗 <strong>连接的代价就一句话：嵌套循环，代价 ≈ 外层行数 × 内层每次查找的代价。</strong> ⭐ <strong>同一对表、同一个问题，最优连接顺序会因为有没有索引而反转</strong>——所以别手工钉死顺序，那等于把今天的数据分布焊进 SQL。</p>
-<p>对本例的<strong>普通列索引</strong>，将条件写成原列与常量范围的比较，通常更容易利用索引；用 <code>substr(ts,...)</code> 包住列未必能使用原来的 ts 索引。表达式索引、生成列索引、优化器改写是例外，最终仍需查看实际计划与耗时。参见 <a href="https://sqlite.org/expridx.html">SQLite 表达式索引</a>。日期筛选使用 <code>ts &gt;= 起点 AND ts &lt; 下一天</code>，避免漏掉秒内的小数部分。</p>
+<p>对本例的<strong>普通 ts 列索引</strong>，<code>substr(ts,...)</code> 条件未必能直接用它定位；语义等价的原列范围比较可作为候选改写。不能排除匹配的表达式/函数/生成列索引或可证明的优化器改写。SQLite 表达式索引还要求表达式匹配与函数确定性，其他引擎/版本另核；最终看实际计划与耗时。参见 <a href="https://sqlite.org/expridx.html">SQLite 表达式索引</a>。日期筛选的半开区间保留，避免漏掉秒内的小数部分。</p>
 <p>🔧 ⚠️ <strong><code>OR</code> 的速度由最差的那一侧决定</strong>：两侧都有索引时很快，<strong>一侧没索引整条就塌成全扫</strong>——加一个看似无害的条件就能慢上千倍。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="10-拿SQL审问一份数据.html">10-拿SQL审问一份数据.md</a></p>

@@ -310,7 +310,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>92 分钟</strong> ｜ ⭐ <strong>同样的数据、同样的加法、同样的次数，只换遍历顺序 —— 实跑慢 16 倍</strong></p>
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>CPU 从内存拿东西，从来不是按「你要的那一个数」拿的，而是按固定大小的一整块拿的（本机实测 64 字节）。</strong>
+<p><strong>CPU 缓存通常以 cache line 为单位填充；本章用 64 字节行模型解释局部性，下面打印的标准库常量并非硬件实测。</strong>
 你所有关于「快慢」的直觉都得从这一条重新长出来 —— 因为<strong>你用不用得上那一整块，决定了同一段代码是快还是慢十几倍</strong>。</p>
 <h2 id="_2">🧩 一、先把那十几倍跑出来</h2>
 <p>⚠️ <strong>先划一条界</strong>，因为这一章和 NumPy 板块隔得很近：</p>
@@ -407,9 +407,30 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong>两边做的加法一模一样</strong>：同样 1677 万次浮点加，同样的 128 MB 数据，两个和都是 16777216，<strong>连指令都几乎一样</strong>。唯一的差别是访问内存的顺序。</p>
 <p>⚠️ 这不是「优化技巧」，这是<strong>默认状态下你可能白白损失掉的十几倍</strong>。而且注意：写成 ② 那样并不奇怪 —— 「按列求和」是个再自然不过的需求，谁都可能顺手写出来。</p>
 <h2 id="cpu">🧩 二、CPU 不按元素取数，按「一条」取</h2>
-<p>上一节那十几倍的原因只有一句话：<strong>内存到 CPU 之间的最小搬运单位不是一个数，是一条固定长度的块</strong>，叫 <strong>cache line</strong>（缓存行）。</p>
-<p>本机这个长度是多少，标准库直接告诉你：</p>
-<div class="codehilite" data-code-language="cpp"><pre><span></span><code><span class="c1">// c03_probe.cpp</span>
+<details data-g02-natural="NC-PARTIAL-CACHEMEM-T01" style="min-width:0;max-width:100%;overflow-wrap:anywhere;word-break:normal">
+<summary>选读 · 主存与 CPU 多级缓存，各自在等什么？</summary>
+<p><strong>主存承载较大的运行中数据，缓存把其中近期或邻近会用到的行留在更快的层级。</strong>下面只画常见桌面/服务器 CPU 对普通可缓存内存的定性模型：越靠近核心，通常容量越小、命中延迟越低；向主存走，通常容量更大、访问等待更长。不是固定 KB/ns 表，也不是本机测量。</p>
+<div class="tw"><table style="width:100%;min-width:0;max-width:100%;table-layout:fixed">
+<thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">层级</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">典型职责与容量关系</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">典型访问等待</th></tr></thead>
+<tbody>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">L1</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">贴近核心的小缓存，常分指令与数据；先满足热点访问</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">命中通常最快</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">L2</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">通常比本核 L1 大，承接部分 L1 未命中</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">命中通常比 L1 等待长，但比访问主存短</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">L3 / 末级缓存</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">若实现提供，通常更大，也可能由多个核心共享</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">命中通常再慢一些；共享和互连也会影响等待</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">主存</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">承载比这些 CPU 缓存更大的工作数据；普通程序按地址读写，并非直接选择某个 L1 槽位</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">通常比缓存命中等待长；不是每次读都实际走到这里</td></tr>
+</tbody></table></div>
+<p>这些缓存的查找、填充与替换通常由硬件管理，程序主要通过访问局部性影响命中；系统软件仍能配置缓存属性等。<strong>SRAM 常用于片上 CPU 缓存，DRAM 常用于主存</strong>，但这是典型实现，不是角色的定义：也存在 DRAM 充当较大缓存、内存位于封装内等设计。缓存层数、共享关系、位置和实际延迟必须查对应架构。</p>
+<p><strong>一次读的最小轨迹：</strong>假设数据已在主存、属于普通可缓存区域，没有其他核心持有较新的副本，暂不考虑预取等细节：</p>
+<ol>
+<li>核心读某个元素：若所在行在 L1 有有效可用副本，就是命中，直接满足这次读。</li>
+<li>L1 未命中，继续由较低层缓存等寻找；若 L2 或末级缓存命中，就不必访问主存。相关缓存都未能提供时，请求才到主存，取回包含该元素的缓存行，按该实现的策略填充适用缓存，并满足读。</li>
+<li>随后访问同一行内的邻近元素，若行仍有效且未被替换，就可能命中，少一次较远层级的取回。这正是下面连续走访与跨步走访的布局动机；不能据此保证固定加速倍数。</li>
+</ol>
+<p><strong>写入另有边界：</strong>写回式缓存可以先保留较新的脏行，之后再按实现向较低层/主存写回；直写策略不同。在支持一致性的系统里，其他核心还可能从持有较新数据的缓存取得行，<strong>不必先等 DRAM 更新</strong>。缓存一致性、写回完成与线程间访问次序是不同问题；C++ 线程仍要用正确的同步，不能靠“等缓存回写”保证普通共享变量安全。这里不展开一致性协议或设备访问规则。</p>
+<p>依据：<a href="https://cdrdv2.intel.com/v1/dl/getContent/671447">Intel SDM Vol.3A 第14章 Memory Cache Control</a>（此处核对 093 版）、<a href="https://www.intel.com/content/www/us/en/developer/articles/technical/memory-performance-in-a-nutshell.html">Intel 内存层次说明</a>、<a href="https://www.intel.com/content/dam/www/public/us/en/documents/research/2013-vol17-iss-1-intel-technology-journal.pdf">Intel Technology Journal 2013：内存技术取舍</a>。仅用来核对机制，不把文档示例参数或原库常量输出当作当前机器的缓存规格。</p>
+</details>
+<p>解释上一节差异的一个关键是：<strong>缓存通常以一整行填充，而程序可能只用其中一个数</strong>，这行叫 <strong>cache line</strong>（缓存行）。具体事务粒度、缓存层级和预取还取决于硬件，不能把它理解成所有内存访问路径的统一最小单位。</p>
+<p>先看标准库给出的建议间距。<code>std::hardware_destructive_interference_size</code> 是<strong>实现定义的 constexpr 常量</strong>，表示并发访问对象为避免实现引入的争用所建议的最小间距；它不是运行时查询 CPU 缓存行长度的接口。依据：<a href="https://timsong-cpp.github.io/cppwp/n4659/hardware.interference">C++17 草案 hardware interference size</a>。原文件名 probe 保留，但其职责只是打印库常量：</p>
+<div class="codehilite" data-code-language="cpp"><pre><span></span><code><span class="c1">// c03_probe.cpp：打印实现建议常量，不探测硬件</span>
 <span class="c1">// g++ -O2 -std=c++17 c03_probe.cpp -o c03_probe</span>
 <span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;cstdio&gt;</span>
 <span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;new&gt;</span>
@@ -425,16 +446,16 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="p">}</span>
 </code></pre></div>
 
-<p>实跑输出：</p>
+<p>历史编译环境打印的库常量（本轮未作硬件测量）：</p>
 <div class="codehilite"><pre><span></span><code>hardware_destructive_interference_size = 64
 </code></pre></div>
 
-<p>⭐ <strong>64 字节。</strong> 于是第一节那两种走法的差别就清楚了：</p>
+<p>⭐ <strong>历史输出是 64 字节的建议值。</strong> 这不足以证明本机实际 cache line 长度。本章后续除历史测量表外，所有 64 字节装载、利用率与 padding 推导都以<strong>假设缓存行为 64 字节</strong>为教学模型；真实平台须查对应架构/缓存层级资料或使用专门硬件查询，并另行验证。按这个模型比较第一节两种走法：</p>
 <div class="tw"><table>
 <thead>
 <tr>
 <th></th>
-<th>每搬一条 64 字节</th>
+<th>模型：每行 64 字节</th>
 <th>用得上几个 double</th>
 <th>白搬了</th>
 </tr>
@@ -454,6 +475,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
+<details><summary>可选深入：空间局部性与时间局部性各是哪一笔收益？</summary>
+<h3 id="temporal-spatial-locality">靠近的地址，与刚用过的数据</h3>
+<p><strong>空间局部性</strong>是访问一个地址后，又访问附近地址；本章行遍历、连续数组与 SoA 的有效字节比例是例子。<strong>时间局部性</strong>是近期访问的数据较快再被访问；工作集装得下时，重复复用同一小块数据可能命中较近缓存，工作集放大后效果会改变。它们是访问模式，不是无条件的性能保证。</p>
+<p>本章的 CPU 硬件预取与缓存实验不解释操作系统页缓存的预读、回写或污染策略，二者不能互相代替。第二节打印的常量仍只是实现建议间距；64 字节只用于已声明的教学模型，不能因“有空间局部性”就反推实际缓存行大小。</p></details>
 <h3 id="_3">🚦 把这件事直接量出来</h3>
 <p>如果成本真的挂在「搬了多少条」而不是「取了多少个数」上，那就应该能观察到这样一个现象：<strong>取的元素少 16 倍，耗时却不会少 16 倍</strong>。</p>
 <div class="codehilite" data-code-language="cpp"><pre><span></span><code><span class="c1">// c03_line.cpp</span>
@@ -540,8 +565,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>⭐ <strong>看第一行和第五行</strong>：元素个数从 3355 万掉到 210 万，<strong>少了 16 倍</strong>，耗时却只从 19.21 ms 掉到 6.51 ms，只少了不到 3 倍。</p>
-<p>为什么？因为<strong>这两行搬的 cache line 条数完全一样</strong> —— 间隔在 64 字节以内时，无论你隔多少取一个，128 MB 里的每一条 line 都得被搬进来。省掉的只是「循环本身的指令」，省不掉「搬内存」。</p>
-<p>⚠️ 要等间隔<strong>超过</strong> 64 字节（表里最后两行），才开始有整条 line 被完全跳过，总耗时这才继续往下掉。</p>
+<p>在<strong>64 字节行、按本例步长访问完整范围</strong>的模型下，这两种步长触及的行数基本相同，少取元素不会同比减少行填充。实际耗时还受预取、缓存层级、工作集和循环开销影响，这张曲线不能反过来证明硬件行长。</p>
+<p>⚠️ 在该 64 字节模型中，间隔<strong>超过</strong>一行后才可能整行跳过；表里最后两行的历史耗时下降与这种解释相符，不能单凭耗时归因或测出行长。</p>
 <p>⭐ <strong>一句话读法：成本挂在「你碰到了多少条 line」上，不挂在「你用了多少个数」上。</strong></p>
 <h2 id="line">🧩 三、这条 line 从多远的地方来</h2>
 <p>「搬一条」也不是只有一个价钱 —— 取决于它当时在哪一级。这一层结构可以自己测出来：让指针在一块内存里<strong>随机地</strong>一跳一跳走下去（随机是关键，否则硬件会提前把下一块取来，测不出真实代价），然后改变这块内存的大小。</p>
@@ -640,6 +665,36 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 这也是为什么「调大一点点反而慢了」这种现象经常不是玄学。</p>
 </blockquote>
 <p>⚠️ 上面全是 <strong>CPU 这一侧</strong>。GPU 那边有自己的一套层次（寄存器 / Shared Memory / L2 / HBM）和自己的比值，<a href="../AI基础设施/03-显存与带宽墙.html">AI 基础设施 03</a> 第一节有一张完整的表，<strong>本章不重画那张表</strong>。</p>
+<details><summary>可选深入：读布局实验前，别把 int 和 long 都当成 64 位</summary>
+<h3 id="integer-data-models">sizeof 的结果依赖目标数据模型</h3>
+<section data-qsys-repair="QSYS-009" aria-label="整数最小宽度与范围补充">
+<p><strong>把四种类型的下界列清楚。</strong>下面按 <strong>C++20 起的补码规则</strong>说明，并已对照当前公开工作草案；固定版本参考 N4868。N 是包含符号位的整数值表示宽度，实际可以更大；表中的范围是该最小宽度下必须能容纳的范围，不是所有实现的完整范围。</p><div class="tw"><table style="width:100%;min-width:0;max-width:100%;table-layout:fixed"><thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">有符号类型</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">最小 N（位）</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">至少包含的范围（两端含）</th></tr></thead><tbody><tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">short int</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">16</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">−2<sup>15</sup> … 2<sup>15</sup>−1</td></tr><tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">int</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">16</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">−2<sup>15</sup> … 2<sup>15</sup>−1</td></tr><tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">long int</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">32</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">−2<sup>31</sup> … 2<sup>31</sup>−1</td></tr><tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">long long int</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">64</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">−2<sup>63</sup> … 2<sup>63</sup>−1</td></tr></tbody></table></div>
+<p>存储大小还满足 <code>sizeof(short) ≤ sizeof(int) ≤ sizeof(long) ≤ sizeof(long long)</code>，相邻类型可以一样大，仍是不同类型。sizeof 的单位是 C++ 字节，<code>sizeof(char)==1</code>；一个字节有 CHAR_BIT 位。<strong>sizeof(T)×CHAR_BIT 是对象表示所占位数</strong>，可能包括填充位，不能直接等同上表 N。不能从最低位宽反推出跨平台固定的 2/4/8 字节。</p>
+<p>前文与下方程序保留 C++17 基线。若讨论 <strong>C++17 的最低保证</strong>，它还允许其他有符号表示形式，不能把上表额外的最负值通用化：short/int 的共同保底负端为 −32767，long 为 −2147483647，long long 为 −9223372036854775807；各自正端至少是对应正数。具体实现的完整范围可查 numeric_limits 的 lowest()/max()，对象大小则查 sizeof。</p>
+<p>在常见 CHAR_BIT=8 的 ABI 中，按 short/int/long/long long/指针的顺序，典型 LP64 是 <code>16/32/64/64/64</code> 位，Windows x64 的典型 LLP64 是 <code>16/32/32/64/64</code> 位。这是常见实现安排；LP64/LLP64 的名称本身不约束所有类型，标准也不要求每个平台选其中一种。这里没有新增平台、GPU、扩展或缓存行测量。</p>
+<p>依据：<a href="https://eel.is/c++draft/basic.fundamental">当前公开草案 basic.fundamental</a>、<a href="https://eel.is/c++draft/support.limits">实现限值接口</a>、<a href="https://timsong-cpp.github.io/cppwp/n4868/basic.fundamental">固定对照 N4868</a>、<a href="https://learn.microsoft.com/en-us/cpp/cpp/data-type-ranges?view=msvc-170">微软类型范围</a>与前文 Windows 数据模型文档。</p>
+</section>
+
+<p>标准给整数最小范围与相对大小，不保证 int、long 在所有机器上同宽。常见 LP64 平台是 int 32、long/指针 64 位；64 位 Windows 的 LLP64 则 int/long 32、指针 64 位。size_t 是 sizeof 的无符号结果类型，不是“固定等于 long”；固定宽度 int32_t/uint32_t 等只在实现提供相应精确类型时存在。字节的位数用 CHAR_BIT，不能仅凭 sizeof(char)==1 推出所有平台的字节必为 8 位。</p><div class="codehilite" data-code-language="cpp" data-g02-example="layout-integer-widths"><pre><code>#include &lt;cassert&gt;
+#include &lt;climits&gt;
+#include &lt;cstddef&gt;
+#include &lt;cstdint&gt;
+#include &lt;iostream&gt;
+#include &lt;limits&gt;
+int main() {
+    static_assert(sizeof(char)==1);
+    static_assert(std::numeric_limits&lt;int&gt;::max()&gt;=32767);
+    static_assert(std::numeric_limits&lt;long&gt;::max()&gt;=2147483647L);
+    std::size_t count=3;
+    std::uint32_t exact=42; // this implementation provides exact 32-bit type
+    assert(count==3 &amp;&amp; exact==42);
+    std::cout &lt;&lt; &quot;bits: int=&quot; &lt;&lt; sizeof(int)*CHAR_BIT
+              &lt;&lt; &quot; long=&quot; &lt;&lt; sizeof(long)*CHAR_BIT
+              &lt;&lt; &quot; pointer=&quot; &lt;&lt; sizeof(void*)*CHAR_BIT
+              &lt;&lt; &quot; size_t=&quot; &lt;&lt; sizeof(std::size_t)*CHAR_BIT &lt;&lt; &#x27;\n&#x27;;
+}
+</code></pre></div>
+<p>这里打印的是当前编译目标的对象表示宽度，不是给别的 ABI 作承诺。结构体 padding、printf 格式和溢出上限仍要按实际类型核对；输出大小不能证明内存访问已对齐到缓存行。依据：<a href="https://timsong-cpp.github.io/cppwp/n4659/basic.fundamental">C++17 基本类型</a>、<a href="https://learn.microsoft.com/en-us/windows/win32/winprog64/abstract-data-models">Windows LLP64</a>。</p></details>
 <h2 id="_4">🧩 四、结构体为什么会莫名变胖</h2>
 <p>前面讲的是「怎么访问」。这一节开始讲「怎么摆」，第一件事是：<strong>你写的字段顺序，直接决定这个结构体占多少字节。</strong></p>
 <p>原因是<strong>对齐</strong>：硬件要求一个 8 字节的数必须放在 8 的倍数地址上，编译器只好在字段之间<strong>插空洞</strong>来满足它。</p>
@@ -868,7 +923,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="p">}</span>
 
 <span class="k">struct</span><span class="w"> </span><span class="nc">Packed</span><span class="w">  </span><span class="p">{</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">atomic</span><span class="o">&lt;</span><span class="kt">long</span><span class="w"> </span><span class="kt">long</span><span class="o">&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">;</span><span class="w"> </span><span class="p">};</span><span class="w">              </span><span class="c1">// 4 个挤在一起</span>
-<span class="k">struct</span><span class="w"> </span><span class="nc">Spread</span><span class="w">  </span><span class="p">{</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">atomic</span><span class="o">&lt;</span><span class="kt">long</span><span class="w"> </span><span class="kt">long</span><span class="o">&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">;</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="n">pad</span><span class="p">[</span><span class="mi">56</span><span class="p">];</span><span class="w"> </span><span class="p">};</span><span class="c1">// ⭐ 撑到 64 字节，各占一条 cache line</span>
+<span class="k">struct</span><span class="w"> </span><span class="nc">Spread</span><span class="w">  </span><span class="p">{</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">atomic</span><span class="o">&lt;</span><span class="kt">long</span><span class="w"> </span><span class="kt">long</span><span class="o">&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">;</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="n">pad</span><span class="p">[</span><span class="mi">56</span><span class="p">];</span><span class="w"> </span><span class="p">};</span><span class="c1">// ⭐ 历史64字节间距模型；不是硬件行长探测或普适对齐保证</span>
 
 <span class="k">template</span><span class="w"> </span><span class="o">&lt;</span><span class="k">class</span><span class="w"> </span><span class="nc">Slot</span><span class="o">&gt;</span>
 <span class="kt">double</span><span class="w"> </span><span class="n">run</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">nthreads</span><span class="p">,</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">iters</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
@@ -905,7 +960,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>实跑输出：</p>
 <section class="comparison-repair" id="comparison-repair-3"><p>硬件线程数: 8</p><p>sizeof(Packed)=8 sizeof(Spread)=64</p><p>4 个线程，各自给【自己的】计数器加 20000000 次（互不相干的变量）</p><div class="tw"><table><caption>同样工作量，比较两种内存布局</caption><thead><tr><th scope="col">实测轮次</th><th scope="col">挤在一起</th><th scope="col">隔开</th><th scope="col">相对耗时</th></tr></thead><tbody><tr><th scope="row">第1次</th><td>1577.45 ms</td><td>211.50 ms</td><td>7.46 倍</td></tr><tr><th scope="row">第2次</th><td>1824.92 ms</td><td>175.98 ms</td><td>10.37 倍</td></tr><tr><th scope="row">第3次</th><td>1176.16 ms</td><td>201.48 ms</td><td>5.84 倍</td></tr></tbody></table></div></section>
-<p>💀💀 <strong>5.84 到 10.37 倍，而这四个线程之间没有任何逻辑上的共享。</strong> 唯一的区别是 <code>char pad[56]</code> 这一行 —— 把每个计数器撑到 64 字节，让它们各占一条 line。</p>
+<p>💀💀 <strong>5.84 到 10.37 倍，而这四个线程之间没有任何逻辑上的共享。</strong> 这里改变的是 <code>char pad[56]</code> 带来的布局；历史输出记录 sizeof(Spread)=64，但没有给出每个对象的行对齐测量。64 字节间距不是跨平台隔离保证，复用时应核对类型大小、对齐与实际缓存一致性粒度；标准库建议值可用于布局设计，不能当作测量结论。</p>
 <p>⭐ <strong>为什么它特别难查</strong>：</p>
 <div class="tw"><table>
 <thead>
@@ -929,7 +984,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><strong>改法</strong></td>
-<td>让各线程写的东西<strong>隔开 64 字节</strong>，或者干脆<strong>各自在局部变量里累加，最后合并一次</strong></td>
+<td>按目标平台核对对齐与足够的隔离间距，或者干脆<strong>各自在局部变量里累加，最后合并一次</strong></td>
 </tr>
 </tbody>
 </table></div>
@@ -941,6 +996,46 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <strong>最后一段还有</strong>（约 28 分钟）：Python 侧也逃不掉 · 检查点与走神救援
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
+<details><summary>可选深入：计数器实验的线程何时结束，借用活到哪一步？</summary>
+<h3 id="worker-lifetime-and-atomic">先保证收尾，再比较布局</h3>
+<p>原实验把所有 worker join 完才离开局部计数器的作用域。join 等待关联线程完成，成功后不再 joinable；线程函数已返回但尚未 join/detach，thread 对象仍可能 joinable。<strong>析构一个 joinable 的 std::thread 会调用 terminate</strong>。异常路径也要收尾，不能靠正常路径末尾的一次 join 兜所有失败。</p><div class="codehilite" data-code-language="cpp" data-g02-example="thread-join-lifetime"><pre><code>#include &lt;cassert&gt;
+#include &lt;atomic&gt;
+#include &lt;thread&gt;
+int main() {
+    std::atomic&lt;int&gt; count{0};
+    std::thread first([&amp;] { for(int i=0;i&lt;500;++i) ++count; });
+    try {
+        std::thread second([&amp;] { for(int i=0;i&lt;500;++i) ++count; });
+        second.join();
+    } catch (...) { // if second cannot be created, still join first
+        if(first.joinable()) first.join();
+        throw;
+    }
+    assert(first.joinable());
+    first.join();
+    assert(!first.joinable() &amp;&amp; count.load()==1000);
+}
+</code></pre></div>
+<p>这个小例特意在第二个线程创建失败时 join 第一个；它不是完整线程组封装。detach 只解除句柄关联，不等待工作结束、不延长 lambda 捕获引用的寿命；把原实验改成 detach 然后返回，会让 worker 可能访问已销毁的局部数据，禁止这样复现。线程函数中未捕获异常也会 terminate，不能假定由启动者的 catch 自动接住。</p>
+<p>独立计数器 ++ 可以选 atomic，让每次读改写成为原子操作；atomic 不保证无锁，也不会把多个字段的业务不变量合成一个事务。比如“余额减少与转出记录增加”需要一个整体临界区，不能用两个互不相关的 atomic 就声称一致。这里不展开 memory_order、条件变量、线程池或线程安全类。</p>
+<h3 id="jthread-cpp20-boundary">C++20 可选对照：协作停止不是强杀</h3>
+<p>下面是独立 C++20 例，不可放进原 C++17 编译命令。jthread 在可 join 的析构路径请求停止并 join；stop_token 要由工作代码主动检查，阻塞或忽略请求的 worker 仍可能让析构等待。它也不自动修复捕获对象的寿命顺序。</p><div class="codehilite" data-code-language="cpp" data-g02-example="jthread-cooperative-stop"><pre><code>#include &lt;cassert&gt;
+#include &lt;atomic&gt;
+#include &lt;thread&gt;
+#include &lt;stop_token&gt;
+int main() { // C++20 only
+    std::atomic&lt;bool&gt; observed{false};
+    {
+        std::jthread worker([&amp;](std::stop_token token) {
+            while(!token.stop_requested()) std::this_thread::yield();
+            observed=true;
+        });
+        assert(worker.request_stop()); // request; worker must cooperate
+    } // joinable destructor requests stop and joins
+    assert(observed.load()); // observed outlives worker
+}
+</code></pre></div>
+<p>依据：<a href="https://timsong-cpp.github.io/cppwp/n4659/thread.thread.destr">C++17 thread 析构</a>、<a href="https://timsong-cpp.github.io/cppwp/n4868/thread.jthread.class">C++20 后续草案 N4868 的 jthread</a>。本轮只跑这些短标准库例，没有重跑原页的硬件计时，更没有硬件行长测量。</p></details>
 <h2 id="python">🧩 七、Python 侧也逃不掉</h2>
 <p>前面全是 C++。但这件事<strong>不是 C++ 的特性，是硬件的特性</strong> —— 用纯 Python 也能把它跑出来。</p>
 <p><a href="01-Python调C++的那条边界.html">01 章</a>第二节说过「那 1000 个对象散落在堆的各处，遍历它们等于 1000 次指针跳转」，当时留了一句「这一条会在 03 章变成一个更大的数字」。就是下面这个：</p>
@@ -1022,7 +1117,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td><a href="../NumPy与向量化思维/04-视图还是拷贝.html">《NumPy 与向量化思维》04</a></td>
-<td>「一个数组对象<strong>怎么描述自己的排布</strong>」「切片是视图还是拷贝」全在那边。⭐ 本章只讲硬件层：<strong>内存按 64 字节一块搬</strong></td>
+<td>「一个数组对象<strong>怎么描述自己的排布</strong>」「切片是视图还是拷贝」全在那边。⭐ 本章只讲硬件层：<strong>用 64 字节行模型解释局部性</strong></td>
 </tr>
 <tr>
 <td><a href="01-Python调C++的那条边界.html">01 章</a></td>
@@ -1053,7 +1148,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h2 id="_6">✅ 检查点</h2>
 <ol>
 <li>4096×4096 的 double 矩阵，按行走和按列走实跑各多少毫秒？慢了几倍？两种走法有什么不同、有什么完全相同？</li>
-<li>本机的 cache line 是多少字节？用什么方法测出来的（不是查资料）？</li>
+<li>打印出的 hardware_destructive_interference_size 是什么？能否据此称“本机 cache line 实测 64 字节”？</li>
 <li>固定摸完 128 MB，间隔从 4 字节改成 64 字节：取的元素少了几倍？耗时少了几倍？为什么不成比例？</li>
 <li>那条「成本挂在什么上」的判据怎么说？</li>
 <li>随机跳一步的耗时，从 8 KB 涨到 32 MB 大约变了多少倍？为什么正文强调「要看形状不看绝对值」，还说了哪一条诚实声明？</li>
@@ -1069,15 +1164,15 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <summary>👀 答案</summary>
 <ol>
 <li>按行 <strong>13.64 / 13.61 / 13.60 ms</strong>，按列 222.46 / 223.18 / 240.33 ms，慢 16.31 / 16.40 / 17.67 倍。不同的只有访问内存的顺序；相同的是数据（同一个 128 MB 矩阵）、运算（1677 万次浮点加）、结果（两个和都是 16777216），连指令都几乎一样。</li>
-<li><strong>64 字节</strong>。用 <code>std::hardware_destructive_interference_size</code> 打印出来的 —— 是本机标准库报告的值，不是查来的。</li>
-<li>元素从 33554432 个降到 2097152 个，<strong>少了 16 倍</strong>；耗时从 19.21 ms 降到 6.51 ms，只少了不到 3 倍。因为间隔在 64 字节以内时，要搬的 cache line 条数完全一样，省掉的只是循环本身的指令开销。要等间隔超过 64 字节才开始有整条 line 被跳过。</li>
+<li>历史打印值为 <strong>64 字节</strong>；它是标准库实现定义的 constexpr 建议间距，<strong>不是运行时硬件探测值</strong>。不能由此证明本机 cache line 长度；正文的 64 字节计算是教学假设。</li>
+<li>元素从 33554432 个降到 2097152 个，<strong>少了 16 倍</strong>；耗时从 19.21 ms 降到 6.51 ms，只少了不到 3 倍。在本例的 64 字节行模型中，两种步长触及的行数基本相同；实际耗时还受预取、缓存层级和循环开销影响，不能据此反推行长。</li>
 <li><strong>成本挂在「你碰到了多少条 cache line」上，不挂在「你用了多少个数」上。</strong></li>
 <li>从 <strong>3.00 ns</strong>（8 KB）涨到 344.19 ns（32 MB），大约 100 倍。三条诚实声明：① 这些数不是纯粹的缓存延迟，含地址翻译等其它开销；② 绝对值只对这台机器有效，要看的是形状（平的一段、台阶、高原）；③ 表里没有任何一个数字来自资料，全部实跑。</li>
 <li>字段本身加起来 <strong>14 字节</strong>；<code>Bad</code> 实际 24 字节（有 10 字节空洞），<code>Good</code> 16 字节，省 33%。一条 64 字节的 line：<code>Bad</code> 装 2 个，<code>Good</code> 装 4 个 —— 所以遍历 <code>Bad</code> 数组搬内存的次数是 <code>Good</code> 的两倍。</li>
 <li><strong>按大小从大到小声明</strong>。不推荐 <code>#pragma pack</code>：它能去掉空洞，但会让某些字段落在没对齐的地址上，在有些平台上性能更差甚至直接出错。</li>
 <li><strong>AoS</strong> = 结构体数组（一个粒子的属性挨在一起）；SoA = 数组的结构（每个属性一个数组）。只求和 <code>x</code> 时实跑 2.37 / 2.44 / 2.09 倍。<code>sizeof(Particle) = 32</code> 字节，一条 line 装 2 个粒子而只用得上 2 个 <code>float</code> = 8 字节，87.5% 白搬。</li>
 <li>因为那<strong>就是 SoA</strong>。深度学习的每个算子都是「对所有元素做同一件事」，一次只碰一两个属性但要碰所有元素 —— 正好落在该选 SoA 的那一行。</li>
-<li>多个线程各改<strong>各自的</strong>变量，但这些变量挤在同一条 cache line 里；一个核改了 line 里任何一个字节，其它核的整条副本作废。实跑 5.84–10.37 倍（挤在一起 1176–1825 ms，隔开 176–212 ms）。改法：让各线程写的东西隔开 64 字节（<code>char pad[56]</code>），或各自在局部变量里累加最后合并一次。难查是因为：代码完全正确、没有锁竞争和系统调用、CPU 占用还很高，症状只是「加线程越加越慢」。</li>
+<li>多个线程各改<strong>各自的</strong>变量，但这些变量挤在同一条 cache line 里；一个核改了 line 里任何一个字节，其它核的整条副本作废。实跑 5.84–10.37 倍（挤在一起 1176–1825 ms，隔开 176–212 ms）。改法：核对目标平台对齐与隔离间距（历史 pad[56] 仅是本例布局），或各自在局部变量里累加最后合并一次。难查是因为：代码完全正确、没有锁竞争和系统调用、CPU 占用还很高，症状只是「加线程越加越慢」。</li>
 <li><strong>装的是同一批对象</strong>，同样 200 万个 <code>float</code>，和相同（<code>True</code>），数据一个字节没变；只有访问顺序不同。慢 2.77 / 2.85 倍。地址差：顺序的中位数 32 字节，打乱后 20633632 / 29225504 字节。</li>
 <li>因为<strong>解释器开销通常比布局的差别大得多</strong>（01 章那三笔）。实验里 <code>array('d')</code> 只比顺序列表快 1.21–1.29 倍，就是因为 <code>sum()</code> 每取一个还要造一个 Python float 对象，那笔开销盖过了布局差别 —— 瓶颈换了地方，布局的收益就被摊薄了。</li>
 </ol>
@@ -1085,8 +1180,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h2 id="_7">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>🏁 <strong>全章一句话：CPU 不按元素取数，按固定大小的一整块取</strong>——本机实测是 64 字节，⭐ <strong>这个数是打印出来的，不是查来的</strong>。引子是同一个矩阵按行走和按列走：<strong>同样的数据量、同样的加法次数、同样的结果，只有访问顺序不同，慢了十几倍。</strong></p>
-<p>📏 ⭐⭐ <strong>判据：成本挂在「碰到了多少条 line」上，不挂在「用了多少个数」上。</strong> 证据是固定摸完同样大的内存、只改间隔——<strong>取的数少了十几倍，耗时只少不到三倍</strong>，因为要搬的 line 条数一样。</p>
+<p>🏁 <strong>全章一句话：CPU 不按元素取数，按固定大小的一整块取</strong>——本章按 64 字节行作教学推导，⭐ <strong>标准库打印的是实现建议间距，不能当作硬件实测行长</strong>。引子是同一个矩阵按行走和按列走：<strong>同样的数据量、同样的加法次数、同样的结果，只有访问顺序不同，慢了十几倍。</strong></p>
+<p>📏 ⭐⭐ <strong>判据：成本挂在「碰到了多少条 line」上，不挂在「用了多少个数」上。</strong> 证据是固定摸完同样大的内存、只改间隔——<strong>取的数少了十几倍，耗时只少不到三倍</strong>，在 64 字节行模型下可用触及行数相近来解释，但曲线不能证明硬件行长。</p>
 <p>⭐ 搬一条的价钱取决于它在哪一级，最近和最远差约两个数量级。由此得到 ⭐ <strong>「数据量刚好越过某一级缓存」是性能悬崖最常见的位置</strong>——<strong>「调大一点点反而慢了」经常不是玄学。</strong> ⚠️ 这些数<strong>绝对值只对本机有效，而且没有一个来自资料</strong>。</p>
 <p>📦 <strong>怎么摆同样要紧</strong>：对齐会插空洞，<strong>只把字段从大到小重排就能省掉三分之一</strong>——关键后果是一条 line 能装下的对象数差一倍。⚠️ 别用 <code>#pragma pack</code> 硬去空洞。放大到数组就是 <strong>AoS 与 SoA</strong> 之别，⭐ <strong>框架里「一个 <code>x</code> 张量加一个 <code>y</code> 张量」就是 SoA。</strong></p>
 <p>💀 <strong>false sharing 兑现了上一章的欠账</strong>：几个线程各加各自的计数器、<strong>毫无逻辑共享</strong>，只因挤在同一条 line 里就慢了将近一个数量级。⭐ <strong>难查是因为代码完全正确、没有锁竞争、CPU 占用还高——症状只是「加线程越加越慢」。</strong></p>

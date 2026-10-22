@@ -447,6 +447,83 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>⚠️ <strong>所以从 Python 带过来的直觉在这里会给你两种相反的错</strong>：以为「不会拷贝」的地方悄悄拷贝了一整个矩阵（性能问题），以为「会跟着变」的地方根本没变（正确性问题）。</p>
+<details><summary>可选深入：构造、花括号与返回值，到底少了哪一次复制？</summary>
+<h3 id="construction-and-elision">先分清初始化语法，再看构造日志</h3>
+<p>这一补充固定以 C++17 为基线，独立标准库例子也在 C++20 下核过。默认构造函数能无参调用；从参数初始化对象的构造函数不等于隐式转换许可。复制构造通常接收 const T&amp;，移动构造通常接收 T&amp;&amp;，后者怎样转移资源仍由类型实现决定。下面的 Loud 用日志把它们拆开：</p><div class="codehilite" data-code-language="cpp" data-g02-example="loud-constructors"><pre><code>#include &lt;cassert&gt;
+#include &lt;iostream&gt;
+#include &lt;utility&gt;
+#include &lt;vector&gt;
+struct Base { Base() { std::cout &lt;&lt; &quot;base &quot;; } };
+struct Member {
+    int value;
+    Member(const char* name, int n) : value(n) { std::cout &lt;&lt; name &lt;&lt; &#x27;=&#x27; &lt;&lt; n &lt;&lt; &#x27; &#x27;; }
+};
+struct Loud : Base {
+    Member first; // declaration order decides initialization order
+    Member second;
+    Loud() : Loud(0) { std::cout &lt;&lt; &quot;default\n&quot;; }
+    explicit Loud(int n) : second(&quot;second&quot;,n+1), first(&quot;first&quot;,n) {
+        std::cout &lt;&lt; &quot;from-int\n&quot;; // safe: no read of uninitialized first
+    }
+    Loud(const Loud&amp; o) : Base(o), first(&quot;first&quot;,o.first.value), second(&quot;second&quot;,o.second.value) {
+        std::cout &lt;&lt; &quot;copy\n&quot;;
+    }
+    Loud(Loud&amp;&amp; o) noexcept : Base(std::move(o)), first(&quot;first&quot;,o.first.value), second(&quot;second&quot;,o.second.value) {
+        std::cout &lt;&lt; &quot;move\n&quot;;
+    }
+};
+Loud direct() { return Loud{5}; } // C++17 prvalue direct construction
+Loud named() { Loud local{6}; return local; } // NRVO permitted, not required
+int main() {
+    Loud a; Loud b(2); Loud c{b}; Loud d(std::move(b));
+    assert(a.first.value==0 &amp;&amp; d.first.value==2);
+    auto e=direct(); auto f=named();
+    assert(e.first.value==5 &amp;&amp; f.first.value==6);
+    std::vector&lt;int&gt; count_value(3,7), elements{3,7};
+    assert(count_value.size()==3 &amp;&amp; count_value[0]==7);
+    assert(elements.size()==2 &amp;&amp; elements[0]==3 &amp;&amp; elements[1]==7);
+}
+</code></pre></div>
+<p>观察顺序：基类先于成员；first 先于 second，尽管初始化列表反着写。对非委托构造，虚基类由最派生对象按规定遍历顺序初始化，然后是直接基类声明顺序、非静态成员声明顺序，最后进入函数体。<strong>初始化列表的文本顺序改不了它</strong>。示例的两个成员只依赖 n；不要把 second 写成依赖尚未初始化成员的危险试验。委托构造则先完成目标构造，再执行委托者函数体。</p>
+<p>默认、复制、移动构造是否由编译器生成有条件：声明其他构造函数会抑制隐式默认构造；用户声明复制/移动或析构函数会影响隐式移动的生成，声明移动操作还可能使隐式复制被定义为删除；成员不可复制也可能使生成的复制构造被删除。因此“没写就一定有”不成立；本节不展开全部特殊成员规则。</p>
+<p><code>Loud b(2)</code> 与 <code>Loud b{2}</code> 都是直接初始化，允许调用 explicit 构造；<code>Loud b = 2</code> 的复制初始化不允许这样隐式转换。故意不能编译的最小反例，须单独作为一个文件：</p><div class="codehilite" data-code-language="cpp" data-g02-example="explicit-fail"><pre><code>struct Loud { explicit Loud(int) {} };
+int main() { Loud value = 1; } // expected compile error: explicit conversion
+</code></pre></div>
+<p>花括号还检查窄化，并在合适时优先考虑 initializer_list 构造。因而 vector 的 <code>(3,7)</code> 是三个 7，<code>{3,7}</code> 是两个元素；花括号不是圆括号的统一替代。下面同样是<strong>预期编译失败</strong>，不能与可运行文件合并：</p><div class="codehilite" data-code-language="cpp" data-g02-example="narrowing-fail"><pre><code>int main() { int value{3.5}; } // expected compile error: narrowing
+</code></pre></div>
+<p><code>return Loud{5}</code> 的同类型 prvalue 在 C++17 起直接构造结果对象，不要求存在一个可复制/移动的中间对象；下面删除两种构造仍能编译，析构函数仍须可访问且未删除。<code>return local</code> 则是命名返回值优化 NRVO 的候选，是否发生不能由一份日志保证；不发生时还要满足相应复制/移动要求。不要把一次编译观察到的“零 move”写成所有返回形式的保证，也不要为提速机械改成 <code>return std::move(local)</code>，那会失去 NRVO 的候选形式。</p><div class="codehilite" data-code-language="cpp" data-g02-example="prvalue-nonmovable"><pre><code>struct Token {
+    Token() = default;
+    Token(const Token&amp;) = delete;
+    Token(Token&amp;&amp;) = delete;
+};
+Token make() { return Token{}; }
+int main() { Token value = make(); }
+</code></pre></div>
+<p>上面的断言核对值，不锁死 named() 的构造次数。依据 C++17 草案：<a href="https://timsong-cpp.github.io/cppwp/n4659/class.ctor">构造函数</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/class.copy.ctor">复制/移动生成条件</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/class.conv.ctor">转换构造</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/dcl.init.list">列表初始化</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/class.base.init">初始化顺序</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/class.copy.elision">复制消除</a>。</p></details>
+<details><summary>可选深入：Loud 里的 this、默认访问与空指针</summary>
+<h3 id="this-and-nullptr">对象指针不等于所有权</h3>
+<p>在本章 C++17 的非静态成员函数里，this 指向本次调用的对象；const 成员函数中的 this 类型为 const Loud*，限制这条访问路径，不让对象自动线程安全。struct 默认成员访问与默认基类继承为 public，class 默认均为 private；显式写出访问说明后，它们都能有构造、成员函数等机制。以下是独立缩小版 Loud，不改前面的类型。</p><div class="codehilite" data-code-language="cpp" data-g02-example="this-null-default-access"><pre><code>#include &lt;cassert&gt;
+#include &lt;cstddef&gt;
+#include &lt;type_traits&gt;
+struct Loud {
+    int value=3; // struct: public by default
+    int read() const {
+        static_assert(std::is_same_v&lt;decltype(this),const Loud*&gt;);
+        return this-&gt;value;
+    }
+};
+class Hidden { int value=3; }; // class: private by default
+int choose(int) { return 1; }
+int choose(const int*) { return 2; }
+int main() {
+    const Loud object;
+    assert(object.read()==3);
+    static_assert(std::is_same_v&lt;decltype(nullptr),std::nullptr_t&gt;);
+    assert(choose(0)==1 &amp;&amp; choose(nullptr)==2);
+    // choose(NULL) intentionally omitted: NULL&#x27;s definition varies.
+}
+</code></pre></div>
+<p>nullptr 有专门类型 std::nullptr_t，可转为指针空值，示例因此选指针重载；整数 0 选 int 重载。NULL 是实现定义的空指针常量宏，定义形式会影响重载或造成歧义，不能断言所有平台都等于同一类型的 0。这里不执行对空 this 的成员访问，也不展开继承/虚函数。依据：<a href="https://timsong-cpp.github.io/cppwp/n4659/class.this">C++17 this</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/basic.fundamental">nullptr_t</a>。</p></details>
 <h2 id="const-tensor">🧩 三、于是源码里到处是 <code>const Tensor&amp;</code></h2>
 <p>上一节的输出只有 3 个 double，看不出代价。把规模放大量一下 —— 每个 vector 约 78 KB，5000 个：</p>
 <div class="codehilite" data-code-language="cpp"><pre><span></span><code><span class="c1">// c02_cost.cpp</span>
@@ -551,7 +628,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><code>Tensor&amp;</code></td>
-<td>「借我用，<strong>我会改它</strong>」 —— 外面能看见改动</td>
+<td>「借我用，<strong>允许我改它</strong>」 —— 外面能看见改动</td>
 </tr>
 <tr>
 <td><code>Tensor</code></td>
@@ -564,13 +641,34 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>⭐ <strong>这四行是本章最实用的一张表。</strong> 读源码卡住时，八成是把某个 <code>&amp;</code> 读漏了。</p>
+<h3 id="const-borrow-boundaries">🔎 <code>const</code> 管哪一层，借用能活多久？</h3>
+<p>下面按 <strong>C++17</strong> 读声明，假定 <code>T</code> 是普通非 const 对象类型。表里的“可改”表示接口允许，不表示每次调用一定修改。<code>const Tensor&amp;</code> 限制的是通过这个访问路径修改句柄；它不是底层 tensor 数据不可变的证明，间接数据与别名仍须读框架 API 的契约。</p>
+<div class="tw"><table><thead><tr><th>声明</th><th>自身能改指向？</th><th>能经它修改 T？</th><th>容易误读处</th></tr></thead><tbody>
+<tr><td><code>T* p</code></td><td>能</td><td>能</td><td>指针可能为空；解引用前仍须有效</td></tr>
+<tr><td><code>const T* p</code></td><td>能</td><td>不能</td><td>指向 const 的指针；其他可写别名可能仍能改原对象</td></tr>
+<tr><td><code>T* const p = &amp;x</code></td><td>不能</td><td>能</td><td>指针自身 const，目标并未因此 const</td></tr>
+<tr><td><code>const T* const p = &amp;x</code></td><td>不能</td><td>不能</td><td>两层分别受限，不代表对象永远无人可改</td></tr>
+<tr><td><code>T&amp; r = x</code></td><td>引用不能重新绑定</td><td>能</td><td><code>r = y</code> 给 x 赋值，不是把 r 改绑到 y</td></tr>
+<tr><td><code>const T&amp; r = x</code></td><td>引用不能重新绑定</td><td>不能</td><td>只读访问路径；不负责销毁被借对象</td></tr>
+</tbody></table></div>
+<p><strong>绑定与寿命再分开：</strong>普通 <code>T&amp;</code> 绑定可写左值；<code>const T&amp;</code> 也可绑定临时量；固定类型的 <code>T&amp;&amp;</code> 可绑定合适的右值。局部直接绑定 <code>const std::string&amp; s = std::string("hi");</code> 可延长该临时对象的寿命到 s 的寿命；把临时量传给引用形参，通常只活到包含这次调用的完整表达式结束。函数把这个引用存起来或返回，不会再次延长寿命。<a href="#_5">后面的悬垂实验</a>继续解释借用失效。</p>
+<p><strong>读源码时别让推导把“借用”弄丢：</strong>对下面这个普通变量，按 C++17 规则手推类型（这里没有容器深拷贝的统一承诺）：</p><div class="codehilite" data-code-language="cpp"><pre><code>int x = 1;
+const int&amp; r = x;
+auto a = r;             // int，独立的值；按值 auto 不保留顶层 const/引用
+auto&amp; b = r;            // const int&amp;，仍借用 x
+decltype(r) c = x;      // const int&amp;：未加括号的名字，取声明类型
+decltype(x) d = x;      // int
+decltype((x)) e = x;    // int&amp;：括号后按表达式值类别判断
+decltype(auto) f = (x); // int&amp;，不是 int；别返回对已销毁局部量的引用
+</code></pre></div><p><code>decltype</code> 通常不求值：对未加括号的名字取声明类型；其余表达式按左值 → <code>T&amp;</code>、将亡值 → <code>T&amp;&amp;</code>、纯右值 → <code>T</code> 判定。以上只补本章签名读法，不展开列表初始化等额外推导规则。</p>
+<p>依据：C++17 工作草案 N4659 的 <a href="https://timsong-cpp.github.io/cppwp/n4659/dcl.init.ref">引用初始化</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/class.temporary">临时对象寿命</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/dcl.type.cv">cv 限定</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/dcl.spec.auto">auto</a> 与 <a href="https://timsong-cpp.github.io/cppwp/n4659/dcl.type.simple">decltype</a>；可对照 <a href="https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2017/n4659.pdf">WG21 原稿</a>。这些是语言规则核对，不是 PyTorch 全部 API 的不可变性保证。</p>
 <h2 id="stdmove">🧩 四、<code>std::move</code> 不移动任何东西</h2>
 <p>这个名字起得很坏，坑过所有人。</p>
 <p>⭐ <strong><code>std::move(x)</code> 在运行时什么都不做。</strong> 它是一个纯粹的<strong>类型转换</strong> —— 把 <code>x</code> 标记成「这是一个可以被掏空的东西」，好让编译器在重载里挑中移动那个版本而不是拷贝那个版本。真正搬东西的是移动构造函数/移动赋值，不是 <code>std::move</code> 本身。</p>
-<p>所以更准确的读法是：<strong><code>std::move(x)</code> = 一句承诺，「<code>x</code> 我之后不用了，随你处置」。</strong></p>
-<p>⚠️ <strong>承诺一旦给出去，就必须遵守。</strong> 上一节输出里那两行是硬证据：</p>
+<p>所以读源码时可把它理解成：<strong>允许后续操作从 x 转移资源</strong>。是否真的移动，要看随后的重载选择；转换本身不销毁 x，也不保证它被清空。</p>
+<p>⚠️ <strong>资源真的被转走后，不要再假定原内容还在。</strong> 上一节实验记录的是这两次操作的结果：</p>
 <section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>移动之后，源 poolB[0] 的 size = 0（被搬空了）</p><p>拷贝之后，源 poolA[0] 的 size = 10000（还在）</p></div></section>
-<p>💀 <strong>被 move 走的对象处于「有效但未指定」状态</strong> —— 它还是一个合法对象（析构它是安全的，给它重新赋值也是安全的），但<strong>里面装的是什么没有任何保证</strong>。上面碰巧是 0，是因为 <code>std::vector</code> 的移动实现会把源置空；换一个类型可能就不是 0。</p>
+<p>💀 <strong>除非类型另有规定，标准库对象移动后处于「有效但未指定」状态</strong>。这次 vector 实验读到了 size = 0；不能把这条观察推广成所有类型、所有移动操作都保证清空。对象仍可按类型契约使用，具体允许什么还要检查操作的前置条件。</p>
 <p>📋 <strong>两条能保命的规矩</strong>：</p>
 <div class="tw"><table>
 <thead>
@@ -581,8 +679,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </thead>
 <tbody>
 <tr>
-<td>⭐ <strong>move 之后，只允许对它做两件事</strong>：重新赋值，或者让它析构</td>
-<td>读它的内容是「合法但结果没有保证」，最难查</td>
+<td>⭐ <strong>移动后按类型契约与前置条件使用</strong>；重新赋值、析构是常见选择，vector 的 size/empty 也可查询</td>
+<td>不要假定旧值或必为空；front 等操作仍须先满足非空条件</td>
 </tr>
 <tr>
 <td>⚠️ <strong>不要对准备继续用的东西 move</strong></td>
@@ -590,6 +688,27 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
+<h3 id="value-category-forward">🧪 有名字的 <code>T&amp;&amp;</code>，为什么还是左值？</h3>
+<p>值类别属于<strong>表达式</strong>。在本例的对象表达式中：<code>n</code> 和有名字的 <code>r</code> 是左值；<code>7</code> 是纯右值；<code>std::move(n)</code> 是将亡值（xvalue）。纯右值与将亡值合称右值。<code>int&amp;&amp;</code> 是变量的声明类型，不会让每次写下名字 <code>r</code> 都成为右值。</p>
+<p>下面是 <strong>C++17 最小可编译示例</strong>；输出按重载规则手推，未标为本机编译实跑。可保存后用支持 C++17 的编译器验证：</p><div class="codehilite" data-code-language="cpp"><pre><code>#include &lt;iostream&gt;
+#include &lt;utility&gt;
+void pick(int&amp;)  { std::cout &lt;&lt; &quot;L &quot;; }
+void pick(int&amp;&amp;) { std::cout &lt;&lt; &quot;R &quot;; }
+template&lt;class T&gt; void relay(T&amp;&amp; v) { // T 由实参推导：这里才是转发引用
+    pick(v);                         // v 有名字，总按左值传
+    pick(std::forward&lt;T&gt;(v));         // 恢复这次推导对应的值类别
+}
+int main() {
+    int n = 1;
+    int&amp;&amp; r = std::move(n);
+    pick(r);              // L
+    pick(std::move(r));   // R；转换本身不把 int 清零
+    relay(n);             // T = int&amp;，引用折叠后为 int&amp;：L L
+    relay(7);             // T = int，形参为 int&amp;&amp;：L R
+}                         // 合起来：L R L L L R
+</code></pre></div><p><strong>两种转换分工不同：</strong><code>std::move(v)</code> 无条件把对象表达式转成可用于移动的将亡值；<code>std::forward&lt;T&gt;(v)</code> 在这个推导场景中保留调用者的左/右值类别，不能把它当成“更快的 move”。固定类型参数 <code>void f(int&amp;&amp;)</code> 不是转发引用。<code>move</code> 也不去掉 const：从 <code>const std::string</code> 做 <code>std::move</code> 得到 <code>const std::string&amp;&amp;</code>，通常无法选中接收非 const 右值的移动构造，反而走拷贝。</p>
+<p><strong>移动后怎样继续用？</strong>对未另作规定的标准库类型，移动后保持<strong>有效但未指定</strong>：不变量成立，操作仍按该类型的契约工作。以 <code>std::vector&lt;int&gt; v</code> 为例，移动后可调用 <code>v.empty()</code>、<code>v.size()</code>；只有先确认非空，才能调用要求非空的 <code>v.front()</code>。不能假定读到旧内容，也不能把“未指定”当成允许越过前置条件。自定义类型还须看其移动操作承诺。</p>
+<p>依据：N4659 的 <a href="https://timsong-cpp.github.io/cppwp/n4659/expr">表达式值类别</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/forward">move / forward</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/lib.types.movedfrom">标准库移动后状态</a> 与 <a href="https://timsong-cpp.github.io/cppwp/n4659/defns.valid">有效但未指定的定义</a>。这里选用 C++17 版本文本；不把后续草案新增内容倒推成所有 C++ 版本的规则。</p>
 <hr />
 <!--MIDSTOP-->
 <blockquote>
@@ -688,6 +807,71 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>⭐ <strong>回扣 <a href="01-Python调C++的那条边界.html">01 章</a></strong>：那一章说 <code>py::gil_scoped_release</code> 是 RAII 对象、所以「哪怕函数中途抛异常锁也一定会被还回去」—— 上面 ② 那三行输出就是这句话的实况。构造时放开锁，析构时拿回来，中途炸了照样拿回来。</p>
+<details><summary>可选深入：拿到存储，不等于对象已经构造</summary>
+<h3 id="allocation-lifetime-raii">new/delete 与 malloc/free 的配对边界</h3>
+<div class="tw"><table style="width:100%;min-width:0;max-width:100%;table-layout:fixed"><thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">方式</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">对象生命周期</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">对应清理</th></tr></thead><tbody>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">new T / new T[n]</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">分配存储并初始化单个对象 / 数组元素</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">delete / delete[]，调用析构并释放相应存储</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">malloc(bytes)</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">只申请存储，不调用非平凡类型的构造函数</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">free，不调用析构函数</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">new (storage) T</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">在已有且满足大小/对齐要求的存储上构造</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">显式析构结束对象生命周期，再按原来源释放存储</td></tr>
+</tbody></table></div>
+<p>不能 new 配 free、malloc 配 delete，new[] 也不能配 delete。下面 Guard 有非平凡构造/析构，malloc 返回地址不会让 alive 增加。示例不涉及过度对齐类型：普通 malloc 的对齐不能泛化为任意 over-aligned T 的保证。实际业务优先用容器、make_unique 和作用域来表达所有权，手动分层只是解释接口。</p><div class="codehilite" data-code-language="cpp" data-g02-example="allocation-raii"><pre><code>#include &lt;cassert&gt;
+#include &lt;cstdlib&gt;
+#include &lt;memory&gt;
+#include &lt;new&gt;
+#include &lt;stdexcept&gt;
+#include &lt;iostream&gt;
+struct Guard {
+    inline static int alive = 0;
+    Guard() { ++alive; }
+    ~Guard() { --alive; }
+};
+int main() {
+    { auto p = std::make_unique&lt;Guard&gt;(); assert(Guard::alive == 1); }
+    assert(Guard::alive == 0);
+    try { auto p = std::make_unique&lt;Guard&gt;(); throw std::runtime_error(&quot;stop&quot;); }
+    catch (const std::runtime_error&amp;) {}
+    assert(Guard::alive == 0); // normal and exception exit both release
+    auto array = new Guard[2];
+    assert(Guard::alive == 2);
+    delete[] array; // matches new[]
+    void* storage = std::malloc(sizeof(Guard));
+    if (!storage) return 2;
+    Guard* object = nullptr;
+    try { object = new (storage) Guard; } // start nontrivial object&#x27;s lifetime
+    catch (...) { std::free(storage); throw; }
+    object-&gt;~Guard(); // end lifetime, does not free malloc storage
+    std::free(storage);
+    assert(Guard::alive == 0);
+    std::cout &lt;&lt; &quot;alive=&quot; &lt;&lt; Guard::alive &lt;&lt; &#x27;\n&#x27;;
+}
+</code></pre></div>
+<p>普通抛异常的 new 在分配失败时抛 std::bad_alloc，malloc 失败返回空指针，另有 nothrow new 的接口。new 表达式若构造失败，通常由匹配的释放函数归还刚分配的存储；完整对象没构造成功，就不会调用它的析构，但已完成构造的子对象会按规则展开。标准 placement new 不负责 free 你给的存储，所以这里在 catch 中归还 malloc 存储。正常路径先析构再 free，异常路径与正常路径的 make_unique 都验证 alive 回到 0。</p>
+<p>“局部对象在栈上、new 对象在堆上”只是常见实现速记。语言讨论的是自动/静态/线程/动态等存储期、生命周期与销毁责任，不强制某个物理栈或堆布局；优化也可能消除实际分配。依据 C++17 草案：<a href="https://timsong-cpp.github.io/cppwp/n4659/expr.new">new 表达式</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/expr.delete">delete 表达式</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/c.malloc">C 存储管理</a>。</p></details>
+<details><summary>可选深入：锁也是 RAII 资源，接口失败怎样传播？</summary>
+<h3 id="lock-ownership-and-errors">guard 固定作用域，unique_lock 可改变持有状态</h3>
+<p>lock_guard 不可复制/移动，常规构造立即上锁，作用域结束解锁；unique_lock 不可复制但可移动，能延后获取、显式解锁/再锁，并查询自己是否持锁。被锁对象必须活得比管理器久。下面只验证单线程资源管理路径，不是同步协议或锁竞争性能试验：</p><div class="codehilite" data-code-language="cpp" data-g02-example="locks-raii-ownership"><pre><code>#include &lt;cassert&gt;
+#include &lt;mutex&gt;
+#include &lt;stdexcept&gt;
+#include &lt;utility&gt;
+int main() {
+    std::mutex m;
+    try {
+        std::lock_guard&lt;std::mutex&gt; guard(m);
+        throw std::runtime_error(&quot;operation failed&quot;);
+    } catch (const std::runtime_error&amp;) {}
+    assert(m.try_lock()); // proves scope cleanup on this exception path
+    m.unlock();
+    std::unique_lock&lt;std::mutex&gt; delayed(m,std::defer_lock);
+    assert(!delayed.owns_lock());
+    delayed.lock();
+    auto transferred=std::move(delayed);
+    assert(!delayed.owns_lock() &amp;&amp; transferred.owns_lock());
+    transferred.unlock();
+    assert(!transferred.owns_lock());
+    transferred.lock(); // destructor unlocks only if still owning
+}
+</code></pre></div>
+<p>异常可把失败向调用链传播，按规则栈展开时 RAII 清理已构造资源；返回状态/错误码则把分支留给调用者，须检查结果，不能靠“没抛异常”判断成功。接口选择看恢复责任、调用约定、异常边界与团队约定，不能未经测量声称谁永远更快。析构期间再抛异常可能导致 terminate，清理函数应按接口约定处理失败；异常也不意味着数据库写入等外部效果自动回滚。这里不展开条件变量或并发事务。依据：<a href="https://timsong-cpp.github.io/cppwp/n4659/thread.lock.guard">lock_guard</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/thread.lock.unique">unique_lock</a>。</p></details>
 <h2 id="_4">🧩 六、四种指针，四种所有权声明</h2>
 <p><code>unique_ptr</code> / <code>shared_ptr</code> 那两段（③④）演示的是同一件事的两种回答。把它们和裸指针、引用放在一起：</p>
 <div class="tw"><table>
@@ -739,32 +923,60 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>看到 <strong><code>weak_ptr</code></strong>，八成是在<strong>打破循环引用</strong> —— 两个 <code>shared_ptr</code> 互相指着对方，计数永远归不了零，就泄漏了。⚠️ 这是 <code>shared_ptr</code> 常见的循环持有问题，和 Python 引用计数的循环引用问题是同一个病（Python 靠额外的循环垃圾回收器兜底，C++ 靠你写 <code>weak_ptr</code>）。</li>
 </ul>
 <p>⚠️ <strong><code>shared_ptr</code> 不是「更安全的 <code>unique_ptr</code>」，别无脑用它</strong>：它要多存一个控制块（计数在那里），计数的加减是原子操作，多线程下会真的争抢缓存行（<a href="03-cache与数据布局.html">03 章</a>会看到这件事的代价）。<strong>默认选 <code>unique_ptr</code>，确实说不清谁最后走才用 <code>shared_ptr</code>。</strong></p>
+<details><summary>可选深入：shared_from_this 复用的是哪个控制块？</summary>
+<h3 id="shared-owner-control-block">对象地址相同，还不够证明共享所有权</h3>
+<p>对象想把“自己的一份共享所有权”交出去，使用公开且无歧义的 <code>enable_shared_from_this&lt;Node&gt;</code> 基类，并先让合适的 shared_ptr 建立所有权。下面 make_shared 返回后调用 self，owner_before 双向都为 false，才核对了 p/q 的所有权等价。use_count=2 仅是这个单线程小例此刻的观察。</p><div class="codehilite" data-code-language="cpp" data-g02-example="node-shared-owner"><pre><code>#include &lt;cassert&gt;
+#include &lt;memory&gt;
+#include &lt;iostream&gt;
+struct Node : public std::enable_shared_from_this&lt;Node&gt; {
+    std::shared_ptr&lt;Node&gt; self() { return shared_from_this(); }
+};
+int main() {
+    auto p = std::make_shared&lt;Node&gt;();
+    auto q = p-&gt;self();
+    assert(p.get()==q.get());
+    assert(!p.owner_before(q) &amp;&amp; !q.owner_before(p)); // same control block
+    assert(p.use_count()==2);
+    Node unmanaged;
+    bool caught=false;
+    try { auto invalid=unmanaged.self(); }
+    catch (const std::bad_weak_ptr&amp;) { caught=true; } // specified failure, not UB
+    assert(caught);
+    std::cout &lt;&lt; &quot;same owner; unmanaged rejected\n&quot;;
+    // Never test shared_ptr&lt;Node&gt;(p.get()) or delete p.get(): double ownership/deletion risk.
+}
+</code></pre></div>
+<p>不要写 <code>std::shared_ptr&lt;Node&gt;(this)</code>：它可能再建立一个独立控制块，与既有所有者争着删除同一个对象。shared_from_this 从内部 weak_ptr 取得既有控制块；尚无所有者的栈对象在 C++17 下调用会抛 bad_weak_ptr，构造函数体内也不能假定 make_shared 已完成绑定。可在工厂完成创建后再调用需要共享所有权的初始化步骤；不得靠执行重复释放验证风险。</p>
+<p><code>delete this</code> 也不是“计数减一”。它要求对象来源适合这次单对象 delete、删除类型正确、没有另一套所有者继续销毁，且之后任何路径都不能再访问已结束生命周期的对象或释放它。它不适用于栈对象、数组元素或仍被智能指针拥有的对象。普通 RAII/共享所有权设计不手动自删。shared_ptr 对控制块计数的同步不使 Node 的成员访问自动线程安全；同一 shared_ptr 实例的并发修改也要遵守同步规则。</p>
+<p>依据 C++17 草案：<a href="https://timsong-cpp.github.io/cppwp/n4659/util.smartptr.enab">enable_shared_from_this</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/util.smartptr.shared.const">shared_ptr 构造与绑定</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/expr.delete">delete 的要求</a>。</p></details>
 <h2 id="_5">🧩 七、💀 悬垂：这一章真正存在的理由</h2>
 <p>前面都是「怎么写对」。这一节是「写错了会怎样」，而它的可怕之处不是崩溃，是<strong>不崩溃</strong>。</p>
-<div class="codehilite" data-code-language="cpp"><pre><span></span><code><span class="c1">// c02_dangle.cpp</span>
-<span class="c1">// g++ -O2 -std=c++17 c02_dangle.cpp -o c02_dangle</span>
-<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;cstdio&gt;</span>
-<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;vector&gt;</span>
+<div class="codehilite" data-code-language="cpp" data-g02-example="legacy-dangle-safe"><pre><code>// c02_dangle.cpp
+// g++ -O2 -std=c++17 c02_dangle.cpp -o c02_dangle
+#include &lt;cstdio&gt;
+#include &lt;cstdint&gt;
+#include &lt;vector&gt;
 
-<span class="kt">int</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">{</span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">20</span><span class="p">,</span><span class="w"> </span><span class="mi">30</span><span class="p">};</span>
-<span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="o">*</span><span class="w"> </span><span class="n">p</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">data</span><span class="p">();</span><span class="w">                 </span><span class="c1">// ⚠️ 记住这个地址</span>
-<span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">printf</span><span class="p">(</span><span class="s">&quot;push 之前: data=%p  capacity=%zu  p[0]=%d</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span>
-<span class="w">                </span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">void</span><span class="o">*</span><span class="p">)</span><span class="n">p</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">capacity</span><span class="p">(),</span><span class="w"> </span><span class="n">p</span><span class="p">[</span><span class="mi">0</span><span class="p">]);</span>
+int main() {
+    std::vector&lt;int&gt; v{10, 20, 30};
+    const int* p = v.data();                 // ⚠️ 记住这个地址
+    std::printf(&quot;push 之前: data=%p  capacity=%zu  p[0]=%d\n&quot;,
+                (const void*)p, v.capacity(), p[0]);
 
-<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">100</span><span class="p">;</span><span class="w"> </span><span class="o">++</span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">push_back</span><span class="p">(</span><span class="n">i</span><span class="p">);</span><span class="w">   </span><span class="c1">// 容量不够 -&gt; 换一块更大的地方</span>
+    const auto old_address = reinterpret_cast&lt;std::uintptr_t&gt;(p);
+    for (int i = 0; i &lt; 100; ++i) v.push_back(i);   // 容量不够 -&gt; 换一块更大的地方
 
-<span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">printf</span><span class="p">(</span><span class="s">&quot;push 之后: data=%p  capacity=%zu</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span>
-<span class="w">                </span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">void</span><span class="o">*</span><span class="p">)</span><span class="n">v</span><span class="p">.</span><span class="n">data</span><span class="p">(),</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">capacity</span><span class="p">());</span>
-<span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">printf</span><span class="p">(</span><span class="s">&quot;地址变了吗: %s</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">p</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">data</span><span class="p">()</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="s">&quot;没变&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="s">&quot;⚠️ 变了&quot;</span><span class="p">);</span>
-<span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">printf</span><span class="p">(</span><span class="s">&quot;v[0] 从新地址读 = %d  (正确)</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">0</span><span class="p">]);</span>
-<span class="w">    </span><span class="c1">// ⚠️⚠️ 下面这一行是【未定义行为】：p 指着已经被释放的那块内存</span>
-<span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">printf</span><span class="p">(</span><span class="s">&quot;p[0] 从旧地址读 = %d  (💀 未定义行为，本次没崩)</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">p</span><span class="p">[</span><span class="mi">0</span><span class="p">]);</span>
-<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
-<span class="p">}</span>
+    std::printf(&quot;push 之后: data=%p  capacity=%zu\n&quot;,
+                (const void*)v.data(), v.capacity());
+    std::printf(&quot;地址变了吗: %s\n&quot;, old_address == reinterpret_cast&lt;std::uintptr_t&gt;(v.data()) ? &quot;没变&quot; : &quot;⚠️ 变了&quot;);
+    std::printf(&quot;v[0] 从新地址读 = %d  (正确)\n&quot;, v[0]);
+    // ⚠️⚠️ 下面这一行是【未定义行为】：p 指着已经被释放的那块内存
+    // 禁止执行旧指针解引用：std::printf(&quot;%d&quot;, p[0]);
+    return 0;
+}
 </code></pre></div>
 
-<p>连跑三次的实跑输出（只摘关键行）：</p>
+<p><strong>历史危险版本记录</strong>（只摘关键行）：原稿曾执行旧指针解引用，留下下面三次观察。现在上方已注释该行，地址比较也使用失效前保存的整数；本次没有重跑未定义行为，修正版不会输出表中的旧地址读数。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -796,7 +1008,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>💀💀 <strong>三次跑出三个完全不同的垃圾数，一次都没崩，退出码全是 0。</strong></p>
-<p>⭐ <strong>这就是「未定义行为」的真实模样</strong>，也是这一章存在的全部理由：</p>
+<p>⭐ <strong>这些只是未定义行为的一种历史表现</strong>。语言不保证垃圾数、不崩溃或退出码 0，崩溃、看似正确或其他结果都不能作为程序正确的证据：</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -852,6 +1064,107 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
+<details><summary>可选深入：vector 容量、原地构造与 list 的稳定性</summary>
+<h3 id="container-capacity-and-borrows">改容器前先问：哪些借用还能继续用？</h3>
+<section data-qsys-repair="QSYS-010" aria-label="迭代器与指针的有限对照">
+<p><strong>迭代器先是“遍历位置＋允许的操作”的抽象。</strong>算法通过同一套接口处理不同序列：对可解引用的位置用 <code>*it</code> 访问元素，用 <code>++it</code> 前进；end 表示结束位置，不能解引用。它不要求迭代器对象本身就是元素的裸地址。</p>
+<p>操作能力有层次：输入/输出关注读/写；前向支持多遍前进，双向再支持后退；随机访问还能常数时间按距离跳转，连续迭代器另加元素地址连续的保证。<strong>不是每一种迭代器都能做所有这些操作</strong>，可写性也要另看类型。下面只比较普通 int 数组、vector&lt;int&gt; 与 list&lt;int&gt;：</p><div class="tw"><table style="width:100%;min-width:0;max-width:100%;table-layout:fixed"><thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">遍历位置</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">可用的移动能力</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">地址与表示前提</th></tr></thead><tbody><tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">数组里的 int*</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">在同一有效数组范围内可 ++ / --、按距离跳转与求差；不能越界解引用。</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">裸指针满足适当要求时本身可作迭代器。</td></tr><tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">vector&lt;int&gt;::iterator</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">随机访问，可用 it+n；普通 vector 的元素连续。</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">迭代器类型由实现决定，不要求就是 int*。</td></tr><tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">list&lt;int&gt;::iterator</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">双向，支持 ++ / --；不支持 it+n。逐步走 n 个位置通常需要线性步数。</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">逻辑相邻元素没有连续存储保证，++ 不能理解为通用的地址加 sizeof(int)。</td></tr></tbody></table></div>
+<p>这里的 vector/list 移动能力可用于本章 C++17 语境；<strong>C++20 起的 contiguous_iterator 概念</strong>把连续地址关系正式表达为可约束的要求，普通 vector 的迭代器满足它，但仍不等于“迭代器类型必须是指针”。本比较不包含 vector&lt;bool&gt;，也不扩展全部 traits 或算法要求。</p>
+<p><strong>“支持某操作”与“此刻仍有效”是两件事。</strong>下方 vector/list 失效表仍按具体容器与修改操作判断：重分配后，保存的 vector 指针和迭代器都不能继续使用；list 的稳定性也不保护被删除的元素。不能用裸指针形式、迭代器大小或“能编译”来绕过范围与寿命要求，旧 end 也须按原表重新取得。</p>
+<p>依据：<a href="https://eel.is/c++draft/iterator.requirements">当前公开草案迭代器要求</a>、<a href="https://eel.is/c++draft/iterator.concepts">能力概念</a>、<a href="https://eel.is/c++draft/iterator.concept.contiguous">连续迭代器</a>、<a href="https://eel.is/c++draft/vector.overview">vector</a>与<a href="https://eel.is/c++draft/list.overview">list</a>。这里只补定义与现有借用小例的读法，未新增运行或性能结论。</p>
+</section>
+
+<div class="tw"><table style="width:100%;min-width:0;max-width:100%;table-layout:fixed"><thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">vector 操作</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">size / 元素生命周期</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">capacity / 借用</th></tr></thead><tbody>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">reserve(n)</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">不增加元素，不改变 size</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">n 大于原 capacity 才重新分配；随后 capacity 至少 n</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">resize(n)</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">增加时构造新元素，减少时销毁末尾元素；本例 int 新元素为 0</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">增长超过 capacity 才重新分配；缩小不要求释放存储</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">shrink_to_fit()</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">不改 size</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">缩减容量的非强制请求，不能断言 capacity 恰好等于 size；若重新分配，借用全部失效</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">push_back / emplace_back</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">都增加一个元素；前者接收对象，后者用参数直接构造元素</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">容量不够仍会重分配并迁移旧元素，emplace 不豁免</td></tr>
+</tbody></table></div>
+<p>下面预留四个 Item 的空间：push 左值复制一次，emplace_back(2) 直接构造，push 临时 Item 移动一次。因此断言 copies=1、moves=1 仅适用于此处无重分配、构造函数明确计数的序列，不能推出 emplace 永远更快。数值 capacity 的增长倍数也不是语言保证。</p><div class="codehilite" data-code-language="cpp" data-g02-example="vector-borrow"><pre><code>#include &lt;cassert&gt;
+#include &lt;cstdint&gt;
+#include &lt;iostream&gt;
+#include &lt;iterator&gt;
+#include &lt;list&gt;
+#include &lt;vector&gt;
+struct Item {
+    inline static int copies=0, moves=0;
+    int value;
+    explicit Item(int v):value(v) {}
+    Item(const Item&amp; o):value(o.value) { ++copies; }
+    Item(Item&amp;&amp; o) noexcept:value(o.value) { ++moves; }
+};
+int main() {
+    std::vector&lt;int&gt; v{10,20,30};
+    v.reserve(8); assert(v.size()==3 &amp;&amp; v.capacity()&gt;=8);
+    auto first=v.begin(); const int* p=v.data();
+    v.push_back(40); // within capacity: existing element handles remain valid
+    assert(*first==10 &amp;&amp; *p==10); // old end() would be invalid
+    v.resize(6); assert(v.size()==6 &amp;&amp; v[4]==0 &amp;&amp; v[5]==0);
+    for(auto it=v.begin(); it!=v.end();) {
+        if(*it==20) it=v.erase(it); else ++it;
+    }
+    const std::size_t saved_index=0;
+    const auto old_address=reinterpret_cast&lt;std::uintptr_t&gt;(v.data());
+    const auto old_capacity=v.capacity();
+    v.reserve(old_capacity+1); // guaranteed to reallocate, old p/first must not be used
+    assert(v.capacity()&gt;=old_capacity+1 &amp;&amp; v[saved_index]==10);
+    const auto new_address=reinterpret_cast&lt;std::uintptr_t&gt;(v.data());
+    std::cout &lt;&lt; &quot;capacity grew=&quot; &lt;&lt; (v.capacity()&gt;old_capacity)
+              &lt;&lt; &quot; addresses=&quot; &lt;&lt; old_address &lt;&lt; &#x27;,&#x27; &lt;&lt; new_address &lt;&lt; &#x27;\n&#x27;;
+    v.shrink_to_fit(); assert(v.capacity()&gt;=v.size()); // request, not exact guarantee
+    std::vector&lt;Item&gt; items; items.reserve(4);
+    Item a(1); items.push_back(a); items.emplace_back(2); items.push_back(Item(3));
+    assert(Item::copies==1 &amp;&amp; Item::moves==1); // no reallocation in this controlled example
+    std::list&lt;int&gt; nodes{1,2,3}; auto middle=std::next(nodes.begin());
+    nodes.insert(nodes.begin(),0); assert(*middle==2);
+    auto next=nodes.erase(middle); assert(*next==3); // middle is erased: do not reuse it
+    std::cout &lt;&lt; &quot;copies=&quot; &lt;&lt; Item::copies &lt;&lt; &quot; moves=&quot; &lt;&lt; Item::moves &lt;&lt; &#x27;\n&#x27;;
+}
+</code></pre></div>
+<div class="tw"><table style="width:100%;min-width:0;max-width:100%;table-layout:fixed"><thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">操作（普通 vector&lt;T&gt; / list&lt;T&gt;）</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">失效规则</th></tr></thead><tbody>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">vector 发生重新分配</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">所有元素引用、指针、迭代器及旧 end() 失效</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">vector 插入，未重新分配</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">插入点之前的元素借用有效；插入点及之后的借用和旧 end() 失效。尾插保留已有元素借用，却不保留旧 end()</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">vector erase</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">删除点及之后的引用/指针/迭代器与旧 end() 失效；此前的保留</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">list 插入 / 删除</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">插入不使已有元素借用失效；删除只使被删元素借用失效，其他元素和 end() 保留</td></tr>
+</tbody></table></div>
+<p>表只讨论这些操作，不扩展到 swap/splice、容器被销毁、vector&lt;bool&gt; 特化等情形。vector 是连续存储并支持随机访问；随机访问能力本身并不等于连续存储（例如 deque），list 两者都没有。vector 中间插删要移动后续元素，却常有较好的局部性；list 在<strong>已知位置迭代器</strong>时可常数复杂度插删，但先找位置通常仍是线性遍历，还要支付节点链接、分配及缓存访问成本，不能推出 list 插删总更快。</p>
+<p>安全改写有两个落点：erase 循环接住它返回的下一个迭代器；重分配前只保留逻辑索引，之后从新容器重新取得引用。索引也不是稳定身份，若插删改变了逻辑位置，还须更新索引或改用显式 ID。示例把旧地址提前转成整数用于显示，重分配后既不解引用、比较也不递增旧指针/迭代器；地址数字和增长策略不作固定输出断言。</p>
+<p>依据 C++17 草案：<a href="https://timsong-cpp.github.io/cppwp/n4659/vector.capacity">vector 容量</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/vector.modifiers">vector 插删</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/list.modifiers">list 插删</a>。以上是标准库的独立编译验证，没有编译 PyTorch 扩展，也不是跨平台性能测量。</p></details>
+<details><summary>可选深入：数组、字符指针与 string_view 的长度从哪来？</summary>
+<h3 id="array-pointer-and-string-view">借用要同时交代范围与寿命</h3>
+<p>数组和指针是不同类型。数组在许多表达式中会退化为首元素指针，函数参数写 T a[] 也会调整为 T*，长度不会自动随它传入；sizeof 数组拿到整个数组大小，sizeof 指针拿到指针对象大小，两者碰巧相等也不能说明类型相同。sizeof 不会在这里触发数组退化，单位是 C++ 字节。</p><div class="codehilite" data-code-language="cpp" data-g02-example="array-pointer-length"><pre><code>#include &lt;cassert&gt;
+#include &lt;cstddef&gt;
+#include &lt;cstring&gt;
+#include &lt;iostream&gt;
+#include &lt;type_traits&gt;
+std::size_t pointer_size(const int* p) { return sizeof(p); }
+int main() {
+    int a[3]{1,2,3}; const int* p=a;
+    static_assert(sizeof(a)==3*sizeof(int));
+    static_assert(!std::is_same_v&lt;decltype(a),decltype(p)&gt;);
+    assert(pointer_size(a)==sizeof(const int*));
+    char text[]=&quot;ab&quot;;
+    assert(sizeof(text)==3 &amp;&amp; std::strlen(text)==2);
+    char raw[2]{&#x27;a&#x27;,&#x27;b&#x27;}; // no NUL: never pass raw to strlen
+    assert(sizeof(raw)==2);
+    std::cout &lt;&lt; &quot;array bytes=&quot; &lt;&lt; sizeof(a) &lt;&lt; &quot; pointer bytes=&quot; &lt;&lt; sizeof(p) &lt;&lt; &#x27;\n&#x27;;
+}
+</code></pre></div>
+<p>strlen 扫到首个 NUL 才停，前提是指针指向有效且存在终止符的字符序列；没有终止符的 raw 不得交给它。string_view 保存指针和长度，<strong>借用而不拥有字符</strong>，子视图末端不要求 NUL；data() 不能直接当成任意 C 字符串参数。给出显式长度可避免为找长度而扫描，但视图内容比较仍可能线性；不能从名字推出一定比字符指针更快。</p><div class="codehilite" data-code-language="cpp" data-g02-example="string-view-borrow"><pre><code>#include &lt;cassert&gt;
+#include &lt;string&gt;
+#include &lt;string_view&gt;
+int main() {
+    std::string owner=&quot;abc&quot;;
+    std::string_view prefix(owner.data(),2);
+    assert(prefix.size()==2 &amp;&amp; prefix==&quot;ab&quot;);
+    assert(owner[2]==&#x27;c&#x27;); // prefix.data()[2] is not NUL: not a C string
+    char raw[2]{&#x27;x&#x27;,&#x27;y&#x27;};
+    std::string_view explicit_length(raw,2); // no scanning for NUL
+    assert(explicit_length==&quot;xy&quot;);
+    // No return of a view into a local string; no use after owner&#x27;s reallocation.
+}
+</code></pre></div>
+<p>本例 owner 与 raw 在使用视图时都存活且未重分配；若返回局部 string 的视图，或 owner 销毁/扩容后继续访问，视图不会替你延长寿命。需要所有权就复制成 string，或在接口上约束调用者寿命。依据：<a href="https://timsong-cpp.github.io/cppwp/n4659/conv.array">数组退化</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/expr.sizeof">sizeof</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/string.view">string_view</a>。</p></details>
 <h3 id="python">🚦 对照：Python 遇到同一种情况会拦住你</h3>
 <p>Python 不是没有这个问题，是它<strong>加了一道锁</strong>：只要还有人在看着某块缓冲区，就不许把它挪走。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># c02_buffer.py</span>
@@ -983,7 +1296,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><code>std::move</code> 在运行时做了什么？被 move 走的对象之后只允许对它做哪两件事？</li>
 <li>RAII 是什么？<code>c02_raii.cpp</code> 抛异常那一路，哪一行输出证明了它有效？C++ 为什么不需要 <code>finally</code>？</li>
 <li><code>T*</code> / <code>T&amp;</code> / <code>unique_ptr</code> / <code>shared_ptr</code> / <code>weak_ptr</code> 各自在声明「谁负责释放」的什么答案？<code>weak_ptr</code> 最常用来解决什么问题？</li>
-<li><code>c02_dangle.cpp</code> 三次跑出的旧地址读数分别是多少？退出码是多少？这说明「未定义行为」长什么样？</li>
+<li>历史 c02_dangle.cpp 的旧地址读数与退出码能否预测下一次？修正版为什么注释旧指针解引用，并在重分配后重新获取借用？</li>
 <li>同样是「有人指着我而我想换地方」，Python 的 <code>memoryview</code> + <code>bytearray</code> 会发生什么？</li>
 <li><code>sizeof(Handle)</code> 是多少字节？为什么它和里面装 100 万个 float 无关？这解释了 PyTorch 里的哪个现象？</li>
 </ol>

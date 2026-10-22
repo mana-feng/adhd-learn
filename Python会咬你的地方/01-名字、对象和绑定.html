@@ -441,6 +441,23 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>⚠️ 同族的还有 <code>def f(x, t=time.time())</code>（时间戳冻结在进程启动那一刻）、<code>def f(model=Model())</code>（所有调用共用一个模型实例）。<strong>判据统一是：默认值只要是「会变的东西」或「有构造代价的东西」，就写 <code>None</code> 再在函数体里造。</strong></p>
+<details><summary>可选深入：共享默认值长大，是泄漏还是内存耗尽？</summary>
+<h3 id="retention-versus-exhaustion">先找仍然活着的引用，再谈资源是否够用</h3>
+<p>上面的默认列表挂在函数的 __defaults__ 上，只要函数还活着，它就仍然可达。若业务早已不用其中的数据，却每次调用还往里追加，这是<strong>不必要的长期保留</strong>，常被归入应用层“内存泄漏”；它不要求对象在语言层已经不可达。显式有界缓存、工作集正常增长则不能仅因占用上升就判泄漏。</p><div class="codehilite" data-code-language="python" data-g02-example="retention-not-oom"><pre><code>def keep(chunk, bucket=[]):
+    bucket.append(chunk)
+    return sum(map(len, bucket))
+
+sizes = [keep(bytes(1024)) for _ in range(3)]
+assert sizes == [1024, 2048, 3072]
+held = keep.__defaults__[0]
+assert len(held) == 3
+held.clear()  # remove this owner&#x27;s references, not a promise that RSS falls
+assert keep(b&quot;&quot;) == 0
+held.clear()
+print(&quot;保留的负载字节:&quot;, sizes)
+</code></pre></div>
+<p><strong>内存耗尽</strong>说的是申请或使用内存已受到资源限制，可能表现为 MemoryError 或进程被操作系统终止；它可以由泄漏造成，也可以由一次过大的合法输入造成。这里没有申请大量内存，更没有测进程 RSS。Python 对象不再被引用后，解释器/分配器还可能保留可复用空间，故“清空后 RSS 没马上降”也不单独证明泄漏。</p>
+<p>定位时固定输入反复执行，在相近阶段比较存活引用与 tracemalloc 快照，再对照进程驻留/峰值；原生扩展、映射和设备内存不一定在同一计数口径内。操作方法接到 <a href="05-怎么量：计时、剖析、内存.html#_7">05 的内存测量</a>。依据：<a href="https://docs.python.org/3.14/library/tracemalloc.html">Python 3.14 tracemalloc</a>、<a href="https://docs.python.org/3.14/library/exceptions.html#MemoryError">MemoryError</a>。</p></details>
 <h2 id="copy-deepcopy">🧯 四、<code>copy</code> 和 <code>deepcopy</code>：浅拷贝只复制最外面一层</h2>
 <p>「不想共享」的正规做法是拷贝。但拷贝有两种，<strong>它们的差别只在嵌套结构上显现</strong>，而配置字典、超参数、嵌套的模型对象<strong>恰好全都是嵌套结构</strong>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># copy 与 deepcopy：浅拷贝只复制最外面那一层</span>

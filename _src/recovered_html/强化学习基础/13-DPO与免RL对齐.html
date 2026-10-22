@@ -534,7 +534,31 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h2 id="dpo_1">🌿 四、DPO 的变体家族</h2>
 <p>这些名字不用一次背完。先看你遇到的是<strong>什么问题</strong>，再去看相应方法；它们不是一代代删除依赖、最终总有一个更好的统一路线。</p>
 <h3 id="dpo-ipo">换偏好目标：IPO</h3>
-<p><strong>IPO</strong> 在其理论框架下改变偏好优化目标，避免把确定性的成对标签无止境地推向极端间隔。它不是只删掉一个模型，也不能据此保证所有任务上都比 DPO 好。<a href="https://arxiv.org/abs/2310.12036">IPO 原论文</a></p>
+<p><strong>IPO</strong> 在其理论框架下改变偏好优化目标，避免把确定性的成对标签无止境地推向极端间隔。它不是只删掉一个模型，也不能据此保证所有任务上都比 DPO 好。原论文把恒等映射这个特例称为 <strong>Identity-PO</strong>。</p>
+<h4 id="ipo-sampled-target">同一组 logprob，换一个目标</h4>
+<p>沿用<a href="#dpo-loss">上面的四个量</a>，把当前策略与参考策略的偏好差再相减，记成 $h$：</p>
+<p>$$h=d_\theta-d_{\mathrm{ref}}$$</p>
+<p>DPO 的单对损失是 $\ell_{\mathrm{DPO}}=-\log\sigma(\beta h)$。原始 IPO 的经验损失则对下面的平方项在偏好数据集上取平均：</p>
+<p>$$\ell_{\mathrm{IPO}}=\left(h-\frac{1}{2\tau}\right)^2,\qquad \tau&gt;0$$</p>
+<p>这里用原论文的 $\tau$ 表示 IPO 正则强度，<strong>不把它与前文 DPO 的 $\beta$ 当成可直接照搬的同一个调参值</strong>。$h$ 没有再乘 $\beta$；回答 logprob 仍按<a href="#dpo-answer-logprob">完整回答的自然对数概率求和</a>，不擅自改成逐 token 平均。给定 $\tau$，这一平方项的最低点在有限的 $h=1/(2\tau)$；$\tau$ 越大，目标间隔越小。</p>
+<details>
+<summary>为什么是 1/(2τ)，不是 1/τ？</summary>
+<p>原论文先写带 0/1 偏好指示的总体损失，再让同一条记录贡献正、反两个方向。利用反向间隔为 $-h$，单对贡献可整理为：</p>
+<p>$$\frac12\left[(h-\tau^{-1})^2+h^2\right]=\left(h-\frac{1}{2\tau}\right)^2+\frac{1}{4\tau^2}$$</p>
+<p>右边最后一项与策略参数无关，可以从训练目标中去掉。依据：<a href="https://arxiv.org/html/2310.12036v2#S5.SS2">IPO 原论文 v2 第 5.2 节，式 (16)–(17) 与算法 1</a>。不能只拿正方向的目标 $1/\tau$，就把它当成最终经验损失。</p>
+</details>
+<h4 id="ipo-hand-example">手算：继续拉大间隔，损失会怎样？</h4>
+<p><strong>教学算例：</strong>只看同一条 chosen–rejected 记录，取 IPO 的 $\tau=0.5$，所以目标间隔为 1；另取 DPO 的 $\beta=1$，方便复算。两列损失的尺度不同，不能用绝对数值大小给方法排名。</p>
+<div class="tw" tabindex="0" role="region" aria-label="IPO 与 DPO 的单对损失手算对照"><table>
+<thead><tr><th>$h$</th><th>IPO：$(h-1)^2$</th><th>DPO：$\log(1+e^{-h})$</th></tr></thead>
+<tbody>
+<tr><td>0</td><td>1</td><td>约 0.693</td></tr>
+<tr><td>1</td><td>0</td><td>约 0.313</td></tr>
+<tr><td>2</td><td>1</td><td>约 0.127</td></tr>
+</tbody></table></div>
+<p>从 1 拉到 2，这一条 IPO 平方损失反而升高；对固定 $\beta&gt;0$，单条 DPO 损失随 $h$ 增大仍下降，只是推动幅度逐渐变小。这是在<strong>把 $h$ 单独当作可调标量</strong>时比较两个目标，不表示共享参数训练会让每一对都达到各自目标，也不表示真实 DPO 训练必然走向无限间隔。</p>
+<p>再把例子缩到只有两个回答，参考概率各为 0.5：$h=1$ 对应当前策略概率约为 0.731 与 0.269，而不是百分之百选择 chosen。这只是归一化概率的手算，<strong>不是语言模型训练结果或胜率</strong>。</p>
+<p><strong>仍然需要什么：</strong>同提示的可靠偏好对、冻结参考策略，以及在被计分回答上有定义的有限 logprob；换平方目标没有去掉这些依赖，也不会自动纠正错误标签或补齐分布覆盖。原论文的采样与支持集条件不能由“式子能算”代替。选 $\tau$、检查噪声与过拟合时，沿用<a href="#dpo-noise">数据划分与标签检查</a>及<a href="#dpo-evaluation">留出评测口径</a>；不能由这个算例推成 IPO 必定更稳定或更优。</p>
 <h3 id="dpo-kto">换数据形式：KTO</h3>
 <p><strong>KTO</strong> 可以使用单个回答“可取 / 不可取”的二元反馈，不必每条都有 chosen–rejected 配对。它仍需要可靠标准；类别不平衡和反馈质量仍要处理。二元标签更易取得的场景可能降低成本，不是数据必然便宜很多。<a href="https://arxiv.org/abs/2402.01306">KTO 原论文</a></p>
 <h3 id="dpo-reference-free">去掉参考模型：ORPO 与 SimPO</h3>
@@ -553,6 +577,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h3 id="dpo-offline-choice">已有可靠偏好对，先建立离线基线</h3>
 <p>如果已经有相关任务的高质量成对数据，又希望先控制工程复杂度，DPO 是值得比较的基线。先与原 SFT 模型比较，再看它是否真正改善了留出提示上的目标行为。</p>
 <p>算力有限或缺少 RL 工程经验，是选择更简单起点的理由；不是“不做资源估算和评测”的理由。</p>
+<p>若想比较同一批偏好对上的不同目标，可回看 <a href="#dpo-ipo">IPO 的有限间隔与手算</a>；仍按同一留出评测口径选方法。</p>
 <h3 id="dpo-online-choice">需要对新生成回答持续给分，考虑在线更新</h3>
 <p>如果模型要不断生成候选，而你有能对这些新回答给出有效反馈的 RM、人工或验证器，那么 PPO / GRPO 等在线方法可以把这条反馈回路纳入训练。</p>
 <p>这通常要求额外的采样预算、稳定的评估器和对奖励投机的检查。在线采样能发现候选，但不保证一定找到离线数据之外的好答案，也不保证最高上限。</p>

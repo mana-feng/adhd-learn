@@ -432,6 +432,35 @@ run manifest 里要有上游表 + 分区 + 每个上游的指纹 + 行数 + 数�
 <p>⚠️ <strong>CTE 不是性能优化。</strong> 数据库可能把它算完存下来（物化），也可能把它展开进外层。
 SQLite 3.35 起可以用 <code>WITH x AS MATERIALIZED (...)</code> / <code>NOT MATERIALIZED</code> 提供物化提示（原文 3.50.4 记录两种语法均可运行；<code>NOT MATERIALIZED</code> 并不禁止物化），
 但⭐ <strong>默认不要去指定它</strong> —— 先让它可读，慢了再回到 09 章看计划。</p>
+<details><summary>可选深入：想让下一条语句也复用这个名字，就用普通 VIEW</summary>
+<h3 id="view-versus-cte">保存查询定义，与保存查询结果不同</h3>
+<p>沿用上面的 run_inputs，把“同分区出现多个非 NULL 指纹”的查询命名成普通视图。CTE 名称只在所属语句可用；非 TEMP 的 CREATE VIEW 把<strong>查询定义</strong>保存进数据库 schema，之后的语句可引用，直到 DROP VIEW。本例数据库在内存里，连接关闭后整库都消失；普通文件数据库的定义可跨连接保留。</p><div class="codehilite" data-code-language="python" data-g02-example="ordinary-view-scope"><pre><code>import sqlite3
+db = sqlite3.connect(&quot;:memory:&quot;)
+db.execute(&quot;&quot;&quot;CREATE TABLE run_inputs(
+    run_id TEXT, tbl TEXT, part TEXT, fingerprint TEXT, n_rows INTEGER)&quot;&quot;&quot;)
+db.executemany(&quot;INSERT INTO run_inputs VALUES(?,?,?,?,?)&quot;, [
+    (&quot;r1&quot;,&quot;users&quot;,&quot;d1&quot;,&quot;hash-a&quot;,10),
+    (&quot;r2&quot;,&quot;users&quot;,&quot;d1&quot;,&quot;hash-b&quot;,10),
+    (&quot;r1&quot;,&quot;labels&quot;,&quot;d1&quot;,&quot;same&quot;,5),
+    (&quot;r2&quot;,&quot;labels&quot;,&quot;d1&quot;,&quot;same&quot;,5)])
+definition = &quot;&quot;&quot;SELECT tbl,part,COUNT(DISTINCT fingerprint) AS k
+    FROM run_inputs GROUP BY tbl,part HAVING COUNT(DISTINCT fingerprint)&gt;1&quot;&quot;&quot;
+db.execute(&quot;CREATE VIEW changed_parts(tbl,part,k) AS &quot; + definition)
+assert db.execute(&quot;SELECT * FROM changed_parts&quot;).fetchall() == [(&quot;users&quot;,&quot;d1&quot;,2)]
+db.execute(&quot;INSERT INTO run_inputs VALUES(&#x27;r3&#x27;,&#x27;users&#x27;,&#x27;d1&#x27;,&#x27;hash-c&#x27;,10)&quot;)
+assert db.execute(&quot;SELECT * FROM changed_parts&quot;).fetchall() == [(&quot;users&quot;,&quot;d1&quot;,3)]
+db.execute(&quot;DROP VIEW changed_parts&quot;)
+assert db.execute(&quot;SELECT COUNT(*) FROM run_inputs&quot;).fetchone() == (5,)
+try:
+    db.execute(&quot;SELECT * FROM changed_parts&quot;)
+except sqlite3.OperationalError:
+    print(&quot;定义已删除，底表5行仍在&quot;)
+else:
+    raise AssertionError(&quot;view still exists&quot;)
+db.close()
+</code></pre></div>
+<p>插入新指纹后 k 从 2 变 3，说明普通视图没有把旧结果冻成快照；COUNT(DISTINCT fingerprint) 仍忽略 NULL，视图没有替你解决“未知指纹”策略。物化视图是另一个对象/机制，要讨论保存结果和刷新，不等于这个普通 VIEW，也不等于优化器执行 CTE 时采用的临时物化。</p>
+<p>底表改名、删列或类型变化可能影响依赖视图，要连同调用者验证。权限也按引擎处理：SQLite 不提供服务端 GRANT 用户权限模型；PostgreSQL 18 的视图可涉及视图权限、所有者或 security_invoker 的底表访问语义，不能把隐藏列当成跨引擎安全保证。这里仅查询/删除普通视图，不讨论可更新视图与存储过程。依据：<a href="https://www.sqlite.org/lang_createview.html">SQLite CREATE VIEW</a>、<a href="https://www.postgresql.org/docs/18/sql-createview.html">PostgreSQL 18 CREATE VIEW</a>。</p></details>
 <h2 id="with-recursive">🌲 三、<code>WITH RECURSIVE</code>：两段式结构</h2>
 <p>普通 CTE 只能引用<strong>前面</strong>定义好的 CTE。<code>RECURSIVE</code> 解开了这条限制：<strong>CTE 可以在自己的定义里引用自己</strong>。</p>
 <p>结构永远是两段，中间用 <code>UNION</code> 或 <code>UNION ALL</code> 连起来：</p>

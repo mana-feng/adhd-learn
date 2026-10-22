@@ -728,6 +728,27 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <strong>后半章是上下文管理器</strong>：<code>with</code> 背后的两个方法 · 它和 <code>try/finally</code> 的关系 · ⭐ <code>__exit__</code> 返回 <code>True</code> 会吞掉异常 · <code>@contextmanager</code> 的写法和三个坑 · 站内那两行
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
+
+<!-- final-names START -->
+<details id="final-names" data-code-title="🔎 可选深入：类字典里的下划线，是约定还是改名？" style="max-width:100%;min-width:0;overflow-wrap:anywhere"><summary>🔎 可选深入：类字典里的下划线，是约定还是改名？</summary>
+<p>⭐ 上面的 <code>C.__dict__</code> 用来观察类里实际保存的对象。先分清名字形式，才不会把“名字变了”和“描述符绑定变了”混为一谈。下面只补本节读类字典需要的命名边界。</p><div class="tw" style="max-width:100%;min-width:0"><table style="table-layout:fixed;width:100%;min-width:0"><thead><tr><th style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">形式</th><th style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">这里意味着什么</th><th style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">不能推出什么</th></tr></thead><tbody><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top"><code>_name</code></td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">非公开 API 的命名约定；无 <code>__all__</code> 时，模块的星号导入通常不导入这类名字</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">不是禁止外部访问的权限检查</td></tr><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top"><code>__name</code></td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">类定义内会作名称修饰，例如 <code>Gate</code> 中变为 <code>_Gate__name</code>，主要避免子类名字意外碰撞</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">不是加密或安全隔离；模块层的同形名字不能套用类内规则</td></tr><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top"><code>__name__</code></td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">语言或库定义的特殊名字，例如 <code>__len__</code>、<code>__enter__</code>；按各协议调用</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">不要自行发明双端下划线协议，也不等于私有变量</td></tr></tbody></table></div>
+<div class="codehilite" data-code-language="python"><pre><code># CPython 3.13/3.14；观察类字典，不绕访问控制
+class Gate:
+    _hint = 1
+    __hidden = 2
+    def __len__(self):
+        return 3
+
+visible = {&quot;_hint&quot;, &quot;_Gate__hidden&quot;, &quot;__len__&quot;}
+print(sorted(k for k in vars(Gate) if k in visible))
+g = Gate()
+print(g._hint, g._Gate__hidden, len(g))
+assert &quot;__hidden&quot; not in vars(Gate)
+assert &quot;_Gate__hidden&quot; in vars(Gate)
+# 预期：[&#x27;_Gate__hidden&#x27;, &#x27;__len__&#x27;, &#x27;_hint&#x27;]，下一行 1 2 3</code></pre></div>
+<p>这里有意用修饰后的名字取值，说明它<strong>不是访问屏障</strong>。<code>vars(Gate)</code> 看类字典；<code>len(g)</code> 通过特殊方法协议得到 3。下文的 <code>__enter__</code>/<code>__exit__</code> 也属于已有协议，不是用来“隐藏”方法的前缀。单独的 <code>_</code> 在交互环境、模式匹配等上下文还有专门规则，不能把这张前缀表推广成所有下划线的含义。</p><p>依据：<a href="https://docs.python.org/3.13/tutorial/classes.html#private-variables">Python 3.13 类与名称修饰</a>、<a href="https://docs.python.org/3.13/reference/lexical_analysis.html#reserved-classes-of-identifiers">保留名字类别</a>。</p>
+</details>
+<!-- final-names END -->
 <h2 id="with">🧩 六、<code>with</code> 背后就两个方法</h2>
 <p><code>with obj as x:</code> 展开之后只有两步：调 <code>obj.__enter__()</code>，把返回值绑给 <code>x</code>；块结束时<strong>无论怎么结束</strong>，调 <code>obj.__exit__(异常类型, 异常对象, traceback)</code>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># with 背后就两个方法：__enter__ 和 __exit__</span>

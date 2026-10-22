@@ -372,6 +372,41 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <p>$$\mathcal{L} = \frac{1}{n}\sum_{i=1}^{n}(y_i - \hat{y}_i)^2$$</p>
 <p>💡 <strong>人话</strong>：每个样本预测差多少，平方后取平均。<strong>平方</strong>的作用是让大误差被重罚，且处处可导（方便求梯度）。</p>
+<h3 id="regression-loss-robustness">同一个残差：MSE、MAE与Huber怎么罚</h3>
+<p>先固定符号：<strong>残差 $r=\hat y-y$</strong>，下面比较<strong>单个标量、尚未求和或平均</strong>的损失 $\ell(r)$，梯度是对预测值 $\hat y$ 求导。这里沿用本页MSE的 $r^2$ 约定，没有额外乘 $1/2$。</p>
+<div class="tw"><table>
+<caption>损失形状决定大残差对一次更新的影响</caption>
+<thead><tr><th>损失</th><th>单元素值</th><th>$\partial\ell/\partial\hat y$</th></tr></thead>
+<tbody>
+<tr><td>MSE / 平方损失</td><td>$r^2$</td><td>$2r$</td></tr>
+<tr><td>MAE / 绝对损失</td><td>$|r|$</td><td>$r\ne0$时为 $\operatorname{sgn}(r)$；$r=0$不可导，可选次梯度 $[-1,1]$ 中的值</td></tr>
+<tr><td>Huber，$\delta&gt;0$</td><td>$|r|\le\delta$：$r^2/2$；否则 $\delta(|r|-\delta/2)$</td><td>$|r|\le\delta$：$r$；否则 $\delta\operatorname{sgn}(r)$</td></tr>
+</tbody></table></div>
+<p>Huber在 $|r|=\delta$ 的两段值和一阶导数接上；MAE在0处要区分数学上的次梯度集合与具体实现选择。库的 <code>reduction="mean"</code> 再除以参与平均的<strong>元素数</strong>，对应梯度也缩放；多输出任务不一定只除以batch样本数。具体定义见 <a href="https://docs.pytorch.org/docs/2.14/generated/torch.nn.MSELoss.html" target="_blank" rel="noopener">MSELoss</a>、<a href="https://docs.pytorch.org/docs/2.14/generated/torch.nn.L1Loss.html" target="_blank" rel="noopener">L1Loss</a> 与 <a href="https://docs.pytorch.org/docs/2.14/generated/torch.nn.HuberLoss.html" target="_blank" rel="noopener">HuberLoss官方说明</a>。</p>
+<div class="rule" id="regression-residual-example"><b>手算两次：小误差保留平滑，大误差别无限加力。</b>
+<p>给定教学残差，取 $\delta=1$；每格按“损失 / 对预测的梯度”列出，尚未做reduction。</p>
+<div class="tw"><table><thead><tr><th>$r$</th><th>MSE</th><th>MAE</th><th>Huber</th></tr></thead><tbody>
+<tr><td>$0.5$</td><td>$0.25\;/\;1$</td><td>$0.5\;/\;1$</td><td>$0.125\;/\;0.5$</td></tr>
+<tr><td>$3$</td><td>$9\;/\;6$</td><td>$3\;/\;1$</td><td>$2.5\;/\;1$</td></tr>
+</tbody></table></div>
+<p>残差从0.5增到3，MSE的梯度继续增大；MAE和Huber尾部的残差梯度有界。负残差的梯度方向相反。这些是公式核算，不是训练效果或速度测试。</p></div>
+<p><strong>鲁棒性有边界：</strong>Huber的 $\delta$ 与目标量纲相同，目标缩放后应重新考虑阈值，用验证集选择。对线性预测，参数梯度是 $\psi(r)x$；即使 $\psi(r)=\partial\ell/\partial\hat y$ 有界，极大的输入 $x$ 仍可能产生很大影响，因此不能把MAE/Huber说成能自动解决高杠杆点、标签错误或分布变化。</p>
+<h3 id="regression-output-support">回归输出层：先看目标允许什么值</h3>
+<p>本页房价例使用恒等映射 $\hat y=z=w^\top x+b$，是无界实数预测的常见起点。<strong>“回归一律不能加激活”并不成立</strong>：输出映射、目标变换和损失要共同符合任务。</p>
+<div class="tw"><table><thead><tr><th>目标或参数</th><th>可用输出约定</th><th>需要核对</th></tr></thead><tbody>
+<tr><td>任意实数</td><td>恒等映射 $\hat y=z$，配合MSE/MAE/Huber等</td><td>按误差代价、噪声与验证指标选择；标准化目标时预测要还原单位</td></tr>
+<tr><td>严格正值</td><td>$\operatorname{Softplus}(z)+\epsilon$，$\epsilon&gt;0$；也可考虑 $e^z$</td><td>正值不自动等于Poisson；指数会有溢出风险，$\epsilon$ 引入正下界，须符合尺度</td></tr>
+<tr><td>有限区间 $a&lt;y&lt;b$</td><td>$a+(b-a)\sigma(z)$，$a&lt;b$</td><td>数学上有限输入只落在开区间；端点质量与饱和梯度要另考虑，浮点可能舍入到端点</td></tr>
+<tr><td>Gaussian分布参数</td><td>均值 $\mu$ 用实数输出；方差 $v=\operatorname{Softplus}(s)+\epsilon$</td><td><code>GaussianNLLLoss</code>接收的是<strong>方差，不是标准差</strong>；分布假设及不确定性质量须验证</td></tr>
+<tr><td>非负整数计数的Poisson均值</td><td>$\lambda&gt;0$；用log-rate $z=\log\lambda$ 参数化</td><td><code>PoissonNLLLoss(log_input=True)</code>接收 $z$，不要先exp后仍当log输入；预测均值才是 $e^z$。须检查计数/Poisson假设</td></tr>
+</tbody></table></div>
+<p><a href="https://docs.pytorch.org/docs/2.14/generated/torch.nn.Softplus.html" target="_blank" rel="noopener">Softplus</a> 与 <a href="https://docs.pytorch.org/docs/2.14/generated/torch.nn.Sigmoid.html" target="_blank" rel="noopener">Sigmoid</a> 给出映射定义；分布损失的参数约定见 <a href="https://docs.pytorch.org/docs/2.14/generated/torch.nn.GaussianNLLLoss.html" target="_blank" rel="noopener">GaussianNLLLoss</a>、<a href="https://docs.pytorch.org/docs/2.14/generated/torch.nn.PoissonNLLLoss.html" target="_blank" rel="noopener">PoissonNLLLoss</a>。数值稳定实现不能替代目标支持范围和统计假设检查。</p>
+<details id="regression-clip-tradeoffs"><summary>🔎 可选：clip放在预测后，还是训练图里？</summary>
+<p><strong>先问边界从哪来。</strong>物理或业务确知的允许范围，与训练集恰好出现过的最小/最大值不同；超出训练范围的预测可能是合理外推，不能自动截掉。</p>
+<p>以真实允许范围[0,1]为例，<code>clip</code>把z截到该闭区间：−1、0.25、2分别变成0、0.25、1。<strong>预测后截断</strong>只处理最终输出，不改变此前训练的梯度；<strong>在训练图里先clamp再算损失</strong>则会改变优化路径。区间外对z的导数为0，区间内部为1；0与1是数学折点，具体自动微分的端点选择要查所用框架/版本，本例不代指实现的端点梯度。</p>
+<p><strong>一个局部梯度例：</strong>目标y＝0.8、z＝2，平方损失若用截后的1计算，该clamp支路对z的梯度为0；不截时梯度为2(2−0.8)＝2.4。它说明越界平台可能阻断这条支路的纠错信号，不是整个模型永远无法更新的结论。</p>
+<p>恒等映射保留实数外推；确有正值或区间结构时可比较上表的Softplus、缩放sigmoid及其饱和/端点限制；分布参数按各自合法域建模。已知硬边界也可在预测后clip，但要用包含后处理的最终流程比较误差、边界堆积；若输出概率，还须检查校准，截到[0,1]本身不保证校准。训练内clamp同样要验证其梯度代价。定义可核<a href="https://docs.pytorch.org/docs/2.14/generated/torch.clamp.html">torch.clamp官方说明</a>；这里未重训或替换原输出/loss。</p>
+</details>
 <hr />
 <h2 id="_3">🎯 二、逻辑回归：预测一个概率</h2>
 <p>问题：分类要输出 0~1 的概率，但线性输出是任意实数。</p>
@@ -389,7 +424,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 🔗 <a href="附录C-手撕代码速查.html">附录 C 第 10 题</a>把这句话写成了 10 行纯 numpy 的逻辑回归（在 breast_cancer 上跑到 98.2%，
 sklearn 是 98.8%），<a href="附录C-手撕代码速查.html">第 1 题</a>是它的<strong>多分类版本</strong>——
 softmax + 交叉熵的反向就是 $p-\text{onehot}(y)$，和这里的 <code>(预测 − 真实)</code> 是同一件事。
-那边还回答了两个这里没展开的追问：<strong>为什么逻辑回归可以零初始化而神经网络不行</strong>、<strong>为什么偏置不加 L2</strong>。</p>
+那边还回答了两个这里没展开的追问：<strong>为什么逻辑回归可以零初始化而神经网络不行</strong>、<strong>本例为何不对偏置加 L2，以及何时另选</strong>。</p>
 <p>🔗 <strong>重要连接</strong>：逻辑回归 = <strong>一层神经网络 + Sigmoid</strong>。
 你在推荐算法第 8 章见的所有深度模型，最后一层都是它。</p>
 </blockquote>

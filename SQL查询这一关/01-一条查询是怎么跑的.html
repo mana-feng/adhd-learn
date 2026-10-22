@@ -624,7 +624,7 @@ SQLite 报 <code>misuse of aggregate: SUM()</code>，Postgres 报 <code>aggregat
 </blockquote>
 <h2 id="_5">🚧 四、逻辑顺序 ≠ 物理执行顺序</h2>
 <p>上面那张八步表描述的是<strong>语义</strong>：结果必须<strong>看起来像是</strong>按这个顺序算出来的。
-真正跑的时候，优化器可以随便重排，只要结果一样。</p>
+真正跑的时候，优化器可在 SQL 语义与实现约束允许的范围内重排操作，必须保持结果语义。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 
 <span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
@@ -681,6 +681,33 @@ SQLite 报 <code>misuse of aggregate: SUM()</code>，Postgres 报 <code>aggregat
 </table></div>
 <p>⭐ <strong>一条实用建议</strong>：调试语义问题时看八步表，调试性能问题时看 <code>EXPLAIN QUERY PLAN</code>。
 拿计划去解释「为什么这个数不对」，几乎总是走弯路。</p>
+<h3 id="query-lifecycle">🧭 请求跑过哪些阶段，八步表又管哪一层？</h3>
+<p>八步表解释一条查询的<strong>结果语义</strong>；请求生命周期解释数据库收到 SQL 后做什么。下面以 <strong>PostgreSQL 18 的普通查询路径</strong>为例，合并细节看主线，不能当成每个数据库内部模块的同名清单。</p>
+<div class="tw"><table>
+<thead><tr><th>阶段</th><th>在解决什么</th><th>和本章例子的关系</th></tr></thead>
+<tbody>
+<tr><td>连接与提交请求</td><td>应用通过连接发送 SQL，等待结果；已有连接可复用</td><td>还没有开始按八步表计算结果</td></tr>
+<tr><td>解析、名称/类型检查与重写</td><td>确认 SQL 可解释，解析表列；按规则展开视图等</td><td>拼错列名属于这一层问题，不靠加索引解决</td></tr>
+<tr><td>规划 / 优化</td><td>估计候选路径成本，选择扫描、连接、排序等物理操作</td><td>考虑 <code>idx_feature</code> 是否有利；语义仍须等价</td></tr>
+<tr><td>执行</td><td>执行计划访问存储、过滤、连接、聚合与排序</td><td>索引可在取数时缩小候选行，不必先把整表读出再过滤</td></tr>
+<tr><td>返回结果</td><td>结果交给客户端；传输、驱动取数和应用处理也占时间</td><td>数据库执行快，不等于用户已经收完并显示完</td></tr>
+</tbody></table></div>
+<p><strong>把诊断工具放回这条线上：</strong>PostgreSQL 18 的普通 <code>EXPLAIN</code> 展示计划，<code>EXPLAIN ANALYZE</code> 则实际执行并报告统计；MySQL 8.4 也区分这两者，但格式与支持的语句范围不同。这里已有的 SQLite <code>EXPLAIN QUERY PLAN</code> 只是在看它自己的计划形状，不能据此声称实测了 PostgreSQL 或 MySQL 的生命周期。工具细节接 <a href="附录A-速查.html#_8">速查的三库计划对照</a>，性能拆解接 <a href="09-计划里的连接与索引失效.html">09 章</a>。</p>
+<p>⭐ <strong>同一个例子，三个问题：</strong>“先分组还是先过滤？”看逻辑八步；“为何用 <code>idx_feature</code>？”看物理计划；“执行很快为何客户端仍慢？”再量连接、传输与取数。不要把这三条时间线压成一张固定执行顺序表。</p>
+<p>依据：<a href="https://www.postgresql.org/docs/18/query-path.html">PostgreSQL 18 查询路径</a>、<a href="https://www.postgresql.org/docs/18/sql-explain.html">PostgreSQL 18 EXPLAIN</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/explain.html">MySQL 8.4 EXPLAIN</a>。本段是文档核对与教学分层，没有声称对这两个服务做运行追踪。</p>
+<details data-g02-natural="NC-R02-MYSQL-LIFECYCLE-T01" style="min-width:0;max-width:100%;overflow-wrap:anywhere;word-break:normal">
+<summary>选读 · MySQL 8.4：服务层怎样向存储引擎要行？</summary>
+<p>另看 <strong>MySQL 8.4 普通 SELECT 的简化请求链</strong>。上面的 PostgreSQL 18 路径和本章 SQLite 实验仍各指自己的引擎；下面只核对机制，没有运行 MySQL。</p>
+<ol>
+<li><strong>接收请求：</strong>连接建立时核验身份并建立会话，已有连接可复用；随后客户端发送语句，服务层还要检查该请求所需权限。权限检查与表列解析等环节有交织，不能把箭头当成所有内部调用的严格时序。</li>
+<li><strong>解析与准备：</strong>服务层解析语法、解析表列和类型等，建立可执行前的内部表示；语法错误、对象不存在或权限不足会走错误返回。</li>
+<li><strong>优化：</strong>优化器结合可用索引、统计和代价选择访问及连接等路径，形成物理计划；逻辑八步描述的结果语义仍须保持。</li>
+<li><strong>执行与取行：</strong>执行器按计划，经存储引擎接口请求表扫描或索引访问等操作；引擎负责相应数据/索引访问，把行交回服务层继续过滤、连接、聚合等，结果经协议返回客户端。执行或取行也可能遇错，并非到这一阶段就保证成功。</li>
+</ol>
+<p><strong>服务层统筹 SQL，引擎承担具体存储访问。</strong>InnoDB 的缓冲、事务与并发控制属于引擎实现的一部分；访问可能命中内存，不能把“向引擎要行”等同“每行都读磁盘”。这是一条分工主线，不穷举下推等实现细节。</p>
+<p>预处理语句可在<strong>会话内</strong>复用内部表示，元数据变化又可能触发重新准备；具体取决于语句协议、版本与设置，不能说每次请求都完整重解析，也不能保证计划永远复用。它不等于缓存查询结果；MySQL 8.4 已没有旧式 Query Cache。</p>
+<p>依据：<a href="https://dev.mysql.com/doc/refman/8.4/en/pluggable-storage.html">MySQL 8.4 引擎接口</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/pluggable-storage-common-layer.html">引擎职责</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/connection-access.html">连接验证</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/request-access.html">请求权限</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/statement-caching.html">预处理复用</a>。</p>
+</details>
 <h2 id="select">🧾 五、<code>SELECT *</code> 的三个坑</h2>
 <p><code>SELECT *</code> 在探索数据时非常好用，⭐ <strong>但不该出现在任何一段会被存下来的 SQL 里</strong>（视图、报表、代码、定时任务）。三个理由：</p>
 <p><strong>① 列的顺序和数量不受你控制。</strong>

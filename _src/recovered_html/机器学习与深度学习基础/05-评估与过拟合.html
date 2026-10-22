@@ -610,12 +610,26 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <td>衡量排序，不直接衡量概率校准</td>
 </tr>
 <tr>
-<td><strong>PR-AUC</strong></td>
-<td>精确率-召回率曲线下面积</td>
-<td><strong>类别极不平衡时比 AUC 可靠</strong> ⭐</td>
+<td><strong>PR-AUC / AP（注明算法）</strong></td>
+<td>PR曲线的汇总；AP与梯形面积不是同一算法</td>
+<td>正类稀少且关注正预测质量时常用；按目标选指标，不预设PR永远更优</td>
 </tr>
 </tbody>
 </table></div>
+<h4 id="confusion-matrix-example">同一张混淆矩阵，把分母写出来</h4>
+<p>以下只讨论<strong>二分类，正类为1</strong>；固定一个阈值后得到100个给定教学样本的计数。行是真值、列是预测，调用库时也要核对标签顺序，不凭表格位置猜TP。</p>
+<div class="tw"><table style="table-layout:fixed;width:36em"><caption>给定阈值下的教学计数，不是模型测试结果</caption><thead><tr><th>真值 / 预测</th><th>预测负（0）</th><th>预测正（1）</th></tr></thead><tbody><tr><th scope="row">实际负（0）</th><td>TN＝40，正确排除</td><td>FP＝20，误报</td></tr><tr><th scope="row">实际正（1）</th><td>FN＝10，漏报</td><td>TP＝30，正确检出</td></tr></tbody></table></div>
+<p>$$P=\frac{TP}{TP+FP}=\frac{30}{50}=0.6,\qquad R=TPR=\frac{TP}{TP+FN}=\frac{30}{40}=0.75$$</p>
+<p>$$F_1=\frac{2TP}{2TP+FP+FN}=\frac{60}{90}=\frac23,\qquad FPR=\frac{FP}{FP+TN}=\frac{20}{60}=\frac13$$</p>
+<p>准确率为 $(TP+TN)/100=0.7$。precision的分母是“预测为正”，recall的分母是“实际为正”，FPR的分母是“实际为负”。F1不使用TN，也不自动表达任意误报/漏报成本；分母为0时应报告所用 <code>zero_division</code>规则与支持数，不能把缺失的定义自动当成完美表现。</p>
+<p><strong>从一个阈值到整条曲线：</strong>ROC画横轴FPR、纵轴TPR；PR画横轴recall、纵轴precision。它们通常由连续分数扫过多个阈值构成，<strong>不能只从上面这一张矩阵推出AUC或AP</strong>。正类稀少且重视正预测质量时，PR视角常更直接；选ROC、PR或某个工作点，仍取决于业务目标与容许的误报/漏报。</p>
+<section class="visual-block visual-block-calc" aria-label="正类先验与精确率的教学例" id="sampling-prior-example"><p class="visual-block-title">ROC点一样，precision也可能不同</p><div class="vb-calc">
+<p>记正类比例为π，在固定模型且给定阈值的TPR/FPR不变时：</p><p>$$Precision=\frac{\pi\,TPR}{\pi\,TPR+(1-\pi)\,FPR}$$</p>
+<p>原表π＝0.4、TPR＝0.75、FPR＝1/3，得到P＝0.6。若只把负类每项等权重复6次，TP/FN仍为30/10，FP/TN变为120/240：π＝0.1，TPR与FPR不变，而P＝30/150＝0.2。这是<strong>分层重加权手算</strong>，不是新采集或重训实验。</p>
+</div></section>
+<p><strong>“改负样本比例，AUC变不变”必须带前提。</strong>固定模型分数，评估时仅在每类内无偏随机抽样、类条件分数分布保持不变，则所针对总体的ROC与成对排序AUC不因正类先验本身改变；有限样本估计仍会波动。换成难负例、改变负类子群/候选池、按分数选择样本，或用新比例重新训练模型，都不再是这个结论的同一前提，应重新评估并报告抽样口径。</p>
+<p><strong>AP与“PR-AUC”也不能只对名字：</strong>scikit-learn的AP按每次召回增量加权precision，和对PR点直接做梯形积分不同。比较结果应写清实现、正类、评估样本/权重和抽样方式。AUC手写路径仍见<a href="附录C-手撕代码速查.html">附录C第9题</a>；线上概率含义另看<a href="../推荐算法/12-评估与AB实验.html#calibration">推荐评估章的校准段</a>。</p>
+<details><summary>📚 指标定义与ROC/PR关系</summary><p>依据 <a href="https://scikit-learn.org/stable/modules/model_evaluation.html">scikit-learn指标指南</a>、<a href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.confusion_matrix.html">混淆矩阵轴</a>、<a href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.precision_recall_fscore_support.html">P/R/F与零分母</a>、<a href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.roc_auc_score.html">ROC-AUC分数输入</a>、<a href="https://scikit-learn.org/stable/modules/generated/sklearn.metrics.average_precision_score.html">AP实现</a>及<a href="https://ftp.cs.wisc.edu/machine-learning/shavlik-group/davis.icml06.pdf">Davis与Goadrich的原始ROC/PR论文</a>；这里的整数例只演示定义与条件，不声称任何模型的真实质量。</p></details>
 <blockquote>
 <p>🔗 推荐算法第 12 章的 <strong>GAUC</strong> 就是 AUC 的分组版本——
 因为推荐场景要看的是「每个用户自己的列表里排得对不对」。</p>
@@ -628,7 +642,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ul>
 <p>所以 AUC 相同，不代表预测概率同样可信；校准要另外检查。</p>
 <h3 id="05_1">阈值不是 0.5</h3>
-<p>上表最后两行说明：<strong>模型输出的是概率，把它变成 0/1 的那个阈值是你的自由参数。</strong>
+<p>上表最后两行说明：<strong>模型输出分数或概率估计，阈值把它变成0/1；分数未必已校准，阈值选择是决策的一部分。</strong>
 调阈值不用重训模型，却能大幅改变精确率/召回率的平衡。<strong>阈值只能用验证集或训练内部 OOF 预测选择；固定后才在最终测试集上评估一次。</strong></p>
 <hr />
 <h2 id="_8">📈 五、学习曲线：加数据有用吗</h2>

@@ -280,7 +280,16 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="polish-ai-fullstack-reading">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><style id="nc-r02-local-reading">
+main .nc-r02-extension { min-width:0; max-width:100%; margin:1.2em 0; overflow-wrap:anywhere; }
+main .nc-r02-extension summary { cursor:pointer; line-height:1.6; }
+main .nc-r02-extension table.nc-r02-table { width:100%!important; min-width:0!important; max-width:100%; table-layout:fixed; }
+main .nc-r02-extension .nc-r02-table th, main .nc-r02-extension .nc-r02-table td { min-width:0; max-width:none; white-space:normal!important; overflow-wrap:anywhere; word-break:normal; vertical-align:top; }
+main .nc-r02-extension .nc-r02-table th:first-child, main .nc-r02-extension .nc-r02-table td:first-child { width:32%; }
+main .nc-r02-extension p, main .nc-r02-extension li { max-width:100%; overflow-wrap:anywhere; }
+main .nc-r02-extension :not(pre)>code { white-space:normal!important; overflow-wrap:anywhere; word-break:normal; }
+main .nc-r02-extension pre { max-width:100%; overflow-x:auto; }
+</style></head><body class="polish-ai-fullstack-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -319,7 +328,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <blockquote>
 <p>⚠️ <strong>还要分清能不能重试</strong>：<code>400</code>、<code>401</code>、内容被安全策略拒绝，重试一万次也是同样结果，直接进死信；只有 <code>429</code>、<code>500</code>、超时才值得退避重试。</p>
 </blockquote>
-<p><a href="04-调用层.html">第 4 章</a>的重试白名单、<a href="12-限流配额与成本护栏.html">第 12 章</a>的「<code>429</code> 必须带 <code>Retry-After</code>」，都建在同一件事上：<strong>对面返回的那个数字是可信的</strong>。</p>
+<p><a href="04-调用层.html">第 4 章</a>的重试白名单、<a href="12-限流配额与成本护栏.html">第 12 章</a>的项目约定「<code>429</code> 尽量带 <code>Retry-After</code>」，都建在同一件事上：<strong>对面返回的那个数字是可信的</strong>。</p>
 <p>⚠️ <strong>但到这一章为止，本板块的业务接口基本只有 <code>POST /chat</code> 一种形状</strong>（<code>GET</code> 只出现在查任务和健康检查上），<strong>而「该返哪个状态码」只被顺手提过几次</strong>（03 章的 <code>422</code>、11 章的 <code>202</code>、12 章的 <code>429</code>），没有一处讲判据。规则的消费端讲透了，生产端是空的。 而写错一个码，就是让对面做出错误的决定：</p>
 <div class="tw"><table>
 <thead>
@@ -376,7 +385,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <thead>
 <tr>
 <th>方法</th>
-<th>安全（不改状态）</th>
+<th>安全（语义上只读）</th>
 <th>幂等（重发，终态一样）</th>
 <th>⭐ 谁在依赖这个承诺</th>
 </tr>
@@ -392,7 +401,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <td><code>POST</code></td>
 <td>❌</td>
 <td>❌</td>
-<td>⭐ <strong>什么都不承诺，所以中间层对它最保守</strong> —— 不缓存、不预取、不自动重发</td>
+<td>不承诺安全或幂等；一般不自动重发。响应有条件可缓存，不能据此再次执行 POST</td>
 </tr>
 <tr>
 <td><code>PUT</code></td>
@@ -419,7 +428,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <strong>怎么让不幂等的 <code>POST</code> 也能安全重发</strong>（<code>Idempotency-Key</code>、<code>ETag</code>、条件请求）是<a href="03c-幂等与条件请求.html">下一章 03c</a> 整章的事。</p>
 </blockquote>
 <p>💀 <strong>最贵的一条：把会改状态的操作写成 <code>GET</code></strong>（<code>GET /messages/{mid}/delete</code>）。它能跑、测试也过，然后 —— <strong>阅读器和浏览器会预取</strong>（带这个链接的页面被打开一遍，东西就没了）、CDN 会缓存住那个「成功」（下次点击根本没到你的服务器）、重试器会自动重发、⚠️ 参数还会被各层记进日志（和<a href="08-认证会话与多租户.html">第 8 章</a>那行 <code>GET /api/docs?tenant=globex</code> 是同一个家族的问题）。</p>
-<p>⭐ 反方向（把纯读写成 <code>POST /search</code>）代价温和些：丢掉缓存、丢掉「链接发给同事就能复现」；⚠️ 合法例外只有一个 —— 查询体太大放不进 URL。</p>
+<p>把查询写成 <code>POST /search</code> 会失去通用 GET 缓存和可分享链接的便利，但并非只有「查询体太大」才合法。选择由方法语义、数据敏感性和接口契约决定；POST 本身不提供加密，HTTPS 才保护传输。</p>
 <p>🚦 <strong>AI 应用的一个现实：生成天然不幂等。</strong> <a href="02-一个AI产品的解剖.html">第 2 章</a>四件难事的最后一条就是「同样输入不同输出」—— 同一段 prompt 发两次会得到两条回复、两笔账。⭐ 所以发消息就该是 <code>POST</code>，<strong>用承诺幂等的 <code>PUT</code> 去包装它是在对客户端撒谎</strong>；正确做法是承认它不幂等，再单独加一层保护（03c，也正是 11 章第四节结尾「更稳的是让客户端传 <code>Idempotency-Key</code> 头」指向的地方）。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 本例选择两次都返回 204；幂等本身不要求状态码相同</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastAPI</span>
@@ -437,7 +446,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <span class="nd">@app</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="s2">&quot;/conversations/</span><span class="si">{cid}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">status_code</span><span class="o">=</span><span class="mi">204</span><span class="p">)</span>   <span class="c1"># ⭐ 幂等：删两次，终态都是&quot;没了&quot;</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">del_conv</span><span class="p">(</span><span class="n">cid</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
-    <span class="n">CONV</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">cid</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>         <span class="c1"># ⚠️ 第二次不报 404 —— 终态一样就该给一样的答复</span>
+    <span class="n">CONV</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">cid</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>         <span class="c1"># 本例选择第二次也返 204；幂等不要求两次响应码相同</span>
     <span class="k">return</span> <span class="kc">None</span>
 
 
@@ -448,8 +457,23 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>实跑：<code>PATCH</code> 只改了给的那个字段（<code>{'title': '报销流程', 'archived': False}</code>），⭐ <strong><code>DELETE</code> 连发两次都是 <code>[204, 204]</code></strong> —— 第二次<strong>没有</strong>报 404。这是本例选用的响应契约；第二次返回 404 仍然符合幂等，因为预期终态相同。</p>
 <hr />
+<details class="nc-r02-extension" id="interface-http-boundaries">
+<summary>可选深入：方法、字段与重定向，分别告诉谁做什么</summary>
+<p><strong>GET 请求读取表示，POST 请目标资源处理提交内容。</strong>参数放 URL 还是 body 不是两者的定义；GET 的请求内容没有通用定义的语义，别依赖中间层理解它。安全方法允许日志等附带效果，不等于服务器内存一个字也不变。</p>
+<p>POST 响应在显式声明新鲜度、<code>Content-Location</code> 等于目标 URI 等条件满足时可缓存，并可用于后续 GET/HEAD；不能用缓存响应代替再次执行 POST。实际缓存还须支持该方法并满足授权和缓存指令约束；多数通用缓存只实现 GET/HEAD。</p>
+<table class="nc-r02-table"><caption>同一次 /api/chat 交互中的常见字段</caption><thead><tr><th scope="col">字段及方向</th><th scope="col">解决的问题</th></tr></thead><tbody>
+<tr><td>请求 <code>Accept</code>；两向 <code>Content-Type</code></td><td>前者说能接受哪种表示，后者说本条消息内容是什么。请求 JSON、响应事件流是两次不同声明。</td></tr>
+<tr><td>请求 <code>Authorization</code>；响应 <code>WWW-Authenticate</code></td><td>提交凭据与返回认证挑战；错误信息不能回显 token。</td></tr>
+<tr><td>请求 <code>Host</code> / HTTP/2 的 <code>:authority</code></td><td>标明目标主机，供入口路由；不是可信客户端身份。</td></tr>
+<tr><td>两向 <code>Cache-Control</code>；响应 <code>Age</code></td><td>请求指令约束缓存使用；响应指令定义可存储性/新鲜度。Age 是生成或验证后的估计秒数，不是剩余寿命。</td></tr>
+<tr><td>响应 <code>ETag</code> / <code>Last-Modified</code></td><td>提供验证器；请求的 <code>If-None-Match</code> / <code>If-Modified-Since</code> 用它们问「是否改变」。验证与直接复用新鲜缓存是两步不同的判断；详细条件请求见 03c。</td></tr>
+</tbody></table>
+<p><strong>重定向让客户端另发请求；内部转发由服务器在内部继续处理。</strong>例如响应 <code>303</code> + <code>Location: /jobs/j1</code> 后，客户端按该规则发 GET 取任务；<code>307/308</code> 保留方法和请求内容。<code>301/302</code> 为兼容历史可把 POST 改为 GET，不能拿来保证保留请求体。跟随策略还受客户端和跨源安全规则限制。</p>
+<p>反向代理把 <code>/api/chat</code> 转给内部 app，不要求浏览器再请求一次，地址栏通常不变；客户端看不到内部路由不等于没有额外上游请求。30x 是响应，内部转发是服务器动作，二者不要混称。</p>
+<p>依据：<a href="https://www.rfc-editor.org/rfc/rfc9110.html#section-9.3.3">RFC 9110 方法与重定向</a>、<a href="https://www.rfc-editor.org/rfc/rfc9111.html#section-5">RFC 9111 缓存字段</a>、<a href="https://datatracker.ietf.org/doc/html/rfc6585#section-4">RFC 6585 的 429</a>。这里只补接口判据，不展开 03c 的实现。</p>
+</details>
 <h2 id="_5">🚦 四、状态码：判据是「谁的错、要不要重试」</h2>
-<p>⭐ <strong>两位数就定大方向</strong>：<strong>4xx = 你别再这么发了</strong>（原样重发结果一样，问题在请求里）；5xx = 我这边的问题，你可以再试。11 章那条死信规则和 04 章那张白名单，都只是这条通则的应用。</p>
+<p><strong>状态码先说明处理结果，重试还要单独判断。</strong>4xx 表示请求侧错误，5xx 表示服务器未能完成请求；这不是「4xx 永不重试、5xx 一定重试」的开关。先看具体错误能否恢复，再看重发是否安全，最后设次数和时间预算。生成请求超时，也可能已经生成并扣费。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -523,13 +547,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td><strong>429</strong></td>
 <td>你太快了 / 额度不够</td>
-<td>⭐ <strong>必须带 <code>Retry-After</code></strong>（12 章讲了它怎么算）</td>
+<td>协议允许带 <code>Retry-After</code>，并非必带；本项目尽量提供（12 章讲计算）</td>
 </tr>
 </tbody>
 </table></div>
 <p>⭐ <strong>401 vs 403 一句话</strong>：<strong>401 = 换个凭证可能就行（跳登录页）；403 = 换凭证也没用（显示「没权限」）。</strong> ⚠️ 混用的症状很典型：用户登录成功、被跳回来、又是 403、又跳登录 —— 无限循环，而日志里全是成功的登录。 ⭐ 400 vs 422 就没那么要紧（FastAPI 里 Pydantic 校验失败默认 422，两者在重试语义上同一档），写出来只是为了让你知道哪些地方不随便。</p>
-<h3 id="409-4xx-11">⭐ 409 是 4xx 通则的例外，也是 11 章那条规则的缺角</h3>
-<p>409 不是「你错了」，是「<strong>你现在这么发不行</strong>」：对已跑完的 job 发取消、两个请求同时改同一行。⚠️ <strong>它是少数几个「过一会儿再发同样的请求可能就成功」的 4xx</strong>（等那个 job 跑完、等那把锁放开）。把 409 一股脑塞进死信，你会丢掉一批只是撞上时序的任务。</p>
+<h3 id="409-4xx-11">⭐ 409：先解决状态冲突，再决定是否重试</h3>
+<p>409 表示请求与资源当前状态冲突。<strong>对已完成的 job 发取消，等一会儿也不会重新变成可取消</strong>；应查询状态并结束这次动作。若接口明确把短暂锁冲突映射为 409，才可能在有上限的退避后重试；版本冲突往往要先取新版本并合并，不能原样盲发。</p>
 <p>⭐ <strong>补全后的分诊表 —— 这就是 11 章那条规则缺的另一半</strong>：</p>
 <div class="tw"><table>
 <thead>
@@ -567,21 +591,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td>⭐ <code>409</code></td>
-<td>时序</td>
-<td>⭐ <strong>退避后重发同样的请求</strong></td>
-<td>⭐ <strong>重试</strong>（有上限），⚠️ <strong>不是死信</strong></td>
+<td>资源状态冲突</td>
+<td>查状态；按错误类型解决冲突</td>
+<td>可恢复且重发安全才有限重试；已完成任务不再取消</td>
 </tr>
 <tr>
 <td><code>429</code></td>
 <td>你太快 / 额度</td>
-<td>按 <code>Retry-After</code> 等，<strong>加抖动</strong></td>
-<td>重试</td>
+<td>有有效 <code>Retry-After</code> 则等待；缺省按本地退避策略，不立即连发</td>
+<td>确认可恢复及重发安全后，在预算内重试</td>
 </tr>
 <tr>
 <td><code>5xx</code> / 超时</td>
 <td>我</td>
-<td>退避重试</td>
-<td>重试</td>
+<td>判断是否瞬时故障，核对是否已执行</td>
+<td>幂等或有可靠去重保护，且预算允许才退避</td>
 </tr>
 </tbody>
 </table></div>
@@ -758,11 +782,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>⭐ 倒数第二行是 03 章立的那条：<strong>用户超限 429，你自己的上游额度不够 503</strong> —— 原样透传上游的 429，用户会以为是自己发太快了。⚠️ <strong>一个 03 章没往下说的推论</strong>：<code>429</code> 的正当性建立在「等一会儿真的会好」上。</p>
+<p>⭐ 倒数第二行是 03 章立的那条：<strong>用户超限 429，你自己的上游额度不够 503</strong> —— 原样透传上游的 429，用户会以为是自己发太快了。这里要向用户说明限制的恢复条件，不能把所有配额问题都表现成「再等一下」。</p>
 <blockquote>
-<p>⭐ <strong>判据：<code>Retry-After</code> 你写得出来吗？</strong> 写得出来（令牌桶天然算得出，12 章），那是速率限流，<code>429</code> 名副其实。
-⚠️ <strong>写不出来</strong>（用户这个月的配额花完了，不充值不会恢复），<code>429</code> 就是在骗客户端等一个永远不来的时刻 —— 语义上属于 <code>403</code> 那一档，细节交给 <code>code</code>（<code>quota_exhausted</code>）。
-⭐ <strong>同样是「超限」，一个动作是等，一个动作是去付钱。</strong></p>
+<p><strong>本项目把暂时速率限制与需人工处理的配额耗尽分开编码。</strong>能计算恢复时间时提供 <code>Retry-After</code>，但它是否存在不是选择 429 的协议判据。
+本月额度耗尽且需充值时，本项目选择 <code>403</code> + <code>quota_exhausted</code>，提示用户处理；其他 API 可以约定为 429。客户端应读业务 code，不能仅凭有无这个头猜测何时恢复。</p>
 </blockquote>
 <hr />
 <h2 id="_7">🔄 换个栈怎么对应</h2>
@@ -849,7 +872,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><a href="12-限流配额与成本护栏.html">12 · 限流配额与成本护栏</a></td>
-<td><code>429</code> 的 <code>Retry-After</code> 怎么算。⭐ 本章反过来用它做判据：<strong><code>Retry-After</code> 写不出来的「超限」本来就不该是 429</strong></td>
+<td><code>429</code> 的 <code>Retry-After</code> 怎么算。这是本项目的限流响应约定；协议允许 429 不带该字段，业务配额需结合 code 判断</td>
 </tr>
 <tr>
 <td><a href="../智能体工程教程/07-工具设计-能力的上限.html">智能体工程 07 · 工具设计</a> ｜ <a href="../智能体工程教程/08-MCP-接入外部世界.html">08 · MCP</a></td>
@@ -866,7 +889,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>为什么说方法是<strong>承诺</strong>而不是规矩？<code>DELETE</code> 连发两次第二次该返什么、为什么？</li>
 <li>201 和 202 的差别是什么？202 必须配上什么才成立？</li>
 <li>401 和 403 分错会造成什么具体症状？跨租户访问该返 404 还是 403，判据和代价各是什么？</li>
-<li>409 为什么是 4xx 通则的例外？它在队列里该死信还是重试？</li>
+<li>409 是否一定能靠等待恢复？已完成任务取消与短暂锁冲突分别怎么办？</li>
 <li>「用户配额用完了」该返 429 还是 403？本章给的判据是哪一句？</li>
 <li>换到 Node 或 Go，本章哪一行会真的变？为什么这个变化在监控上看不出来？</li>
 </ol>
@@ -876,11 +899,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>补的是<strong>生产端</strong> —— 服务端按什么判据把错误分进那几个码（11 章讲的是客户端拿到码之后怎么处置）。例子任选：「prompt 超长」返 500 会被按白名单重试 3 次，本该 0.2 秒的错拖成 8 秒、日志里还像上游在抖；「上游 502」翻成 400 会一次进死信，丢掉本该重试一次就好的活。</li>
 <li>代价是<strong>方法全变成 POST</strong>，于是代理、CDN、浏览器、日志、限流器、重试器看到的都是一个不透明的 POST —— 能不能缓存、重发安不安全、是读还是写全推不出来。信息藏在 URL 字符串里，没有中间层会去读。</li>
 <li><strong>它有没有自己的生命周期</strong>：需不需要被单独查询、单独重试、单独取消。3 分钟的 PDF 总结有 <code>queued / running / done</code>、有查进度和取消的需求，所以必须有自己的 id；300 毫秒返回的没有中间状态，就只是一次 <code>POST</code>。</li>
-<li>因为客户端和中间层<strong>真的照着它行事，不问你一句</strong> —— <code>GET</code> 上的删除会被预取、被 CDN 缓存住「成功」、被重试器自动重发，参数还进各层日志。<code>DELETE</code> 第二次该返 204（实跑就是 <code>[204, 204]</code>）：它承诺幂等，终态一样就该给一样的答复；客户端要的是「终态对不对」，不该因为「上一次其实成功了」而收到错误。</li>
+<li>因为客户端和中间层<strong>真的照着它行事，不问你一句</strong> —— <code>GET</code> 上的删除会被预取、被 CDN 缓存住「成功」、被重试器自动重发，参数还进各层日志。<code>DELETE</code> 本例两次返 204；第二次按契约返 404 也可符合幂等，比较的是预期效果。</li>
 <li><strong>201 = 已经成了、喏在这儿；202 = 排上了、成不成还不知道。</strong> 返 201 却把活丢进队列，客户端立刻 <code>GET</code> 那个 <code>Location</code> 会拿到 404，还分不清是自己拿早了还是服务器搞砸了。202 必须配一个能被查的地址（<code>Location</code> 指向 job 资源）；给不出地址就别用 202。</li>
 <li>401 是「不知道你是谁」（换凭证可能就行 → 跳登录页），403 是「知道你是谁但不许」（换凭证也没用）。混用的症状是<strong>登录成功 → 又被跳回登录页 → 无限循环，而日志里全是成功的登录</strong>。跨租户判据：403 承认了这个 id 存在，id 可枚举时就成了探测接口，所以「存在与否本身敏感就返 404」。代价是自己排查时分不清「真没有」和「没权限」，解法是对外 404、日志里记真实原因和 <code>trace_id</code>。</li>
-<li>因为 409 说的是「<strong>请求没问题，是资源现在的状态不允许</strong>」—— 等那个 job 跑完、那把锁放开，同样的请求可能就成功了，这是 4xx 里少数「过一会儿会好」的。所以队列里该退避重试（有上限），⚠️ 不是死信；一股脑塞进死信会丢掉一批只是撞上时序的任务。</li>
-<li>判据是 <strong>「<code>Retry-After</code> 你写得出来吗」</strong>。写得出来（令牌桶算得出，12 章）→ 速率限流，<code>429</code> 名副其实；写不出来（本月额度花完、不充值不恢复）→ <code>429</code> 是在骗客户端等一个永远不来的时刻，语义上属于 <code>403</code> 那一档，细节交给 <code>code</code>（<code>quota_exhausted</code>）。一个动作是等，一个是去付钱。</li>
+<li>409 是资源状态冲突。已完成的任务不能通过等待变回可取消；短暂锁冲突也只有在契约说明可恢复、重发安全且有预算时才退避。不能按状态码统一决定重试或死信。</li>
+<li>区分暂时速率限制和需人工处理的配额耗尽，读业务 code。本项目分别使用 429 和 403；这不是协议唯一选择。429 的 Retry-After 可选，缺省不能理解为立即重试。</li>
 <li><strong>校验失败默认给哪个码</strong>：FastAPI / Pydantic 自动给 422，Node 里 Zod 要你自己 catch（常写成 400），Go 标准库没有默认。看不出来是因为 400 和 422 都是 4xx、都进死信，粗粒度监控完全一致，只有细粒度的错误分类会静默失真。其余几行三家一个字都不用改 —— 它们属于 HTTP 不属于框架。</li>
 </ol>
 </details>
@@ -891,11 +914,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong>主判据：每个状态码都在回答「这是谁的错、对面该不该再发一次」。</strong></p>
 <p>两个方向都疼：把「prompt 超长」返 500，会被重试三次、把 0.2 秒的错拖成 8 秒<strong>还伪装成上游在抖</strong>；把上游 502 翻成 400，会一次进死信，丢掉本该重试一次就好的活。</p>
 <p>⭐ <strong>方法是承诺不是规矩</strong>：<code>GET</code> 安全且幂等，所以会被预取、被缓存、被自动重发。💀 把删除写成 <code>GET</code>，会被预取器扫光、被 CDN 缓存住「成功」、被重试器重发。生成天然不幂等，所以发消息就该是 <code>POST</code>。</p>
-<p><strong>4xx = 你别再这么发了，5xx = 我这边的问题你可以再试。</strong> ⭐ <strong>201 = 已经成了喏在这儿，202 = 排上了成不成还不知道</strong>；⭐ <strong>401 = 换凭证可能就行，403 = 换凭证也没用</strong>（混用会造成登录无限循环，而日志里全是成功的登录）。⭐ 409 是 4xx 的例外——「资源现在的状态不允许」，等一会儿可能就成功，所以队列里该重试不该死信。</p>
+<p><strong>状态码说明结果；可恢复性、重发安全和预算共同决定是否重试。</strong> ⭐ <strong>201 = 已经成了喏在这儿，202 = 排上了成不成还不知道</strong>；⭐ <strong>401 = 换凭证可能就行，403 = 换凭证也没用</strong>（混用会造成登录无限循环，而日志里全是成功的登录）。409 要先解决状态冲突；已完成任务的取消不应盲目重试。</p>
 <p>跨租户返 404 还是 403：<strong>403 承认了这个 id 存在</strong>，所以存在性本身敏感就返 404，代价是自己排查分不清——解法是<strong>对外 404、日志记真实原因和 <code>trace_id</code></strong>。⚠️ 判断顺序也是设计：认人 → 归属 → 权限 → 状态。</p>
 <p>⚠️ 流式下状态码在第一帧就定死成 200，所以<strong>这些码必须在第一个字之前全用完</strong>。</p>
 <p>⭐ <strong>AI 特有的真问题：一次对话既是资源又是长任务。</strong> 只做消息拿不到进度、没法取消；只做 job 则不知道结果落在哪。答案是 <strong>202 + 一个 job 资源</strong>——⭐ <strong>202 不是「异步」，是「我还没答应你这件事会成功」。</strong></p>
-<p>⭐ 「用户超限 429、本月额度花完 403」的判据是：<strong><code>Retry-After</code> 你写得出来吗</strong>——一个动作是等，一个是去付钱。</p>
+<p>429 的 <code>Retry-After</code> 是可选字段。暂时速率限制与需充值的配额耗尽，在本项目用不同 code 和处理提示区分，不能拿字段是否存在当协议分界。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="03c-幂等与条件请求.html">03c-幂等与条件请求.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>

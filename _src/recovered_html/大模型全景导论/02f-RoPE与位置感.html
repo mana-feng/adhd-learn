@@ -317,6 +317,23 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <blockquote>
 <p><strong>别混淆两句话</strong>：窗口“能装下”多少 token，是容量；模型“能稳定用好”多少内容，是能力。这两件事不等价。</p>
 </blockquote>
+<p id="context-route-entry">处理长文时，先分清三件事：<strong>位置范围能否支持、哪些原文仍可访问、回答所需证据是否齐全</strong>。想用同一任务比较策略，再展开下面的选读。</p>
+<details id="context-route-depth"><summary>选读：同一份长合同，扩窗口、滑窗和检索各解决什么？</summary>
+<p>位置机制的基本对照见 <a href="../机器学习与深度学习基础/14-通往Transformer.html#_4">ML14 的位置编码段</a>。这里保留上面的 RoPE 图，只讨论怎样安排长文输入；相对位置形式本身不保证超出训练长度后仍能答对。</p>
+<p id="context-contract-example"><strong>虚构任务：</strong>旧合同主文写“交付后 30 天内可退货”，很远的附件另写“定制件除外”；问题是“这件定制品能否按主文退货，请列出依据”。本例标注的合格回答应同时核对主文和该合同版本的附件，指出例外；只找到“30 天”还不够。这是教学材料，没有运行模型。</p>
+<div class="tw" tabindex="0" role="region" aria-label="长合同的策略对照，可横向滚动"><table style="min-width:560px;width:100%;table-layout:fixed"><colgroup><col style="width:22%"><col style="width:44%"><col style="width:34%"></colgroup>
+<caption>同一问题的四种处理；可以组合，需分别验证</caption><thead><tr><th scope="col">策略</th><th scope="col">改变什么、可能漏什么</th><th scope="col">至少检查什么</th></tr></thead><tbody>
+<tr><th scope="row">位置扩展</th><td>使用匹配的长上下文模型或位置缩放/适配方案，改变位置表示的适用范围。整份合同可作为输入，不主动删掉附件，但模型未必会用好远处证据。</td><td>不同长度、证据位置下的双证据答对率；原短任务是否退化；峰值 KV 与首 token 延迟。</td></tr>
+<tr><th scope="row">窗口注意力</th><td>限制每层直接访问的范围。若关键条款在窗口外，就少了直接连接；多层间接传递不等于完整保留。仅截取末尾输入更会直接丢掉前文。</td><td>主文和附件间隔增大时是否仍答对；实际可见范围；窗口层的缓存是否按实现停止增长。</td></tr>
+<tr><th scope="row">检索增强</th><td>从完整档案选出主文与附件，连同版本、条款号放入本次上下文；改变进入模型的证据集合。检索可能只召回主文或拿错版本。</td><td>所需两处证据是否一起召回；引用能否支持例外结论；检索加生成的总延迟。</td></tr>
+<tr><th scope="row">内容压缩</th><td>把原文缩成摘录或摘要，腾出输入预算；可能删掉“除外”、对象范围或版本条件。压缩后的文字不能默认等价于原件。</td><td>例外与条件保留率、可回查原文的位置、压缩加回答的总成本。</td></tr>
+</tbody></table></div>
+<p id="context-position-example"><strong>位置扩展看一个算式即可：</strong>Position Interpolation（PI）把送入 RoPE 的位置坐标按 <code>p′ = p / s</code> 缩放，其中 <code>s = 新窗口 / 原窗口</code>。教学假设 s=2，则坐标 2 和 6 变成 1 和 3，位置差从 4 变成 2；<strong>token 没有因此被删除或合并</strong>。PI 原论文在 RoPE 的 LLaMA 模型上配合扩展长度微调，并分别评测语言建模、检索和摘要；不能把论文结果推成任意 checkpoint 改一个数就获得同等能力。</p>
+<p>RoPE scaling 是一类调整方案的统称，PI 是其中一个具体方法；不同方法可能调整不同频率及参数。先固定模型/Tokenizer 版本，核查模型配置支持的位置方案、最大长度、注意力掩码和推理实现。以 Transformers v4.57.1 为例，其 RoPE 工具分别处理 linear、dynamic、YaRN 等参数；Mistral 配置也把 <code>max_position_embeddings</code> 和 <code>sliding_window</code> 分开。配置字段或默认值不是任意已训练模型的质量保证，不能把窗口大小当作整个上下文都能直接访问。</p>
+<p id="context-cache-boundary"><strong>再核对资源：</strong>在相同层数、KV 头数、精度且保留完整前缀的常规缓存下，长度增大会增加 KV 存储和每步读取前缀的工作；位置缩放不会自动消掉这些成本。缓存复用、容量公式和 <a href="../AI基础设施/16-KV-Cache.html#gqa-mqa-kv">GQA/MQA</a> 已在 <a href="../AI基础设施/16-KV-Cache.html#_2">KV Cache 主章</a>解释。滑窗模型的相应层只有在实现确实按窗口管理缓存时才有对应上界；混合全局层仍须另算。卸载或量化可以改变缓存预算与延迟，不能补回缺失条款，也不直接证明理解变好。</p>
+<p><strong>可执行的教学方案：</strong>先给合同集合标出“主文＋附件”的必要证据，按目标 Tokenizer 计算提示、资料和输出预算。能在已验证窗口内完整放入时，用整文方案作基线；需要缩短输入时，先检索并保留原件回查，压缩后专查例外词和版本；尝试长窗口或滑窗时，在同一题集上移动证据位置、拉大间隔，再分别记双证据完整率、答案/引用正确率、峰值缓存和端到端延迟。检索、压缩与评测的细节沿用 <a href="08-RAG深水区.html#ov-08-1">RAG 入口</a>、<a href="../智能体工程教程/11d-生成引用与查询诊断.html#_5">上下文拼装检查</a>和 <a href="08c-RAG怎么评估.html#_3">评估段</a>。这些是待执行的选择步骤，没有个人实战或模型性能数据。</p>
+<p><small>核查依据：<a href="https://arxiv.org/html/2104.09864v5#S3.SS2">RoFormer §3.2</a>；<a href="https://arxiv.org/html/2306.15595v2#S2.SS3">Position Interpolation §2.3、§3</a>；<a href="https://github.com/huggingface/transformers/blob/v4.57.1/src/transformers/modeling_rope_utils.py">Transformers v4.57.1 RoPE 实现</a>；<a href="https://huggingface.co/docs/transformers/v4.57.1/en/model_doc/mistral#transformers.MistralConfig">同版 Mistral 配置</a>；<a href="https://huggingface.co/docs/transformers/v4.57.1/en/kv_cache">同版缓存策略</a>；<a href="https://arxiv.org/abs/2005.11401v4">RAG 原论文</a>。</small></p>
+</details>
 <h2 id="_4">✅ 检查点</h2>
 <ul>
 <li>注意力需要额外的位置线索，才能分清顺序和距离。</li>

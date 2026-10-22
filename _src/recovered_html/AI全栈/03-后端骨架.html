@@ -423,6 +423,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <blockquote>
 <p>⭐ <strong>判据背下来</strong>：<code>async def</code> 里只能写「会 await 的等待」。拿不准某个库阻不阻塞，就写成 <code>def</code> 交给线程池——<strong>慢一点，但不会全站一起躺下</strong>。</p>
 </blockquote>
+<details id="io-readiness-depth"><summary>可跳过：一次读操作，怎样从“等网络”回到事件循环？</summary>
+<p><strong>阻塞/非阻塞描述调用是否等待，语言的 async 不直接规定内核模型。</strong>阻塞读在没有数据时可挂起调用线程；非阻塞读在当前无法完成时返回 EAGAIN/EWOULDBLOCK，应用稍后再试，而不是不断空转重试。就绪通知说“现在可以尝试读”，处理器仍要执行读；完成通知则报告已提交的异步操作结束及结果。同步阻塞、非阻塞轮询、就绪多路复用和异步完成是不同组织方式，不能把非阻塞等同CPU永不等待。</p>
+<p><strong>Linux的选择器：</strong>select每次给出描述符集合、返回后再检查并准备下一次集合；常见fd_set有FD_SETSIZE限制。poll传入pollfd数组并读revents，不使用同样的位集合上限，但仍需处理所提交的数组。epoll把关注集合持久注册到内核，epoll_wait取就绪事件，避免每轮从用户态重传/检查同样的完整集合。处理返回的k个事件至少仍要做与k相关的工作；注册/移除、复制、回调与真实读写也有成本，所以“epoll是O(1)”不能解释成无限连接或吞吐。</p>
+<p><strong>LT/ET只在上述就绪通知层比较。</strong>水平触发LT在条件仍成立时可再次通知；边缘触发ET关注状态变化。假设一次来了2KiB，处理器只读1KiB就回去等待，新边缘未出现时，剩下1KiB可能一直等不到下一次通知。ET通常配合非阻塞描述符，把当次可处理数据读到EAGAIN；遇到EOF或错误要结束相应路径。若为公平性设置单轮预算，预算用完但尚未排空的连接要由应用继续调度，不能指望新边缘来叫醒它。</p>
+<p><strong>Reactor</strong>围绕就绪事件调度处理器，处理器执行非阻塞I/O；<strong>Proactor</strong>先提交异步操作，再分派完成结果。上层库可以在就绪机制上组合出异步完成接口，不能只看函数名就断言内核实现。比如Python3.13文档中Windows默认ProactorEventLoop，与Unix选择器路径及支持范围不同；具体框架/版本仍要核对。async函数里仍能执行短的同步计算，关键是别让阻塞等待或长CPU工作占住事件循环。本段只补一次读操作的理解，不写服务器或内核源码，也未执行Linux I/O压测。</p>
+<p class="muted">依据：<a href="https://man7.org/linux/man-pages/man7/epoll.7.html">epoll LT/ET</a>、<a href="https://man7.org/linux/man-pages/man2/select.2.html">select</a> / <a href="https://man7.org/linux/man-pages/man2/poll.2.html">poll</a>、<a href="https://www.boost.org/doc/libs/1_85_0/doc/html/boost_asio/overview/core/async.html">Boost.Asio1.85的Proactor说明</a>、<a href="https://docs.python.org/3.13/library/asyncio-platforms.html">Python3.13平台支持</a>。</p>
+</details>
 <hr />
 <h2 id="_4">🔌 四、依赖注入不是花架子</h2>
 <p>它解决一个很具体的问题：<strong>有些事每个请求都要做，却不属于任何一个业务函数</strong>——鉴权、限流、拿连接、生成 trace_id、识别租户。写进业务函数就是十个路由十份复制粘贴，改一次漏三处。</p>

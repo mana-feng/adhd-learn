@@ -280,7 +280,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="polish-ai-fullstack-reading">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><style id="g04-reading-fix-qread-001">
+/* Bound only this added prose table; preserve its scroll wrapper and all content. */
+body main table.g04-reading-cache-failure { table-layout:fixed; width:100%; min-width:36rem; max-width:none; }
+body main table.g04-reading-cache-failure :is(th,td) { white-space:normal; overflow-wrap:anywhere; word-break:normal; vertical-align:top; }
+</style>
+</head><body class="polish-ai-fullstack-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -650,6 +655,70 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>💀 <strong>缓存命中不等于允许返回。</strong> 两个租户可以都有 <code>contract</code>，同一文档也会从 <code>r1</code> 更新到 <code>r2</code>；只放 id，就会复用别人的摘要或旧版本答案。上面的三个比较都应为 <code>False</code>。模型、system、温度、最终上下文的内容与顺序也必须反映到 key。</p>
 <p>⭐ <code>tenant_id</code>、<code>scope_id</code> 和权限版本由服务端认证与授权结果提供；不同有效可见范围不能共用 scope，授权变化要更新版本。<strong>每次命中后仍要按当前 ACL 复验全部引用文档，并检查修订是否有效</strong>，再返回缓存答案；撤权或版本失效就丢弃命中，不能只靠 TTL 或旧 key 放行。</p>
+<p>如果只在实现本章调用层，可以继续下一节；遇到缓存把数据库拖慢、命中旧答案或 Redis 内存上涨时，再看 <a href="#cache-depth">可跳过的缓存深入</a>。</p>
+<details id="cache-depth"><summary>可选深入：缓存失效、旧读回填与 Redis 的容量代价</summary>
+<p>这里讨论的是<strong>应用缓存</strong>，数据库仍是业务事实来源；上面的身份、权限、文档修订检查继续生效。以下时间线和命令结果是教学推演，未运行 Redis 服务或并发压测。</p>
+<h3 id="cache-failure-traces">先找出是哪一种“没命中”</h3>
+<div class="tw"><table class="g04-reading-cache-failure"><colgroup><col style="width:27%"><col style="width:23%"><col style="width:50%"></colgroup><thead><tr><th>轨迹</th><th>数据库为什么忙</th><th>针对它的办法与限制</th></tr></thead><tbody>
+<tr><td>穿透：请求不存在的文档 X → cache miss → DB 无记录；下一次仍如此</td><td>不存在的结果没被记住，重复请求都回源</td><td>校验ID；把“确实不存在”与超时/故障区分，空值短 TTL 可减少重复查询，但新建文档后须失效。先鉴权，不能借负缓存泄漏对象存在性</td></tr>
+<tr><td>击穿：一个热 key 到期 → 同时来 100 个读者 → 都回源</td><td>同一个值被并行重建</td><td>同 key 的 single-flight 或有期限互斥，让一个请求重建；等待队列要有界、超时可拒绝。进程内合并不覆盖其他实例；旧值兜底也不能越过权限/修订有效性</td></tr>
+<tr><td>雪崩：一批 key 同时到期，或缓存服务整体不可用 → 大量不同 key 回源</td><td>压力同时散到数据库各处</td><td>批量预热/过期时间错峰，限制回源并发并降级；随机 TTL 不能修复整个缓存宕机，后端保护仍要有</td></tr>
+</tbody></table></div>
+<h3 id="cache-bloom">用 8 个位看清 Bloom 的误报</h3>
+<p>把位编号为 0–7。为便于手算，假设两次哈希得到 A→(1,4)、B→(2,4)、C→(1,2)、D→(0,4)。插入 A、B 后，置 1 的位置是 {1,2,4}。查 D：位 0 为 0，可排除；查 C：两位都是 1，却没插入过 C，<strong>这是误报，仍要回源确认</strong>。</p>
+<p>“没有漏报”的前提是检查的集合确实都已插入、哈希一致、位没有丢失或被误清。新文档已写库却尚未同步过滤器时，不能用旧过滤器的阴性把它永久挡住。普通 Bloom 不能直接清掉 A 的位 4 来删除 A，否则 B 也会受损；删除需要重建或选用支持删除的适当结构。真实容量与误报率要按预计元素量配置，此 8 位例不代表生产误报率。</p>
+<h3 id="cache-aside-race">沿 cache_key 看一次删除仍留下的旧答案</h3>
+<div class="codehilite" data-code-language="text"><pre><code>初始：DB=v1，cache缺失（先假设使用不含修订的旧key）
+R：读DB得到v1，尚未回填 → 暂停
+W：提交DB=v2 → 删除cache（此时仍为空）
+R：恢复，把手里的v1写入cache
+后续读者命中v1；W已经执行过一次delete，仍然会读旧值</code></pre></div>
+<p>本章 <code>cache_key</code> 把最终文档修订放进 key：R 的 v1 只能写入 r1 的 key，<strong>前提是后续请求从可信且足够新的修订来源取得 r2，并在命中时复验</strong>。旧版本指针本身若被缓存得过久，换键并不能凭空知道新版本。授权检查与取数据间的并发撤权，也要由业务定义生效边界。</p>
+<p>写库提交后再失效缓存，仍有“提交成功、删除前崩溃”和失效投递失败窗口。可用同库事务保存失效意图、后台可靠重试，必要时在同一原子边界核验版本再写缓存；TTL 仅在停止旧回填且过期策略有效时帮助收敛。<strong>异步可靠投递通常提供最终一致，不是跨数据库与 Redis 的原子提交</strong>；“延迟再删一次”也不能脱离最大读延迟/重试假设作保证。外部副作用的恢复边界见 <a href="../智能体工程教程/12b-持久化审批与故障恢复.html#tryexcept">原有故障恢复节</a>。</p>
+<h3 id="cache-redis-shapes">按读写形状选值结构，再看编码</h3>
+<div class="tw"><table><thead><tr><th>类型</th><th>本应用中的用途</th><th>别混淆的地方</th></tr></thead><tbody>
+<tr><td>String</td><td>一份序列化摘要/embedding缓存；GET/SET整值读写</td><td>Redis String 可以是二进制字节，不只是人类文字；不能把向量JSON的整值读取当向量检索索引</td></tr>
+<tr><td>Hash</td><td>对象字段，如任务进度或文档元信息，HGET/HSET按字段操作</td><td>字段结构不自动解决多个字段与源库的事务一致性</td></tr>
+<tr><td>Set</td><td>去重成员、集合交集，如一组候选文档ID</td><td>无分值排序；成员存在也不能替代当前ACL判断</td></tr>
+<tr><td>ZSet</td><td>唯一成员+数值score，按分数取范围或求名次</td><td>成员唯一，更新分值会移动位置；排行榜还需要确定并列规则、更新来源与容量目标</td></tr>
+</tbody></table></div>
+<details id="cache-list-order"><summary>可跳过：List怎样保留顺序与重复值？</summary>
+<p><strong>List是有序、允许重复的字符串序列。</strong><code>LPUSH/RPUSH</code>从左/右端加入，<code>LPOP/RPOP</code>从左/右端取出并移除；<code>LRANGE</code>按位置读取范围，不删除元素，结束下标也包含在范围内。Set成员去重且不承诺这种位置顺序；ZSet成员唯一、按score排序，与List保留重复值不同。</p>
+<p><strong>一个顺序明确的预期轨迹（未连接Redis实测）：</strong>从空key开始，<code>RPUSH demo a b a</code>后为[a,b,a]；<code>LPUSH demo x</code>后为[x,a,b,a]。此时<code>LRANGE demo 0 1</code>得到[x,a]，列表不变；接着LPOP得到x，RPOP得到a，剩下[a,b]。同端加入/取出可作栈，两端配合可作先进先出队列，顺序取决于所选端。</p>
+<p><strong>普通pop不是消费确认。</strong>元素移除后、业务处理完成前崩溃，列表不会自动找回它。<code>LMOVE</code>可原子转入处理中列表，但确认、超时重领、持久化配置和业务幂等仍需设计；不能由List推出持久工作流或恰好一次副作用。可靠任务边界继续看<a href="11-长任务与队列.html#2">长任务与队列原节</a>。</p>
+<p class="muted">依据：<a href="https://redis.io/docs/latest/commands/lpush/">LPUSH</a> / <a href="https://redis.io/docs/latest/commands/rpush/">RPUSH</a>、<a href="https://redis.io/docs/latest/commands/lpop/">LPOP</a> / <a href="https://redis.io/docs/latest/commands/rpop/">RPOP</a>、<a href="https://redis.io/docs/latest/commands/lrange/">LRANGE</a>与<a href="https://redis.io/docs/latest/commands/lmove/">LMOVE可靠队列模式</a>。</p>
+</details>
+<p><strong>实现旁注只针对 Redis 7.2.0：</strong>String 对象可采用整数编码，或基于 SDS 的 embstr/raw；不能说每个值都是同一种底层布局。SDS 保存字节长度（读取长度不靠扫描 NUL）及分配容量，能容纳中间的零字节；长度与容量不是一回事，扩容仍可能分配/拷贝。7.2.0 的小 ZSet 可用紧凑 listpack；较大表示用 dict 按成员找分值，skiplist 维护有序访问/排名。listpack 省空间但查找可能扫描；skiplist 与 dict 组合也要付指针/索引内存。</p>
+<p>7.2.0 示例配置的 <code>zset-max-listpack-entries=128</code>、<code>zset-max-listpack-value=64</code> 是该版本可配置的元素数/成员字节长度界限，还受编码安全条件等约束；它们不是所有 Redis 版本或部署的固定规则。排查实际对象要看目标版本与配置，不能仅凭“这是 ZSet”推断它正在使用哪种编码。</p>
+<h3 id="cache-ranking">一个三人榜：更新、前两名、自己的名次</h3>
+<div class="codehilite" data-code-language="text"><pre><code># Redis 7.2.0语义的预期结果，未启动服务执行
+ZADD rank 10 u1 20 u2 20 u3
+ZRANGE rank 0 1 REV WITHSCORES   # u3 20，u2 20
+ZADD rank 25 u1                 # 更新已有成员，不新增第二个u1
+ZREVRANK rank u1                # 0（零基）；页面显示第1名要+1</code></pre></div>
+<p>默认先按 score，再按成员的<strong>二进制字节序</strong>；REV 同时反转分值和并列次序，因此例中 u3 在 u2 前。它不是“同分共享名次”，也不是按最后更新时间排；这些业务规则需要另外定义。文档给出的常规复杂度是单成员 ZADD、ZRANK/ZREVRANK 为 O(log N)，按名次取 K 个为 O(log N+K)；小型紧凑编码与输出大小也影响实际耗时。一个大榜仍有内存、热点、更新时效和分片后的全局排名问题，不能据此声称百万用户 SLO 已通过。</p>
+<section id="ranking-scale-boundary"><h4>可选续读：三人榜怎样检查到百万用户的边界</h4>
+<p>上一例的member唯一和score更新机制可以保留，但<strong>用户数不是每秒更新量</strong>。先给出活跃用户、每人更新频率、读Top-K/读个人名次的比例、允许延迟与同分规则。若只是教学假设100万成员、每分钟各更新一次，平均约16667次更新/秒；瞬时集中更新仍会高于平均，这个算术不是Redis吞吐结论。容量要实际测每成员/索引开销及峰值内存，不能只乘用户名长度。</p>
+<p>同一业务操作重复上报积分时，用稳定事件ID去重，再按已定义的覆盖/累加规则更新；否则一次重试就可能多加分。默认ZSet同分按成员字节序排序，要不要同分共享名次、按达分时间排，必须另定，别用浮点score随意拼低位字段而丢精度。</p>
+<p>一个全局榜key会聚集更新与排名请求；分成多个Redis key/分片会改变全局语义。对同一静态快照，各分片Top-K候选可合并求全局Top-K，但个人精确名次还需知道所有分片领先者数量及并列规则；持续更新时还要定义快照/版本与允许陈旧度。原子性不能无条件跨槽扩展。先验证热点、容量、恢复和最终排序结果，再谈SLO；这里既未搭百万用户服务，也不据一个命令闭合完整系统题。</p>
+</section>
+<details id="ranking-reference-design"><summary>可跳过：一套假设明确的百万成员榜参考设计</summary>
+<p><strong>先固定参考配置。</strong>同一赛季全局榜以PostgreSQL17保存权威积分，Redis7.2单个ZSet作查询投影。沿用100万成员、每人平均60秒更新一次的教学假设，约16667次更新/秒；再假设Top100查询100次/秒、投影新鲜度目标1秒。速率和目标都是本例选择，不是题面事实或已测能力。</p>
+<p><strong>权威更新→可靠事件。</strong>业务先按稳定事件ID去重并核对内容；同一数据库事务锁定用户积分行，保存新的绝对积分、单调用户版本，插入outbox。提交后才确认业务接受；并发更新必须序列化或条件重试，不能让两个事件生成同一版本。下游事件带用户ID、绝对分值和版本，重复投递不再累加积分。</p>
+<p><strong>投影只接纳新版本。</strong>短Lua脚本检查事件、key类型与当前用户版本，仅当incoming_version较新才更新ZSet分值与版本Hash。本例分值/版本限定在可精确表示的整数范围内，不把时间戳塞进小数分数；同版本不同内容应告警。本地写成功才能推进消费进度。</p>
+<p>脚本隔离执行不等于任意错误都回滚。本例再设epoch的dirty标记：先拒绝已dirty投影，校验后置dirty，完成分值/版本更新才清除；中途出错保留dirty，后续写入和查询均拒绝该投影，转重建。查询在同一原子读里核对健康状态并取榜，不能先检查、隔很久再读。这个保守门禁也需要实装验证。</p>
+<p><strong>同分与Top100。</strong>成员用固定格式ASCII用户ID，按分数降序、同分按成员字节序降序；<code>ZRANGE key 0 99 REV WITHSCORES</code>正好采用此规则，不额外拼浮点复合分数。此参考从主节点读，并返回epoch与已应用水位/时间；写库成功不等于投影立即可见，超过新鲜度目标时标为旧榜或暂停查询，不能继续宣称实时。</p>
+<p><strong>故障小轨迹：</strong>u001先到v2=90，再到v1=100，保持90；v2重投仍为90。v3=110已应用但确认丢失，重投v3也仍为110。合法扣分可降低绝对积分，是否接受取决于版本而非“分数更大”。若同事件ID换内容，拒绝并核查，不能当普通重复吞掉。</p>
+<p><strong>重建与切换。</strong>保留权威outbox，并使用PostgreSQL逻辑解码配套的一致性快照与日志位置L建立新epoch：快照带用户版本，重放L之后增量，只有连续处理完的提交位置才能推进水位。不能把最大自增ID当已完整提交水位；复制槽重发也靠版本去重。追到切换水位后短暂停投影写，核对成员/版本、样本排名与积压，再原子切换active epoch并续接事件；旧epoch保留到在途读取结束。</p>
+<p><strong>部署边界。</strong>同一Lua涉及的scores、versions、dirty和active等key用同一<code>{board}</code>哈希标签共槽；Cluster不会把一个全局ZSet自动分散到多节点。副本读有复制陈旧，切主或重启后先置投影不可用，校验/重放或重建后再开放。AOF/RDB策略影响恢复窗口，Redis持久化不替代权威库与可重放事件。</p>
+<p><strong>容量与验收。</strong>量单成员实际内存、版本Hash、双epoch重建峰值、CPU/网络、热点与更新/Top100的p95及投影lag；保留日志和复制槽也有磁盘上限。若单全局榜预算不满足，再采用前文分区候选并定义快照/陈旧度，不能宣称单节点一定够用。以上是有限设计与逻辑轨迹；百万吞吐、真实Redis/数据库和跨机灾备均未执行。</p>
+<p class="muted">依据：<a href="https://www.postgresql.org/docs/17/tutorial-transactions.html">PostgreSQL17事务</a> / <a href="https://www.postgresql.org/docs/17/explicit-locking.html">行锁</a> / <a href="https://www.postgresql.org/docs/17/logicaldecoding-explanation.html">逻辑解码快照与重放</a>；Redis的<a href="https://redis.io/docs/latest/commands/zrange/">ZRANGE</a>、<a href="https://redis.io/docs/latest/develop/programmability/eval-intro/">脚本</a>、<a href="https://redis.io/docs/latest/operate/oss_and_stack/reference/cluster-spec/">共槽</a>、<a href="https://redis.io/docs/latest/operate/oss_and_stack/management/replication/">复制</a>与<a href="https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/">持久化</a>。</p>
+</details>
+<h3 id="cache-capacity">TTL、淘汰、大 key、热 key 分别看</h3>
+<p><strong>TTL 管寿命，maxmemory 淘汰管容量。</strong>设置 TTL 不等于永远有足够内存，也不意味着该值在到期前必定保留。7.2.0 中可选择 allkeys/volatile 范围的 LRU、LFU、random，或 volatile-ttl；LRU/LFU 是近似策略，volatile 只在带过期时间的候选中选。noeviction 不主动淘汰来腾空间，会让需要新增内存的相关写入报错，已有数据的读取仍可进行；应用必须处理写缓存失败。</p>
+<p><strong>big key 看体积，hot key 看访问率。</strong>一个很少读取的超大 Hash 仍可能因全量返回、序列化/传输、删除/遍历成本拖慢请求；一个很小的摘要若每秒被大量访问，也可能形成热 key。先量元素数、字节数、请求频率、返回量和慢命令，再限制单次范围/分页、拆分大对象或合并重复读取；拆 key 会改变原子操作边界。不要在生产高峰为定位问题一次拉全量。这里没有给出可通用的“大”阈值，也没有测量 Redis 延迟。</p>
+<p class="muted">依据：<a href="https://learn.microsoft.com/en-us/azure/architecture/patterns/cache-aside">Cache-Aside 模式</a>、<a href="https://redis.io/docs/latest/develop/data-types/probabilistic/bloom-filter/">Bloom 官方说明</a>、<a href="https://redis.io/docs/latest/develop/reference/eviction/">Redis 淘汰策略</a>、<a href="https://github.com/redis/redis/blob/7.2.0/src/sds.h">7.2.0 SDS</a> / <a href="https://github.com/redis/redis/blob/7.2.0/src/object.c">对象编码</a> / <a href="https://github.com/redis/redis/blob/7.2.0/src/t_zset.c">ZSet 源码</a> / <a href="https://github.com/redis/redis/blob/7.2.0/redis.conf">配置</a>；榜单命令见 <a href="https://redis.io/docs/latest/commands/zadd/">ZADD</a>、<a href="https://redis.io/docs/latest/commands/zrange/">ZRANGE</a>、<a href="https://redis.io/docs/latest/commands/zrevrank/">ZREVRANK</a>。</p>
+</details>
 <hr />
 <h2 id="_6">🔄 六、换个栈怎么对应</h2>
 <div class="tw"><table>

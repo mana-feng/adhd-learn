@@ -309,7 +309,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>每张卡放一份完整的模型，各自吃不同的数据，算完梯度后求个平均。</strong>
-它是唯一一种不改变模型结构的并行方式 —— <strong>所以永远先试它。</strong></p>
+复制式数据并行是常见起点；是否适合仍要看模型容量、负载和通信代价。<strong></strong></p>
 <hr />
 <h2 id="_2">🔄 一、它怎么工作</h2>
 <figure class="dia">
@@ -377,9 +377,23 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <blockquote>
 <p>🔑 <strong>为什么求平均而不是求和</strong>：
-因为等效 batch 变成了 N 倍，要保持梯度的尺度不变。
-<strong>求和的话相当于学习率被放大了 N 倍。</strong></p>
+在每卡有效样本数相同、各卡 loss 按均值归约时，平均局部梯度对应全局均值梯度；本图按这个条件理解。
+<strong>在这个条件下，若只把平均改成求和而不改 loss 缩放或学习率，梯度会大 N 倍。样本数不等时还要核对权重。</strong></p>
 </blockquote>
+<p id="nc-dp-ddp"><strong>先分清名字：</strong>数据并行是一类“模型副本分摊数据”的方法；PyTorch 的 <code>nn.DataParallel</code> 和 <code>DistributedDataParallel</code>（DDP）是不同实现。上图按梯度归约型数据并行理解，下面代码用 DDP。先记住这一区分，就可以继续读原代码；具体机制放在下面。</p>
+<details class="g05-content-note" id="nc-dp-depth"><summary>深入：DP 实现与 DDP 怎样分工（可跳过）</summary>
+<div class="tw"><table style="min-width:38em;table-layout:fixed"><thead><tr><th style="width:22%">比较什么</th><th>nn.DataParallel</th><th>DDP 常用每 GPU 一进程配置</th></tr></thead><tbody>
+<tr><td>进程与副本</td><td>单进程多线程；每次 forward 在设备上复制模块。</td><td>多个进程，各自持有模型副本；初始化后不按 DP 的方式每次重新复制。</td></tr>
+<tr><td>输入与输出</td><td>默认沿 batch 维 scatter 输入，各副本执行，再 gather 输出。</td><td>不自动切分输入；调用方用采样器或其他数据分配方式喂各 rank，输出通常留在各进程。</td></tr>
+<tr><td>反向与更新</td><td>副本梯度归约回原模块；最终尺度还取决于输出上的 loss 归约。</td><td>反向触发梯度桶 all-reduce，各 rank 依相同更新规则更新；已有分桶/重叠和 no_sync 见下一节。</td></tr>
+<tr><td>使用范围</td><td>常用于单机多 GPU。</td><td>可单机多 GPU，也可多机；不是“只有多机才用 DDP”。PyTorch 通常推荐多 GPU 训练用 DDP。</td></tr>
+<tr><td>比较前提</td><td colspan="2">两者都不自动分摊模型状态。对齐模型、精度、有效 batch、loss 缩放与数据后再测通信和端到端时间；不能预先承诺固定倍数加速。</td></tr>
+</tbody></table></div>
+<p><strong>只做数据划分手算：</strong>2 张卡、全局 batch=8。DP 的一个进程接 8 个样本再分成 4+4；DDP 的两个 rank 各喂 4 个，合计仍是 8，而不是每 rank 各喂 8 后继续称全局 batch=8。现有代码中的 <code>DistributedSampler</code> 和 <code>set_epoch()</code> 负责相应数据划分/顺序，<code>no_sync()</code> 的使用见下节。</p>
+<p><strong>不等量时，均值不能再随便平均：</strong>假设两个 rank 的有效样本数为 2、6，局部样本均值梯度分别为 1、3。简单平均是 2；按样本权重计算才是 (2×1+6×3)/8=2.5。真实任务还要对齐 token/mask 和 loss 分母；这只是标量手算，不是多卡训练结果。</p>
+<p>已有选型速查见 <a href="../Kaggle竞赛方法论/04_超参数调优与工程实践.html#_10">Kaggle 04 · 分布式训练</a>；包装后的存储键见 <a href="../PyTorch这个框架本身/06-state_dict与存取.html#key">PyTorch 06 · state_dict 键</a>，这里不重复那两章。</p>
+<p>依据：<a href="https://docs.pytorch.org/docs/2.14/generated/torch.nn.DataParallel.html">DataParallel API</a>、<a href="https://docs.pytorch.org/docs/2.14/generated/torch.nn.parallel.DistributedDataParallel.html">DDP API</a>、<a href="https://docs.pytorch.org/docs/2.14/notes/ddp.html">DDP 设计说明</a>。本段没有运行分布式训练或性能测试。</p>
+</details>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># PyTorch DDP：标准写法</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.distributed</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">dist</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch.nn.parallel</span><span class="w"> </span><span class="kn">import</span> <span class="n">DistributedDataParallel</span> <span class="k">as</span> <span class="n">DDP</span>
@@ -552,7 +566,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="_6">✅ 检查点</h2>
 <ol>
-<li>数据并行怎么工作？为什么梯度要求平均而不是求和？</li>
+<li>本章 DDP 例怎样同步梯度？把局部均值再平均需要什么样本权重条件？</li>
 <li><code>sampler.set_epoch()</code> 不加会怎样？</li>
 <li>DDP 的梯度桶做了什么？为什么反向传播的顺序让它成为可能？</li>
 <li>梯度累积时忘了 <code>no_sync()</code> 会怎样？</li>
@@ -561,11 +575,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>为什么卡越多扩展效率越低？</li>
 <li>数据并行省显存吗？</li>
 <li>"训练突然卡死、无报错、GPU 100%"最可能是什么原因？</li>
+<li>一般数据并行、nn.DataParallel 与 DDP 有何区别？DDP 会自动切输入吗？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>每张卡放完整模型副本，吃不同数据分片，算完梯度后 AllReduce <strong>求平均</strong>，所有卡拿到相同梯度各自 step，参数保持一致。求平均是因为等效 batch 变成 N 倍，求和相当于学习率被放大 N 倍。</li>
+<li>本章 DDP 例中各 rank 持副本、吃分片、归约梯度后按相同规则更新。各卡有效样本数相同且 loss 按均值归约时，平均局部梯度对应全局均值；若只改成求和而不改其他缩放，梯度大 N 倍。有效样本数或 mask 分母不同时需核对权重。<strong></strong></li>
 <li><strong>每个 epoch 的数据顺序和划分完全一样，等于没有 shuffle</strong>。</li>
 <li>攒够一个桶（默认 25MB）就立刻开始 AllReduce，让<strong>通信和后面层的计算重叠</strong>。可能是因为反向传播是从后往前的，最后一层的梯度最先算出来，不用等全部算完。</li>
 <li><strong>通信量翻 N 倍</strong>（累积 8 步就是 8 倍必要通信量），而代码看起来完全正常——隐蔽的性能杀手。</li>
@@ -574,12 +589,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>因为卡数增加时<strong>计算时间下降（每卡数据变少）但通信量基本不变</strong>，所以通信占比上升。</li>
 <li><strong>一块都没省</strong>——每张卡都有完整的参数、梯度、优化器状态。省显存要用 ZeRO。</li>
 <li><strong>某张卡的数据比别人少一个 batch 提前退出循环</strong>，其他卡在等一个永远不来的 AllReduce。排查：<code>TORCH_NCCL_BLOCKING_WAIT=1</code> 让它超时报错而不是永久挂起。</li>
+<li>一般数据并行是范式；nn.DataParallel 常用单进程多线程、forward 复制/scatter/gather；DDP 常用每 GPU 一进程、保留副本并同步梯度。DDP 可用于单机或多机，但不自动切输入；调用方安排数据。比较速度前先对齐有效 batch 与 loss 口径。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_7">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
-<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>数据并行让每卡保留模型副本、处理不同数据，再同步梯度；它本身不分摊模型状态。</li><li>检查采样器、梯度累积和各卡迭代次数，避免重复通信或集合操作相互等待。</li><li>通过梯度分桶与计算通信重叠提高效率，再实测增加卡数后的扩展收益。</li></ul></section>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>数据并行让每卡保留模型副本、处理不同数据，再同步梯度；它本身不分摊模型状态。</li><li>DP 范式不是 nn.DataParallel 类名。DDP 也能单机多卡，输入分片由调用方安排；有效样本数不等时需核对梯度权重。</li><li>检查采样器、梯度累积和各卡迭代次数，避免重复通信或集合操作相互等待。</li><li>通过梯度分桶与计算通信重叠提高效率，再实测增加卡数后的扩展收益。</li></ul></section>
 
 <p><strong>下一节</strong> 👉 <a href="11-ZeRO与FSDP.html">11-ZeRO与FSDP.md</a> ⭐</p>
 <details class="g05-content-note"><summary>条件与依据</summary><p>Ring 的 2(N−1)D/N 是每 rank 的发送量，接收量相同；不能再将二者合计当同一数字。分层方案需各本地 rank 对应分片跨机归约；“只派一个代表”不会自动使整机网络流量降到 1/8。no_sync 示例需导入 contextlib.nullcontext，并处理尾批；各 rank 的 dropout 不同本身不是错误，复现需要可追踪的随机数流。</p><p><a href="https://docs.pytorch.org/docs/stable/generated/torch.nn.parallel.DistributedDataParallel.html">官方文档</a></p></details>

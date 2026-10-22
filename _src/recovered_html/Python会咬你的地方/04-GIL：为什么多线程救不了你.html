@@ -337,6 +337,17 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong>最后那行 <code>0.005</code> 秒是全部机制</strong>：一个线程拿到锁之后，每隔 5 毫秒会被要求把锁交出来一次，让别的线程有机会跑。所以线程之间是<strong>轮流跑</strong>，不是同时跑——切换很密集，看起来像并行，加起来的吞吐却还是一个核的量。</p>
 <p>为什么会有这么一把锁：CPython 用<strong>引用计数</strong>管内存，每个对象身上挂着一个「有几个名字指着我」的计数器（这就是 <a href="01-名字、对象和绑定.html">01 章</a>里那些「标签」的实现）。这个计数器几乎每执行一条字节码都会被加减一次。如果两个线程同时改同一个计数器，就会出现「都以为自己是最后一个」于是重复释放，或者「都以为对方还在用」于是永远不释放。</p>
 <p>⭐ 给每个对象配一把锁在技术上可行，但<strong>代价是给每一次加减都加锁</strong>——单线程程序会因此显著变慢。GIL 是「一把大锁换掉几亿把小锁」的工程折衷：<strong>单线程最快，多线程受罚</strong>。</p>
+
+<!-- final-thread-context START -->
+<details id="final-thread-context" data-code-title="🔎 可选深入：交还 GIL，不等于操作系统完成一次切换" style="max-width:100%;min-width:0;overflow-wrap:anywhere"><summary>🔎 可选深入：交还 GIL，不等于操作系统完成一次切换</summary>
+
+<p>⭐ 把层次分开：进程提供地址空间与资源，线程是其中的一条执行流；同一进程的线程共享地址空间和许多资源，各有寄存器上下文、栈和线程局部状态。这里说普通 CPython 的原生线程：Windows 以线程参与调度，现代 Linux 的内核调度实体也包含这些原生线程；<strong>协程或 GIL 不是 OS 的调度单位</strong>。</p>
+<div class="tw" style="max-width:100%;min-width:0"><table style="table-layout:fixed;width:100%;min-width:0"><thead><tr><th style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">一次 OS 切换要处理</th><th style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">应用里能怎样理解</th></tr></thead><tbody><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">保存/恢复执行现场</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">保存当前线程所需寄存器状态、栈与续跑位置，再恢复下一线程；具体寄存器和保存路径依架构/内核</td></tr><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">更新调度状态</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">当前线程可能等待资源或时间片结束；调度器选择可运行线程，并更新相关队列/状态</td></tr><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">处理地址空间上下文</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">同进程线程通常共享地址空间；换到不同地址空间还可能换页表上下文，并影响 TLB/缓存的复用</td></tr></tbody></table></div>
+<p>这解释了“进程切换通常更贵”的一个来源，但<strong>不是永远更慢的定理</strong>；硬件地址空间标签、缓存是否命中、跨核迁移及内核路径都会影响代价。不能说每次换进程都清空全部 TLB，也不能用后文的 pickle/进程启动耗时替代一次上下文切换耗时。</p>
+<p>本节原来的 CPython 切换间隔只帮助理解解释器竞争，不等于 OS 调度时间片。这里只补读 Python 并发例所需的边界，不展开 PCB、CFS 或调度算法清单。</p>
+<p>依据：<a href="https://learn.microsoft.com/en-us/windows/win32/procthread/about-processes-and-threads">Windows 进程/线程上下文</a>、<a href="https://man7.org/linux/man-pages/man7/pthreads.7.html">Linux pthreads</a>、<a href="https://raw.githubusercontent.com/torvalds/linux/v6.6/kernel/sched/core.c">Linux v6.6 context_switch 源码</a>及<a href="https://docs.kernel.org/arch/x86/tlb.html">x86 TLB 文档</a>。这些是机制依据，不是本轮 Linux/Windows 调度实测。</p>
+</details>
+<!-- final-thread-context END -->
 <h2 id="python-cpu">🧩 二、纯 Python 的 CPU 活：线程一点忙都帮不上</h2>
 <p>先把最常见的期待打掉。8 核机器，4 份一模一样的计算活：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 纯 Python 的 CPU 活：串行 / 4 线程 / 4 进程</span>
@@ -595,14 +606,14 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
 <h2 id="fork-spawn">🧩 五、进程模型：fork 和 spawn 是两件不同的事</h2>
-<p>先运行 <code>multiprocessing.get_start_method()</code>，不要只凭操作系统猜：Windows 使用 spawn，macOS 默认 spawn；Python 3.14 起，支持 forkserver 的 POSIX 平台默认改为 forkserver，fork 不再是任何平台的默认。下文 fork/spawn 的对照用于理解机制，不能代替本机检查。参见 <a href="https://docs.python.org/3.14/library/multiprocessing.html#contexts-and-start-methods">官方启动方式说明</a>。</p>
-<p>选了进程之后，第二类坑就来了：<strong>子进程是怎么诞生的</strong>。有两种造法，行为差得很远。</p>
+<p>先运行 <code>multiprocessing.get_start_method()</code> 并记录 Python 版本，不要只凭操作系统猜：<strong>CPython 3.13 的 Linux 等非 macOS POSIX 平台通常默认 fork；3.14 起，在支持 forkserver 的非 macOS POSIX 平台改为默认 forkserver</strong>，fork 不再是任何平台的默认。Windows 默认 spawn；macOS 在这里对照的 3.13/3.14 中默认 spawn。程序也可显式选择可用的上下文。下表只比较机制，不代替本机检查。参见 <a href="https://docs.python.org/3.13/library/multiprocessing.html#contexts-and-start-methods">3.13 文档</a>与<a href="https://docs.python.org/3.14/library/multiprocessing.html#contexts-and-start-methods">3.14 文档</a>。</p>
+<p>选了进程之后，第二类坑就来了：<strong>子进程是怎么诞生的</strong>。这里对照 fork / spawn 两种造法，行为差得很远。另有 <strong>forkserver</strong>：先启动服务进程，由它接受请求并 fork 子进程；它不是直接复制当前应用进程，不能套用下表 fork 的全部父进程状态直觉。</p>
 <div class="tw"><table>
 <thead>
 <tr>
 <th></th>
-<th><strong>fork</strong>（Linux 默认）</th>
-<th><strong>spawn</strong>（⭐ Windows / macOS 默认）</th>
+<th><strong>fork</strong>（如 CPython 3.13 的 Linux 默认；3.14 需显式选择）</th>
+<th><strong>spawn</strong>（Windows 默认；macOS 3.13/3.14 默认）</th>
 </tr>
 </thead>
 <tbody>
@@ -671,6 +682,17 @@ terminated abruptly while the future was running or pending.
 
 <p>💀 <strong>这就是为什么它难查</strong>：你在终端里看到的第一屏是 <code>BrokenProcessPool</code>，字面意思是「池子里有个进程突然死了」，读起来像资源不足或者环境问题；<strong>真正的 <code>RuntimeError</code> 被埋在一大堆 <code>multiprocessing/spawn.py</code> 的栈帧中间</strong>。而在 Jupyter / IDE 里，子进程的 stderr 常常根本不显示，你只会看到那句 <code>BrokenProcessPool</code>，然后开始怀疑人生。</p>
 <p>📋 <strong>规矩</strong>：<strong>任何会用到多进程的脚本，一律把可执行代码放进 <code>if __name__ == "__main__":</code>。</strong> 顶层只留 import、常量和函数/类定义。这条在 Linux 上也照做——你写的脚本迟早会有人在 Windows 或 macOS 上跑。</p>
+
+<!-- final-worker-lifecycle START -->
+<details id="final-worker-lifecycle" data-code-title="🔎 可选深入：worker 结束了，资源也收完了吗？" style="max-width:100%;min-width:0;overflow-wrap:anywhere"><summary>🔎 可选深入：worker 结束了，资源也收完了吗？</summary>
+
+<p>沿着本节的 worker 看一个简化生命周期：<strong>创建 → 就绪 → 运行 → 等待 IO/锁 → 再就绪 → 结束</strong>。运行被抢占可回到就绪，等待的条件满足才回到就绪；这是解释模型，不是把所有 OS 状态字母硬配成同一张表。</p>
+<div class="tw" style="max-width:100%;min-width:0"><table style="table-layout:fixed;width:100%;min-width:0"><thead><tr><th style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">问题</th><th style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">在本页程序里的边界</th></tr></thead><tbody><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">线程“崩溃”</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">Python Thread.run 的普通未捕获异常通常交给 threading.excepthook，使该线程结束；join 不自动把它重新抛到调用线程。原生致命错误/进程终止则可能结束整个进程，不能把两类故障混说</td></tr><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">最多能开多少线程</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">没有跨平台固定数：栈/地址空间、内存与系统限额都约束创建。Linux 还可能受用户线程数资源限额、threads-max、pid_max 限制；不要靠无限创建去测生产上限</td></tr><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">Linux 中的僵尸</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">子进程已终止，但等待者尚未收取退出信息；保留少量记录供 wait/waitpid 回收，并非仍在运行的 Python worker</td></tr><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">Linux 中的孤儿</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">父进程先退出；子进程由相应 init/subreaper 接管，可能还在运行。孤儿与僵尸描述不同关系，不能互当同义词</td></tr></tbody></table></div>
+<p>Linux 上可先用 <code>ps -eo pid,ppid,stat,comm</code> 观察 PID/父 PID/状态；<code>STAT</code> 首字母 Z 指向僵尸，再查父进程为何未回收。它已经结束，不能靠“再杀一次这个僵尸”让父进程补做 wait。<code>R</code>、<code>S</code>、<code>D</code> 等是具体 Linux 状态，别直接照搬成 Windows 的进程状态名。</p>
+<p>在 Python 层保留 worker 句柄，按任务协议接收结果并调用适当的 join/进程池收尾；线程句柄等待、子进程回收和业务结果消费是不同动作。这里不运行僵尸/致命故障负例，也不承诺强制终止后未完成的数据会自动一致。</p>
+<p>依据：<a href="https://docs.python.org/3.13/library/threading.html#threading.excepthook">Python 线程异常</a>、<a href="https://man7.org/linux/man-pages/man3/pthread_create.3.html">pthread_create 资源限额</a>、<a href="https://man7.org/linux/man-pages/man2/waitpid.2.html">wait 的回收语义</a>、<a href="https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html">Linux 状态字段</a>。命令仅说明诊断入口，本轮未在 Linux 上执行。</p>
+</details>
+<!-- final-worker-lifecycle END -->
 <h2 id="pickle">⚠️ 六、pickle 的账：搬数据的钱可能比省下的还多</h2>
 <p>跨进程传参数和收结果，走的是 pickle：<strong>对象序列化成字节 → 通过管道传给子进程 → 子进程再反序列化成对象</strong>。这一来一回的钱经常被忽略。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 进程间传参要 pickle：大对象搬过去的钱，可能比并行省下的还多</span>
@@ -698,10 +720,9 @@ terminated abruptly while the future was running or pending.
 
 <section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>单份大小 64 MB ｜ pickle 一次 0.055 s</p><p>串行 0.036 s</p><p>4 进程 0.870 s</p></div></section>
 <p>💀 <strong>4 个进程比串行慢了 24 倍。</strong> 256 MB 的数据被序列化、塞进管道、再反序列化，而真正的计算只花了 36 毫秒。</p>
-<p>⭐ <strong>一条能算的规矩</strong>：</p>
+<p>⭐ <strong>一条需要端到端测量的经验判断</strong>：</p>
 <blockquote>
-<p><strong>单个任务的计算时间，至少要是「它的数据 pickle 一趟的时间」的 10 倍，多进程才值得开。</strong>
-上面这个例子里 pickle 一趟 0.055 s、计算 0.009 s——差了 6 倍，<strong>方向反了</strong>。</p>
+<p><strong>“计算时间达到 pickle 时间的 10 倍”只能作为经验启发，不是官方阈值，也不是多进程必然划算的条件。</strong>本轮没有复跑上面的原基准；其数字只描述原环境。应在同一任务与输入下比较串行和进程池的端到端耗时，计入启动/导入、双向序列化、传输、返回结果、任务粒度与池复用；fork、spawn、forkserver 以及 Python 版本会改变这笔账。上例 pickle 与计算的局部计时只提示搬运可能压过收益，不能单靠一个比率决定。</p>
 </blockquote>
 <p>⚠️ 还有三个连带的坑：</p>
 <div class="tw"><table>
@@ -727,6 +748,17 @@ terminated abruptly while the future was running or pending.
 </tbody>
 </table></div>
 <p>📋 <strong>避开办法</strong>：<strong>别传数据，传「去哪拿数据」</strong>。把 4 个进程各自要读的文件路径 / 行号区间 / 分片编号传过去，让它自己读。大数组还可以放进 <code>multiprocessing.shared_memory</code> 共享一块内存，只传名字。</p>
+
+<!-- final-ipc-boundaries START -->
+<details id="final-ipc-boundaries" data-code-title="🔎 可选深入：不搬大数组，仍要传控制消息" style="max-width:100%;min-width:0;overflow-wrap:anywhere"><summary>🔎 可选深入：不搬大数组，仍要传控制消息</summary>
+
+<p>后文建议“传路径或共享内存名字”，并不表示进程间天然共享任意 Python 对象。先看载荷与控制各走哪条路：</p>
+<div class="tw" style="max-width:100%;min-width:0"><table style="table-layout:fixed;width:100%;min-width:0"><thead><tr><th style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">方式</th><th style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">适合传什么</th><th style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">必须另管什么</th></tr></thead><tbody><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">管道/队列</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">字节流或序列化的消息；Python multiprocessing.Queue 常用于传小任务和结果</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">边界/协议、背压、退出与异常；不要把大对象反复塞回去又说没有拷贝</td></tr><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">共享内存</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">让不同进程访问同一块字节，减少大载荷反复序列化/传输</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">数据布局、同步和生命周期；首次填充、转换视图仍可能拷贝，不是整个任务自动零拷贝</td></tr><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">socket</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">同机或跨机的消息/流</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">连接、序列化、失败/重试协议；跨机不能直接用本机内存名字</td></tr><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">OS signal</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">通知某类异步事件</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">不是通用对象消息队列；Python 的处理器在主解释器主线程执行，不能代替线程间消息传递</td></tr></tbody></table></div>
+<p><code>SharedMemory</code> 用完要关闭各自句柄，并约定谁负责释放；POSIX 风格下由指定一方按协议 unlink，Windows 则在全部句柄关闭后删除，unlink 不起同样作用。Python 3.13 的 track/resource-tracker 行为还受进程启动关系影响，独立启动的程序应按官方文档确定谁记账，不能各自抢着清理仍有人在用的块。</p>
+<p><strong>信号量不是 signal：</strong>它以计数表达可用许可，acquire/release 协调多少任务能进入；OS signal 表达异步通知。共享数据需要的锁、事件或队列不会因为“发了个 signal”就自动安全。</p>
+<p>依据：<a href="https://docs.python.org/3.13/library/multiprocessing.shared_memory.html">Python 3.13 共享内存</a>、<a href="https://docs.python.org/3.13/library/multiprocessing.html#pipes-and-queues">进程消息传递</a>、<a href="https://docs.python.org/3.13/library/signal.html#signals-and-threads">signal 与线程</a>。这里只比较与现有进程池直接相连的接口，不演示跨机部署。</p>
+</details>
+<!-- final-ipc-boundaries END -->
 <h2 id="_3">💀 七、站内的两处，全是这一章的账</h2>
 <p><strong>① <code>DataLoader(num_workers=4)</code> 在 Windows 上一跑就炸。</strong></p>
 <p>PyTorch 的 <code>DataLoader</code> 在 <code>num_workers &gt; 0</code> 时就是一个进程池。所以第五节和第六节的账它一分不少：</p>
@@ -796,6 +828,48 @@ sklearn 的 <code>n_jobs</code> 走的是 joblib 的进程池，账和第六节�
 <strong>最后一段还有</strong>（约 28 分钟）：GIL 会消失吗（这一节会过期） · 一张排查表 · 检查点与走神救援
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
+
+<!-- final-sync-and-notification START -->
+<details id="final-sync-and-notification" data-code-title="🔎 可选深入：锁保护状态，队列把完成交回主线程" style="max-width:100%;min-width:0;overflow-wrap:anywhere"><summary>🔎 可选深入：锁保护状态，队列把完成交回主线程</summary>
+
+<p>前面的读改写例已经说明 GIL 不保护业务不变量。再按用途选机制：</p>
+<div class="tw" style="max-width:100%;min-width:0"><table style="table-layout:fixed;width:100%;min-width:0"><thead><tr><th style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">机制</th><th style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">本页需要区分的语义</th></tr></thead><tbody><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">Lock / RLock</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">互斥访问共享状态；RLock 允许同一线程重入，但仍须配对释放。Lock 不因此变成“再拿一次也没事”</td></tr><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">Condition</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">拿着关联锁检查条件，wait 时释放它，醒来后重新拿锁并循环检查；收到通知不等于业务条件永久成立</td></tr><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">Event / Semaphore</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">Event 保留一个通知标志，不计每次脉冲；Semaphore 维护许可计数，适合限制并发数量</td></tr><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">Queue</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">把数据和交接同步放在一处，适合 worker 完成通知；不同 worker 的结果要保留任务身份</td></tr></tbody></table></div>
+<div class="codehilite" data-code-language="python"><pre><code># Python 3.13/3.14：worker 发送结果，主线程接收后调用方法
+from queue import Queue
+from threading import Thread, current_thread, main_thread
+
+def worker(done):
+    try:
+        result = sum(range(4))
+    except Exception as exc:
+        done.put((&quot;error&quot;, type(exc).__name__))
+    else:
+        done.put((&quot;ok&quot;, result))
+
+def on_done(value):
+    assert current_thread() is main_thread()
+    print(&quot;main received&quot;, value)
+
+def main():
+    done = Queue()
+    thread = Thread(target=worker, args=(done,))
+    thread.start()
+    kind, payload = done.get(timeout=5)  # 本小例等待界限，不是业务 SLA
+    thread.join()
+    if kind != &quot;ok&quot;:
+        raise RuntimeError(payload)
+    on_done(payload)
+
+if __name__ == &quot;__main__&quot;:
+    main()
+# 预期 main received 6；不在 worker 内直接调用 on_done</code></pre></div>
+<p><strong>join 是等待，不是把回调搬到主线程。</strong>小例由主线程取消息，再显式执行 on_done；若用 Future 回调，也不能仅凭“注册了回调”就断言它在主线程运行。若题目实际指子进程而非子线程，则改用进程间队列/管道协议，不能拿普通 queue.Queue 跨进程共享。</p>
+<p>死锁先看等待关系：线程 A 持有互斥资源 L1、等待 L2；B 持有 L2、等待 L1。四个必要条件是<strong>互斥、持有并等待、不可抢占、循环等待</strong>。对于 OS 支持的互斥锁，这个等待环也会让对应原生线程无法前进；本例只画等待关系，不实际挂死程序。</p>
+<p>本章已有的 POSIX 多线程 fork 警告是另一条具体链路：子进程只保留调用线程，却继承锁状态，原持锁线程不在子进程中，后续获取该锁可能永远等待。须按目标平台的 fork/线程约束选择启动上下文与收尾路径，不能把“换个 GIL”当解法。</p>
+<p>处理时先确认等待链：统一取锁顺序、缩短持锁区属于预防；超时后必须按协议释放已持资源并撤销未完成动作，不是“有 timeout 就自动解锁”。若只能终止/重启隔离 worker，应先承认可能丢失未提交工作并安排恢复；不要强放别人的锁来跳过未完成的不变量。这里不扩展成内核锁实现或完整死锁检测专题。</p>
+<p>依据：<a href="https://docs.python.org/3.13/library/threading.html">threading 同步原语</a>、<a href="https://docs.python.org/3.13/library/queue.html">线程队列</a>、<a href="https://man7.org/linux/man-pages/man2/fork.2.html">fork 平台约束</a>、<a href="https://pages.cs.wisc.edu/~remzi/OSTEP/threads-bugs.pdf">OSTEP 并发问题与死锁条件</a>。</p>
+</details>
+<!-- final-sync-and-notification END -->
 <h2 id="gil_3">🗓️ 九、GIL 会消失吗（这一节会过期）</h2>
 <p>PEP 703 给 CPython 加了一个<strong>可选的 free-threaded 构建</strong>（俗称 no-GIL），3.13 起作为实验特性提供，3.14 起转为官方支持但仍非默认。装的是那个构建时，<code>sys._is_gil_enabled()</code> 会返回 <code>False</code>，纯 Python 的多线程才能真正吃满多核。</p>
 <p>⚠️ <strong>今天不要按「GIL 快没了」来做设计决策</strong>，三个理由：</p>
@@ -933,9 +1007,9 @@ sklearn 的 <code>n_jobs</code> 走的是 joblib 的进程池，账和第六节�
 <li>串行 <strong>0.56 s</strong>、4 线程 0.73 s、4 进程 0.38 s —— 开线程比串行还慢，慢的是抢锁和切换的净开销，活一点没少干。进程那档只快 1.5 倍而不是 4 倍，因为起 4 个进程本身就要 0.387 s（同样的空任务开 4 个线程只要 0.002 s，差近 200 倍）。</li>
 <li>判据是 <strong>「这个操作放不放 GIL」</strong>，等价问法是「这段活里有没有在造 Python 对象」。<code>np.sort</code> 排 800 万个 float：串行 0.80 s → 4 线程 0.25 s，3.2 倍，因为排序在 C 里做、全程放开 GIL；<code>json.loads</code> 解析 13.7 MB：1.51 s → 1.45 s，只有 1.04 倍，因为它全程在构造 dict / list / str 这些 Python 对象，碰 Python 对象就不能放锁。</li>
 <li>因为<strong>等待的时候 GIL 是放开的</strong>，8 个任务的等待可以完全重叠。实测串行 2.00 s、8 线程 0.25 s（正好 8 倍）、async 0.27 s。两者在这个规模上打平，区别要到几千个连接才显现：一个线程要几百 KB 到几 MB 的栈，一个协程只要几 KB。</li>
-<li>① fork 是复制当前进程、spawn 是<strong>从零启动一个新解释器</strong>；② fork 的子进程能看见父进程的全部内存，spawn 的什么都看不见，只有被 pickle 传过去的东西；③ spawn 会把主模块重新 import 一遍，所以顶层代码会重跑。Windows / macOS 默认就是 spawn（本机 <code>get_all_start_methods()</code> 只有 <code>['spawn']</code>）。因此顶层写的加载模型 / 连数据库 / 读大 CSV 会被乘以进程数 —— 本章那个例子里 <code>[模块顶层]</code> 打了 3 次（1 个主 + 2 个子）。</li>
+<li>① fork 是复制当前进程、spawn 是<strong>从零启动一个新解释器</strong>；② fork 的子进程能看见父进程的全部内存，spawn 的什么都看不见，只有被 pickle 传过去的东西；③ spawn 会把主模块重新 import 一遍，所以顶层代码会重跑。Windows 与这里对照的 macOS 3.13/3.14 默认 spawn（原 Windows 3.13 记录中 <code>get_all_start_methods()</code> 只有 <code>['spawn']</code>）；Linux 等 POSIX 的默认值须区分 3.13 的 fork 与 3.14 支持条件下的 forkserver，先查本机上下文。因此顶层写的加载模型 / 连数据库 / 读大 CSV 会被乘以进程数 —— 本章那个例子里 <code>[模块顶层]</code> 打了 3 次（1 个主 + 2 个子）。</li>
 <li>子进程重新 import 主模块时会<strong>再次执行创建进程池那一行</strong>，无限递归。CPython 会抛 <code>RuntimeError: An attempt has been made to start a new process before the current process has finished its bootstrapping phase</code>。⚠️ 难查是因为你在终端里先看到的是 <code>BrokenProcessPool: A process in the process pool was terminated abruptly</code> —— 字面像资源不足，真正的 <code>RuntimeError</code> 被埋在一堆 <code>multiprocessing/spawn.py</code> 栈帧中间；在 Notebook / IDE 里子进程的 stderr 常常根本不显示。</li>
-<li>当<strong>搬数据的钱超过并行省下的钱</strong>时。本章例子：4 份 64 MB 数组只求个和，串行 0.036 s、4 进程 0.870 s，慢了 24 倍（pickle 一份就要 0.055 s，而计算只要 0.009 s）。规矩：单个任务的计算时间至少要是它的数据 pickle 一趟时间的 10 倍，多进程才值得开。避开办法是 别传数据，传「去哪拿数据」（文件路径、行号区间、分片编号），大数组可以用 <code>multiprocessing.shared_memory</code> 只传名字。</li>
+<li>当<strong>搬数据的钱超过并行省下的钱</strong>时。本章例子：4 份 64 MB 数组只求个和，串行 0.036 s、4 进程 0.870 s，慢了 24 倍（pickle 一份就要 0.055 s，而计算只要 0.009 s）。“10 倍”仅是未经本轮基准验证的经验启发，不是通用门槛；实际比较要计入启动、导入、双向序列化、传输和任务/池复用的端到端成本。避开办法是 别传数据，传「去哪拿数据」（文件路径、行号区间、分片编号），大数组可以用 <code>multiprocessing.shared_memory</code> 只传名字。</li>
 <li>因为 GIL 保护的是<strong>解释器自己的内部状态</strong>，不是你的代码。<code>total = plus_one(total)</code> 是读 → 调用 → 写回三步，函数调用处就是一个可以被换下去的点。实测 8 个线程各加 5 万次，应该是 400000，实际 123085（丢了 276915，约七成），三次运行 123085 / 116319 / 115419 每次都不一样。⚠️ 难复现是因为那是靠 <code>sys.setswitchinterval(1e-6)</code> 把概率放大出来的；默认 5 毫秒下连跑三次一次都没丢 —— 本地测不出来，生产负载下才出现。</li>
 <li><code>DataLoader(num_workers&gt;0)</code> 就是一个进程池，spawn 要重新 import 主模块，而 <strong>Notebook 没有可 import 的「主模块文件」</strong>。修法是把 Dataset 类和训练循环挪进 <code>.py</code> 再 import，或者在 Notebook 里用 <code>num_workers=0</code>。<code>persistent_workers=True</code> 省的是 每个 epoch 重建 worker 的进程启动钱（本机 4 个空进程就要 0.39 s，<code>import torch</code> 之后更贵）。</li>
 <li><strong>会作废的</strong>：第二节「纯 Python 的 CPU 活开线程没用」——free-threaded 构建下线程能真正吃满多核。不会作废的：pickle 的开销、进程启动的开销、spawn 重新 import 主模块，这些和 GIL 无关；而第八节「线程安全要自己保证」会变得更重要，因为原来靠 GIL 侥幸没出问题的代码，那层侥幸没有了。今天默认装的仍是带 GIL 的构建（本机 <code>sys._is_gil_enabled()</code> 返回 <code>True</code>）。</li>
@@ -948,9 +1022,9 @@ sklearn 的 <code>n_jobs</code> 走的是 joblib 的进程池，账和第六节�
 <p>⚠️ 实测 4 份纯 Python 的 CPU 活：<strong>4 线程比串行还慢</strong>（慢的是抢锁和切换的净开销），4 进程只快一点点（起进程本身就很贵，而开线程几乎免费）。</p>
 <p>⭐ 但「CPU 密集就开进程」这个说法太粗，<strong>真正的判据是「这个操作放不放 GIL」</strong>，等价问法是「<strong>这段活里有没有在造 Python 对象</strong>」：<code>np.sort</code> 多线程能到三倍多（排序在 C 里做、全程放锁），而 <code>json.loads</code> 几乎没有加速（它全程在构造 dict / list / str）。</p>
 <p>选择表：<strong>等 I/O 且库是异步的 → async；等 I/O 但库是同步的 → 线程池；算的是 numpy / torch / 压缩 / 哈希 → 线程池；算的是纯 Python → 进程池。</strong> 等待类的活里线程和 async 打平，区别要到几千个连接的规模才显现。</p>
-<p>选了进程之后第二类坑是<strong>进程怎么诞生</strong>：Windows / macOS 默认 spawn，它从零启动新解释器并<strong>把主模块重新 import 一遍</strong>——⭐ 进程之间不共享对象，第 01 章那套「两个名字指同一个对象」在这里<strong>全部失效</strong>。</p>
+<p>选了进程之后第二类坑是<strong>进程怎么诞生</strong>：Windows 与这里对照的 macOS 3.13/3.14 默认 spawn；Linux 等 POSIX 须区分 3.13 的 fork 与 3.14 支持条件下的 forkserver，先查本机。spawn 从零启动新解释器并<strong>把主模块重新 import 一遍</strong>——⭐ 进程之间不共享对象，第 01 章那套「两个名字指同一个对象」在这里<strong>全部失效</strong>。</p>
 <p>⚠️ <strong>少写 <code>if __name__ == "__main__"</code> 会无限递归</strong>，而真正的 <code>RuntimeError</code> 被埋在栈中间，你<strong>先看到的是 <code>BrokenProcessPool</code></strong>——字面像资源不足，于是你会去查错地方。</p>
-<p>💀 pickle 的账更贵：几份大数组只求个和，4 进程比串行<strong>慢二十多倍</strong>。⭐ 规矩：<strong>单任务的计算时间至少要是数据 pickle 一趟时间的 10 倍。</strong></p>
+<p>💀 pickle 的账更贵：几份大数组只求个和，4 进程比串行<strong>慢二十多倍</strong>。⭐ <strong>不要背固定倍数门槛</strong>：在目标 Python 版本和启动上下文下，实测串行与进程池的端到端成本，区分启动/导入、双向序列化、传输、计算和池复用。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="05-怎么量：计时、剖析、内存.html">05-怎么量：计时、剖析、内存.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>

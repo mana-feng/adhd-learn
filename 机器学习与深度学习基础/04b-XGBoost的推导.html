@@ -475,113 +475,38 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>💡 顺带解释了一个现象：logloss 下 $h=p(1-p)$，<strong>预测越靠近 0.5（越犹豫）的样本 $h$ 越大、越被当回事</strong>；已经很确定的样本 $h\to 0$，几乎不影响候选点的选取。</p>
 </details>
 <h2 id="xgboost-lightgbm-catboost">⚔️ 二、XGBoost / LightGBM / CatBoost：各自在优化哪一段</h2>
-<p>三者都是 GBDT 的工业级实现：</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th></th>
-<th>XGBoost</th>
-<th>LightGBM</th>
-<th>CatBoost</th>
-</tr>
-</thead>
+<p>三者都能训练梯度提升树，但<strong>家族相同，不等于目标、建树和类别处理完全相同</strong>。上一节推导的是给定损失及正则项的 XGBoost 局部二阶目标，不是一份可原样套给三个框架的完整训练算法。</p>
+<div class="tw"><table style="table-layout:fixed;width:52em">
+<caption>先比较配置和机制，再比较验证结果</caption>
+<thead><tr><th>对照项</th><th>XGBoost</th><th>LightGBM</th><th>CatBoost</th></tr></thead>
 <tbody>
-<tr>
-<td><strong>生长方式</strong></td>
-<td>按层生长（level-wise）</td>
-<td><strong>按叶生长</strong>（leaf-wise，选增益最大的叶子）</td>
-<td>对称树</td>
-</tr>
-<tr>
-<td><strong>速度</strong></td>
-<td>中</td>
-<td><strong>面向速度优化，实际需测量</strong></td>
-<td>中</td>
-</tr>
-<tr>
-<td><strong>精度</strong></td>
-<td>高</td>
-<td>高</td>
-<td>高</td>
-</tr>
-<tr>
-<td><strong>类别特征</strong></td>
-<td>支持原生类别（需相应 dtype/配置），也可编码</td>
-<td>原生支持</td>
-<td><strong>原生且最好</strong> ⭐</td>
-</tr>
-<tr>
-<td><strong>过拟合倾向</strong></td>
-<td>较稳</td>
-<td>需注意（leaf-wise 更易过拟合，要控 <code>num_leaves</code>）</td>
-<td>较稳</td>
-</tr>
-<tr>
-<td><strong>默认参数</strong></td>
-<td>一般</td>
-<td>一般</td>
-<td><strong>开箱即用最好</strong></td>
-</tr>
-</tbody>
-</table></div>
-<blockquote>
-<p>🔑 <strong>实用建议</strong>：<strong>大数据/要快 → LightGBM；类别特征多 → CatBoost；不确定 → 先 LightGBM。</strong>
-三者精度差距依数据、指标和预算而变；在相同划分和预算下比较，不能预设固定差值范围。<strong></strong></p>
-</blockquote>
+<tr><td><strong>生长策略</strong></td><td>默认 <code>depthwise</code>；<code>hist</code>/<code>approx</code> 也可选 <code>lossguide</code></td><td><strong>leaf-wise</strong>：选损失改善最大的叶子；设置最大深度后仍按叶生长</td><td>默认 <code>SymmetricTree</code>，同层共用分裂条件；也有 <code>Depthwise</code>/<code>Lossguide</code></td></tr>
+<tr><td><strong>类别输入</strong></td><td>可指定类别 dtype、<code>enable_categorical=True</code> 及受支持的树方法，也可自行编码</td><td>指定类别特征，以类别整数编码交给原生类别分裂；不是把任意编号当连续大小</td><td>用 <code>cat_features</code> 声明类别；按配置使用内部 one-hot 或类别统计量（CTR）</td></tr>
+<tr><td><strong>容量控制</strong></td><td>深度/叶子数、最小 Hessian、正则与采样共同约束</td><td><code>num_leaves</code>、<code>max_depth</code>、<code>min_data_in_leaf</code> 等约束深而不平衡的树</td><td>深度/生长策略、叶子正则、采样等；类别处理不能代替验证与容量控制</td></tr>
+<tr><td><strong>值得试它的原因</strong></td><td>二阶目标与多种树方法，方便结合约束和数据表示选择</td><td>直方图、做差、leaf-wise 等工程设计，值得评估训练时间与内存</td><td>将类别转换与树学习接在一起，类别多时值得作为候选</td></tr>
+<tr><td><strong>速度与精度</strong></td><td colspan="3">没有固定排名。统一训练/验证划分、指标、硬件和调参预算，再记录最好迭代数、耗时、峰值内存及验证分数；“默认参数”不等于各框架已获同等调优。</td></tr>
+</tbody></table></div>
 <h3 id="_9">有了上一节，这张表就能从「结论」读成「为什么」了</h3>
-<p>⭐ <strong>三者的目标函数是同一个</strong>（都是「二阶展开 + 正则 + 结构分数」那一套）。它们的区别在于<strong>各自在优化训练流程的不同段</strong>：</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>优化的是哪一段</th>
-<th>XGBoost</th>
-<th>LightGBM</th>
-<th>CatBoost</th>
-</tr>
-</thead>
+<p>把<strong>找切分点、长树、类别转换、boosting 更新</strong>分开看，就不会把一个机制误认成整个框架的专利：</p>
+<div class="tw"><table style="table-layout:fixed;width:52em">
+<thead><tr><th>优化的是哪一段</th><th>XGBoost</th><th>LightGBM</th><th>CatBoost</th></tr></thead>
 <tbody>
-<tr>
-<td><strong>怎么找候选切分点</strong></td>
-<td>精确贪心 / 加权分位数草图</td>
-<td>⭐ <strong>直方图</strong>：每个特征先分成 255 个 bin</td>
-<td>直方图</td>
-</tr>
-<tr>
-<td><strong>下一步该长哪个节点</strong></td>
-<td>level-wise：整层一起长</td>
-<td>⭐ <strong>leaf-wise</strong>：全树挑 Gain 最大的那个叶子长</td>
-<td>对称树：整层共用<strong>同一个</strong> (特征, 阈值)</td>
-</tr>
-<tr>
-<td><strong>类别特征怎么办</strong></td>
-<td>自己 one-hot</td>
-<td>原生（按统计量排序后二分）</td>
-<td>⭐ <strong>有序目标编码</strong></td>
-</tr>
-<tr>
-<td><strong>主要在防什么</strong></td>
-<td>过拟合（$\gamma$ / $\lambda$）</td>
-<td>过拟合（leaf-wise 更凶，靠 <code>num_leaves</code> 刹车）</td>
-<td>⭐ <strong>目标泄漏 / 预测偏移</strong></td>
-</tr>
-</tbody>
-</table></div>
-<p><strong>LightGBM 的三板斧（提速机制，不保证所有任务最快）</strong>：</p>
+<tr><td><strong>怎么找候选切分点</strong></td><td><code>exact</code> 枚举取值；<code>approx</code> 按 Hessian 加权草图；<code>hist</code> 先建全局分箱，再累计节点直方图</td><td><strong>直方图</strong>；<code>max_bin</code> 控制箱数，255 是常见默认上限，不是每列必须恰有255箱</td><td>数值特征量化后比较候选分裂；边界数等由配置决定</td></tr>
+<tr><td><strong>下一步长哪个节点</strong></td><td><code>depthwise</code> 优先浅层节点；<code>lossguide</code> 优先损失改善大的叶子</td><td><strong>leaf-wise</strong>，并用深度/叶子/样本数约束</td><td>默认对称树同层共用条件；改生长策略后不再保证该结构</td></tr>
+<tr><td><strong>类别特征怎么办</strong></td><td>原生类别分裂可选 one-hot 式或类别集合划分；需正确声明类型与支持配置</td><td>可按统计量给类别排序，再寻找类别集合划分；低基数也有 one-hot 式分裂</td><td>低基数可内部 one-hot；其他类别/组合可转为CTR，不是所有列都做同一种目标编码</td></tr>
+<tr><td><strong>抽样/更新是否固定</strong></td><td>随目标、树方法及采样参数变化</td><td><code>data_sample_strategy=goss</code> 才启用GOSS；不能把支持它写成总是启用</td><td><code>boosting_type</code> 可为 <code>Ordered</code> 或 <code>Plain</code>，默认依设备、任务和样本量而变</td></tr>
+</tbody></table></div>
+<p><strong>LightGBM 的三种提速机制（不保证所有任务最快）</strong>：</p>
 <ul>
-<li>⭐ <strong>直方图算法</strong>：把连续特征分成有限个 bin（数量可配置）<code></code>。找分裂点的候选扫描按 O(bin 数 × 特征数) 计算；构建直方图仍需 O(样本数 × 特征数)，不能把扫描成本当全部训练成本<strong></strong>。再加一个<strong>直方图做差</strong>——一个节点的两个孩子，算完左边直接用「父 − 左 = 右」拿到右边，<strong>省掉一半计算</strong>。</li>
-<li><strong>GOSS（单边梯度采样）</strong>：梯度大的样本 = 还没学好的样本，<strong>全留</strong>；梯度小的随机采一部分，并<strong>把它们的权重放大</strong>补偿（不放大分布就偏了）。</li>
-<li><strong>EFB（互斥特征捆绑）</strong>：one-hot 之后大量特征<strong>不会同时非零</strong>，把这些互斥的特征捆成一个存，特征数直接掉一大截。</li>
+<li><strong>直方图与做差</strong>：对每列，建直方图仍需遍历相关样本，之后候选扫描才随箱数变化。只构建样本较少的子节点直方图，再用“父 − 子”得到另一个，减少重复遍历；这不等于端到端训练固定省一半。</li>
+<li><strong>可选GOSS</strong>：保留大梯度样本，对小梯度样本抽样并修正权重，近似维持分裂统计；它是采样选择，不是所有LightGBM训练的默认前提。</li>
+<li><strong>EFB</strong>：把互斥或近似互斥的稀疏特征捆绑，减少需处理的特征表示；实际收益取决于稀疏性和冲突，不能预设固定倍数。</li>
 </ul>
-<p>⚠️ <strong>leaf-wise 的代价</strong>：同样的叶子数下它降损失更多，但树会长得又深又不平衡，<strong>小数据集上极易过拟合</strong>。刹车是 <code>num_leaves</code>（别超过 $2^{\texttt{max\_depth}}$）和 <code>min_data_in_leaf</code>。这就是那张表里「需注意」三个字背后的机理。</p>
-<p><strong>CatBoost 在防的是另一件事</strong>：普通的目标编码（拿这个类别的历史平均标签当特征）<strong>用到了当前样本自己的标签</strong>——这就是第 16 章讲的目标泄漏。CatBoost 的 <strong>ordered target statistics（有序目标编码）</strong> 先给样本安排一个随机顺序，算某个样本的编码时<strong>只用排在它前面的样本</strong>，从结构上把泄漏堵死。同样的思路用在 boosting 上就是 <strong>ordered boosting</strong>，防的是「同一批数据既用来算残差又用来拟合残差」带来的预测偏移。</p>
-<p>⭐ <strong>对称树（oblivious tree）</strong>：同一层所有节点共用一个 (特征, 阈值)。整棵树因此退化成一张 $2^{\text{depth}}$ 的查找表，<strong>推理快得离谱</strong>（几条位运算就定位到叶子）；而且这个限制本身就是很强的正则——这是 CatBoost「默认参数最好用」的一部分原因。</p>
-<blockquote>
-<p>🔑 <strong>一句话版本（可以直接当面试答案）</strong>：
-<strong>XGBoost 定义了这套框架</strong>（二阶展开 + 正则进目标函数 + 结构分数）；
-<strong>LightGBM 优化「怎么算得更快」</strong>（直方图 + 做差 + GOSS + EFB + leaf-wise）；
-<strong>CatBoost 优化「怎么不泄漏」</strong>（有序目标编码 + ordered boosting + 对称树）。
-三者不存在通用的固定精度差距；模型选择、调参和特征工程都需用验证结果比较。<strong></strong></p>
-</blockquote>
+<p>⚠️ <strong>leaf-wise 的代价</strong>：同样叶子数下可能更快降低训练损失，但也可能得到深而不平衡的树。联合约束 <code>num_leaves</code>、<code>max_depth</code>、<code>min_data_in_leaf</code>，再用验证集检查；$2^{\texttt{max\_depth}}$只是该深度二叉树的叶子数上界，不是安全的调参目标。</p>
+<p><strong>CatBoost的类别统计与Ordered boosting是两件相连但不同的事</strong>：有序目标统计为训练样本安排顺序，计算带标签的类别统计时只使用前面的样本并加先验，避免直接使用自身标签。<strong>Ordered boosting</strong>进一步处理boosting中的预测偏移；也可选经典的 <code>Plain</code>，不能只见“CatBoost”就断言启用了Ordered。两者都不保证杜绝时间穿越、错误划分等外部数据泄漏。</p>
+<p><strong>对称树（默认策略）</strong>同层共享分裂条件，可用每层判断组成叶子索引，并限制结构自由度。它有利于紧凑推理，但实际延迟仍要测；改成非对称策略后，不能继续沿用同样的结构解释。它也不推出“默认精度最好”。</p>
+<blockquote><p>🔑 <strong>把机制当成候选理由，把验证结果当成选择依据</strong>。XGBoost这一节帮你读懂二阶目标；LightGBM便于理解直方图、leaf-wise与可选采样；CatBoost便于理解类别统计、对称结构和可选Ordered更新。它们共享一些技术，并非互斥的三份标签。</p></blockquote>
+<details><summary>📚 实现边界核对（官方文档）</summary><p>参数与支持范围随版本变化，使用时应核对安装版本。这里依据 <a href="https://xgboost.readthedocs.io/en/stable/parameter.html">XGBoost参数</a>、<a href="https://xgboost.readthedocs.io/en/stable/treemethod.html">树方法</a>与<a href="https://xgboost.readthedocs.io/en/stable/tutorials/categorical.html">类别支持</a>；<a href="https://lightgbm.readthedocs.io/en/stable/Features.html">LightGBM机制</a>与<a href="https://lightgbm.readthedocs.io/en/stable/Parameters.html">参数</a>；<a href="https://catboost.ai/docs/en/references/training-parameters/common">CatBoost生长/boosting参数</a>、<a href="https://catboost.ai/docs/en/features/categorical-features">类别处理</a>及<a href="https://catboost.ai/docs/en/concepts/algorithm-main-stages_cat-to-numberic">类别统计</a>。</p></details>
 <hr />
 <h2 id="_10">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
@@ -594,11 +519,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td><a href="04-决策树与集成学习.html">04 · 决策树与集成学习</a></td>
-<td>回去看被这一章接住的那半句：<strong>GBDT 的每棵新树拟合的是负梯度</strong>，以及为什么这个家族只能用 CART</td>
+<td>回去看被这一章接住的那半句：<strong>GBDT 的每棵新树拟合的是负梯度</strong>，以及为什么分类也常用回归树来拟合梯度</td>
 </tr>
 <tr>
 <td><a href="16-特征工程基础.html">16 · 特征工程基础</a></td>
-<td>⭐ 那里的 <strong>OOF 目标编码</strong>就是 CatBoost「有序目标编码」的手工版——想真正搞懂 CatBoost 在防什么，去看那段泄漏演示</td>
+<td>⭐ 那里的 <strong>OOF 目标编码</strong>同样在避免自身标签参与编码，但OOF划分与CatBoost的有序统计不是同一个算法——想真正搞懂 CatBoost 在防什么，去看那段泄漏演示</td>
 </tr>
 <tr>
 <td><a href="03-线性模型.html">03 · 线性模型</a></td>
@@ -637,8 +562,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>$w_j^*=-\dfrac{G_j}{H_j+\lambda}$；$\text{Gain}=\frac12\Big[\frac{G_L^2}{H_L+\lambda}+\frac{G_R^2}{H_R+\lambda}-\frac{(G_L+G_R)^2}{H_L+H_R+\lambda}\Big]-\gamma$。<strong>$\gamma$ 是每多一个叶子的入场费</strong>，所以 <strong>Gain 为负就不分裂 = 预剪枝写进了判据</strong>（不是长完再剪）；<strong>$\lambda$ 在分母</strong>，叶子样本少（$H$ 小）时把权重往 0 拽，是天然的收缩。</li>
 <li>$g_i=\hat y_i-y_i$、$h_i=1$，$w_j^*$ 退化成<strong>这个叶子里残差的平均值</strong>（$\lambda=0$ 时）——<strong>正是 GBDT 在做的事</strong>。说明 <strong>MSE 下两者等价，二阶展开的价值全在别的损失函数上</strong>（logloss、pairwise 排序、Poisson、自定义）。</li>
 <li><strong>不填</strong>。每个候选分裂点上把缺失样本全扔左边算一次 Gain、全扔右边再算一次，<strong>哪边 Gain 大就把默认方向定成哪边</strong>——缺失是被当成信息<strong>学</strong>出来的，顺带让稀疏 one-hot 也跑得快。</li>
-<li><strong>直方图</strong>（每特征 255 个 bin，复杂度从 O(样本数 × 特征数) 降到 O(bin 数 × 特征数)）+ <strong>直方图做差</strong>（父 − 左 = 右，省一半）+ <strong>GOSS</strong>（梯度大的全留、梯度小的采样并放大权重）+ <strong>EFB</strong>（互斥特征捆绑）。代价：leaf-wise 的树又深又不平衡，<strong>小数据集极易过拟合</strong>；刹车是 <code>num_leaves</code>（别超过 $2^{\texttt{max\_depth}}$）和 <code>min_data_in_leaf</code>。</li>
-<li>防<strong>目标泄漏</strong>：普通目标编码用到了当前样本自己的标签，有序目标编码给样本排一个随机顺序、<strong>只用排在它前面的样本</strong>算编码（同思路用在 boosting 上就是 ordered boosting，防预测偏移）。对称树的两个好处：① 整棵树退化成一张 $2^{\text{depth}}$ 的查找表，<strong>推理极快</strong>；② 这个限制本身就是<strong>很强的正则</strong>，是它「默认参数最好用」的一部分原因。</li>
+<li><strong>直方图</strong>把建表与候选扫描分开：建表仍遍历样本，扫描随箱数变化；<strong>做差</strong>减少重复构建。<strong>GOSS可选</strong>，大梯度保留、小梯度抽样并加权；<strong>EFB</strong>利用稀疏互斥结构。leaf-wise可能形成深而不平衡的树，需联合控制 <code>num_leaves</code>、<code>max_depth</code>、<code>min_data_in_leaf</code>并检查验证结果，不保证整次训练固定提速。</li>
+<li>有序目标统计按排列只用先前样本计算带标签的类别统计，避免直接使用自身标签；可选Ordered boosting针对预测偏移，不能与CTR或默认Plain混同。默认对称树同层共用条件，有利于紧凑叶子索引并限制结构自由度；更改生长策略后结构不同，不能据此保证速度、精度或所有外部泄漏均已解决。</li>
 </ol>
 </details>
 <hr />

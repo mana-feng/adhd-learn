@@ -359,9 +359,34 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>残差连接</strong>：把旧信息直接加回新信息。这提供了较直接的信息与梯度通路，有助于训练深层网络；并不保证原意不变或训练必然稳定。</li>
 <li><strong>归一化</strong>：把数字尺度控制在合理范围，防止训练时某些层的数值失控。现代模型会把它放在更早的位置，专题 A 会讲。</li>
 </ul>
+<p id="f02-vocabulary-head"><strong>把块的输出接回一句话：</strong>以自回归 Decoder-only 语言模型续写“猫追老鼠”为例，先按 <a href="03-Tokenizer与上下文.html#_3">03 的切分与嵌入步骤</a>把 token 编号换成向量，结合<a href="02f-RoPE与位置感.html#_2">位置机制</a>，经过多层因果 Transformer 块和按实现安排的最终归一化，得到各位置的<strong>隐藏状态</strong>。这些向量还不是词表概率；<strong>词表线性输出头</strong>（LM head）再把它们投影成每个词表 token 的分数 logits。续写时用最后位置的 logits 得到下一 token 分布，再由 <a href="06b-解码策略.html#decode">解码规则</a>选出 token、接回输入。输出头负责打分，softmax 负责归一化，采样或取最大值才负责选择。</p>
+<details id="f02-head-dimensions">
+<summary>看一次维度，并分清结构与训练方式</summary>
+<p>采用行向量约定：设序列长为 <code>n</code>、隐藏宽度为 <code>d_model</code>、词表大小为 <code>m</code>（不是上文注意力的 V）。块堆叠与最终归一化后的隐藏状态为 <code>H：n × d_model</code>；无偏置示例中的词表头为 <code>W_vocab：d_model × m</code>，所以 <code>Z = H W_vocab：n × m</code>。若“猫追老鼠”在教学示意中切成 3 个 token，取 <code>d_model=4</code>、<code>m=5</code>，便是 <code>3×4 → 3×5</code>；最后一行的 5 个分数对应 5 个词表候选，softmax 后才成为概率，而非把 4 个隐藏维度当作 4 个候选词。</p>
+<p>这条链要按模型具体化：GPT-2 的官方实现用绝对位置嵌入、块后的最终 LayerNorm 和与输入嵌入共享权重的词表头；RoPE 则把位置作用在注意力的 Q/K 中。位置注入、归一化次序及是否共享输入/输出权重都不是所有模型统一的规则。三类结构的最小区别是：Encoder-only 通常让输入位置双向互看，再按任务接输出头；原始 Encoder–Decoder 的解码器除因果自注意力外，还用 cross-attention 读取编码器输出；这里的 Decoder-only 示例用因果自注意力续写，不需要另一个编码器，详见 <a href="02c-为什么都是Decoder-only.html#decoder-only">02c 的结构区别</a>。</p>
+<p>上述续写不是训练过程的逐步抽签：teacher forcing 用真实前缀，让各位置在因果掩码下并行预测右移一位的真实目标，再计算训练损失；推理时才把实际选出的 token 接回去。输出头在两者中都提供 logits，本身不等于采样器。</p>
+<p><small>依据：<a href="https://arxiv.org/html/1706.03762v7#S3.SS4">Attention Is All You Need §3.4</a>；<a href="https://huggingface.co/docs/transformers/model_doc/gpt2#transformers.GPT2LMHeadModel">GPT2LMHeadModel 文档</a>；<a href="https://github.com/huggingface/transformers/blob/v4.57.1/src/transformers/models/gpt2/modeling_gpt2.py">Transformers v4.57.1 GPT-2 实现</a>。此处为维度教学例，未运行模型。</small></p>
+</details>
 <h2 id="_4">多头不是“多个人格”</h2>
 <p>一次注意力只是一种看关系的角度。多头注意力相当于同时开几条小通道：有的更容易学到指代，有的可能更关注句法或远距离线索。<strong>人不会给每个头分配任务；它们从数据里自己学出来。</strong></p>
 <p>多头的价值不是“多算几遍取平均”，而是让模型能在同一层里同时保留几种关系。随后它们的结果会拼回去再混合。某一个头不必永远负责一种清晰的人类概念；真正有用的语义往往分散在许多头和许多层里。</p>
+<p id="attn-cost-entry">多头要在<strong>总宽度固定</strong>的口径下比较，不能只数头数。想看计算瓶颈和近似方法的代价，再展开；主线仍可直接接检查点。</p>
+<details id="attn-cost-depth"><summary>选读：头数变多，算得更多还是更少？</summary>
+<p>先限定普通 MHA 的整段自注意力前向：batch 为 1，序列长 <code>n</code>，模型总宽度 <code>d</code>，头数 <code>h</code>，每头宽度 <code>d/h</code>，且 K/V 也有 h 个头。输入 <code>n×d</code> 先投影为 Q/K/V，拆成 h 个小头；每头做匹配、softmax、加权 V，再拼接并乘输出投影。这里不把 GQA/MQA、单 token 增量 decode 或整个 Transformer 块混在同一张账里。</p>
+<div class="tw" tabindex="0" role="region" aria-label="固定总宽度的注意力计算账，可横向滚动"><table style="min-width:520px;width:100%;table-layout:fixed"><colgroup><col style="width:27%"><col style="width:43%"><col style="width:30%"></colgroup>
+<caption>一次乘加记为 1 MAC；仅计主矩阵乘法</caption><thead><tr><th scope="col">过程</th><th scope="col">形状与主乘加规模</th><th scope="col">n=4、d=8</th></tr></thead><tbody>
+<tr><th scope="row">Q/K/V 投影</th><td>三组 d×d 投影，共 <code>3nd²</code></td><td>768 MAC</td></tr>
+<tr><th scope="row">所有头的 QKᵀ</th><td><code>h × n² × (d/h) = n²d</code></td><td>128 MAC</td></tr>
+<tr><th scope="row">所有头的 P·V</th><td>每头 P 为 n×n，总计 <code>n²d</code></td><td>128 MAC</td></tr>
+<tr><th scope="row">拼接后输出投影</th><td>n×d 乘 d×d，共 <code>nd²</code></td><td>256 MAC</td></tr>
+</tbody></table></div>
+<p id="attn-cost-example">本例主矩阵乘法合计 <code>4nd² + 2n²d = 1,280 MAC</code>。h 从 2 改成 4，每头从 4 维变成 2 维，上述主乘法总数相同；不能据此认为增加头数必然加速或完全没有额外代价。softmax、掩码等还有约 <code>O(hn²)</code> 的工作，实际内核利用率也会变。朴素地保存<strong>一份</strong>各头分数或概率矩阵需 <code>hn²</code> 个元素：本例是 32 对 64 个；若每元素 2 字节，分别为 64 对 128 字节。这里不含其他激活、反向图和工作区，不能当成模型总显存。</p>
+<p>长度 n 增长时，投影项随 n 线性增长，成对注意力项随 n² 增长；哪项先成为瓶颈还取决于 d、带宽与实现。缩放点积的推导已有<a href="../机器学习与深度学习基础/附录C-手撕代码速查.html#2">ML 附录C</a>：在分量独立、零均值、单位方差等教学假设下，d/h 项点积的方差随头宽度增长，除以其平方根控制尺度；这不是对任意已训练 Q/K 分布的无条件方差定理。</p>
+<p id="attn-approximation-boundary"><strong>“降复杂度”要说明改变了什么：</strong></p>
+<ul><li><strong>窗口/稀疏：</strong>只保留部分连接。例如固定窗口宽 w 的局部注意力可把配对项压到 <code>O(nwd)</code>；代价是单层不能直接读取被省掉的远处位置。Longformer 还加全局连接，成本须把全局位置数算进去。多层传递或全局节点可扩展路径，但不等于任意信息无损保留。</li><li><strong>低秩：</strong>例如 Linformer 把 K/V 的序列维从 n 投影到较小的 k，再让查询与这些压缩表示交互。固定 k 时，相关配对计算不再保留完整 n×n；代价是表示近似与压缩误差，所需 k 及质量要验证。这不是 LoRA 的低秩参数更新，也不能未经因果性核查就套进逐词生成。</li><li><strong>线性注意力：</strong>例如核特征映射后利用乘法结合顺序，先汇总 K/V，再与 Q 作用；固定特征宽度时可让相关计算随 n 线性增长。代价取决于所选核、特征维度和汇总状态，不自动等于原来的 softmax 注意力，精细检索质量须另测。</li><li><strong>FlashAttention：</strong>保留所选完整注意力的数学目标，靠分块、在线归一化和重算减少显存往返；浮点舍入可不同。它不是把 dense 成对计算改成线性近似。详见<a href="../AI基础设施/08-FlashAttention.html#_2">已有 IO 主章</a>。</li></ul>
+<p>一个位置要找很早的订单号时，纯局部窗口可能没有那条直接连接；低秩或核汇总保留了什么，则取决于压缩/特征机制。这是信息路径示意，不是三种方法的质量排行榜。换注意力机制通常需要对应训练或适配与同题评测，不能拿现成 checkpoint 随意替换后假定等价。</p>
+<p><small>依据：<a href="https://arxiv.org/html/1706.03762v7#S3.SS2">Attention Is All You Need §3.2、§4</a>；<a href="https://arxiv.org/abs/2004.05150v2">Longformer</a>；<a href="https://arxiv.org/html/2006.04768v3#S4">Linformer §4</a>；<a href="https://proceedings.mlr.press/v119/katharopoulos20a.html">Linear Transformers</a>；<a href="https://arxiv.org/abs/2205.14135v2">FlashAttention</a>。以上是形状与算术教学例，未测模型速度、显存峰值或答案质量。</small></p>
+</details>
 <h2 id="_5">✅ 检查点</h2>
 <ul>
 <li>注意力回答的是“<strong>我现在该从谁那里拿信息</strong>”。</li>

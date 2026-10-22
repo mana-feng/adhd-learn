@@ -540,76 +540,81 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>💡 <strong>核心权衡：归纳偏置 vs 数据量</strong></p>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>归纳偏置强（CNN/RNN）：</p><p>✅ 小数据上表现好（先验帮了忙）</p><p>❌ 大数据上成为枷锁（先验限制了它）</p><p>归纳偏置弱（Transformer）：</p><p>❌ 小数据上容易过拟合</p><p>✅ 大数据上能学到比人设计的先验更好的模式 ⭐</p></div></section>
-<p><strong>一组真实的数字</strong>（ViT 论文里的经典对比）：</p>
+<h3 id="vit-image-to-tokens">🖼️ ViT：把图像接到这些零件上</h3>
+<p>原始<strong>Vision Transformer图像分类模型</strong>不把每个像素当一个词，也不是先查词表。设图像高宽都能被patch边长 $P$ 整除，不加重叠或填充：切成 $N=HW/P^2$ 个patch，每个展平为 $P^2C$ 个数，再用<strong>所有patch共享的可学习线性投影</strong>送到宽度 $D$。以下是便于手算的结构例，不是论文训练配置或准确率测量。</p>
+<section class="visual-block visual-block-flow" aria-label="ViT图像分类的形状信息流" id="vit-shape-example"><p class="visual-block-title">一张32×32 RGB图，如何变成分类结果</p><div class="vb-flow">
+<div class="vb-flow-row"><span class="vb-flow-step"><strong>① 切块并展平：</strong>8×8 patch → 4×4网格，共16块；每块8×8×3＝192个数，得到 B×16×192。</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step"><strong>② 共享投影：</strong>例设D＝64，投影矩阵192×64（可带偏置）→ B×16×64；不同patch用同一组权重。kernel＝stride＝8的卷积也能实现这个投影。</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step"><strong>③ 加CLS与位置：</strong>拼入1个可学习分类token，再加17×64的位置嵌入 → B×17×64；位置让模型区分patch在哪里。</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step"><strong>④ 通过编码器：</strong>多头自注意力混合patch信息，逐token MLP变换特征，配合LayerNorm和残差；各层输入/输出仍为 B×17×64。</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step"><strong>⑤ 读出类别：</strong>原始分类做法读取编码后的CLS向量，经归一化与分类头输出类别分数。其他实现可用平均池化，不必都有CLS。</span></div>
+</div></section>
+<p><strong>patch大小是一项取舍：</strong>同一32×32图把边长从8改成4，patch由16变64；加CLS后序列长17→65。固定头数/宽度时，单头全注意力分数矩阵从 $17^2=289$ 变为 $65^2=4225$ 个元素，细粒度信息更多、交互开销也更大；这不是端到端耗时倍数的实测。CNN通过局部连接与权重共享编码图像先验，ViT较少这种约束，选谁还要看预训练、增强/正则、任务和预算。改变输入分辨率时，也要处理已有位置嵌入的尺寸。</p>
+<p>💡 <strong>核心权衡：图像先验、训练配方与数据预算一起看</strong></p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p><strong>CNN：</strong>局部连接与权重共享提供图像先验，有限数据时可能有帮助；不保证在每个小数据任务最优。</p><p><strong>ViT：</strong>全局自注意力较早混合不同patch，较少手工规定局部关系；其表现也受预训练、数据增强、正则和优化影响。</p></div></section>
+<p><strong>原ViT论文里的数据规模比较，应连同实验条件读：</strong></p>
 <section class="result-board" aria-label="ResNet 与 ViT 的数据量对比">
-<p class="result-board-title">数据量改变谁占上风</p>
-<div class="tw"><table>
-<caption>ViT 论文中的经典对比</caption>
-<thead><tr><th>训练数据量</th><th>ResNet</th><th>ViT</th><th>该怎么看</th></tr></thead>
+<p class="result-board-title">论文观察，不是通用的数据量分界线</p>
+<div class="tw"><table style="table-layout:fixed;width:46em">
+<caption>原论文第4.3节：给定模型、预训练及微调设置下的观察</caption>
+<thead><tr><th>预训练数据</th><th>论文中的观察</th><th>不能推出什么</th></tr></thead>
 <tbody>
-<tr><td>ImageNet（1.3M）</td><td>赢</td><td>输</td><td>小数据时，CNN 的归纳偏置帮了忙</td></tr>
-<tr><td>ImageNet-21k（14M）</td><td>持平</td><td>持平</td><td>数据变多，先验优势在变小</td></tr>
-<tr><td>JFT-300M（300M）</td><td>输</td><td>赢</td><td>拐点：让模型自己学开始更有利</td></tr>
-</tbody>
-</table></div>
-<p class="result-board-takeaway">同样的模型，数据量会决定谁赢。</p>
+<tr><td>ImageNet（约1.3M）</td><td>所比较的BiT ResNet在这一设置优于ViT；大ViT也未自动胜过较小ViT</td><td>不能推出所有小数据任务都应从零训练CNN</td></tr>
+<tr><td>ImageNet-21k（约14M）</td><td>论文讨论ViT-Base与ViT-Large表现接近，以及与BiT模型区域的比较</td><td>不是“ResNet与ViT一律持平”的14M阈值</td></tr>
+<tr><td>JFT-300M（约303M）</td><td>论文在更大规模预训练及相应微调中观察到ViT与更大模型的收益</td><td>不能只凭样本数预言某个项目的胜者或成本</td></tr>
+</tbody></table></div>
+<p class="result-board-takeaway">训练规模可以改变权衡，模型大小、预训练、增强/正则、优化器和微调设置也会改变结论。</p>
 </section>
-<blockquote>
-<p>🔑 <strong>这解释了深度学习史上一个反复出现的规律</strong>（"苦涩的教训"）：
-<strong>更多数据和算力可能改变通用架构与人工先验的权衡；具体优势取决于任务、训练方法和预算。</strong></p>
-<p>CNN编码局部连接和权重共享；ViT在部分大规模实验中表现更好，但这不是所有数据和预算下的保证。
-RNN 的时序结构是人给的，Transformer 让模型自己学 → 大数据上 Transformer 赢。</p>
-</blockquote>
-<p>⚠️ <strong>但这条规律有个重要的但书</strong>：</p>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">&quot;苦涩的教训&quot;成立的前提是【数据和算力足够】</span></div><div class="vb-flow-row"><span class="vb-flow-step">你的项目大概率不满足这个前提：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 几万行表格数据</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">树模型仍然是王者</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 几百张图</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">预训练 CNN + 冻结主干 仍然最优</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 领域数据稀缺</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">归纳偏置是你的朋友，不是敌人 ⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 别把&quot;大模型时代的结论&quot;套到&quot;你的小数据项目&quot;上</span></div></div></section>
-<blockquote>
-<p>🔗 这是 <a href="../机器学习的数学原理/11-没有免费的午餐.html">数学原理第 11 章 NFL</a> 的直接推论：
-<strong>算法的"专长"是守恒的。Transformer 把专长放在了"大数据"那一端。</strong></p>
-</blockquote>
+<blockquote><p>🔑 <strong>更多数据和算力可能扩大通用架构的适用范围，但不是架构“必胜”的证明。</strong>复现比较时，要写清来源、模型、训练配方、指标与预算；这里没有重新运行论文实验。原作者仓库后续也提供不同增强/正则配置，不能把一张历史表当永久排名。</p></blockquote>
+<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">把条件带回自己的项目</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">少量领域图像 → 将预训练CNN和预训练ViT都列为候选；先试冻结或小幅微调，再用验证集比较。</span></div><div class="vb-flow-row"><span class="vb-flow-step">预算有限 → 同时记录输入分辨率、patch数量、时延和内存；“参数更多”不等于“更合适”。</span></div><div class="vb-flow-row"><span class="vb-flow-step">已有表格任务 → 不因ViT论文的大图像实验就排除树模型或其他合适基线。</span></div></div></section>
+<blockquote><p>🔗 <a href="../机器学习的数学原理/11-没有免费的午餐.html">数学原理第11章NFL</a>提醒我们先明确任务与评估假设；它<strong>不直接证明某种架构在某个数据量处胜出</strong>。ViT分类头与视觉语言模型中把视觉特征接入语言模型的适配层也不是同一层，后者见<a href="../大模型全景导论/10-多模态.html">全景导论多模态章</a>。</p></blockquote>
+<details><summary>📚 结构与实验条件的第一方依据</summary><p>结构与数据规模观察来自 <a href="https://arxiv.org/html/2010.11929v2">ViT原论文第3.1、3.2、4.3节</a>；投影的卷积实现、token/gap读出见<a href="https://github.com/google-research/vision_transformer/blob/main/vit_jax/models_vit.py">原作者models_vit.py</a>，不同预训练配方见<a href="https://github.com/google-research/vision_transformer">原作者仓库说明</a>。本节保留分类模型的主线，不将所有视觉编码器、分类头或VLM适配层混为一谈。</p></details>
 <hr />
 <h2 id="_4">🎓 三、位置编码：唯一的新东西</h2>
 <p>问题：注意力是「对所有位置加权求和」，<strong>没有位置编码且无破坏对称的 mask 时，输入换序会使输出按同样方式换序（置换等变）</strong>——它天生不知道谁在前谁在后。</p>
 <section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>无位置线索时，纯自注意力不能区分同一词的前后位置关系；输出序列会随输入排列。</p></div></section>
 <p>💡 <strong>一个更准确的说法</strong>：注意力是<strong>置换等变（permutation equivariant）</strong>的——
 你打乱输入顺序，输出也只是跟着打乱，信息完全没变。</p>
-<p>解法：把位置信息<strong>加进输入向量</strong>里。</p>
-<div class="tw"><table>
+<p>解法：给模型<strong>注入位置信息</strong>：可以加到输入，也可以作用于Q/K或注意力分数。</p>
+<div class="tw"><table id="position-options-bounded" style="width:100%;min-width:0;table-layout:fixed"><colgroup><col style="width:24%"><col style="width:30%"><col style="width:46%"></colgroup>
 <thead>
 <tr>
-<th>方案</th>
-<th>做法</th>
-<th>优缺点</th>
+<th style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">方案</th>
+<th style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">做法</th>
+<th style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">优缺点</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>可学习位置嵌入</strong></td>
-<td>每个位置一个可训练向量（BERT）</td>
-<td>简单；<strong>但学习到的512位置表不能直接索引更远位置；可扩展或插值，但效果需重新验证</strong></td>
+<td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top"><strong>可学习位置嵌入</strong></td>
+<td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">每个位置一个可训练向量（BERT）</td>
+<td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">简单；<strong>但学习到的512位置表不能直接索引更远位置；可扩展或插值，但效果需重新验证</strong></td>
 </tr>
 <tr>
-<td><strong>正弦位置编码</strong></td>
-<td>用不同频率的 sin/cos（原始 Transformer）</td>
-<td>理论上能外推，实际效果一般</td>
+<td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top"><strong>正弦位置编码</strong></td>
+<td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">用不同频率的 sin/cos（原始 Transformer）</td>
+<td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">sin/cos可计算未见位置；超训练长度的任务质量仍需验证</td>
 </tr>
 <tr>
-<td><strong>RoPE 旋转位置编码</strong> ⭐</td>
-<td>把位置编码成<strong>旋转</strong>，天然表达相对位置</td>
-<td><strong>可定义更长位置的旋转，但不保证更长上下文质量，需针对扩展方案验证</strong>。🔗 <a href="../大模型全景导论/02f-RoPE与位置感.html">全景导论 专题 C · RoPE：位置感</a> 讲<strong>它为什么把位置混进注意力用的 Q、K，而不是像正弦编码那样只在输入端加一张位置名片</strong>——这一差异影响位置计算机制，并不单独保证外推效果</td>
+<td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top"><strong>RoPE 旋转位置编码</strong> ⭐</td>
+<td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">把位置编码成<strong>旋转</strong>，天然表达相对位置</td>
+<td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">位置旋转可用于更远索引，任务质量仍需验证。<a href="../大模型全景导论/02f-RoPE与位置感.html">Q/K旋转机制详解 →</a></td>
 </tr>
 <tr>
-<td><strong>ALiBi</strong></td>
-<td>直接给注意力分数加一个随距离递减的偏置</td>
-<td>极简，外推性好</td>
+<td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top"><strong>ALiBi</strong></td>
+<td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">直接给注意力分数加一个随距离递减的偏置</td>
+<td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">距离偏置可定义到更长输入；收益需按训练设置和任务验证</td>
 </tr>
 </tbody>
 </table></div>
-<h3 id="_5">💡 为什么"相对位置"比"绝对位置"好</h3>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>绝对位置：告诉模型&quot;这是第 5 个词&quot;</p><p>相对位置：告诉模型&quot;这两个词隔了 3 个位置&quot; ⭐</p><p>语言的规律大多是【相对】的：</p><p>· 形容词修饰紧跟其后的名词 ← 关心的是&quot;紧跟&quot;，不是&quot;在第几位&quot;</p><p>· 代词指代前文某处 ← 关心的是&quot;多远&quot;</p><p>⭐ 所以相对位置编码泛化更好，也更容易外推到长序列</p></div></section>
+<h3 id="_5">💡 相对位置提供什么，外推还要验证什么</h3>
+<section class="visual-block visual-block-compare" aria-label="位置编码的取舍" id="position-choice-boundaries"><p class="visual-block-title">先分机制，再看任务结果</p><div class="vb-compare"><p>绝对位置描述“第几位”；相对位置描述两个位置的距离或关系。RoPE用位置相关旋转作用于Q/K，使匹配分数包含相对位移关系。</p><p>相对关系是有用的归纳偏置，但不推出所有任务都泛化更好；能给更远位置算出编码，也不等于模型已学会处理更长输入。</p></div></section>
+<p><strong>一个小边界例：</strong>位置(1,4)与(101,104)的距离都是3。若某种相对表示把距离裁剪到2，距离3与30还会共用同一标签；这让规则可复用，也丢掉了远距离的精确差别。它没有证明模型在长文本上仍能正确检索或推理。</p>
+<p><strong>选择时带上条件：</strong>已有预训练模型先保持其位置机制与索引约定；若要超出训练长度，明确训练/目标长度、位置编号、频率或缩放配置、截断与padding规则，再在目标任务的不同长度段比较质量和资源开销。需要插值、重设频率或再训练时，分别记录方案，不把“用了RoPE”当作扩窗验收。</p>
+<p class="lesson-note">可以先停在这里：位置机制提供顺序线索，效果要由具体设置验证。题目若要求“结合你的项目”，应补本人真实的任务、模型、长度、指标与失败记录；本节不提供虚构项目经历。</p>
+<details><summary>📚 可选深入：机制的一手出处</summary><p><a href="https://arxiv.org/html/1706.03762v7" target="_blank" rel="noopener">原Transformer第3.5节</a>给出正弦/可学习位置比较；<a href="https://arxiv.org/html/1803.02155v2" target="_blank" rel="noopener">Shaw等的相对位置论文第3.2节</a>说明裁剪距离；<a href="https://arxiv.org/html/2104.09864v5" target="_blank" rel="noopener">RoFormer原论文</a>定义旋转机制。这些机制或论文设置中的观察都不是所有任务的外推质量保证。</p></details>
 <blockquote>
-<p>🔗 RoPE 的外推能力正是<a href="../大模型全景导论/03-Tokenizer与上下文.html">全景导论主线 1 · 文字怎样进入模型</a>说的"上下文窗口怎么撑到 100 万"的关键之一。</p>
+<p>🔗 位置方案与长度扩展可以对照<a href="../大模型全景导论/03-Tokenizer与上下文.html">全景导论主线 1 · 文字怎样进入模型</a>中的上下文讨论；更长位置可计算，不等于百万长度任务已验证。</p>
 </blockquote>
 <hr />
 <h2 id="transformer_1">🧱 四、Transformer 之后：还在解同两个问题</h2>
@@ -700,7 +705,7 @@ RNN 的时序结构是人给的，Transformer 让模型自己学 → 大数据�
   <line x1="190" y1="394" x2="220" y2="394" stroke="var(--muted)" stroke-width="1.8"/>
   <polygon points="220,389 220,399 228,394" fill="var(--muted)"/>
   <rect x="230" y="374" width="170" height="40" rx="9" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/>
-  <text class="dia-t" x="315" y="399" font-size="12.5" text-anchor="middle" fill="var(--fg)" font-weight="600">表格数据的王者</text>
+  <text class="dia-t" x="315" y="399" font-size="12.5" text-anchor="middle" fill="var(--fg)" font-weight="600">常用表格基线</text>
   <rect x="40" y="424" width="620" height="36" rx="9" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.8"/>
   <text class="dia-t" x="350" y="447" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">第 5 章 评估与过拟合 ⭐ —— 贯穿全部，最重要</text>
 </svg>
@@ -780,10 +785,10 @@ RNN 的时序结构是人给的，Transformer 让模型自己学 → 大数据�
 <li>Transformer 里唯一"新"的部件是什么？其余的都对应你学过的什么？</li>
 <li>注意力的一句话直觉是什么？它和推荐系统的双塔召回有什么关系？</li>
 <li>为什么 QK 点积要除以 √d_k？不除会怎样？</li>
-<li>归纳偏置强弱和数据量是什么关系？ViT vs ResNet 的拐点在哪？</li>
-<li>"苦涩的教训"的但书是什么？为什么你的项目可能不适用？</li>
+<li>归纳偏置怎样影响数据效率？比较ViT与ResNet时应写清哪些条件，为什么不能给出普适的数据量拐点？</li>
+<li>为什么不能只凭“数据和算力足够”决定项目选型？小数据任务应怎样比较候选方案？</li>
 <li>为什么注意力需要位置编码？"置换等变"是什么意思？</li>
-<li>为什么相对位置编码比绝对位置编码好？</li>
+<li>绝对、相对与RoPE各提供什么位置线索？为什么可计算长位置不等于外推质量通过？</li>
 <li>Transformer 留下的两个大坑是什么？Mamba 在解哪个？</li>
 </ol>
 <details>
@@ -792,10 +797,10 @@ RNN 的时序结构是人给的，Transformer 让模型自己学 → 大数据�
 <li><strong>位置编码</strong>。其余：QK点积=线性模型的点积、softmax=逻辑回归、多头=CNN 的多个卷积核、FFN=MLP、残差=ResNet、LayerNorm=正则化、因果掩码=序列建模、交叉熵=第 3 章。</li>
 <li><strong>一次可微分的、软的查表操作</strong>（Q=要查什么，K=索引，V=内容）。和双塔召回完全同构——都是向量点积算相关度；区别是召回取 top-k 硬选，注意力用 softmax 软选且可微。</li>
 <li>因为点积的<strong>方差是 d</strong>（d=512 时标准差 ≈22.6），softmax 输入过大会饱和成 one-hot，梯度趋近于 0 训不动。除以 √d 让方差回到 1。</li>
-<li>偏置强（CNN/RNN）在小数据上好（先验帮忙），大数据上成枷锁；偏置弱（Transformer）小数据易过拟合，大数据上能学到更好的模式。<strong>拐点在 ImageNet-21k(14M) 附近</strong>——1.3M 时 ResNet 赢，300M 时 ViT 赢。</li>
-<li>但书是「<strong>数据和算力足够</strong>」。你的项目大概率不满足：几万行表格 → 树模型仍是王者；几百张图 → 预训练+冻结更优。数据稀缺时归纳偏置是朋友不是敌人。</li>
+<li>与任务匹配的归纳偏置可能提高数据效率，较少约束的模型也可能从更多数据中获益；二者都不是必然结果。比较ViT与ResNet要写清<strong>具体模型及预训练、数据与划分、增强/正则、优化与微调、评估指标和计算预算</strong>。本节论文表格是给定设置下的观察，ImageNet-21k约14M不是通用拐点，不能只按样本数预言赢家。</li>
+<li>数据和算力规模本身不能保证某种架构胜出；还要看任务、可用预训练与训练配方，并在共同的验证划分、指标和预算下比较。少量领域图像可把<strong>预训练CNN与ViT都列为候选</strong>，比较冻结或小幅微调的效果与成本；表格任务保留树模型等合适基线。冻结、微调或某种架构是否更优，要由本任务证据决定。</li>
 <li>因为注意力是<strong>置换等变</strong>的——打乱输入顺序，输出也只是跟着打乱，信息完全没变，"狗咬人"和"人咬狗"一样。</li>
-<li>因为<strong>语言的规律大多是相对的</strong>（形容词修饰紧跟其后的名词、代词指代前文多远处），关心的是距离不是绝对位次。所以泛化更好、更容易外推到长序列。</li>
+<li>绝对位置描述位次，相对表示描述位置关系；RoPE把位置旋转用于Q/K，使分数含相对位移。距离模式可复用，但裁剪等实现会丢失细节；训练长度、任务、索引与扩展配置都会影响结果。保持原预训练约定，按目标长度段验证质量和开销，不能把机制性质当普遍收益或个人项目证据。</li>
 <li>①<strong>O(n²) 复杂度</strong> ②KV Cache 占显存。Mamba 主要解 ①（也帮 ②）——它是 RNN 思想的回归，用可并行的扫描算法补上 RNN 的并行短板，同时保住 O(n)。</li>
 </ol>
 </details>

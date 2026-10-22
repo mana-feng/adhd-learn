@@ -500,7 +500,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="_4">🔍 四、过滤和排序：可排序字段必须白名单</h2>
 <p>列表接口一定会长出 <code>?sort=updated_at&amp;order=desc&amp;status=failed</code> 这类参数。<strong>排序字段最危险</strong>：它常被直接拼进 <code>ORDER BY</code>，而那里不只允许列名，也允许子查询或 <code>CASE</code>，于是成了 SQL 注入面。</p>
-<p>⚠️ 参数化占位符 <code>?</code> 救不了这里：它只能替换值，不能替换列名或关键字，<code>ORDER BY ?</code> 是语法错误。排序字段只能走白名单映射。</p>
+<p>⚠️ 参数化占位符 <code>?</code> 救不了这里：它只能替换值，不能替换列名或关键字，在SQLite中 <code>ORDER BY ?</code> 可以是合法的绑定值表达式，但不会把参数字符串解析为列标识符。排序字段只能走白名单映射。</p>
 <p>下面这段真的把一个密钥从数据库里偷了出来——只靠一个 <code>sort</code> 参数（可直接跑）：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 <span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
@@ -538,7 +538,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <blockquote>
-<p>⭐ <strong>判据</strong>：<strong>凡是要拼进 SQL 结构位置（列名、方向、表名）的外部输入，一律走白名单映射，不认识就拒绝。</strong> 值可以参数化，结构不能——<code>ORDER BY ?</code> 是语法错误，所以这里没有别的退路。</p>
+<p id="sqlite-order-value-check"><strong>最小SQLite对照：</strong>给出三行(id,score)=(1,30)、(2,10)、(3,20)，绑定字符串score执行 <code>ORDER BY ?</code> 并不按score列排序；显式 <code>ORDER BY score</code> 才得到id序列2、3、1。前者是各行同一常量表达式，行间顺序没有由它规定，不能把某次返回顺序当通用保证。这个本地对照只验证SQLite语义；现有白名单仍负责选列和方向，普通过滤值仍用占位符。依据 <a href="https://www.sqlite.org/lang_expr.html#parameters">SQLite参数表达式文档</a>。</p>
+<p>⭐ <strong>判据</strong>：<strong>凡是要拼进 SQL 结构位置（列名、方向、表名）的外部输入，一律走白名单映射，不认识就拒绝。</strong> 值可以参数化；列名/方向等结构不能借绑定值来选择——在SQLite中 <code>ORDER BY ?</code> 可以是合法的绑定值表达式，但不会把参数字符串解析为列标识符，因此仍须白名单映射，不能让外部输入直接拼接SQL。</p>
 </blockquote>
 <p>⚠️ <strong>过滤条件（<code>WHERE status=?</code>、<code>WHERE model=?</code>）要能命中索引</strong>，否则一个 <code>LIKE '%词%'</code> 就把整张大表扫一遍（下一节有实测）。给哪些列建索引是<a href="06-关系数据库.html">上一章</a>的事；这一节只提醒：<strong>别让过滤参数落到没索引的列上，尤其别开放前缀模糊匹配。</strong></p>
 <hr />
@@ -682,7 +683,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>游标（keyset）分页在什么条件下能稳定续页？它比 <code>OFFSET</code> 换来的代价是什么？</li>
 <li>排序列是 <code>updated_at</code>、而它大量撞车时，为什么单列游标会漏数据？正确的游标该怎么写？</li>
 <li>游标编码成 base64 不透明串，能不能往里放敏感信息？解码之后还要做一步什么？</li>
-<li>为什么 <code>ORDER BY</code> 后面不能用参数化占位符 <code>?</code> 兜底？那靠什么防注入？</li>
+<li>为什么把列名字符串绑定给 <code>ORDER BY ?</code> 不能选择排序列？这与SQLite语法错误有何区别？那靠什么防注入？</li>
 <li>「共 1234 条」这种精确总数，什么时候会很贵？不想要总数、只想知道「还有没有下一页」怎么做？</li>
 <li>批量删除十条，第三条没权限，该返什么 HTTP 状态码？body 里放什么？</li>
 </ol>
@@ -694,7 +695,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>因为它的条件是<strong>值比较</strong>（<code>seq &lt; 8</code>）而不是位置偏移：已读的都 ≥ 游标，新插/删除都不改变「比 8 小的还有哪些」这个事实。代价是不能跳页（给不了「第 500 页」和总页数），只能一页页往下翻——但 AI 产品的历史列表都是无限下滑，几乎不损失。</li>
 <li><code>updated_at</code> 撞车时，<code>updated_at &lt; 100</code> 会把「同样是 100、但还没读」的那些行<strong>整段跳过</strong>。正确写法是复合游标 <code>(updated_at, id) &lt; (?, ?)</code>——行值比较，和 <code>ORDER BY updated_at DESC, id DESC</code> 一一对应，末尾用唯一列（主键）兜底。</li>
 <li><strong>不能</strong>——base64 只是「不透明」不是加密，谁都能解开看。所以不放敏感信息，且解码之后必须重新校验类型（<code>isinstance(..., int)</code>）再用，绝不信任客户端传回来的内容。</li>
-<li>因为 <code>?</code> 只能替换<strong>值</strong>，不能替换列名/关键字，<code>ORDER BY ?</code> 是语法错误。所以没有参数化这条退路，只能靠白名单：外部排序名映射到写死的真实列名，方向只允许 <code>DESC</code>/<code>ASC</code> 两个取值，不认识就拒绝。（正文里那段演示只靠一个 <code>sort</code> 参数就把 <code>sk-live-7fd3</code> 一个字节一个字节偷了出来。）</li>
+<li>因为 <code>?</code> 绑定的是<strong>值表达式</strong>，不是列名/关键字替换，在SQLite中 <code>ORDER BY ?</code> 可以是合法的绑定值表达式，但不会把参数字符串解析为列标识符。这不能实现外部指定列排序，因此使用白名单：外部排序名映射到写死的真实列名，方向只允许 <code>DESC</code>/<code>ASC</code> 两个取值，不认识就拒绝。（正文里那段演示只靠一个 <code>sort</code> 参数就把 <code>sk-live-7fd3</code> 一个字节一个字节偷了出来。）</li>
 <li>当过滤条件<strong>命不中索引</strong>时——实测 <code>COUNT(*) WHERE content LIKE '%..%'</code> 要全表 <code>SCAN</code>，30.7 ms，比取一页（0.009 ms）慢三千多倍，还随数据量线性变慢。只想知道「还有没有下一页」就多取一条：查 <code>LIMIT 21</code>，回来 21 条就是「还有」（丢掉第 21 条），≤20 条就是「到底了」，实测 0.008 ms。</li>
 <li>返 <strong>207</strong>（部分成功；全成 200，全败 4xx 如 422）。body 里放逐项结果 <code>results:[{id, status, code}]</code> 加一个 <code>succeeded/failed</code> 汇总，每项的 <code>code</code> 用 03 章那套机器码。别让整批共享一个「全成全败」的事务，除非业务真要求原子性。</li>
 </ol>

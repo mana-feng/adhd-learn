@@ -280,7 +280,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="polish-ai-fullstack-reading">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><style id="g04-reading-fix-qread-002">
+/* Bound only this added prose table; preserve its scroll wrapper and all content. */
+body main table.g04-reading-close-states { table-layout:fixed; width:100%; min-width:36rem; max-width:none; }
+body main table.g04-reading-close-states :is(th,td) { white-space:normal; overflow-wrap:anywhere; word-break:normal; vertical-align:top; }
+</style>
+</head><body class="polish-ai-fullstack-reading">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -334,31 +339,169 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td>⭐ <strong>SSE</strong>（<code>text/event-stream</code>）</td>
 <td>服务器 → 客户端<strong>单向</strong></td>
-<td>几乎没有：<strong>就是一个没结束的 HTTP 响应</strong></td>
+<td>沿用 HTTP 响应；仍需处理断连、缓冲和资源占用</td>
 <td><strong>默认选它</strong>。LLM 输出天然是单向的</td>
 </tr>
 <tr>
 <td><strong>WebSocket</strong></td>
 <td>双向</td>
-<td>要升级协议、要自己做心跳/重连/鉴权；很多代理和企业网关默认不放行</td>
+<td>建立 WebSocket 会话；需处理心跳、重连、鉴权和代理兼容</td>
 <td>真的需要<strong>边说边打断</strong>：语音、协同编辑、实时打断生成</td>
 </tr>
 <tr>
-<td><strong>裸分块传输</strong>（chunked）</td>
+<td><strong>自定义流式响应体</strong></td>
 <td>单向</td>
-<td>⚠️ 你得自己定义「一帧到哪结束」</td>
+<td>⚠️ 自行定义消息边界；HTTP/1.1 chunk 边界不能代替它</td>
 <td>你确实只吐纯文本、且不打算加任何元信息时</td>
 </tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>SSE 和「裸分块」的关系容易搞混</strong>：SSE <strong>就是</strong>分块传输，只不过多规定了一件事——帧怎么分（每帧以空行结束）。这点约定换来的是「以后要加错误、用量、工具状态时不用重写前端」（01 章第三节那个决定）。</p>
-<p>⚠️ <strong>WebSocket 不是「更高级的 SSE」</strong>。它多出来的能力是<strong>上行</strong>，而 LLM 场景的上行只有一句「用户又发了一条消息」，一个普通 POST 就够了。为它上单独的协议，等于把心跳、重连、鉴权、代理兼容四件事全揽到自己身上。</p>
+<p>⭐ <strong>SSE 规定的是 HTTP 响应体里的事件格式</strong>：媒体类型是 <code>text/event-stream</code>，用 UTF-8 文本和空行分隔事件。<strong>HTTP/1.1 的 <code>chunked</code> 是另一层的消息分帧</strong>；一个事件可以跨多个 chunk，一个 chunk 也可以装多个事件。换成 HTTP/2 后，内容由 DATA 帧承载，不能使用 <code>Transfer-Encoding: chunked</code>，SSE 事件格式仍可保留。</p>
+<p>⚠️ <strong>WebSocket 提供双向消息通道</strong>，适合确实需要持续双向交换的场景。本章的生成请求用一次 POST 发起、后续主要接收输出，先用流式 HTTP 即可；是否换通道要看交互需求。</p>
+<h3 id="http-versions-streaming">同样是 HTTP，承载与复用不同</h3>
+<details id="http10-11-bridge"><summary>可跳过：从HTTP/1.0到1.1，默认连接与消息长度改了什么？</summary>
+<p><strong>连接：</strong>HTTP/1.0通常一次请求/响应后关闭连接；部分历史实现能显式协商Keep-Alive扩展，不能说1.0绝不支持长连接。HTTP/1.1默认允许持久连接，<code>Connection: close</code>可声明本次响应后不再复用；默认持久也不保证永不超时。</p>
+<p><strong>目标主机：</strong>HTTP/1.1每个请求必须带合法的<code>Host</code>字段，用于区分同一地址上的目标主机。1.0原规范没有这项强制要求，后来一些1.0客户端也实现了Host；历史支持与1.1的强制规则要分开。</p>
+<p><strong>响应长度：</strong>对含正文的普通1.0响应，可用<code>Content-Length</code>给出字节数，否则靠关闭连接定界。1.1可用Content-Length，未知长度的持续正文常用<code>chunked</code>，让接收方识别结束并保留连接；若仍靠关闭连接定界，该连接就不能继续复用。HEAD、204、304等无正文响应按各自语义处理。</p>
+<p><code>Transfer-Encoding</code>在1.1引入，不能把chunked响应发给仅表明1.0的请求；发送Transfer-Encoding时不能同时发送Content-Length。chunked分帧与SSE事件格式仍是两层。下面继续对照1.1/2/3的承载与复用。</p>
+<p class="muted">依据：<a href="https://www.rfc-editor.org/rfc/rfc1945#section-7.2.2">RFC1945 §7.2.2</a>、<a href="https://www.rfc-editor.org/rfc/rfc9112.html#section-9.3">RFC9112 §9.3 / C.2</a>（含Host与Transfer-Encoding差异）、<a href="https://www.rfc-editor.org/rfc/rfc9110.html#section-7.2">RFC9110 §7.2</a>。</p>
+</details>
+<div class="tw"><table>
+<thead><tr><th>版本</th><th>承载与响应体</th><th>复用的边界</th></tr></thead>
+<tbody>
+<tr><td>HTTP/1.1</td><td>TCP；无预知长度的持续响应常用 chunked 编码</td><td>默认允许持久连接复用多次请求；流水线的响应仍须按请求顺序返回，并发常靠多个连接</td></tr>
+<tr><td>HTTP/2</td><td>TCP；HEADERS / DATA 帧</td><td>一条连接交错多个流；TCP 丢包仍可能阻塞其上的多个流，不等于消除所有队头阻塞</td></tr>
+<tr><td>HTTP/3</td><td>QUIC（基于 UDP）；HTTP 帧映射到 QUIC 流</td><td>由 QUIC 提供可靠流与复用，避免 TCP 的跨流队头阻塞；仍有拥塞、资源与应用依赖</td></tr>
+</tbody></table></div>
+<p><strong>HTTP 管方法、状态码和字段等请求/响应语义；HTTPS 为通信增加身份验证、机密性与完整性保护。</strong>常见 HTTP/1.1、HTTP/2 的 HTTPS 使用 TLS，HTTP/3 的 QUIC 集成 TLS 1.3。加密不替代应用鉴权，也不保证响应及时、不重试或不丢业务结果。证书与握手机制见 <a href="../密码学与信息安全/18-PKI与证书.html#tls-13">证书与 TLS 原节</a>。</p>
+<h3 id="stream-connection-lifetime">把响应、连接和心跳分别看</h3>
+<div class="tw"><table>
+<thead><tr><th>对象</th><th>它解决什么</th><th>不能由它推出什么</th></tr></thead>
+<tbody>
+<tr><td>持续响应（SSE）</td><td>同一次请求的响应体持续产生事件</td><td>一次请求结束不必关闭承载连接；持续响应也要占用并发与内存资源</td></tr>
+<tr><td>持久连接</td><td>连接可供多次请求复用；HTTP/1.1 默认支持</td><td>不自动推送事件，也不承诺永不超时</td></tr>
+<tr><td>连接池</td><td>客户端管理可复用连接及并发上限，减少反复建连</td><td>不是持久化消息队列；流占用连接/流配额仍受客户端实现限制</td></tr>
+<tr><td>应用心跳</td><td>例如 SSE 注释 <code>: ping\n\n</code>，帮助应对空闲超时</td><td>不是 TCP keepalive，也不证明某条业务消息已落库或已被用户消费</td></tr>
+</tbody></table></div>
+<p>因此，<strong>关闭标签、取消请求、结束 HTTP 流、关闭底层连接是不同事件</strong>。HTTP/2 连接可能还承载其他流；后端应依赖框架的断连/取消通知并清理本次生成资源，不能根据「用户关页」推断某条 TCP 必然立刻关闭。第六节继续处理取消与上游收尾。</p>
+<h3 id="websocket-lifecycle">WebSocket：一段最小状态轨迹</h3>
+<p><strong>下面的 Upgrade / 101 仅指 HTTP/1.1 握手</strong>：客户端发送带 <code>Upgrade: websocket</code>、<code>Connection: Upgrade</code>、<code>Sec-WebSocket-Key</code> 和版本字段的请求；服务端验证请求并返回 <code>101</code> 与正确的 <code>Sec-WebSocket-Accept</code>，客户端核验后进入 OPEN。HTTP/2 不使用这个 101 路径；双方协商支持 RFC 8441 时，可用扩展 CONNECT 在一个流内建立 WebSocket。</p>
+<div class="codehilite" data-code-language="text"><pre><code>CONNECTING → 握手成功 → OPEN
+OPEN ↔ 文本/二进制消息（一个消息可拆成多个帧）
+OPEN → Ping → 对端 Pong（控制帧；不是业务确认）
+OPEN → Close ↔ Close → CLOSED
+异常断开 → CLOSED → 应用退避后重新握手 → 新会话</code></pre></div>
+<p>协议 Ping/Pong 由端点实现处理，浏览器 JavaScript 的 WebSocket API 不直接暴露这些控制帧；需要应用可见的探活时，可以另约定消息与超时。<strong>重连不会自动重放业务消息</strong>：例如客户端最后处理到序号 42，断开后重新建连时，43 是否已写入、是否需从 42 之后补拉，要由服务端保留记录与客户端游标/去重约定决定。这个轨迹只是协议与业务边界说明，未执行真实网络或规模压测；稳定业务标识的作用见 <a href="03c-幂等与条件请求.html#idempotency-key">幂等原节</a>。</p>
+<p class="muted">依据：<a href="https://www.rfc-editor.org/rfc/rfc9112.html#section-9.3">RFC 9112 §9.3</a>、<a href="https://www.rfc-editor.org/rfc/rfc9113.html#section-8.1">RFC 9113 §2/8.1</a>、<a href="https://www.rfc-editor.org/rfc/rfc9114.html#section-2">RFC 9114 §2</a>、<a href="https://www.rfc-editor.org/rfc/rfc9110.html#section-4.2.2">RFC 9110 §4.2.2</a>、<a href="https://www.rfc-editor.org/rfc/rfc6455.html#section-5">RFC 6455 §5/7</a>、<a href="https://www.rfc-editor.org/rfc/rfc8441.html#section-4">RFC 8441 §4</a>、<a href="https://websockets.spec.whatwg.org/#ping-and-pong-frames">WebSockets 标准 §5</a>。</p>
+<p>本章流式主线可直接继续第三节。想定位“半条消息、连接没关或超时后结果未知”，再看 <a href="#transport-depth">可跳过的传输深入</a>。</p>
+<details id="transport-depth"><summary>可选深入：事件下面的字节流与连接状态</summary>
+<p>先问故障在哪一层：应用事件没结束、HTTP响应被缓冲、还是传输连接出了问题？以下序号、时刻与报文轨迹都是教学手算，<strong>不是抓包、真实内核测试或网络压测</strong>；先前的 HTTP/SSE/WebSocket 主线继续成立。</p>
+<h3 id="transport-layer-map">把教学分层用于定位，不当作严格实现图</h3>
+<div class="tw"><table><thead><tr><th>本章观察对象</th><th>TCP/IP模型</th><th>OSI教学对应与边界</th></tr></thead><tbody>
+<tr><td>JSON/SSE事件；HTTP请求/响应；FTP文件传输命令</td><td>应用层</td><td>OSI应用层(7)；表示(6)、会话(5)的序列化/会话职责常由库或应用承担，不必各有独立协议进程</td></tr>
+<tr><td>TCP字节流、UDP数据报</td><td>传输层</td><td>主要对应传输层(4)。QUIC在UDP之上整合可靠流、加密与复用，不能强画成每层一个协议的一一映射</td></tr>
+<tr><td>IP地址与跨网络转发</td><td>网际层</td><td>网络层(3)；尽力交付，不保证顺序或到达</td></tr>
+<tr><td>相邻节点间的以太网/Wi-Fi帧</td><td>链路层</td><td>数据链路层(2)；逐跳帧不等于端到端应用事件</td></tr>
+<tr><td>电/光/无线信号</td><td>常合并进底层网络接入讨论</td><td>物理层(1)。OSI七层与TCP/IP四层是不同教学划分</td></tr>
+</tbody></table></div>
+<p>以HTTP over TCP为例：应用把事件编码成响应体→HTTP定义消息语义/边界→TCP把字节按序号分段传送→IP跨网络路由→每跳用本地链路承载；对端逐层接收并解析。TCP段、一次 <code>recv</code> 返回和一个SSE事件的边界可以完全不同。HTTP/3走QUIC/UDP路径，不是“下面也必有TCP”。</p>
+<h3 id="transport-tcp-udp">TCP可靠字节流与UDP数据报，分别承诺什么</h3>
+<p>TCP在连接内提供可靠、有序的<strong>字节流</strong>，不保留一次send的消息边界。应用仍需分隔符/长度等消息格式；连接失败时也可能无法知道对端处理到哪里。UDP保留数据报边界，但本身不保证到达、去重或顺序；丢失、乱序、重复均需按应用语义处理。UDP少一些协议机制不等于在所有负载下必定更快。</p>
+<p>完整文件/文本请求通常希望按序得到全部字节；实时音视频可能更重截止时间、愿意丢掉过期数据，但也要做速率/拥塞控制。若在UDP上自建可靠交付，就要承担业务消息ID、确认、丢失检测/重传、排序去重、拥塞控制、缓冲与安全等职责；QUIC是已有的标准化可靠流方案之一。没有这些设计，不能因“加了ACK”便宣称等价TCP。</p>
+<details id="transport-ten-axes"><summary>可跳过：用10个不同问题对照原生TCP与UDP</summary>
+<p>下列比较原生传输协议；UDP上的QUIC可另加可靠流、拥塞控制与加密，不能把它的能力算作UDP自带。</p>
+<ol>
+<li><strong>连接状态：</strong>TCP要建立并维护连接、按状态结束；UDP没有对应握手/关闭状态机，socket的connect不等于增加UDP握手。</li>
+<li><strong>应用消息边界：</strong>TCP是字节流，一次send不对应一次recv；UDP保留数据报边界，应用仍须处理接收缓冲不足等情况。</li>
+<li><strong>丢失与重复恢复：</strong>TCP用序号、确认和重传恢复丢失并识别重复；UDP本身不提供。TCP连接失败仍可能留下业务结果未知。</li>
+<li><strong>交付顺序：</strong>TCP按序交付，前方缺口可挡住后续字节；UDP不保证报文顺序，应用可选择直接处理、重排或丢弃过期报文。</li>
+<li><strong>接收流控：</strong>TCP通告rwnd约束发送；UDP没有原生接收窗口反馈，接收方变慢时要另做背压或丢弃策略。</li>
+<li><strong>网络拥塞：</strong>TCP发送受拥塞算法约束；UDP自身没有，使用UDP的应用/上层协议仍须控制拥塞，不能任意满速发送。</li>
+<li><strong>分发形态：</strong>TCP提供单播连接；UDP可用于单播、IP组播和IPv4广播，受网络支持与权限限制；IPv6没有广播。</li>
+<li><strong>基础首部：</strong>TCP最少20字节，普通UDP首部8字节；不计IP、TCP选项及上层协议开销，不能据此推出UDP必快。</li>
+<li><strong>发送分段责任：</strong>TCP按MSS/路径条件把字节流分段；UDP应用需选择合适报文大小，UDP不自动补出TCP式分段重组，勿依赖IP分片。</li>
+<li><strong>校验策略：</strong>TCP校验和必须使用；UDP在IPv4允许零值表示未启用，IPv6默认必须校验，特定隧道例外见下文。校验和都不等于认证或加密。</li>
+</ol>
+<p class="muted">依据：<a href="https://www.rfc-editor.org/rfc/rfc9293.html">RFC9293 §2.2/3</a>、<a href="https://www.rfc-editor.org/rfc/rfc768">RFC768</a>、<a href="https://www.rfc-editor.org/rfc/rfc8085.html">RFC8085 §3/4</a>。消息边界回答“怎样分消息”，分段回答“谁控制发送单元大小”；丢失恢复与按序交付也分别核对。</p>
+</details>
+<h3 id="transport-handshake">三次握手：先把双方序列空间对齐</h3>
+<div class="codehilite" data-code-language="text"><pre><code># 常见一主动、一监听的无丢包路径；序号仅为手算
+A CLOSED → SYN-SENT：     A → B  SYN     seq=100
+B LISTEN → SYN-RECEIVED： B → A  SYN,ACK seq=700 ack=101
+A收到后 → ESTABLISHED：   A → B  ACK     seq=101 ack=701
+B收到最后ACK → ESTABLISHED</code></pre></div>
+<p>SYN占用一个序号，所以确认100的SYN用101；另一方向也独立确认。序号主要计<strong>字节</strong>，不是“第几个包”；纯ACK不消耗序列空间，FIN也消耗一个序号。最后一次确认让B知道自己的初始序号已被A收到，并配合初始序号选择等规则降低旧重复报文的歧义。握手不是服务业务请求已经完成的证据。</p>
+<p>SYN/SYN-ACK丢失会触发相应重传/超时；最后ACK丢失时，B可重发SYN-ACK，A再确认，不必把纯ACK想成有独立重传计时器的业务消息。实际包数可能因重传、同时打开或数据携带而不同，不能把“三次”当任意抓包都只有三包的断言。</p>
+<section id="transport-header-reading"><h4>可选读字段：把首部和上面的轨迹对起来</h4>
+<p><strong>普通UDP首部固定8字节：</strong>源端口16位｜目的端口16位；长度16位｜校验和16位。长度包含首部和数据。校验和也关联IP伪首部中的地址/协议/长度，检查误码与误投递，不是加密或身份认证。IPv4可用零表示未启用UDP校验；IPv6默认必须校验，计算结果为零时按规范编码为FFFF，零校验仅有满足额外要求的特定隧道例外，不能直接沿用IPv4规则。IPv6巨型报文等扩展另有长度规则，不由这张普通首部示意覆盖。</p>
+<p><strong>TCP基础首部最少20字节：</strong>端口各16位；序号/确认号各32位，对应前面按字节推进的两条序列空间；Data Offset是首部长度的32位字数，值5对应20字节。控制位SYN/FIN/RST/ACK分别用于同步、结束方向、复位与确认号有效性；PSH不把字节流变成消息协议，URG/紧急指针也不是另建一条业务通道。通告窗口参与接收流控；校验和覆盖首部/数据并结合IP伪首部。选项可承载MSS、窗口扩大、SACK许可/块、时间戳等，不是每个包都带全部选项。CWR/ECE与拥塞通知有关，不替代应用状态码。</p>
+<p><strong>MSS、MTU与分片分别看：</strong>MSS是TCP数据段大小的限制，MTU约束链路可承载的IP包大小，TCP分段与IP分片不是同一层。假设路径MTU=1500字节、IPv4/TCP都没有选项或封装，1500−20−20=1460字节是一个数据预算示例；加选项、换IP版本或隧道都要重算，还要服从对端MSS及路径限制。IPv4在条件允许时可分片；IPv6路由器不沿途分片，发送端应按路径条件处理，不能靠“设置MSS”就宣称所有IP分片已消失。</p>
+<p><strong>前面100/700是教学ISN，不是生产生成法。</strong>RFC9293描述时钟项M加上连接四元组与秘密键的不可外推伪随机函数F，兼顾序列空间推进、旧报文隔离和盲猜注入风险；不能给所有连接固定从0开始，也不能只以“有一个随机数”代替协议条件。ISN不可预测不等于TLS加密，旁路防猜不保护已被观察的应用明文。</p>
+<p><strong>SYN洪泛针对未完成握手的状态资源。</strong>SYN cookies将部分状态编码到SYN-ACK序号，待最终ACK核验后再重建，减少提前分配；它有选项协商/实现与算力代价，也不是身份验证或无限抗压保证。还应结合入口过滤、网络边界防护及队列/资源监测。RFC4987是2007年的机制讨论，不能照搬其中旧内核默认值；实际部署配置和效果须针对当前系统核验，本页没有执行攻击或防护测试。</p>
+<p class="muted">依据：<a href="https://www.rfc-editor.org/rfc/rfc9293.html">RFC9293 §3.1/3.4.1/3.7.1</a>、<a href="https://www.rfc-editor.org/rfc/rfc768.html">RFC768</a>、<a href="https://datatracker.ietf.org/doc/html/rfc8200">RFC8200 §4.5/8.1/8.3</a>、<a href="https://www.rfc-editor.org/rfc/rfc4987.html">RFC4987</a>。</p>
+</section>
+<h3 id="transport-loss-order">一个缺口如何触发ACK、SACK与重传</h3>
+<p>假设接收方正等待字节1000，发送方依次发四段，每段100字节；接收方有足够缓冲并保留乱序段，半开区间右端不包含：</p>
+<div class="codehilite" data-code-language="text"><pre><code>[1000,1100) 丢失
+[1100,1200) 到达 → 累计ACK=1000，若启用SACK则报告[1100,1200)
+[1200,1300) 到达 → 累计ACK=1000，SACK可合并为[1100,1300)
+[1300,1400) 到达 → 累计ACK=1000，SACK可合并为[1100,1400)
+重传[1000,1100)补齐 → 累计ACK=1400，连续字节可交给应用</code></pre></div>
+<p>累计ACK是“下一个期望字节”，不能因收到后面一段就越过缺口。SACK需协商支持，额外报告已收到的块以减少盲目重传，<strong>不替代累计ACK</strong>。重复段由序号识别，不应作为新字节再交付；但应用重新发一次完整业务请求仍是另一回事，必须另做幂等。</p>
+<p>RFC5681的<strong>经典快速重传</strong>用三个符合条件的重复ACK推断缺口，未等RTO便重传；不是所有现代实现都只有这一种丢失检测规则，少量数据或ACK丢失时也不一定凑够三个重复ACK。<strong>超时重传</strong>则依赖RTO：RFC6298按RTT及其变动估计，超时后退避，重传报文的RTT采样还存在歧义。RTO不是调用层的connect/read超时，更不是任何系统固定几秒；内核版本、算法及配置会影响实际行为。</p>
+<h3 id="transport-flow-congestion">滑动窗口：接收能力与网络容量分开</h3>
+<p>接收方通告的 <code>rwnd</code> 限制未被应用及时取走的数据量，避免撑爆接收缓冲；累计ACK和通告窗口变化，让可发送区间向前滑动。发送方的 <code>cwnd</code> 根据网络拥塞反馈控制在途量，保护网络路径。它们分别是<strong>流量控制</strong>和<strong>拥塞控制</strong>；经典慢启动/拥塞避免调的是cwnd，不是接收端把rwnd“调快”。</p>
+<p>忽略恢复期等细节，若rwnd=1200字节、cwnd=800字节，已有500字节未确认，则剩余可新增约 <code>min(1200,800)-500=300</code> 字节，不是再发800。实际拥塞算法可以不同，窗口上限也不能换算成固定业务QPS；接收方或应用变慢还要配合本章后续的有界缓冲与取消策略。</p>
+<details id="transport-window-reno"><summary>可跳过：rwnd怎样更新，经典Reno怎样换阶段？</summary>
+<p><strong>接收流控的四步：</strong>①接收缓存有多少可接收空间，形成通告rwnd；②随ACK把下一期望字节与窗口告诉发送方；③发送方结合cwnd和未确认量限制新增发送；④应用取走缓存后，接收方通告更新的窗口，允许发送继续推进。TCP确认收到不等于应用已经取走。</p>
+<p><strong>小窗口轨迹：</strong>假设接收缓存4000字节、起初为空且下一期望序号1000，通告rwnd=4000；收到连续2000字节而应用未读，ACK=3000、rwnd=2000。应用再读走1000字节，可通告ACK=3000、rwnd=3000，右边界由5000前移到6000。这里只忽略窗口扩大等实现细节。</p>
+<p><strong>零窗口另看：</strong>rwnd=0时暂停普通新数据发送，TCP仍支持零窗探测，避免窗口重开通知丢失后双方永远等待。它不是应用心跳，也不因零窗就把cwnd按拥塞丢包规则重置；连接资源与超时仍有实现边界。</p>
+<p><strong>下面只走RFC5681的经典Reno教学路径。</strong>SMSS是发送端最大段数据字节数；cwnd、ssthresh与FlightSize都按字节计，FlightSize是已发未确认量。假设rwnd足够、一直有数据、每整段新数据都获ACK，初始cwnd=2×SMSS、ssthresh=8×SMSS仅为算例，不是当前系统默认值。</p>
+<ol>
+<li><strong>慢启动→拥塞避免：</strong>cwnd低于ssthresh时，对确认新数据的ACK按确认字节数增长，每个ACK最多增1×SMSS；上述理想假设下可按RTT看2→4→8段。阈值相等时本例选拥塞避免（规范允许两者）；之后按约每RTT增1段而非继续倍增，ACK节奏和应用供给会改变实际轨迹。</li>
+<li><strong>3个符合条件的重复ACK→快速恢复：</strong>推断缺口后快速重传，不等RTO；本例把ssthresh取为max(FlightSize/2,2×SMSS)，规范要求不超过该上界，并排除limited-transmit额外发送量。cwnd暂设ssthresh+3×SMSS，后续每个重复ACK再增1×SMSS；有新数据且窗口允许才发送。</li>
+<li><strong>新ACK→退出恢复：</strong>在本例单处丢失被修复、ACK确认此前未确认数据时，cwnd收回到ssthresh，进入拥塞避免。例如FlightSize=10段，阈值取5段，快速恢复暂为8段，再收回5段；这不代表任何ACK都增加窗口。</li>
+<li><strong>RTO超时→回慢启动：</strong>对尚未因计时器重传过的该段，按同一FlightSize规则降低阈值，cwnd降到至多1×SMSS，重传后慢启动；再次超时重传同段时阈值保持，计时器退避另依RTO规则。不能把这条路径简写成“任何丢包都减半继续线性增长”。</li>
+</ol>
+<p>多处丢失、SACK/现代恢复、延迟ACK与初始窗口版本会改变细节；CUBIC、BBR不是这条Reno增长轨迹。任何阶段仍受前文min(rwnd,cwnd)与在途量约束，不能由窗口数字保证吞吐。</p>
+<p class="muted">依据：<a href="https://www.rfc-editor.org/rfc/rfc9293.html#section-3.8.6">RFC9293 §3.8.6</a>、<a href="https://www.rfc-editor.org/rfc/rfc5681.html">RFC5681 §2/3.1/3.2</a>。以上为教学状态/算术，没有执行真实连接或压测。</p>
+</details>
+<h3 id="transport-close-states">两个方向分别关闭，为什么不总是四包</h3>
+<div class="codehilite" data-code-language="text"><pre><code># 接握手、无数据的教学序号；A先关闭发送方向
+A → B FIN,ACK seq=101 ack=701   A:FIN-WAIT-1；B收到后:CLOSE-WAIT
+B → A ACK     seq=701 ack=102   A收到后:FIN-WAIT-2
+B本地应用也关闭 → A FIN,ACK seq=701 ack=102   B:LAST-ACK
+A → B ACK     seq=102 ack=702   A:TIME-WAIT；B收到后:CLOSED
+A等待后:CLOSED</code></pre></div>
+<p>FIN表示本端不再发送新字节，不代表另一方向也停止发送；B可能先确认A的FIN，继续把剩余数据发完再FIN。若B立即关闭，第二、三行的ACK/FIN可以合并；同时关闭时又有CLOSING等路径。TCP区分正常FIN关闭与经校验接受的RST复位，<strong>“四次挥手”不是所有连接固定四个网络包</strong>。</p>
+<div class="tw"><table class="g04-reading-close-states"><colgroup><col style="width:20%"><col style="width:40%"><col style="width:40%"></colgroup><thead><tr><th>状态/现象</th><th>含义及排查线索</th><th>不能直接得出的结论</th></tr></thead><tbody>
+<tr><td>TIME_WAIT</td><td>保留终止相关状态，使对方重发FIN时还能再ACK，并隔离旧连接延迟报文；常见由最后确认FIN的一端进入，双方同时关闭时也可能都有</td><td>规范路径用2×MSL描述，不能把某操作系统秒数当跨平台常量；不等于应用文件描述符仍一直打开</td></tr>
+<tr><td>CLOSE_WAIT</td><td>已收到对端FIN，等待本地应用关闭发送方向。持续积累时检查本地资源收尾</td><td>不是和TIME_WAIT同一种“等网络冷却”，也不能仅据状态断定远端有bug</td></tr>
+<tr><td>RST</td><td>可能来自不存在的连接/监听端口、状态失配或主动中止等情形；接收方还要做序号/状态校验</td><td>不是任意一个RST必定终止连接，也不是对端断电必然会发RST</td></tr>
+</tbody></table></div>
+<p>若上例最后ACK丢了，B会重传未确认的FIN，TIME_WAIT中的A能再ACK并按规范处理计时；FIN丢失也需重传，达到失败策略可能结束连接，不能承诺网络最终一定恢复。客户端突然断电通常来不及通知；进程崩溃后内核可能关闭或复位socket，但具体结果仍取决于状态/缓冲/选项，不能写成“服务端立即知道”。</p>
+<p>大量短连接会消耗内核状态、内存和可用连接元组等资源；先看是否能复用连接、是否有本地未关闭资源、瓶颈究竟在句柄/端口/内存/NAT哪一层。<strong>不要无条件缩短等待或开启TIME_WAIT重用</strong>。收到新SYN怎样处理、何时可安全重用、最大连接数是多少，必须给出系统/内核/地址与端口范围/远端分布/配置；缺这些条件的来源题仍保留需澄清，不能用一个“65535”代替所有连接容量。</p>
+<h3 id="transport-evidence">send成功、TCP确认、业务提交是三种证据</h3>
+<div class="tw"><table><thead><tr><th>你看到了什么</th><th>支持什么结论</th><th>还没证明什么</th></tr></thead><tbody>
+<tr><td>Linux send返回n&gt;0</td><td>本次有n字节被本地发送路径接受；可能少于请求长度</td><td>没有证明所有字节已到对端、应用已读或已处理</td></tr>
+<tr><td>TCP ACK推进</td><td>对端TCP确认收到相应连续字节</td><td>没有证明对端应用已消费、校验或提交事务</td></tr>
+<tr><td>应用成功响应/持久结果记录</td><td>按该接口契约解释处理结果</td><td>响应丢失时，本地超时仍不能推出“对端没提交”</td></tr>
+</tbody></table></div>
+<p>TCP keepalive 是可选的传输探活；应用心跳可检查应用约定的存活点；业务deadline决定等多久并如何取消。三者互不替代，HTTP持久连接只是复用能力。Fetch取消可能只终止本次HTTP/2流（RST_STREAM），不必关闭承载其他流的TCP；与HTTP/1.x连接复用/关闭也有不同处理。取消后还要按第六节回收本次上游资源，不能从浏览器关页推导供应商已经停止计费。未知业务结果仍按 <a href="03c-幂等与条件请求.html#idempotency-key">稳定业务ID与重放契约</a> 查询/重试。</p>
+<p class="muted">依据：<a href="https://www.rfc-editor.org/rfc/rfc9293.html">RFC9293 TCP基本规范</a>、<a href="https://www.rfc-editor.org/rfc/rfc6298.html">RFC6298 RTO</a>、<a href="https://www.rfc-editor.org/rfc/rfc5681.html">RFC5681拥塞/经典快速重传</a>、<a href="https://www.rfc-editor.org/rfc/rfc2018.html">RFC2018 SACK</a>、<a href="https://www.rfc-editor.org/rfc/rfc768.html">RFC768 UDP</a>、<a href="https://www.rfc-editor.org/rfc/rfc1122.html">RFC1122分层与保活</a>、<a href="https://man7.org/linux/man-pages/man2/send.2.html">Linux send</a> / <a href="https://man7.org/linux/man-pages/man7/tcp.7.html">tcp选项</a>、<a href="https://fetch.spec.whatwg.org/">Fetch规范</a>与<a href="https://www.rfc-editor.org/rfc/rfc9113.html#section-6.4">HTTP/2 RST_STREAM</a>。</p>
+</details>
+<details id="barrage-message-trace"><summary>可跳过的应用轨迹：万人在线、每秒十万条弹幕意味着什么？</summary>
+<p>这是已观察题干条件的有限设计推演，不搭直播平台。<strong>输入吞吐与扇出必须分开：</strong>若教学假设每条负载100字节，10万条/秒约10MB/秒输入；若全部通过过滤、同一房间且1万人每人都收到每条，则是每秒10亿次消息投递、约100GB/秒负载输出，尚未计协议/复制开销。不能把10MB/秒当全部网络预算，也不能假设每个客户端能展示这么多条。</p>
+<p>入口先鉴权、限制请求量并核对房间；实时敏感词规则应有版本，规则匹配/规范化失败怎样拒绝或暂缓要明示。通过过滤后分配稳定消息ID、房间序号并持久记录，再给出“已接受”语义。按房间分区保持该房间顺序，不承诺跨房间全局时序；客户端本地钟不应成为可信排序依据。规则变更后的历史内容要定义重新审核/撤回策略，不能因缓存旧过滤结果就永远放行。</p>
+<p>广播队列与每客户端缓冲有界；慢客户端可按明确策略采样/降级、断开后带游标补拉，并给出丢弃/缺口提示。若业务要求每条可靠接收，就必须为补传、保留和确认预算资源，不能静默丢弃后仍宣称不丢。重连的重复消息按ID去重，服务端接受、设备收到、画面显示是不同证据。</p>
+<p>离线弹幕要保存在连接之外：记录视频/片段ID、经定义和校验的媒体时间偏移、房间序号及审核版本；回放按媒体时间范围分批加载，同一偏移的并列按序号处理。重试/补拉不能重复显示，缺失/已撤回要有策略；不能拿“当前WebSocket内存列表”当历史库。可靠投递与恢复基础见 <a href="11-长任务与队列.html#queue-delivery">队列确认轨迹</a>。本例没有真实过滤延迟、万人网络或十万条/秒压测证据，不自动闭合全题。</p>
+</details>
 <hr />
 <h2 id="sse">📦 三、SSE 报文长什么样</h2>
-<p>协议规矩很少，就三条：<strong><code>data:</code> 是内容</strong>、<strong>空行结束一帧</strong>、冒号开头的行是注释（前端会忽略，正好拿来做心跳）。</p>
+<p>先记住本章用到的三点：<strong><code>data:</code> 是内容</strong>、<strong>空行结束一帧</strong>、冒号开头的行是注释（前端会忽略，正好拿来做心跳）。</p>
 <p>⭐ <strong>本板块的统一帧格式：每帧一行 <code>data: {JSON}</code>，帧间空一行，帧的类型放在 JSON 负载的 <code>type</code> 字段里。</strong></p>
 <section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>data: {&quot;type&quot;:&quot;delta&quot;,&quot;text&quot;:&quot;你&quot;}</p><p>data: {&quot;type&quot;:&quot;delta&quot;,&quot;text&quot;:&quot;好&quot;}</p><p>data: {&quot;type&quot;:&quot;usage&quot;,&quot;in&quot;:120,&quot;out&quot;:8}</p><p>data: {&quot;type&quot;:&quot;error&quot;,&quot;message&quot;:&quot;upstream timeout&quot;,&quot;trace_id&quot;:&quot;a1b2c3d4e5f6&quot;}</p><p>data: {&quot;type&quot;:&quot;done&quot;}</p></div></section>
-<p>⚠️ <strong>SSE 协议本身还有一个 <code>event:</code> 行可以给帧起名字，但本板块不用它</strong> —— 这是「跟着消费方走」的选择。第 10 章会讲：浏览器原生的 <code>EventSource</code> <strong>带不了 <code>Authorization</code> header</strong>，所以前端一律用 <code>fetch</code> + <code>ReadableStream</code> 手动解析。而 <code>event:</code> 行只对 <code>EventSource</code> 有意义——手动解析器要么得多写一套状态机记住「上一行的 event 名是什么」，要么干脆把它整行丢掉。</p>
+<p>⚠️ <strong>SSE 协议本身还有一个 <code>event:</code> 行可以给帧起名字，但本板块不用它</strong> —— 这是「跟着消费方走」的选择。第 10 章会讲：浏览器原生的 <code>EventSource</code> <strong>带不了 <code>Authorization</code> header</strong>，所以前端一律用 <code>fetch</code> + <code>ReadableStream</code> 手动解析。手动解析器也可以支持 <code>event:</code>、多行 <code>data:</code>、<code>id:</code> 和 <code>retry:</code>，只是本板块选择单行 JSON 的子集，不能把它称为完整 SSE 解析器。原生 <code>EventSource</code> 按规范自动重连，并可携带 <code>Last-Event-ID</code>；<code>fetch</code> 手动消费不会自动获得这些行为，补发还要求服务端保留事件。详见 <a href="https://html.spec.whatwg.org/multipage/server-sent-events.html">HTML 标准 §9.2</a> 与 <a href="10-把流式接到界面上.html#fetch-readablestream">第 10 章的消费约定</a>。</p>
 <blockquote>
 <p>⭐ <strong>把类型放进 JSON 负载，换来的是「一行 <code>JSON.parse</code> 拿到全部信息」</strong>：解析路径只有一条。</p>
 <p>同理结束帧写 <code>{"type":"done"}</code> 而不是 <code>[DONE]</code> —— ⚠️ <strong><code>[DONE]</code> 不是合法 JSON</strong>，会让统一的 <code>JSON.parse</code> 当场抛 <code>SyntaxError</code>，逼前端在解析前先加一次特判。</p>
@@ -541,14 +684,14 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⚠️ <strong><code>message</code> 里别塞异常原文</strong>——它会直接显示在用户屏幕上，可能带出上游地址、栈帧甚至 key 片段。给用户一句人话，把真正的异常记进日志（15 章），两边靠 <code>request_id</code> 对上。</p>
 <hr />
 <h2 id="_6">🔌 六、断连：用户关了页面，你还在烧钱</h2>
-<p>浏览器标签一关，TCP 连接就断了。⚠️ <strong>但你的后端不一定知道</strong>——「上游那条流」和「发给用户的那条流」是两个独立连接，<strong>上游会一直生成到说完为止，每一段都在计费，而这些字没有任何人看到</strong>。两件事必须做：① 感知——每写一帧顺手检查一次连接还在不在（上面那行 <code>is_disconnected()</code>）；② 收尾——⭐ 在 <code>finally</code> 里关掉上游那条流，因为正常结束、异常、被取消三条路径都会经过它。</p>
+<p>浏览器关页或取消请求后，后端可能收到断连/取消通知，但这不等于底层共享连接必然关闭。⚠️ <strong>客户端请求与上游生成的生命周期需要分别管理</strong>：本次请求没人再读，上游仍可能继续工作。两件事必须做：① 感知——处理框架的取消通知，发送时检查 <code>is_disconnected()</code>；② 收尾——在 <code>finally</code> 中关闭本次上游流。下面用假上游验证本地任务是否停止；真实供应商的停止时点与计费结果还需查其接口和用量记录，不能从此模拟推出。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># cancel.py —— 客户端断开后，上游那条流会不会跟着停？（可直接跑，对照看得见）</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">Upstream</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;假的上游模型流：打开后就在后台自己生成，只有 close() 能让它停。</span>
-<span class="sd">    真实 SDK 就是这个形状 —— 你这边不读了，对面并不知道。&quot;&quot;&quot;</span>
+<span class="sd">    这里只模拟独立后台任务；真实 SDK 的取消语义需另查。&quot;&quot;&quot;</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">emitted</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_task</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="kc">None</span>
@@ -557,7 +700,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
         <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">produce</span><span class="p">():</span>
             <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
                 <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.05</span><span class="p">)</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">emitted</span> <span class="o">+=</span> <span class="mi">1</span>          <span class="c1"># ⭐ 每 +1 都是真金白银的 output token</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">emitted</span> <span class="o">+=</span> <span class="mi">1</span>          <span class="c1"># ⭐ 每 +1 模拟产出一段，不是真实 token 计费</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="n">produce</span><span class="p">())</span>
         <span class="k">return</span> <span class="bp">self</span>
 
@@ -570,7 +713,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">bad</span><span class="p">(</span><span class="n">up</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;❌ 没有 finally：任务被取消了，上游还在后台继续生成、继续计费。&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;❌ 没有 finally：消费者被取消了，模拟上游仍在后台继续产出。&quot;&quot;&quot;</span>
     <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
         <span class="k">await</span> <span class="n">up</span><span class="o">.</span><span class="n">next_piece</span><span class="p">()</span>
 
@@ -581,7 +724,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
         <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
             <span class="k">await</span> <span class="n">up</span><span class="o">.</span><span class="n">next_piece</span><span class="p">()</span>
     <span class="k">finally</span><span class="p">:</span>
-        <span class="n">up</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>                         <span class="c1"># ⭐ 这一行就是「别再烧钱了」</span>
+        <span class="n">up</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>                         <span class="c1"># ⭐ 关闭本地模拟上游；真实取消效果需另验</span>
 
 
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
@@ -589,7 +732,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
         <span class="n">up</span> <span class="o">=</span> <span class="n">Upstream</span><span class="p">()</span><span class="o">.</span><span class="n">open</span><span class="p">()</span>
         <span class="n">task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="n">handler</span><span class="p">(</span><span class="n">up</span><span class="p">))</span>
         <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.3</span><span class="p">)</span>
-        <span class="n">task</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>                      <span class="c1"># ⭐ 模拟：用户关了页面，连接断开</span>
+        <span class="n">task</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>                      <span class="c1"># ⭐ 模拟：消费者任务收到取消</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="k">await</span> <span class="n">task</span>
         <span class="k">except</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">:</span>
@@ -603,7 +746,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
 </code></pre></div>
 
-<p>实跑结果（本机连跑三次，三次一致）：<strong>没有 <code>finally</code> 的那版，断开时 5 段、半秒后变成 13 段</strong>——⭐ <strong>多出来的 8 段全是白烧的钱，没有任何人看到</strong>；有 <code>finally</code> 的那版停在 5 段。⚠️ 具体数字取决于你机器的调度（每段 0.05 秒，半秒的理论上限是 10 段），要看的是方向不是数字：一边继续涨，一边不动。</p>
+<p>示例输出（具体计数随调度变化）：<strong>没有 <code>finally</code> 的那版，断开时 5 段、半秒后变成 13 段</strong>——⭐ <strong>多出来的 8 段是模拟后台任务继续产出的证据，不是实际计费证据</strong>；有 <code>finally</code> 的那版停在 5 段。⚠️ 具体数字取决于你机器的调度（每段 0.05 秒，半秒的理论上限是 10 段），要看的是方向不是数字：一边继续涨，一边不动。</p>
 <p>⚠️ <strong>还要把「谁断的」分清楚并分开记</strong>：<strong>客户端断开</strong>是用户行为，要立刻停止一切工作，它多不多是产品问题；上游断开是故障，要重试或降级。两者混在一个错误计数里，你会以为服务在抖，其实只是大家看完就关。</p>
 <hr />
 <h2 id="_7">🔄 七、换个栈怎么对应</h2>
@@ -694,9 +837,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>SSE <strong>就是</strong>分块传输，只是多规定了帧怎么分（每帧以空行结束）。换来的是「以后要加错误、用量、工具状态时不用重写前端」。</li>
+<li>SSE <strong>规定事件格式</strong>，空行结束一个事件；HTTP/1.1 chunked 和 HTTP/2 DATA 是承载层的分帧，边界不必与事件重合。换来的是「以后要加错误、用量、工具状态时不用重写前端」。</li>
 <li>因为 LLM 输出是<strong>单向</strong>的，上行只有「用户又发了一条消息」，一个普通 POST 就够。上 WebSocket 等于把心跳、重连、鉴权、代理兼容四件事全揽到自己身上。</li>
-<li>模型输出里有换行是家常便饭，而 SSE 里<strong>换行会把一帧劈成两帧</strong>。<code>json.dumps</code> 把换行转义成两个字符，帧就安全了。类型放进负载是跟着消费方走：前端用 <code>fetch</code> 手动解析（<code>EventSource</code> 带不了 <code>Authorization</code>），而 <code>event:</code> 行只对 <code>EventSource</code> 有意义，手动解析器只能多写一套状态机或干脆丢掉它；放进负载则一行 <code>JSON.parse</code> 拿到全部信息，解析路径只有一条。⚠️ 同理 <code>[DONE]</code> 不是合法 JSON，会让统一的 <code>JSON.parse</code> 抛 <code>SyntaxError</code>，所以结束帧写成 <code>{"type":"done"}</code>。</li>
+<li>模型输出里有换行是家常便饭，而本章单行 <code>data:</code> JSON 约定中，未转义换行会破坏 JSON 行；<strong>SSE 的事件结束符是空行</strong>，规范也支持多行 <code>data:</code> 合并。<code>json.dumps</code> 把换行转义成两个字符，帧就安全了。类型放进负载是跟着消费方走：前端用 <code>fetch</code> 手动解析（<code>EventSource</code> 带不了 <code>Authorization</code>），手动解析器也能支持 <code>event:</code>，只是本课程选择忽略它、限定为单行 JSON 子集；放进负载则一行 <code>JSON.parse</code> 拿到全部信息，解析路径只有一条。⚠️ 同理 <code>[DONE]</code> 不是合法 JSON，会让统一的 <code>JSON.parse</code> 抛 <code>SyntaxError</code>，所以结束帧写成 <code>{"type":"done"}</code>。</li>
 <li><strong>反向代理缓冲</strong>（<code>proxy_buffering on</code>）、压缩中间件（攒够一个压缩块才输出）、云平台/网关/CDN 的响应缓冲。共同点：不报错、本地复现不了、三者症状完全一样。</li>
 <li>因为被缓冲时<strong>总时长完全不变</strong>，变的是「所有帧在最后一起到」。测法：部署一个每秒吐一帧的探针，从里往外测——直连应用进程 → 容器端口 → 反向代理 → 公网域名，第一处帧间隔塌成 0 的那层就是凶手。</li>
 <li><strong>状态码在第一帧发出去时就定死成 200 了</strong>。错误要走流内错误帧——<code>data: {"type":"error","message":"…","trace_id":"…"}</code>，⚠️ 字段名是 <code>message</code> 不是 <code>code</code>（前端拿它是要显示给人看的），而且必须带 <code>trace_id</code>：非流式出错时它在那个 500 的 JSON 里，流式的状态码早已是 200、那个 JSON 根本不会发出来，漏了用户就只能告诉你「回答到一半崩了」。前端要接住「200 + 半截内容 + error 帧」。没有结束帧（<code>{"type":"done"}</code>），前端分不出「说完了」和「断了」。</li>
@@ -708,7 +851,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h2 id="_10">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>本章只管<strong>后端 → HTTP</strong> 这一半（浏览器那半在第 10 章）。⭐ <strong>SSE 就是分块传输，只多规定了「帧怎么分」</strong>，这点约定换来「以后加错误帧、用量帧、工具状态不用重写前端」。WebSocket 不是「更高级的 SSE」，它多的是上行，而 LLM 的上行一个普通 POST 就够。</p>
+<p>本章只管<strong>后端 → HTTP</strong> 这一半（浏览器那半在第 10 章）。⭐ <strong>SSE 是事件格式；HTTP/1.1 chunked、HTTP/2 DATA 是承载分帧</strong>，这点约定换来「以后加错误帧、用量帧、工具状态不用重写前端」。WebSocket 不是「更高级的 SSE」，它多的是上行，而 LLM 的上行一个普通 POST 就够。</p>
 <p>⭐ <strong>本板块统一帧格式：每帧一行 <code>data: {JSON}</code>，帧类型放在负载的 <code>type</code> 字段里</strong>（<code>delta</code> / <code>usage</code> / <code>error</code> / <code>done</code>）。</p>
 </blockquote>
 <p>⚠️ 不用 SSE 的 <code>event:</code> 行，因为前端是手动解析；结束帧写 <code>{"type":"done"}</code> 不写 <code>[DONE]</code>——后者不是合法 JSON，会让统一的 <code>JSON.parse</code> 抛错。</p>
@@ -717,7 +860,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⚠️⚠️ <strong>最贵的一节：三个地方会吃掉流式</strong>——反向代理的缓冲、压缩中间件、云平台或 CDN 的响应缓冲。难查的原因是共同的：<strong>不报错、本地永远复现不了、三者症状完全一样</strong>，都是「憋很久然后一次性全出现」，而你的代码一个字都没错。</p>
 <p>⭐ <strong>定位法：部署一个每秒吐一帧的探针端点，从里往外逐层测</strong>（应用进程 → 容器 → 反向代理 → 公网域名），判据是<strong>帧间隔</strong>不是总时长，第一处间隔塌成 0 的那层就是凶手。⚠️ 别信浏览器开发者工具的时序。</p>
 <p>⭐ 由「状态码在第一帧发出的那一刻就定死成 200」推出一条铁律：<strong>所有可能失败的事必须挤在第一个字之前做完。</strong></p>
-<p>💸 <strong>断连</strong>：用户关了页面，上游会继续生成继续计费。解法是每帧检查一次是否断开，并在 <code>finally</code> 里关上游。⚠️ 最后，<strong>客户端断开和上游断开要分开记</strong>，否则你会把「大家看完就关」当成「服务在抖」。</p>
+<p>💸 <strong>断连</strong>：用户关页或取消请求后，上游可能继续生成。应处理取消/断连并在 <code>finally</code> 里关上游；模拟只证明本地任务停止，真实计费需另验。⚠️ 最后，<strong>客户端断开和上游断开要分开记</strong>，否则你会把「大家看完就关」当成「服务在抖」。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="06-关系数据库.html">06-关系数据库.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>

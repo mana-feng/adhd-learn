@@ -468,6 +468,29 @@ RNN 就是这个问题的第一个像样的答案。</p>
 LSTM 的细胞状态、ResNet 的残差、Transformer 的残差、Highway Network 的门控。</p>
 </blockquote>
 </details>
+<p class="lesson-note">这里可以先停：LSTM靠门控更新记忆。若想知道<strong>同一个词怎样同时参考前后文</strong>，再展开下面的可选深入；跳过它不影响继续读GRU与串行限制。</p>
+<details id="bilstm-structure">
+<summary>🔎 可选深入：BiLSTM如何合并前后文</summary>
+<p><strong>BiLSTM不是多加一道门，而是两路LSTM。</strong>下面先看<strong>一层、无投影</strong>的情况：正向按 $1\to T$ 读，反向按 $T\to1$ 读；两路各有自己的参数，各自在时间步间共享。反向读序列与训练时的反向传播是两件事。</p>
+<p>$$\begin{aligned}
+(\overrightarrow h_t,\overrightarrow c_t)&amp;=\mathrm{LSTM}_{\rightarrow}(x_t,\overrightarrow h_{t-1},\overrightarrow c_{t-1})\\
+(\overleftarrow h_t,\overleftarrow c_t)&amp;=\mathrm{LSTM}_{\leftarrow}(x_t,\overleftarrow h_{t+1},\overleftarrow c_{t+1})\\
+z_t&amp;=[\overrightarrow h_t;\overleftarrow h_t]\in\mathbb R^{2H}
+\end{aligned}$$</p>
+<p>两路的边界状态分别放在0与 $T+1$；上式分号表示<strong>拼接同一原始位置</strong>的两个H维隐藏状态，不是把正向第1步与反向第1个处理步直接配对，也不是将 $h$ 与细胞状态 $c$ 拼成2H。PyTorch的双向输出采用这种拼接约定。</p>
+<div class="rule" id="bilstm-token-example"><b>三词例子：同一个“爱”，两路读过的内容不同。</b>
+<p>把“我 / 爱 / 北京”视为三个词，做离线命名实体标注。下表只说明一层网络的输入可见范围与读取顺序；标签O / O / B-LOC是给定的教学标注，不是模型预测。</p>
+<div class="tw"><table><thead><tr><th>原始位置</th><th>正向到此已读</th><th>反向到此已读（读取顺序）</th><th>该位置交给标注头</th></tr></thead><tbody>
+<tr><td>1：我</td><td>我</td><td>北京 → 爱 → 我</td><td>$[\overrightarrow h_1;\overleftarrow h_1]$，标签O</td></tr>
+<tr><td>2：爱</td><td>我 → 爱</td><td>北京 → 爱</td><td>$[\overrightarrow h_2;\overleftarrow h_2]$，标签O</td></tr>
+<tr><td>3：北京</td><td>我 → 爱 → 北京</td><td>北京</td><td>$[\overrightarrow h_3;\overleftarrow h_3]$，标签B-LOC</td></tr>
+</tbody></table></div>
+<p>例如<strong>给定</strong>每路H＝2，在“爱”处两路状态为 $(0.2,-0.1)$ 与 $(0.4,0.3)$，拼接结果是 $(0.2,-0.1,0.4,0.3)$，宽度4＝2H；这些数只演示拼接，没有运行LSTM。可访问前后文不代表记住了全部词或保证标注正确。</p></div>
+<p><strong>逐位置输出，不等于两路最终态。</strong>固定 <code>num_layers=1, bidirectional=True, proj_size=0, batch_first=True</code>，输入为 $(N,T,E)$，输出 <code>output</code> 为 $(N,T,2H)$；<code>h_n</code> 与 <code>c_n</code> 均为 $(2,N,H)$，方向轴依次正向、反向。<code>batch_first</code>不改变这两个状态的轴顺序。</p>
+<p>对<strong>等长且无padding</strong>的这组三词，<code>output[:, -1, :]</code>拼的是 $[\overrightarrow h_3;\overleftarrow h_3]$；两路最终隐藏状态应取 $[\overrightarrow h_3;\overleftarrow h_1]$，对应拼接 <code>h_n[0]</code> 与 <code>h_n[1]</code>。反向在位置3才刚读到“北京”，到位置1才读完整句；所以不能把最后一个时间位置当成两路都已结束。多层、投影或变长padding输入须重新核对层/方向/长度索引，不能直接套这个简例。</p>
+<p><strong>离线双向编码与即时因果输出要分开。</strong>完整句子已经收到时，可以利用双向状态做序列标注；若要求在时刻t仅凭已到达的输入立即预测，整段反向状态还依赖尚未收到的词，不能直接用于该时刻。分块或等待后文会引入可见范围与延迟约定。另一方面，双向编码一个<strong>已经观测完的历史窗口</strong>再预测窗口之外，并不自动构成未来泄漏；仍要按真实可用时间切分数据与标签。</p>
+<p>一手核对：<a href="https://docs.pytorch.org/docs/2.14/generated/torch.nn.LSTM.html" target="_blank" rel="noopener">PyTorch 2.14 LSTM</a>定义双向输出、方向与最终态；<a href="https://www.cs.toronto.edu/~graves/nn_2005.pdf" target="_blank" rel="noopener">Graves与Schmidhuber（2005）</a>解释双向结构及在线输出的上下文等待条件。这里没有复现论文性能或运行模型实验。</p>
+</details>
 <p><strong>GRU</strong> 是 LSTM 的简化版（两个门），参数少约 25%、更快，效果通常相当。</p>
 <div class="tw"><table>
 <thead>

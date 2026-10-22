@@ -469,6 +469,46 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>⚠️ 注意 <code>read_text</code> / <code>write_text</code> <strong>也要写 <code>encoding=</code></strong>，它们和 <code>open()</code> 一样默认跟平台。</p>
+<details><summary>可选深入：路径指向谁，写成功又能保证到哪一步？</summary>
+<h3 id="links-and-durability">链接语义与持久化要分别检查</h3>
+<p><strong>硬链接</strong>是同一文件对象的另一个目录项；删除一个名字后，只要别的硬链接仍存在，文件内容仍可通过它访问。它通常不能跨文件系统，因为目录项中的对象标识只在所属文件系统内有意义，也通常不允许对目录这样操作。<strong>符号链接</strong>则存储目标路径，能跨文件系统，也可能指向不存在的目标；相对目标路径按链接所在目录解释，删掉目标就可能变成悬空链接。它们都不是复制文件。</p>
+<p>下面只在临时目录里验证文件名与内容关系。Windows 的符号链接可能需要开发者模式/权限，文件系统也可能不支持；因此区分“确实验证”与“受限跳过”，不把跳过当通过。</p><div class="codehilite" data-code-language="python" data-g02-example="links-names-versus-content"><pre><code>from pathlib import Path
+from tempfile import TemporaryDirectory
+with TemporaryDirectory(prefix=&quot;g02-links-&quot;) as tmp:
+    root = Path(tmp)
+    original, hard, soft = (root / x for x in (&quot;a.txt&quot;, &quot;hard.txt&quot;, &quot;soft.txt&quot;))
+    original.write_text(&quot;hello&quot;, encoding=&quot;utf-8&quot;)
+    hard.hardlink_to(original)  # new name -&gt; same file, within this filesystem
+    assert original.samefile(hard)
+    symlink_ok = False
+    try:
+        soft.symlink_to(original.name)
+        symlink_ok = True
+        assert soft.read_text(encoding=&quot;utf-8&quot;) == &quot;hello&quot;
+    except (OSError, NotImplementedError) as exc:
+        print(&quot;符号链接未执行:&quot;, type(exc).__name__)
+    original.unlink()
+    assert hard.read_text(encoding=&quot;utf-8&quot;) == &quot;hello&quot;
+    if symlink_ok:
+        assert soft.is_symlink() and not soft.exists()
+        print(&quot;符号链接目标已删除，链接仍在&quot;)
+    print(&quot;硬链接保留内容:&quot;, hard.read_text(encoding=&quot;utf-8&quot;))
+</code></pre></div>
+<p><strong>Python 的 write 返回</strong>可能只把数据交给用户态缓冲；flush 把这些缓冲交给操作系统，也不能单独保证断电后保留。需要时先 flush，再 os.fsync 文件描述符，并检查异常。close 会正常刷新缓冲，但也不等于完整的崩溃持久性协议。进程崩溃时未交给 OS 的缓冲可能丢失；系统崩溃/断电还涉及内核和设备缓存、文件系统以及硬件承诺。</p><div class="codehilite" data-code-language="python" data-g02-example="flush-fsync-api-only"><pre><code>import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
+with TemporaryDirectory(prefix=&quot;g02-sync-&quot;) as tmp:
+    root = Path(tmp)
+    pending, target = root / &quot;data.pending&quot;, root / &quot;data.txt&quot;
+    with pending.open(&quot;w&quot;, encoding=&quot;utf-8&quot;, newline=&quot;\n&quot;) as f:
+        assert f.write(&quot;finished\n&quot;) == 9
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(pending, target)  # same directory; check failures in real use
+    assert target.read_text(encoding=&quot;utf-8&quot;) == &quot;finished\n&quot;
+    print(&quot;普通写入/同步/替换API核验；未模拟断电&quot;)
+</code></pre></div>
+<p>即使文件 fsync 成功，<strong>新建/替换名字涉及的目录元数据</strong>仍需单独考虑。Linux 上需要时对父目录描述符另做 fsync，且目标文件系统须支持；这套目录操作不能直接搬成 Windows 通用配方。原子替换的可见性与掉电后是否保留也不是同一保证。上例只核验正常 API 路径，<strong>没有测崩溃恢复或持久化保证</strong>。依据：<a href="https://docs.python.org/3.14/library/pathlib.html#pathlib.Path.hardlink_to">Python pathlib 链接接口</a>、<a href="https://docs.python.org/3.14/library/os.html#os.fsync">os.fsync / replace</a>、<a href="https://man7.org/linux/man-pages/man2/fsync.2.html">Linux fsync 与父目录</a>。</p></details>
 <h2 id="windows">🧩 六、Windows 路径的三个坑</h2>
 <p><strong>① 反斜杠是转义符。</strong></p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="n">path</span> <span class="o">=</span> <span class="s2">&quot;C:\data</span><span class="se">\n</span><span class="s2">ew</span><span class="se">\t</span><span class="s2">est.txt&quot;</span>

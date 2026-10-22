@@ -405,10 +405,36 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <hr />
 <h2 id="_3">📦 三、存储格式：小文件是灾难</h2>
-<section class="reading-information"><p class="reading-information-title">关键信息</p><ul><li><span>❌ 一百万个小文件（每个 4KB）</span></li><li><span>→ 每次读都是一次文件系统操作</span></li><li><span>→ 在网络文件系统上，元数据操作比读数据本身还慢 💀</span></li><li><span>✅ 打包成大文件：</span></li><li><span>WebDataset（tar 包） ⭐ 流式、支持分片、云存储友好</span></li><li><span>Parquet / Arrow ⭐ 列式，适合表格和文本</span></li><li><span>TFRecord / MDS 顺序读友好</span></li><li><span>内存映射（np.memmap） ⭐ 预处理好的 token 序列首选</span></li></ul></section>
+<p id="nc-file-read-path"><strong>先分清在等什么：</strong>训练读文件既有查路径/元数据的成本，也有搬数据、解码和转成张量的成本。打包可减少重复小文件操作，memmap 可按需访问大数组；它们都不能让存储访问变成零开销。先按这个顺序定位，再选格式即可。</p>
+<details class="g05-content-note" id="nc-mmap-depth" style="max-width:100%;min-width:0;overflow-wrap:anywhere"><summary>深入：从文件路径走到 token 切片（可跳过）</summary>
+<ol><li><strong>文件系统做什么：</strong>用目录/文件名组织数据，记录大小、权限等元数据，管理文件内容的存放与访问，并按相应语义处理持久化。Linux VFS 把路径查找及文件操作接到具体文件系统；路径/元数据命中缓存与否会改变成本，不是每次切片都要重新打开文件。</li>
+<li><strong>mmap 做什么：</strong>把文件的一段关联到进程虚拟地址范围，之后用普通内存访问读取。在 Linux 常规文件映射中，首次访问可能建立页映射或触发缺页取数；数据已在页缓存中时可不必再读设备。映射整个大文件不等于立刻把它全部读进 RAM，也不保证随机访问快。</li>
+<li><strong>切片手算：</strong>假设原始 token 文件从字节 0 开始，每个元素是写入/读取端一致的 uint16、字节序也一致。tokens[100:104] 对应 4 个元素、8 字节，字节范围为 200–207。只有相关内容可用后才能读出值；这个下标例不能证明没有 I/O。</li>
+<li><strong>使用边界：</strong>原代码 mode="r" 只读已有文件；dtype、字节序、offset 和形状须与生成端一致。uint16 只能表示 0–65535，较大 token ID 要换匹配格式。映射期间避免其他进程截断/替换正在使用的数据；越过文件末尾等访问可失败，Linux 某些情况会触发 SIGBUS。</li>
+<li><strong>写模式不能混用：</strong>NumPy 的 r+ 可写已有文件，w+ 会创建/覆盖，c 的更改不保存到文件。flush 不是多写者同步协议，也不能单凭调用它就声称已满足断电持久化要求；本章训练读取优先使用版本固定的只读数据。</li></ol>
+<p><strong>小文件优化先测形状：</strong>固定样本/字节数、worker 数、存储和训练配置，对比小文件随机读与分片顺序读；分别记录路径/打开耗时、读取尾延迟、解码时间、供给吞吐和训练等待。冷缓存与暖缓存分开标注，不能拿缓存命中对比设备冷读。</p>
+<p>若元数据耗时突出，可打包/复用已打开文件；若读取请求太碎，可增大顺序块和合理预取；若解码占满 CPU，先处理解码。worker/预取并发要逐步调整，过高也可能争抢存储、网络和内存。这些是定位候选，没有固定最优 worker 数或保证提速。</p>
+<p>依据：<a href="https://docs.kernel.org/filesystems/vfs.html">Linux VFS</a>、<a href="https://docs.kernel.org/admin-guide/mm/concepts.html">页缓存与内存概念</a>、<a href="https://man7.org/linux/man-pages/man2/mmap.2.html">Linux mmap 的映射/错误边界</a>、<a href="https://numpy.org/doc/stable/reference/generated/numpy.memmap.html">NumPy memmap 模式与布局</a>。以上仅机制说明和下标手算，未运行存储或规模训练实验。</p>
+</details>
+<p id="nc-fsperf-entry"><strong>读得快，还要看分片怎样生成：</strong>读、查元数据和写入可能卡在不同环节。预读、复用打开的文件、合批写与增加并发都有代价；写侧比较还要保持相同的持久化承诺。生成训练分片时可选读下面的对照，主线也可继续看原有格式。</p>
+<details class="g05-content-note" id="nc-fsperf-depth" style="max-width:100%;min-width:0;overflow-wrap:anywhere"><summary>深入：文件性能的读、元数据与写取舍（可跳过）</summary>
+<ol><li><strong>读侧：</strong>顺序消费分片时，合并零碎读、合理预读可减少等待。随机跳读或只用少量内容时，过度预读会多读无用数据、挤占缓存/带宽；不应只把预读窗口调大。</li>
+<li><strong>元数据侧：</strong>反复 path/open/stat 或海量小文件成为瓶颈时，可打包、复用已打开文件。句柄/元数据缓存占资源，打包也可能增加随机定位、解包成本；目录命名操作、空间分配/extent 布局须按具体 FS/设备验证，不在此展开实现算法。</li>
+<li><strong>写侧：</strong>预处理生成分片时，缓冲和合批可摊薄调用/小写开销；批次更大也会增加等待、占用内存，并可能扩大尚未确认持久化的数据窗口。可重算的临时数据与已承诺可恢复的产物，应采用各自的完成标准。</li>
+<li><strong>并发与队列：</strong>适度并发能重叠 I/O；超过 CPU、内存、句柄、设备或网络服务能力后，排队与 p95 可能变差。逐步设并发/队列上限并测量，不能把 worker 越多或队列越深当通用优化。</li></ol>
+<p><strong>写快返回，可能只到了缓冲：</strong>Linux 缓冲写会产生脏页，由后台回写；脏数据积压时，写进程也可能参与回写或等待。因此只看短时 write 吞吐，会把延后支付的 I/O 成本藏起来；未经约定同步确认的数据还存在崩溃窗口。</p>
+<p><strong>先定 durability，再定 sync 频率：</strong>每条、每批或每个分片同步，会改变延迟及可丢失窗口；不能把关闭 fsync/flush 当无代价提速。Linux fsync(fd) 同步文件数据/元数据并等待设备报告完成，须检查错误；新建/重命名后的目录项持久化还要核对目录同步。它不自动提供多文件事务或所有故障模型下的保证。</p>
+<p><strong>映射写也要分清调用：</strong>文件 MAP_SHARED 的更改可回写，MAP_PRIVATE 的私有修改不写回原文件；msync(MS_SYNC) 请求映射范围回写并等待，不是多写者同步协议。库的 flush、文件同步与目录同步不能只凭名字互换；原来的只读 memmap 路径保持不变。</p>
+<p><strong>对比计划，尚未执行：</strong></p>
+<ol><li>固定样本与有效字节数、内核/FS/挂载和设备条件，格式额外字节另记；冷/暖缓存分组。每次只改访问形状、打包、批次或并发之一，标明统计区间。</li>
+<li>记录元数据操作数/秒，path/open、读、写及 sync 各自的 p95、有效吞吐、CPU 与 I/O 等待、队列和内存。写侧计时须包含约定同步与待完成工作，区分提交速率和已确认持久化速率。</li>
+<li>先写明同步策略、可接受丢失窗口、错误处理与确认规则，再在隔离副本验证同步失败/进程崩溃后的样本数、校验和及目录可见性。进程崩溃不等于断电测试；两者不能互相代签，也不在真实训练数据上试故障。</li></ol>
+<p>自测：B 批 write 已返回但约定的 sync 尚未成功，可以仅凭它返回快就把 B 计为已承诺持久化吗？不可以，性能比较与故障检查都须沿同一完成标准。</p>
+<p>依据版本：Linux <strong>6.12 文档集</strong>的 <a href="https://docs.kernel.org/6.12/filesystems/vfs.html">VFS 路径查找与回写</a>、<a href="https://docs.kernel.org/6.12/core-api/mm-api.html#readahead">readahead</a>、<a href="https://docs.kernel.org/6.12/admin-guide/sysctl/vm.html">脏页/后台回写边界</a>；Linux man-pages <strong>6.19</strong> 的 <a href="https://man7.org/linux/man-pages/man2/fsync.2.html">fsync</a>、<a href="https://man7.org/linux/man-pages/man2/mmap.2.html">mmap</a>、<a href="https://man7.org/linux/man-pages/man2/msync.2.html">msync</a>。以上为机制与验证计划，未运行本机文件系统、故障或训练实验。</p>
+</details>
+<section class="reading-information"><p class="reading-information-title">关键信息</p><ul><li><span>❌ 一百万个小文件（每个 4KB）</span></li><li><span>→ 每次读都是一次文件系统操作</span></li><li><span>→ 小文件/冷缓存场景中，路径与元数据操作可能比传输内容更耗时，须分开测</span></li><li><span>✅ 打包成大文件：</span></li><li><span>WebDataset（tar 包） ⭐ 流式、支持分片、云存储友好</span></li><li><span>Parquet / Arrow ⭐ 列式，适合表格和文本</span></li><li><span>TFRecord / MDS 顺序读友好</span></li><li><span>内存映射（np.memmap） ⭐ 预处理好的 token 序列首选</span></li></ul></section>
 <blockquote>
-<p>⭐ <strong>对 LLM 预训练</strong>：<strong>最好的做法是提前把文本 tokenize 成一个巨大的 uint16/uint32 数组，
-用 <code>np.memmap</code> 读。</strong> 训练时只是内存映射 + 切片，几乎零开销。</p>
+<p>⭐ <strong>对 LLM 预训练</strong>：<strong>一种可选做法是提前 tokenize 成匹配 dtype 的数组，用 <code>np.memmap</code> 按需读。</strong> 这可减少训练时重复解析；首次访存、缺页、随机 I/O、类型转换和搬运仍有成本。</p>
 <div class="codehilite"><pre><span></span><code>tokens = np.memmap(&quot;train.bin&quot;, dtype=np.uint16, mode=&quot;r&quot;)
 # 取一个样本就是一次切片，快到可以忽略
 x = torch.from_numpy(tokens[i:i+seq_len].astype(np.int64))
@@ -434,10 +460,17 @@ FlashAttention 支持 <code>cu_seqlens</code>（变长序列），
 </blockquote>
 <hr />
 <h2 id="_7">💽 六、存储层次</h2>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">本地 NVMe ~5 GB/s ⭐ 最快，容量有限</span></div><div class="vb-flow-row"><span class="vb-flow-step">本地 SSD ~1 GB/s</span></div><div class="vb-flow-row"><span class="vb-flow-step">网络存储(NFS) ~1-10 GB/s 取决于网络和并发</span></div><div class="vb-flow-row"><span class="vb-flow-step">对象存储(S3) ~几百 MB/s 但可以【高并发】</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 常见架构：</span></div><div class="vb-flow-row"><span class="vb-flow-step">S3（全量数据）</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">预取到本地 NVMe（当前 epoch 用的分片）</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">训练</span></div></div></section>
+<p id="nc-storage-latency"><strong>延迟和带宽回答不同问题：</strong>DRAM 访问走内存控制器；HDD 冷随机读还受机械寻道/旋转影响，SSD 去掉机械运动但仍有介质、控制器与接口开销，应用文件 I/O 又有队列、文件系统和可能的网络等待。因此大文件的 GB/s 不能直接代表一次小随机读要等多久。下面速率仅作背景示意，不是本机测量或设备排名。</p>
+<details class="g05-content-note" id="nc-storage-depth" style="max-width:100%;min-width:0;overflow-wrap:anywhere"><summary>深入：把数量级与训练等待分开算（可跳过）</summary>
+<p><strong>只做单位换算：</strong>假设两次可比读取的延迟分别为 100 ns 与 100 μs，则后者为 100000 ns，是前者的 1000 倍，即 3 个数量级。这是设定值的算术，不是所有 DRAM/SSD 的规格；缓存命中、块大小、队列深度、读写方式和设备都会改变观测。</p>
+<p><strong>延迟可重叠，成本仍存在：</strong>顺序批量读与并发预取能摊薄每次请求开销；若平均供给不足以覆盖训练消耗，再多缓冲也只能暂时延后等待。只有预取及时完成且资源/缓冲充足，才可能把这部分等待隐藏在计算后面，还需看尾延迟和实际 GPU 等待。</p>
+<p><strong>分片还要写出来：</strong>上面的 <a href="#nc-fsperf-depth">读／元数据／写对照</a> 补充预处理生成分片的代价；仅比较读吞吐，不能代表已确认持久化的生成速率。</p>
+<p>来源示例：<a href="https://www.seagate.com/files/www-content/ti-dm/_shared/images/model-hd-performance-in-cloud-tp661-1409us.pdf">Seagate 的 HDD 随机/顺序访问模型</a>、<a href="https://www.intel.com/content/www/us/en/developer/articles/technical/introduction-to-programming-with-persistent-memory-from-intel.html">Intel 对介质与软件栈延迟的历史示例</a>。它们用于解释机制，不能作为当前机型通用时延表。本页没有测设备、网络或训练速度。</p>
+</details>
+<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">本地 NVMe：吞吐示意 ~5 GB/s，非通用最快排名</span></div><div class="vb-flow-row"><span class="vb-flow-step">本地 SSD ~1 GB/s</span></div><div class="vb-flow-row"><span class="vb-flow-step">网络存储(NFS) ~1-10 GB/s 取决于网络和并发</span></div><div class="vb-flow-row"><span class="vb-flow-step">对象存储(S3) ~几百 MB/s 但可以【高并发】</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 常见架构：</span></div><div class="vb-flow-row"><span class="vb-flow-step">S3（全量数据）</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">预取到本地 NVMe（当前 epoch 用的分片）</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">训练</span></div></div></section>
 <blockquote>
 <p>💡 <strong>一个实用技巧</strong>：<strong>训练前先把下一个 epoch 的数据分片预取到本地盘</strong>。
-用后台线程做，和训练完全重叠 —— <strong>等于把网络存储的延迟藏起来了。</strong></p>
+后台预取可尝试与训练重叠；只有按时完成且带宽/缓冲充足，才能隐藏相应等待，不能保证完全重叠。<strong></strong></p>
 </blockquote>
 <hr />
 <h2 id="_8">🔗 和站内其他章的关系</h2>
@@ -499,8 +532,8 @@ FlashAttention 支持 <code>cu_seqlens</code>（变长序列），
 <li><strong>GPU 时间轴上有规律的空隙，且空隙出现在每个 step 的开头</strong>。</li>
 <li><code>num_workers=0</code>（主进程加载必然阻塞）、<code>num_workers</code> 太大（内存爆+CPU 争抢）、<code>pin_memory=False</code>（H2D 无法异步）、<code>persistent_workers=False</code>（<strong>每个 epoch 重建 worker</strong>）。</li>
 <li><strong><code>non_blocking=True</code> 需要 <code>pin_memory=True</code> 才生效</strong>——只有锁页内存才能做异步 DMA 拷贝。</li>
-<li>因为<strong>1000 个 worker 同时发起小文件请求会打爆元数据服务器</strong>，所有节点一起变慢。网络文件系统上元数据操作比读数据本身还慢。</li>
-<li><strong>提前 tokenize 成一个巨大的 uint16/uint32 数组，用 <code>np.memmap</code> 读</strong>。训练时只是内存映射+切片，几乎零开销。</li>
+<li>因为<strong>大量 worker 同时读取小文件可能使元数据服务成为瓶颈</strong>，其他节点也可能受影响；要比较元数据、内容传输和解码耗时，不能仅凭文件数定因。</li>
+<li><strong>提前 tokenize 成一个巨大的 uint16/uint32 数组，用 <code>np.memmap</code> 读</strong>。这可减少重复解析，但仍要测首次访存/缺页、随机 I/O、转换与搬运成本。</li>
 <li>①<strong>不重不漏</strong>（DistributedSampler）②每轮重新洗牌（set_epoch）③各 rank 步数一致（drop_last=True，否则 AllReduce 挂死）。</li>
 <li><strong>缓冲区洗牌</strong>：维护 N 条样本的缓冲区，每次随机取一条再补一条。太小则随机性不够，相邻样本仍然相关。经验：≥10000 条，或先在文件层面 shuffle 分片顺序。</li>
 <li>有效 token 占比从 <strong>40% 提到 95%+，等于训练速度翻倍</strong>。必须隔离是因为不隔离的话样本 B 会 attend 到样本 A，模型学到错误关联。正确做法是用 FlashAttention 的 <code>cu_seqlens</code>。</li>
@@ -513,10 +546,10 @@ FlashAttention 支持 <code>cu_seqlens</code>（变长序列），
 <p>⭐ <strong>最容易被忽略的瓶颈，也最容易被误诊成「模型慢」。</strong></p>
 <p>⭐⭐ <strong>五分钟确诊两步</strong>：把数据加载换成固定的随机张量，看利用率是不是上去了；再单独跑数据管线测吞吐。⭐ <strong>判据：数据管线的吞吐必须明显高于训练吞吐</strong>；profiler 上的信号是<strong>每个 step 开头都有一段有规律的空隙</strong>。</p>
 <p>加载器参数里最容易漏的两个：⭐ <strong>异步拷贝只有配上锁页内存才真的生效</strong>；⭐ <strong>不开持久化 worker，每个 epoch 都要重建一次。</strong></p>
-<p><strong>存储格式</strong>：⚠️⭐ <strong>小文件是灾难</strong>——上千个 worker 同时发小文件请求会打爆元数据服务；✅ 打包成整块。⭐ <strong>语言模型预训练的最佳做法是提前切好词、存成一个巨大的整数数组用内存映射读</strong>——<strong>训练时就只是切片，几乎零开销。</strong></p>
+<p><strong>存储格式</strong>：⚠️⭐ <strong>小文件是灾难</strong>——大量 worker 同读小文件可能压满元数据服务，需测量确认；✅ 打包成整块。⭐ <strong>可选预处理路线是提前切词，按正确 dtype 存数组后用内存映射读</strong>——<strong>切片不等于零 I/O；冷/暖缓存、读取形状与转换搬运都影响成本。</strong></p>
 <p>分布式三件事：不重不漏、每轮重设种子、⭐ <strong>各个 rank 的步数必须一致</strong>——⚠️ <strong>否则同步操作会直接挂死。</strong> 流式数据要用足够大的缓冲区洗牌，⚠️ <strong>缓冲区太小的话相邻样本仍然相关。</strong></p>
 <p>⭐⭐ <strong>序列打包是最常被忽略的大优化</strong>：变长文本补齐到固定长度时，<strong>有效 token 可能只占四成——也就是说大半算力在算填充</strong>；打包之后接近全满，<strong>等于训练速度翻倍</strong>。⚠️ <strong>但必须正确隔离边界，否则后一个样本会看到前一个样本的内容，模型学到错误关联。</strong></p>
-<p>⭐ 存储层次的实用技巧：<strong>后台预取下一轮的分片到本地盘，把网络存储的延迟藏起来。</strong></p>
+<p>⭐ 存储层次的实用技巧：<strong>后台预取下一轮分片到本地盘；核对供给速率、缓冲和尾延迟，才知道隐藏了多少等待。</strong></p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="23-可观测性与成本.html">23-可观测性与成本.md</a></p>
 <details class="g05-content-note"><summary>条件与依据</summary><p>预处理 token 的 dtype 必须覆盖词表最大 ID：uint16 仅容纳 0–65535，较大词表需 uint32 等。DistributedSampler 为各 rank 补齐时可能重复样本、drop_last 可能丢弃；要记录所选语义。CUDA 预取骨架还需在消费流对张量 record_stream 或保留其生命周期，避免分配器提前复用；不能把 wait_stream 等同内存生命周期管理。</p><p><a href="https://docs.pytorch.org/docs/stable/notes/cuda.html">官方文档</a>；<a href="https://docs.pytorch.org/docs/stable/data.html">官方文档</a></p></details>

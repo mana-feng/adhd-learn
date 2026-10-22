@@ -670,6 +670,61 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </table></div>
 <p>💀 <strong>这两条查出来的 <code>rn</code> 完全不同，而两条都不报错。</strong> 拿错了，看板上的「第几名」就是错的。</p>
 <p>最后那段 <code>AVG(AVG(auc)) OVER ()</code> 不是笔误：<strong>里层的 <code>AVG</code> 是 <code>GROUP BY</code> 的聚合，外层的 <code>AVG(...) OVER ()</code> 是在聚合结果之上再开窗</strong>。它能成立，正是因为窗口函数排在 <code>GROUP BY</code> 之后。</p>
+<details id="g03-class-top3"><summary>可选小例：先汇总科目，再求每班总分前三名</summary>
+<p><strong>先声明题目没给的口径。</strong>这里手设同一考次的 <code>class_scores(class_id, student_id, subject_id, score)</code>，本次只统计科目1、2；同一班级/学生/科目一行，用非空复合主键拒绝重复记录。多考次应另加考次键，不能混着求和。<code>NULL</code> 表示成绩待补，不是0；两科齐全且都非NULL才入榜，其余列待补，不用部分成绩排名。相同分数出现在不同科目仍分别相加，不能用 <code>SUM(DISTINCT score)</code>去重。</p>
+<p><strong>本例取每班最多3人。</strong>合格学生不足3人就返回现有合格者；同分按学生ID升序决定先后，这是教学约定，不是原题给定。下面夹具在本轮 <strong>SQLite 3.50.4 实际执行</strong>；窗口语法要求SQLite≥3.25.0。查询也按MySQL8窗口语法核对，<strong>未运行MySQL</strong>。</p>
+<div class="codehilite" data-code-language="sql"><pre><code>CREATE TABLE class_scores (
+    class_id INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
+    subject_id INTEGER NOT NULL,
+    score INTEGER,
+    PRIMARY KEY (class_id, student_id, subject_id)
+);
+-- One exam; subjects 1 and 2. NULL is an unknown grade, not zero.
+INSERT INTO class_scores VALUES
+(1,101,1,50),(1,101,2,50),
+(1,102,1,45),(1,102,2,45),
+(1,103,1,40),(1,103,2,40),
+(1,104,1,40),(1,104,2,40),
+(1,105,1,35),(1,105,2,35),
+(1,106,1,NULL),(1,106,2,50),
+(1,107,1,100),
+(2,201,1,50),(2,201,2,50),
+(2,202,1,50),(2,202,2,50),
+(2,203,1,45),(2,203,2,45),
+(2,204,1,40),(2,204,2,40),
+(2,205,1,40),(2,205,2,40);</code></pre></div>
+<p><strong>先 <code>SUM</code>，再分班排名，最后外层筛。</strong><code>totals</code>把一名学生的两科压成一个总分；<code>HAVING</code>检查两科齐全/已知。<code>ranked</code>再按班级分区，按总分降序、学生ID升序编号；<code>WHERE rn &lt;= 3</code>放在外层，避免在科目行上提前排名或直接在同层WHERE引用窗口结果。</p>
+<div class="codehilite" data-code-language="sql"><pre><code>WITH totals AS (
+    SELECT class_id, student_id, SUM(score) AS total_score
+    FROM class_scores
+    WHERE subject_id IN (1, 2)
+    GROUP BY class_id, student_id
+    HAVING COUNT(*) = 2 AND COUNT(score) = 2
+), ranked AS (
+    SELECT class_id, student_id, total_score,
+           ROW_NUMBER() OVER (
+               PARTITION BY class_id
+               ORDER BY total_score DESC, student_id ASC
+           ) AS rn
+    FROM totals
+)
+SELECT class_id, student_id, total_score, rn
+FROM ranked
+WHERE rn &lt;= 3
+ORDER BY class_id, rn, student_id;</code></pre></div>
+<p>这份夹具的实际SQLite结果（6人；106有NULL、107缺科，均待补未入榜）：</p>
+<div class="codehilite" data-code-language="text"><pre><code>class_id student_id total_score rn
+1 101 100 1
+1 102 90 2
+1 103 80 3
+2 201 100 1
+2 202 100 2
+2 203 90 3</code></pre></div>
+<p><strong>“前三”有三种不同答案。</strong>本例 <code>ROW_NUMBER &lt;= 3</code> 取班1的101/102/103、班2的201/202/203。若要竞赛名次≤3，应改用 <code>RANK() OVER (PARTITION BY class_id ORDER BY total_score DESC)</code>：班1第三名80分并列，103和104都保留；班2两人并列第一、203第三，共返回7人。</p>
+<p>若要<strong>前三种不同总分</strong>，用相同分区/总分排序的 <code>DENSE_RANK</code> 再筛≤3：班1取101—104，班2取201—205，共9人。<strong>RANK/DENSE_RANK的窗口排序不要加学生ID</strong>，否则同分会被拆开；仅在最终输出排序加ID来稳定展示。这三种口径都已在本夹具核算；真实题目应先确认并列、缺考/NULL和重复录入政策。</p>
+<p>定义核对：<a href="https://www.sqlite.org/windowfunctions.html">SQLite窗口函数</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/window-function-descriptions.html">MySQL8.4排名函数</a>。这是小夹具正确性证据，不是MySQL运行或性能结论。</p>
+</details>
 <h2 id="_4">🪟 七、你其实已经在用「帧」了</h2>
 <p>上面所有例子<strong>一句帧子句都没写</strong>，但它们全都有帧 —— 数据库替你用了默认的那个。</p>
 <ul>

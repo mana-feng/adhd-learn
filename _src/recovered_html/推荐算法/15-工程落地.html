@@ -480,6 +480,19 @@ body.rec-engineering-reading .ov-body figure.dia>figcaption>p:last-child{margin-
 <p>例如一次要取 1000 个物品：逐个等待远端返回会累积网络往返。批量接口可以合并请求，但仍要限制批大小、返回体积和超时。</p>
 <p>Redis 的 MGET 与 pipeline 不是同一个承诺。Cluster 中多键 MGET 通常要求同一哈希槽；跨分片要由合适的客户端按节点组织。pipeline 合并往返，但不是原子事务，也不宜无限堆积回复。<a href="https://redis.io/docs/latest/operate/oss_and_stack/reference/cluster-spec/">Redis Cluster 多键约束</a>；<a href="https://redis.io/docs/latest/develop/using-commands/pipelining/">有界 pipeline</a></p>
 
+<p><strong>读到这里先定合同：</strong>某字段可旧多久、哪些读取能降级，与分区时的正确性保证要分别写清。下面用一次特征读和一次扩容小例深入；读主线可以先跳过。</p>
+<details id="g03-feature-partition"><summary>可跳过：CAP与一致性哈希的两种“一致”</summary>
+<p><strong>CAP限定了什么？</strong>考虑异步网络中两个仍工作的副本R1/R2无法通信。客户端已在R1写完特征v2并收到成功，之后才从R2读取；R2仍只有v1。</p>
+<ul><li><strong>C（原子/线性一致性）：</strong>操作看起来在调用与返回之间某个瞬间生效，且保留实际先后顺序。上述已完成写之后的读不能随意返回旧v1；它不是“数据格式一致”，也不是“允许旧5分钟”。</li>
+<li><strong>A（CAP可用性）：</strong>非故障节点收到的每个请求最终都得到相应操作的响应，不是P99延迟或月度可用率。返回错误/拒绝读，并不因此满足所要求的读写服务可用性。</li>
+<li><strong>P（分区条件）：</strong>网络可能丢失或无限延迟跨分区消息。R2若等到确认新值才响应，可能牺牲A；若继续返回旧值，则不能同时保证上述C。不是随时“任取二”，更不是能靠声明不选P来消灭网络故障。</li></ul>
+<p>对近期兴趣，可在业务合同允许时使用带版本/时效标记的旧值或降级候选；强约束字段可能必须等待、失败或转到可确认的读路径。业务可接受的陈旧度不等于线性一致性，恢复通信后的同步/冲突处理也要另定。原理依据：<a href="https://groups.csail.mit.edu/tds/papers/Gilbert/Brewer6.pdf">Gilbert–Lynch 2002原论文</a>；<a href="https://groups.csail.mit.edu/tds/papers/Gilbert/Brewer2.pdf">作者2012回顾 §2</a>重述原子读写服务的定义。此处没有运行网络分区实验。</p>
+<p><strong>一致性哈希解决的是放在哪个节点。</strong>把键与节点映到环，键归属顺时针遇到的第一个节点。手设环为0–99，节点A在20、B在60、C在90；加入D在40后，只有原先B负责的(20,40]区间迁给D，示例键35改变归属。</p>
+<div class="tw"><table class="g03-bounded-table" style="width:100%;max-width:100%;min-width:0;table-layout:fixed"><colgroup><col style="width:32%"><col style="width:34%"><col style="width:34%"></colgroup><thead><tr><th scope="col" style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">键的手设哈希</th><th scope="col" style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">加入D之前</th><th scope="col" style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">D加入40之后</th></tr></thead><tbody><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">10</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">A（20）</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">A（20）</td></tr><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">35</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">B（60）</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">D（40）</td></tr><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">65</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">C（90）</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">C（90）</td></tr><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">95</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">A（绕回20）</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">A（绕回20）</td></tr></tbody></table></div>
+<p>这是手设位置，不是真实哈希输出。与简单 <code>hash(key) % 节点数</code> 扩容可能大幅重映射相比，环的目标是让变更局部化。虚拟节点让一个物理节点占多个分散位置，有助于均衡键范围，但增加元数据，且不能自动分散一个热点键的流量。副本、热点处理与副本读一致性仍需单独设计；“一致性哈希”不保证CAP的C。</p>
+<p>迁移时要固定路由代际、转移数据并处理期间更新，再按协议切换所有权；过渡读写与失败回退不能仅靠重算哈希解决。原理参考<a href="https://people.csail.mit.edu/karger/Papers/web.pdf">Karger等一致性哈希原论文</a>与<a href="https://pdos.csail.mit.edu/papers/chord:sigcomm01/chord_sigcomm.pdf">Chord作者版</a>的环、后继与虚拟节点说明。</p>
+<p><strong>接回本章Redis例子：</strong><a href="https://redis.io/docs/latest/operate/oss_and_stack/reference/cluster-spec/#key-distribution-model">Redis Cluster</a>把键映到16384个固定哈希槽，再分配槽给节点；基础公式是CRC16(key) mod 16384，另有hash tag规则。它不是本例的顺时针哈希环。槽迁移、多键操作和副本策略需按实际部署版本核对；本节未测Redis扩容或真实吞吐。</p>
+</details>
 <h2 id="_3">组件二：在线服务，在有限时间内做选择</h2>
 <h3 id="_4">先分清设计预算与测得的 P99</h3>
 <p>下面沿用一个 <strong>200 ms 的服务端预算例子</strong>，从服务收到请求计到写出响应。它不是通用标准，也不包含用户设备与整个网络的所有时间。</p>

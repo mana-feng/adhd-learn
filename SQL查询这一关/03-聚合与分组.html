@@ -440,14 +440,25 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   SUM(v) + 100 = None
 </code></pre></div>
 
-<p>⭐ <strong><code>COUNT(1)</code> 不比 <code>COUNT(*)</code> 快</strong> —— 这是一个流传很广的迷信。
-两者语义完全相同（都是「数行」），主流数据库都会把它们优化成同一件事。
+<p>⭐ <strong>不能只凭写成 <code>COUNT(1)</code> 就断言比 <code>COUNT(*)</code> 快。</strong>
+两者语义相同（都是「数行」）；具体成本还要看引擎、版本与访问计划，不能由语义等价直接推出性能恒等。
 ⚠️ 真正影响 <code>COUNT(*)</code> 成本的是<strong>过滤条件命不命中索引</strong>，
 那是 <a href="../AI全栈/06b-列表接口与分页.html">AI 全栈 · 06b 列表接口与分页</a> 第五节的题目（实测慢三千多倍），本教程不重讲。</p>
 <p>💀 <strong><code>SUM</code> 在「一个值都没有」时返回 <code>NULL</code> 而不是 <code>0</code></strong>，于是 <code>SUM(v) + 100</code> 得到 <code>None</code>。
 一条本该显示 <code>100</code> 的指标，就这样变成了空白格。
 ⭐ <strong>判据：任何要拿去做算术、或者要显示给人看的 <code>SUM</code>，都套一层 <code>COALESCE(SUM(x), 0)</code>。</strong>
 （为什么 <code>NULL + 100</code> 是 <code>NULL</code> 而不是 <code>100</code>，是 <a href="04-NULL与三值逻辑.html">04 章</a>的正题。）</p>
+<h3 id="count-null-empty">补一个边界：COUNT(1) 的 1 不是列号</h3>
+<p><code>COUNT(expr)</code> 数 expr 非 NULL 的输入行。常量 1 对每行都非 NULL，因而 COUNT(1) 与 COUNT(*) 同样数行；<strong>COUNT(NULL) 却始终是 0</strong>。这里的 1 是表达式，不是“第 1 列”。沿用上面的三行 u，小例也把空输入算出来：</p><div class="codehilite" data-code-language="python" data-g02-example="count-null-empty"><pre><code>import sqlite3
+db = sqlite3.connect(&quot;:memory:&quot;)
+db.execute(&quot;CREATE TABLE u(id INT, city TEXT, score REAL)&quot;)
+db.executemany(&quot;INSERT INTO u VALUES(?,?,?)&quot;, [(1,&quot;BJ&quot;,1.),(2,&quot;SH&quot;,None),(3,None,1.)])
+query = &quot;SELECT COUNT(*), COUNT(1), COUNT(NULL), COUNT(score) FROM u WHERE &quot;
+assert db.execute(query + &quot;1&quot;).fetchone() == (3, 3, 0, 2)
+assert db.execute(query + &quot;0&quot;).fetchone() == (0, 0, 0, 0)
+print(&quot;非空/空输入:&quot;, db.execute(query+&quot;1&quot;).fetchone(), db.execute(query+&quot;0&quot;).fetchone())
+db.close()
+</code></pre></div><p>COUNT 的空输入结果为 0；SUM / AVG 的空输入结果仍可能是 NULL，不能把这条 COUNT 规则推广到所有聚合。COUNT(*) 与 COUNT(1) 的语义等价，也不构成所有引擎、版本和访问路径耗时逐位相同的证明。</p>
 <h2 id="group-by-select">🧩 二、<code>GROUP BY</code> 之后，<code>SELECT</code> 里能放什么</h2>
 <p>01 章那句「<code>GROUP BY</code> 是一道单向门」，门后最具体的后果就是<strong>你不能再随便写列名了</strong>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
@@ -829,6 +840,35 @@ chat 没有任何 <code>model='big'</code> 的行，<code>SUM</code> 在零个�
 <strong>后半章还有</strong>：<code>AVG</code> 会骗你的两件事 · 五个安静的坑
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
+<details><summary>可选深入：同一份 calls，按模型分行还是固定列？</summary>
+<h3 id="fixed-pivot-unpivot">条件聚合转固定列，再用 UNION ALL 展开</h3>
+<p>上面的看板按 feature 出一行。若产品固定要 big / small 两列，先想好<strong>没有这个模型</strong>与<strong>有调用但 cents 全 NULL</strong>是否都显示为空。下面不写 ELSE 0，所以这两种情况的金额列都保留 NULL；需要区分时，再并列记录匹配调用数和非 NULL 金额数。</p><div class="codehilite" data-code-language="python" data-g02-example="fixed-pivot-unpivot"><pre><code>import sqlite3
+db = sqlite3.connect(&quot;:memory:&quot;)
+db.execute(&quot;CREATE TABLE calls(feature TEXT, model TEXT, cents REAL)&quot;)
+db.executemany(&quot;INSERT INTO calls VALUES(?,?,?)&quot;, [
+    (&quot;chat&quot;,&quot;small&quot;,1.),(&quot;chat&quot;,&quot;big&quot;,2.),
+    (&quot;summary&quot;,&quot;big&quot;,3.),(&quot;summary&quot;,&quot;big&quot;,None),
+    (&quot;failed&quot;,&quot;big&quot;,None),(&quot;translate&quot;,None,4.)])
+print(&quot;按模型分行:&quot;, db.execute(&quot;SELECT feature,model,SUM(cents) FROM calls GROUP BY feature,model ORDER BY feature,model&quot;).fetchall())
+wide = &quot;&quot;&quot;SELECT feature,
+    SUM(CASE WHEN model=&#x27;big&#x27; THEN cents END) AS big,
+    SUM(CASE WHEN model=&#x27;small&#x27; THEN cents END) AS small
+    FROM calls GROUP BY feature&quot;&quot;&quot;
+rows = db.execute(wide + &quot; ORDER BY feature&quot;).fetchall()
+assert rows == [(&quot;chat&quot;,2.,1.),(&quot;failed&quot;,None,None),(&quot;summary&quot;,3.,None),(&quot;translate&quot;,None,None)]
+print(&quot;转固定列:&quot;, rows)
+long_sql = &quot;&quot;&quot;WITH wide AS (&quot;&quot;&quot; + wide + &quot;&quot;&quot;)
+    SELECT feature,&#x27;big&#x27; AS model,big AS cents FROM wide
+    UNION ALL SELECT feature,&#x27;small&#x27;,small FROM wide
+    ORDER BY feature,model&quot;&quot;&quot;
+expanded = db.execute(long_sql).fetchall()
+assert len(expanded) == 8
+print(&quot;固定列展开:&quot;, expanded)
+assert db.execute(&quot;SELECT COUNT(CASE WHEN model=&#x27;big&#x27; THEN 1 END), COUNT(CASE WHEN model=&#x27;big&#x27; THEN cents END) FROM calls WHERE feature=&#x27;failed&#x27;&quot;).fetchone() == (1,0)
+db.close()
+</code></pre></div><p>固定列不自动容纳新模型：示例中 model=NULL 的 4 元仍在按模型分行的结果里，却不进入 big/small 两列。需要保留它就显式增加“其他/未知”列或先明确筛选范围。<code>COALESCE(SUM(...),0)</code> 可以把空值显示成 0，但这是业务选择，别误读成“确认没有成本”。</p>
+<p><strong>列转行只展开当前的汇总形状</strong>：UNION ALL 保留两列对应的行，包括空值；要删空值须另加过滤。它不能恢复聚合前每次调用的明细。任意动态模型列名需要另外生成受控 SQL 或使用特定方言工具，固定 CASE 例子不是通用动态 pivot；也不是 pandas 接口教学。</p>
+<p>作者在 SQLite 3.53.1 内存库核过这些断言；其他数据库需核对自身方言。依据：<a href="https://www.sqlite.org/lang_aggfunc.html">SQLite 聚合函数</a>、<a href="https://www.sqlite.org/lang_expr.html#the_case_expression">CASE 表达式</a>、<a href="https://www.sqlite.org/lang_select.html#compound_select_statements">复合 SELECT / UNION ALL</a>。</p></details>
 <h2 id="avg">🧯 五、<code>AVG</code> 会骗你的两件事</h2>
 <h3 id="1">① 比率的平均，不等于平均的比率</h3>
 <p>三天的曝光和点击，其中一天量特别大：</p>
@@ -968,6 +1008,7 @@ Postgres 有 <code>PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ms)</code> 🗓�
 <strong>最后一段还有</strong>（约 35 分钟）：五个安静的坑
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
+
 <h2 id="_3">🔎 六、五个安静的坑</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 

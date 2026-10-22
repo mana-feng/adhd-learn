@@ -473,8 +473,8 @@ AdamW 将权重衰减与梯度更新解耦；选择哪种方案及衰减强度�
 <tbody>
 <tr>
 <td>loss 变 NaN / inf</td>
-<td>lr 太大，梯度爆炸</td>
-<td><strong>lr ÷ 10</strong></td>
+<td>可能是输入/标签、数值运算或更新过猛；需定位首个非有限值</td>
+<td>核查数据、损失与梯度，再按原因调整；不预设降lr或预热一定能修复</td>
 </tr>
 <tr>
 <td>loss 剧烈震荡不下降</td>
@@ -493,8 +493,8 @@ AdamW 将权重衰减与梯度更新解耦；选择哪种方案及衰减强度�
 </tr>
 <tr>
 <td>loss 前几步就爆</td>
-<td>lr 太大 <strong>或</strong> 缺 warmup</td>
-<td>加 warmup</td>
+<td>可能是有效步长过大，也可能是数据/损失/数值问题</td>
+<td>先定位非有限值来源；若起步更新过猛，再比较降lr或预热</td>
 </tr>
 <tr>
 <td><strong>loss 完全不动</strong>（逐位相同）</td>
@@ -545,7 +545,7 @@ AdamW 将权重衰减与梯度更新解耦；选择哪种方案及衰减强度�
 </blockquote>
 <h3 id="scheduler">学习率调度（Scheduler）</h3>
 <section class="reading-information"><p class="reading-information-title">关键信息</p><ul><li><span>固定 lr → 后期在最优点附近震荡，下不去</span></li><li><span>逐渐衰减 lr → 前期跑得快，后期精细收敛 ✅</span></li><li><span>常用三种：</span></li><li><span>Step：每 N 轮 × 0.1</span></li><li><span>Cosine ⭐：余弦曲线平滑衰减到 0，现在最主流</span></li><li><span>ReduceLROnPlateau：验证集不降了就自动砍学习率</span></li></ul></section>
-<h3 id="warmup">⭐ Warmup（大模型必备）</h3>
+<h3 id="warmup">⭐ Warmup（先验证是否需要）</h3>
 <figure class="dia" id="warmup-cosine-curve" data-curve="warmup">
 <svg viewBox="0 0 480 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Warmup 加余弦衰减示意：学习率从零线性升到目标值，预热结束后按余弦形状平滑下降。横轴是训练步数，纵轴是学习率。">
   <rect x="56" y="52" width="89" height="188" fill="var(--accent-soft)"/>
@@ -559,12 +559,40 @@ AdamW 将权重衰减与梯度更新解耦；选择哪种方案及衰减强度�
   <g font-size="18" fill="var(--fg)"><text x="57" y="27">① Warmup</text><text x="265" y="27">② 余弦衰减</text><text x="178" y="55">目标学习率</text><text x="101" y="268">预热结束</text></g>
   <g font-size="18" fill="var(--muted)"><text x="16" y="47">lr</text><text x="31" y="246">0</text><text x="335" y="289">训练步数</text></g>
 </svg>
-<figcaption>示意图，不是实测结果。先看左边的上坡：在设定的预热步数内，把学习率从较小值升到目标值（图中从 0 起步）；再看右边的余弦下降。预热多久、最后降到多低都由配置决定，不固定为“前几百步”。</figcaption>
+<figcaption>示意图，不是实测结果。先看左边的上坡：在设定的预热步数内，把学习率从较小值升到目标值（图中从 0 起步）；再看右边的余弦下降。预热多久、最后降到多低都由配置决定，不固定为“前几百步”。此图纵轴是lr，不是loss；收敛证据需另看下面的对照。</figcaption>
 </figure>
-<p><strong>为什么需要</strong>：训练最开始参数是随机的，梯度方向很不可靠，
-大步走容易把模型带偏（尤其配 Adam 时二阶动量估计还不准）。<strong>先小步试探。</strong></p>
+<p><strong>为什么考虑预热：</strong>Warmup在前若干更新中把学习率从较小值升到目标值，限制初期更新幅度。随机初始化训练中，参数与激活还在快速变化；预训练微调的主干<strong>不是随机权重</strong>，但任务/新增层与优化器状态可能变化。新建Adam时统计量往往重新累积；若恢复完整检查点，则须检查已恢复的统计与调度位置，不能一律当作重新起步。</p>
+<p>Adam的偏差修正与估计方差不是同一个问题。RAdam论文在其分析假设与实验中，把初期自适应步长的高方差列为warmup有效的一种解释；这不证明所有模型必须预热。对实际任务比较有/无预热时，要固定数据划分、初始化/随机种子、优化器及超参数、峰值学习率和总更新预算，并记录实际lr、训练与验证曲线。</p>
+<details id="warmup-evidence"><summary>🔎 可选深入：真实论文曲线与可复算教学对照</summary>
+<p><strong>可追溯模型案例：</strong><a href="https://arxiv.org/pdf/1908.03265#page=1" target="_blank" rel="noopener">RAdam原论文图1（PDF第1页）</a>给出IWSLT’14德英翻译Transformer的训练loss随更新次数对照，包含Adam-vanilla与Adam-warmup；实现条件见该文附录B.3（含前4000次线性预热等设置）。这是作者论文的特定训练结果，本页未复跑，也不是候选人的个人经历。不要把下面解析函数的数值写成该论文结果。</p>
+<p><strong>可复算的小对照：</strong>取 $f(w)=w^2/2$、$w_0=1$，普通梯度下降 $w_t=(1-\eta_t)w_{t-1}$，每方案12次相同解析梯度计算。无预热恒取峰值η；三步预热取 $\eta_t=\eta\min(t/3,1)$，之后保持峰值，不加cosine。只改变起步计划，峰值与步数相同，累计学习率并不相同。</p>
+<figure class="dia" id="warmup-teaching-comparison" data-ml-diagram="wide" tabindex="0" style="--ml-diagram-width:640px" aria-label="解析函数预热教学对照"><svg viewBox="0 0 640 310" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="同一二次函数、初值与12步梯度下降的教学损失曲线；纵轴对数刻度，非神经网络实测。">
+<text x="320" y="22" text-anchor="middle" font-size="16" fill="var(--fg)">解析教学：峰值lr=1.8，固定12步</text>
+<path d="M70 46 H610" stroke="var(--border)" fill="none"/><text x="60" y="51" text-anchor="end" font-size="13" fill="var(--muted)">1e−0</text>
+<path d="M70 88 H610" stroke="var(--border)" fill="none"/><text x="60" y="93" text-anchor="end" font-size="13" fill="var(--muted)">1e−1</text>
+<path d="M70 130 H610" stroke="var(--border)" fill="none"/><text x="60" y="135" text-anchor="end" font-size="13" fill="var(--muted)">1e−2</text>
+<path d="M70 172 H610" stroke="var(--border)" fill="none"/><text x="60" y="177" text-anchor="end" font-size="13" fill="var(--muted)">1e−3</text>
+<path d="M70 214 H610" stroke="var(--border)" fill="none"/><text x="60" y="219" text-anchor="end" font-size="13" fill="var(--muted)">1e−4</text>
+<path d="M70 256 H610" stroke="var(--border)" fill="none"/><text x="60" y="261" text-anchor="end" font-size="13" fill="var(--muted)">1e−5</text>
+<text x="70" y="278" text-anchor="middle" font-size="14" fill="var(--fg)">0</text>
+<text x="205" y="278" text-anchor="middle" font-size="14" fill="var(--fg)">3</text>
+<text x="340" y="278" text-anchor="middle" font-size="14" fill="var(--fg)">6</text>
+<text x="475" y="278" text-anchor="middle" font-size="14" fill="var(--fg)">9</text>
+<text x="610" y="278" text-anchor="middle" font-size="14" fill="var(--fg)">12</text>
+<path d="M70 38 V256 H614" fill="none" stroke="var(--fg)"/><text x="335" y="301" text-anchor="middle" font-size="14" fill="var(--muted)">梯度更新步数（loss在更新后计算）</text>
+<polyline points="70.000,58.643 115.000,66.784 160.000,74.924 205.000,83.065 250.000,91.205 295.000,99.345 340.000,107.486 385.000,115.626 430.000,123.767 475.000,131.907 520.000,140.048 565.000,148.188 610.000,156.329" fill="none" stroke="var(--link)" stroke-width="3"/><text x="305" y="43" font-size="13" fill="var(--link)">无预热</text>
+<polyline points="70.000,58.643 115.000,92.070 160.000,150.784 205.000,158.924 250.000,167.065 295.000,175.205 340.000,183.345 385.000,191.486 430.000,199.626 475.000,207.767 520.000,215.907 565.000,224.048 610.000,232.188" fill="none" stroke="var(--accent)" stroke-width="3"/><text x="435" y="43" font-size="13" fill="var(--accent)">3步线性预热</text>
+</svg><figcaption>只比较同一解析函数的步长计划；两线均用普通梯度下降、相同初值和12次梯度计算。不是Adam、数据集训练或个人项目的收敛曲线。</figcaption></figure>
+<div class="tw"><table><caption>同一教学问题：第12步的f(w)，改变峰值看边界</caption><thead><tr><th>峰值η</th><th>无预热</th><th>三步预热</th><th>能说明什么</th></tr></thead><tbody>
+<tr><td>1.8</td><td>0.00236118</td><td>3.68935e-05</td><td>此峰值下预热的给定轨迹更低，非普遍收益</td></tr>
+<tr><td>2.4</td><td>1607.1</td><td>6.02411</td><td>两者最终发散；预热只推迟，未修复过大峰值</td></tr>
+<tr><td>0.1</td><td>0.0398832</td><td>0.049482</td><td>本来小步长已稳定，预热在固定预算内更慢</td></tr>
+</tbody></table></div>
+<p>这个无噪声二次函数在保持步长后收敛的条件是 $|1-\eta|&lt;1$，即 $0&lt;\eta&lt;2$；预热不能把过大的最终步长变成稳定步长。它也没有Adam的动量统计，<strong>不能用来证明Adam方差解释或大模型收益</strong>。</p>
+</details>
+<p><strong>可能无收益或失效：</strong>本来已稳定的小步长、很短的微调预算中，长预热可能只减少有效学习；目标学习率仍过大、非法输入/标签、损失计算溢出或错误实现也不会因预热自动修复。先定位异常，再比较是否需要及持续多久。<a href="https://arxiv.org/html/1908.03265v4" target="_blank" rel="noopener">原论文</a>是一种机制与设置的证据，不是万能处方；自己的项目效果和经历仍需本人提供可核对记录。</p>
 <blockquote>
-<p>🔗 你在<a href="../大模型全景导论/04-训练三阶段.html">全景导论主线 4 · 它怎样从续写机变助手</a>看到的大模型训练，几乎都用 <strong>Warmup + Cosine</strong>。</p>
+<p>🔗 你在<a href="../大模型全景导论/04-训练三阶段.html">全景导论主线 4 · 它怎样从续写机变助手</a>可以对照具体训练配置：<strong>Warmup + Cosine</strong>是一种候选组合，不是所有从零训练或微调都必用的规则。</p>
 </blockquote>
 <hr />
 <h2 id="lr-range-test">🔨 四、怎么找学习率（LR Range Test）</h2>
@@ -706,7 +734,7 @@ optimizer.zero_grad()
 <li>Adam 结合了哪两个想法？偏差修正为什么必要？AdamW 改进了什么？</li>
 <li>loss 变 NaN 该怎么办？loss 下降极慢呢？<strong>loss 完全不动</strong>呢？</li>
 <li>微调预训练模型该用多大学习率？不注意会怎样？</li>
-<li>Warmup 为什么有用？什么时候必须加？</li>
+<li>Warmup在什么条件下可能有用？如何对照验证，为什么不能把它当NaN的通用修复？</li>
 <li><code>zero_grad()</code> 忘了会怎样？</li>
 <li><code>scheduler.step()</code> 放错位置有什么症状？怎么快速发现？</li>
 <li>显存不够的三个招是什么？梯度累积最常见的 bug 是什么？</li>
@@ -717,9 +745,9 @@ optimizer.zero_grad()
 <li>小批量在梯度估计、内存和并行效率之间折中。线性缩放是部分 SGD 场景的实验起点，不是通用法则；没有统一的 8k 失效线，Warmup 也不能保证无限扩大批量。</li>
 <li>小 batch 的梯度带噪声 → 更新方向随机抖动 → <strong>抖得出尖锐极小值，抖不出平坦极小值</strong> → 最终停在平坦极小值里，而平坦极小值泛化更好。这就是"SGD 的隐式正则化"。</li>
 <li>Momentum（一阶动量，方向惯性）+ RMSProp（二阶动量，每参数自适应步长）。<strong>偏差修正</strong>是因为 m、v 初始为 0，前几步被严重低估，除以 (1−βᵗ) 修正。AdamW 把权重衰减解耦出来，使权重衰减与自适应梯度缩放分开；它与加入L2损失是不同更新规则。</li>
-<li>NaN = lr 太大梯度爆炸 → ÷10；下降极慢 = lr 太小 → ×3。<strong>完全不动时检查冻结、梯度、step与实际参数增量；极小学习率或显示精度也可能掩盖更新。</strong><code></code></li>
+<li>NaN先查输入/标签、损失计算、混合精度与梯度；若有效步长过大，再调整lr并比较预热。下降极慢时先核对实际梯度与lr，再试步长。<strong>完全不动时检查冻结、梯度、step与实际参数增量；极小学习率或显示精度也可能掩盖更新。</strong><code></code></li>
 <li><strong>1e-5 ~ 5e-5，比从零训练小 100 倍</strong>。用从零训练的 lr 去微调会直接把预训练权重冲垮，效果还不如冻结主干。</li>
-<li>训练初期参数和优化器统计变化较快，Warmup 用较小步长起步，可缓解大学习率带来的不稳定。是否需要、持续多久，要结合模型和训练配置验证，不能仅凭 batch 超过某个值判断。</li>
+<li>从零训练的随机权重与预训练微调要分开；新优化器统计可能仍需积累，预热可限制初期更新。固定数据、初始化、优化器/峰值lr和总步数对照曲线，并检查恢复的状态。最终lr过大或数据/数值错误不靠预热自动修复；过长预热也可能浪费短预算，不能仅凭模型大或batch大宣布必需。</li>
 <li>梯度会累加到上一步的梯度上，等于用了错误的（放大且混合的）梯度更新，训练直接废掉。</li>
 <li>症状：<strong>学习率衰减快几百倍，loss 降一点就完全不动</strong>，看起来像模型不行。发现方法：训练时打印 <code>optimizer.param_groups[0]["lr"]</code>。</li>
 <li><strong>梯度累积</strong>（慢 N 倍）、混合精度 AMP（显存减半还更快，几乎白赚）、梯度检查点（慢 30% 换显存）。梯度累积最常见的 bug 是忘了把 loss 除以 accum——等效于学习率放大 N 倍。</li>

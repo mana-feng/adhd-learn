@@ -446,6 +446,29 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 这里只需要知道：<code>state</code> 是这条防线在 OAuth 流程里的那一个具体落点。</p>
 </blockquote>
 <p>⚠️ 还有 <strong><code>redirect_uri</code> 必须精确匹配</strong>，注册成前缀或带通配，等于把 code 交给任何能控制那个前缀下某个路径的人。💀 更隐蔽的一种：<code>redirect_uri</code> 本身没问题，但<strong>你自己域名下有一个开放重定向</strong>（比如 <code>/go?to=...</code> 那种跳转页），攻击者走你的合法地址再二次跳到自己站上，code 就跟着跳转链出去了。⭐ 所以这条防线是两截的：授权服务器那边精确匹配，你这边不留开放重定向。</p>
+<!-- g06-oauth-service START -->
+<details id="g06-oauth-service"><summary>🔎 可选深入：如果第三方应用要接入我们的授权服务</summary>
+<p>前面是<strong>作为客户端接入成熟提供方</strong>。角色翻过来，第三方成为客户端，我们负责授权服务器的接入配置与资源 API 的授权合同；协议、登录和密钥能力仍复用成熟授权服务器。<strong>只签发一个 JWT 并不是完整的 OAuth 服务。</strong>下面是一条参考配置，不是已部署服务或压测结果；新设计只用授权码 + PKCE，不用 implicit 或 password grant。</p>
+<p><strong>先登记，再授权。</strong>登记 <code>client_id</code>、完整回调地址、public/confidential 类型、允许的资源与 scope。<code>client_id</code> 是标识，不是秘密；public 客户端不能靠内嵌 secret 证明身份；confidential 客户端在 token/刷新端点使用登记的认证方式（如服务端保管凭证或私钥认证），PKCE 不替代它。参考配置仅接受预登记的 HTTPS 回调并精确字符串匹配，不接受前缀、通配或开放重定向；原生应用 loopback 端口的规范例外不在此配置内。请求 scope 必须在登记及用户权限范围内，实际授予以用户同意和策略为准，不能因客户端请求就扩权。依据 <a href="https://www.rfc-editor.org/rfc/rfc6749.html#section-2">RFC 6749 §2、§3.3</a> 与 <a href="https://www.rfc-editor.org/rfc/rfc9700.html#section-2.1">RFC 9700 §2.1、§2.5</a>。</p>
+<ol>
+<li><strong>authorize：</strong>验证上述登记与请求，完成用户认证、同意并保存授权记录（用户、client、资源、授予 scope、撤销状态）。客户端把本次随机 <code>state</code> 绑定到发起登录的会话；授权服务器原样回传，客户端在回调核对并消费它。它主要关联回调、防 CSRF；本参考配置同时使用 PKCE，不能用 state 代替兑换时的 verifier 校验。</li>
+<li><strong>code → token：</strong>签发不可猜、60 秒过期的一次性 code，服务端保存摘要及 client、精确 redirect、授权记录、<code>S256</code> challenge/方法和已用状态。token 端点在 TLS 下验证客户端身份（public 则核 client_id 绑定）、期限、redirect 和 verifier，再以持久存储的原子条件更新消费 code；并发兑换也只能成功一次。code 不能因为有合法签名就被重复兑换。依据 <a href="https://www.rfc-editor.org/rfc/rfc6749.html#section-4.1">RFC 6749 §4.1</a>、<a href="https://www.rfc-editor.org/rfc/rfc7636.html#section-4.6">RFC 7636 §4.6</a>。</li>
+<li><strong>token → resource：</strong>本例选择 5 分钟的签名 JWT access token（采用 RFC 9068 profile）和不透明 refresh token；这些时长是示例策略，不是 RFC 固定值。资源服务器用可信配置取得验证密钥，限制算法并验签，核 <code>typ=at+jwt</code>、<code>iss</code>、自身 <code>aud</code>、<code>exp</code>（本例时钟偏差上限 30 秒），再查操作所需 scope、租户和资源归属；不能拿 ID Token 顶替。客户端仍把 access token 当不透明值。依据 <a href="https://www.rfc-editor.org/rfc/rfc9068.html#section-4">RFC 9068 §4</a>。</li>
+</ol>
+<p><strong>过期、刷新与撤销是另一条状态链。</strong>access 过期后，客户端向 token 端点提交 refresh；refresh 只交授权服务器。参考策略是授权家族绝对上限 7 天、闲置 24 小时过期，刷新不得延长家族上限或扩大 scope。服务端只保存 refresh 摘要及 client/授权家族、期限、已用/撤销状态，原子地将旧 refresh 标为已用并生成后继；保留关系和重放检测记录到家族失效。再次提交旧 refresh 时拒绝，并撤销该授权家族的活动 refresh，要求重新授权；正常客户端刷新也需串行，不能把并发重试当作安全成功。轮换是这里选择的重放检测方案，规范也允许发送方约束方案，见 <a href="https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14">RFC 9700 §4.14</a>。</p>
+<p>用户撤回对某应用的授权、客户端经认证调用撤销端点，或管理员停用该 client，都应写入对应授权/家族的撤销状态，阻止后续刷新；撤销端点核调用者与 token 所属 client，不能借此操作别人的 token。<strong>撤销 refresh 不等于所有资源节点立刻拒绝旧 access JWT。</strong>普通 API 仅本地验签时，本例仍可能接受到剩余 5 分钟加 30 秒时钟容差；要求更快生效的敏感接口须在线核权威撤销状态，或改用不透明 access token + 受认证保护的 introspection。缓存、复制延迟与查询失败时拒绝的可用性代价必须约定；缓存 active 结果就会增加撤销窗口。见 <a href="https://www.rfc-editor.org/rfc/rfc7009.html#section-2">RFC 7009 §2</a>、<a href="https://www.rfc-editor.org/rfc/rfc7662.html#section-4">RFC 7662 §4</a>，令牌结构继续读 <a href="08e-JWT.html">08e · JWT</a>。</p>
+<p><strong>签名密钥轮换也要算缓存窗口。</strong>正常轮换先发布新公钥，再切新私钥签发，旧公钥保留至旧 access 全部过期并覆盖时钟与缓存窗口；验证端只从可信 issuer 的密钥地址更新，未知 kid 更新后仍找不到就拒绝。密钥泄露时需紧急禁用旧 key 并刷新各验证节点；若验证端还在用缓存旧 key，撤下公钥本身并不即时生效。缓存最长有效期、断网时过期缓存不得继续放行及紧急失效传播都须验收，不能只靠 token 的 exp 宣称泄露已处理。</p>
+<div class="tw" style="max-width:100%;min-width:0"><table style="table-layout:fixed;width:100%;min-width:0">
+<thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere">小轨迹（设计推演）</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere">必须拒绝及后续状态</th></tr></thead>
+<tbody>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">登记回调 /cb，请求改为 /cb/evil</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">authorize 拒绝且不跳到错误地址，不签发 code；同样检查 token 兑换的 redirect 绑定。</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">C1 首次兑换成功，再提交 C1</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">拒绝已消费 code；按策略撤销由它签出的令牌/授权状态。JWT 在资源端的生效窗口仍按上文处理。</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">R1 刷成 R2；又收到 R1，随后提交 R2</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">R1 重放触发家族撤销；R2 也被拒绝，不能继续刷新。已有 access 的失效另受验证方式约束。</td></tr>
+</tbody></table></div>
+<p>🗓️ 此表是规范约束下的预期轨迹；真实授权服务器、并发兑换、重放、撤销传播、密钥轮换与性能测试均<strong>未执行</strong>。接入验收必须在所选成熟服务及真实资源端逐项复测。</p>
+</details>
+<!-- g06-oauth-service END -->
+
 <hr />
 <h2 id="pkce">🔐 三、PKCE：公开客户端存不住秘密</h2>
 <p>第 7 步说「拿客户端凭证去换」，但有一类客户端<strong>根本没法保管凭证</strong>：纯前端应用（代码在浏览器里，打开 DevTools 就能看见）、手机 app（二进制装在用户手机上，反编译就能翻出来）。这和<a href="13-配置与密钥.html">第 13 章</a>那条「⚠️ 密钥绝不放前端，<strong>加密也不行，因为解密的代码也在前端</strong>」是同一条判据。</p>

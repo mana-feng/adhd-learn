@@ -422,6 +422,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>实跑输出（CPython 3.13）：</p>
 <section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>RESUME 0</p><p>LOAD_FAST_LOAD_FAST 1 (s, i)</p><p>BINARY_OP 13 (+=)</p><p>STORE_FAST 0 (s)</p><p>LOAD_FAST 0 (s)</p><p>RETURN_VALUE</p></div></section>
 <p>⭐ <strong>这几条指令，每循环一次都要重新走一遍</strong> —— 取指、分派、执行。C++ 那边这一整段被编译成几条机器指令，而且循环外面什么都不用做。</p>
+<details><summary>可选深入：调到 C++，就进入内核态了吗？</summary>
+<h3 id="native-call-versus-system-call">语言边界与权限边界分别看</h3>
+<p><strong>普通 Python 解释器和它调用的原生扩展通常都在用户态运行。</strong> C++ 编译成机器码不授予内核权限：纯数值循环可以一直在用户态执行。用户态代码受地址空间和权限限制；内核态代码可执行操作系统受保护的管理工作。语言、是否“原生”、是否持有 GIL 都不能直接判定当前权限级别。</p>
+<p>一条最小轨迹是：Python 代码 → 原生包装/计算函数（仍是用户态）→ 需要受保护的文件服务时，经系统库包装发起系统调用 → 内核检查参数和权限、完成/安排服务 → 返回用户态。若数据仍在语言/库缓冲里，这次库调用甚至未必立刻触发写系统调用。分配器也可能先复用用户态已有空间。</p>
+<p>系统调用是应用请求内核服务的受控接口，如文件、进程与内存管理；模式切换也不等于必然切换到另一个线程。这里仅区分调用路径，没有跟踪系统调用次数、测权限切换开销或展开陷入实现。依据：<a href="https://learn.microsoft.com/en-us/windows-hardware/drivers/gettingstarted/user-mode-and-kernel-mode">Windows 用户态/内核态</a>、<a href="https://man7.org/linux/man-pages/man2/syscalls.2.html">Linux 系统调用与库包装</a>。</p></details>
 <h3 id="_5">🚦 第二笔：每个数都是一个对象</h3>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sys</span><span class="o">,</span><span class="w"> </span><span class="nn">array</span>
 

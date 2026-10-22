@@ -339,6 +339,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>更准确一点说，原权重是大矩阵 <code>W</code>，全量微调会学习完整的改变量 <code>ΔW</code>；LoRA 不直接存 <code>ΔW</code>，而是学习两个更窄的矩阵 <code>A</code> 和 <code>B</code>，用 <code>BA</code> 近似它。中间窄层的宽度叫 rank（秩）。rank 越大，适配器表达的变化越丰富，也会更占显存和更容易把小数据记得过头。</p>
 <p>QLoRA 则进一步把冻结的底座权重量化到较低精度，把训练显存主要留给 LoRA 适配器和必要的训练状态。它解决的是“让更大的底座能在有限显存上微调”，并不意味着训练自动变简单或数据要求降低。</p>
+<p id="final-peft-entry">PEFT 不只一种挂法：<strong>可训练参数放在哪里，会改变训练与推理路径。</strong>需要比较方案时再展开；下面原有的任务与数据判断仍然适用。</p>
+<details id="final-peft-depth"><summary>选读：Prompt、Prefix、Adapter 和 LoRA 分别改哪里？</summary>
+<style>#final-peft-depth table{min-width:0;width:100%;table-layout:fixed}#final-peft-depth th,#final-peft-depth td{min-width:0;white-space:normal;overflow-wrap:anywhere}#final-peft-depth code{white-space:normal;overflow-wrap:anywhere}</style>
+<p>先固定同一底座、Tokenizer、任务、数据划分与生成规则。以下比较原论文中的典型机制，具体实现可能还训练归一化或任务头，须另记参数清单。</p>
+<div class="tw"><table style="min-width:0;width:100%;table-layout:fixed"><colgroup><col style="width:104px"><col></colgroup><thead><tr><th scope="col">方案</th><th scope="col">可训练位置与推理路径</th></tr></thead><tbody>
+<tr><th scope="row">Prompt Tuning</th><td>冻结底座，在输入嵌入前拼接可训练软向量；不是手写文字提示。软提示随输入进入模型，需计算并保留相应上下文。</td></tr>
+<tr><th scope="row">Prefix Tuning</th><td>冻结底座，给各层注意力提供可学习的前缀激活；因果 LM 中常以额外 K/V 表示。不是只在输入层多放几个向量；推理仍需访问前缀。原方法训练可用重参数化网络，导出的前缀与训练参数量分开算。</td></tr>
+<tr><th scope="row">瓶颈 Adapter</th><td>在层内加入降维→非线性→升维的残差支路。底座主权重冻结，新增模块参与每次前向；带非线性时，通常不能像线性 LoRA 那样直接合进一个 W。</td></tr>
+<tr><th scope="row">LoRA</th><td>在选定线性权重旁训练低秩 A、B，产生缩放后的 BA 更新。普通线性 LoRA 可在推理态合并权重；不合并则保留支路。作用位置和 rank 都影响参数量。</td></tr>
+<tr><th scope="row">QLoRA</th><td>冻结低精度量化的底座，梯度通过其计算流向 LoRA 参数。训练还需激活与优化器状态；4-bit 权重不表示全部计算、缓存或训练内存都是 4-bit，量化合并也需另验。</td></tr>
+</tbody></table></div>
+<p id="final-peft-count-example"><strong>只数清楚位置，不做排行榜：</strong>教学假设宽度 d=8、软提示长 p=3，则输入软提示有 <code>p×d=24</code> 个参数。若 2 层普通 MHA 都直接保存 p 个前缀 K/V，元素数是 <code>2×2×3×8=96</code>，不含训练重参数化网络。一个 8→2→8 Adapter 的两张矩阵共 32 个参数；一个 8×8 权重的 rank=2 LoRA 两张矩阵也共 32 个。后二者均未计偏置和其他模块，前者是每个插入模块、后者是每个目标权重；不能拿这些数当整模型显存或性能比较。</p>
+<p><strong>怎么选与怎么查：</strong>底座权重装不下时，可评估量化底座＋LoRA；需要共享底座切换任务时，再比较各方案的任务文件、额外上下文与前向开销。训练前核对哪些参数有梯度、模板与标签是否正确；用验证集选学习率、rank/前缀长或瓶颈宽度，再用留出题比较标签与格式。已有 <a href="05b-LoRA从数据到验收.html">05b 数据到验收</a>负责完整闭环。这里没有稳定训练的个人收益记录，也不保证某方案总是更快或更准。</p>
+<p><small>原始机制：<a href="https://aclanthology.org/2021.emnlp-main.243/">Prompt Tuning §2</a>；<a href="https://aclanthology.org/2021.acl-long.353/">Prefix-Tuning §4</a>；<a href="https://proceedings.mlr.press/v97/houlsby19a.html">Adapter §2.1</a>；<a href="https://arxiv.org/html/2106.09685v2#S4.SS1">LoRA §4.1</a>；<a href="https://arxiv.org/abs/2305.14314">QLoRA</a>。</small></p>
+</details>
 <h2 id="_3">它擅长什么，不擅长什么</h2>
 <div class="tw"><table>
 <thead>

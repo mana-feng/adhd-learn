@@ -450,7 +450,18 @@ fut.result()
 </blockquote>
 <hr />
 <h2 id="loss">🩹 四、训练不稳定：loss 尖峰</h2>
-<section class="reading-information"><p class="reading-information-title">关键信息</p><ul><li><span>大模型训练常见现象：loss 突然飙升，然后可能恢复、也可能再也回不来</span></li><li><span>⭐ 常见原因：</span></li><li><span>学习率过大 / warmup 太短</span></li><li><span>某个 batch 有异常数据（超长、乱码、重复）⭐</span></li><li><span>FP16 溢出（换 BF16，第 6 章）</span></li><li><span>梯度裁剪阈值不合适</span></li><li><span>数值不稳定（attention logits 过大、LayerNorm 位置）</span></li></ul></section>
+<section class="reading-information"><p class="reading-information-title">关键信息</p><ul><li><span>大模型训练常见现象：loss 突然飙升，然后可能恢复、也可能再也回不来</span></li><li><span>⭐ 常见原因：</span></li><li><span>学习率过大 / warmup 太短</span></li><li><span>某个 batch 有异常数据（超长、乱码、重复）⭐</span></li><li><span>FP16 溢出是候选原因；先核对非有限值、scaler 与算子范围（第 6 章）</span></li><li><span>梯度裁剪阈值不合适</span></li><li><span>数值不稳定（attention logits 过大、LayerNorm 位置）</span></li></ul></section>
+<h3 id="loss-triage">🔎 先定位，再试稳定化手段</h3>
+<p><strong>先冻结突升前后的证据：</strong>记录 global step、实际完成的 optimizer update 次数、rank、样本 ID/数据版本、预处理与代码配置版本，以及原始 loss、有效 token/样本数和聚合方式。核对是同一训练目标的突升，还是日志从均值变求和、mask/分母改变，或训练/验证模式切换。保存可重放的 batch 与<strong>突升前</strong>可恢复快照；不能把已污染状态当健康基线。</p>
+<div class="tw"><table style="min-width:42em;table-layout:fixed">
+<thead><tr><th style="width:22%">顺序与观测</th><th>下一步检查</th><th>能支持什么，不能证明什么</th></tr></thead>
+<tbody>
+<tr><td><strong>① 固定 batch，先查输入</strong></td><td>核对样本/标签对齐、范围、NaN/Inf、长度分布、padding 与 loss mask、预处理版本。用相同突升前状态比较触发 batch 和正常 batch；保留数据加载位置与随机数状态。</td><td>相同状态下触发 batch 才异常，支持数据或数据与模型的交互假设；长度大、重复样本或换顺序后恢复都不能单独证明坏数据。</td></tr>
+<tr><td><strong>② 对齐真实学习率与优化器状态</strong></td><td>读每个 <code>optimizer.param_groups</code> 的实际 <code>lr</code>，对照 warmup/调度预期；查 optimizer 动量/步数、scheduler 状态是否恢复，是否重复更新、漏更新、把 micro-step 当 update。按所用 scheduler 核对 step/epoch/指标驱动语义及调用顺序。</td><td>配置中的初始 lr 不能代替运行时各组 lr；恢复点的跳变支持状态/调度问题，降 lr 暂时稳定仍不是根因证明。</td></tr>
+<tr><td><strong>③ 定位首个非有限值</strong></td><td>在小范围诊断中检查输入→激活→loss→梯度的有限性、裁剪前范数，以及 FP16 AMP 的 scale、跳过更新次数。累积结束后，按官方 AMP 流程先 <code>unscale_</code> 再检查/裁剪；同一 optimizer 的本次更新只 unscale 一次。</td><td>非有限梯度可导致 GradScaler 跳过更新，但高 loss 不一定溢出；BF16 的范围更大，也不能修复坏标签、错误公式或保证稳定。FSDP/TP 分片范数需按相应语义解释。</td></tr>
+<tr><td><strong>④ 对齐实现与模式变更</strong></td><td>从版本差异查 <code>train()/eval()</code>、<code>no_grad</code>/detach、清零与累积、loss 缩放、参数是否冻结，以及新算子/精度配置。比较实际参数增量与更新计数；从同一状态只改一个因素，观察能否触发及消除异常。</td><td>固定种子有助于比较，不保证跨版本/设备逐位相同；若不能重现，保留未解释项和追加监测，不能宣称原因已闭合。</td></tr>
+</tbody></table></div>
+<p>症状入口见 <a href="../机器学习与深度学习基础/11-训练调试手册.html#loss">ML 基础 11 · loss 调试</a>；调度与更新语义见 <a href="../机器学习与深度学习基础/09-优化器与学习率.html#scheduler">ML 基础 09 · Scheduler</a>。这里强调事件定位顺序，先复现，再逐项改变条件。</p>
 <p><strong>五个实用的稳定化手段</strong>：</p>
 <div class="tw"><table>
 <thead>
@@ -462,45 +473,54 @@ fut.result()
 <tbody>
 <tr>
 <td><strong>梯度裁剪</strong></td>
-<td><code>clip_grad_norm_(params, 1.0)</code> —— 几乎是标配 ⭐</td>
+<td><code>先查裁剪前范数与有限性，再选阈值；1.0 只是候选。FP16 AMP 需先 unscale，不能用裁剪掩盖 NaN/Inf。</code></td>
 </tr>
 <tr>
 <td><strong>跳过异常 batch</strong> ⭐</td>
-<td>grad_norm 超过历史中位数的 N 倍就<strong>跳过这一步</strong></td>
+<td>相对历史的突变只触发取证。只有预先定义的策略才跳更新，并记录样本、原因与次数；分布式各 rank 一致处置，不能只在一个 rank 跳过。<strong></strong></td>
 </tr>
 <tr>
 <td><strong>BF16 而非 FP16</strong></td>
-<td>避免溢出（<a href="06-混合精度.html">第 6 章</a>）⭐</td>
+<td>在已确认精度范围问题且硬件/算子支持时评估；不能保证消除溢出或所有数值错误（第 6 章）。<a href="06-混合精度.html"></a></td>
 </tr>
 <tr>
 <td><strong>充分的 warmup</strong></td>
-<td>大 batch 时尤其重要</td>
+<td>先核对实际 lr、有效 batch 与恢复状态；再单变量评估 warmup，不能用它遮蔽错误的调度步数。</td>
 </tr>
 <tr>
 <td><strong>回滚重跑</strong></td>
-<td>尖峰后不恢复 → <strong>回到上一个 checkpoint，换个数据顺序重跑</strong> ⭐</td>
+<td>先取证，再从经核验的健康快照恢复模型、优化器、调度器、scaler、数据位置与随机状态。改变数据顺序应另立分支记录，不能冒充同轨迹恢复。<strong></strong></td>
 </tr>
 </tbody>
 </table></div>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：`model` 来自你自己的代码，这一段只看写法</span>
-<span class="c1"># ⭐ 跳过异常 batch：非常便宜，收益很大</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-<span class="n">gn</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">utils</span><span class="o">.</span><span class="n">clip_grad_norm_</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="mf">1.0</span><span class="p">)</span>
-<span class="n">grad_history</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">gn</span><span class="o">.</span><span class="n">item</span><span class="p">())</span>
-<span class="n">median</span> <span class="o">=</span> <span class="n">statistics</span><span class="o">.</span><span class="n">median</span><span class="p">(</span><span class="n">grad_history</span><span class="p">[</span><span class="o">-</span><span class="mi">100</span><span class="p">:])</span>
+<div class="codehilite" data-code-language="python"><pre><code># 教学诊断示意：只标记观测，不执行训练、跳步或改学习率
+import math
+import statistics
 
-<span class="k">if</span> <span class="n">gn</span> <span class="o">&gt;</span> <span class="mi">10</span> <span class="o">*</span> <span class="n">median</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">grad_history</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">100</span><span class="p">:</span>
-    <span class="n">opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">(</span><span class="n">set_to_none</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>        <span class="c1"># ⭐ 丢弃这一步</span>
-    <span class="n">log</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;skip step </span><span class="si">{</span><span class="n">step</span><span class="si">}</span><span class="s2">, grad_norm=</span><span class="si">{</span><span class="n">gn</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> vs median </span><span class="si">{</span><span class="n">median</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<span class="k">else</span><span class="p">:</span>
-    <span class="n">opt</span><span class="o">.</span><span class="n">step</span><span class="p">();</span> <span class="n">opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">(</span><span class="n">set_to_none</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+def gradient_flag(current_norm, previous_norms, ratio=10.0):
+    # 输入应为同一测量口径、已 unscale 且裁剪前的范数
+    # previous_norms 不含当前值；100 和 10 都只是示意窗口/阈值
+    if not math.isfinite(ratio) or ratio &lt;= 1:
+        raise ValueError(&quot;ratio must be finite and &gt; 1&quot;)
+    if not math.isfinite(current_norm) or current_norm &lt; 0:
+        return &quot;inspect_nonfinite_or_invalid&quot;
+    history = list(previous_norms)[-100:]
+    if not history or any(not math.isfinite(x) or x &lt; 0 for x in history):
+        return &quot;inspect_reference&quot;
+    baseline = statistics.median(history)
+    if baseline == 0:
+        return &quot;inspect_zero_reference&quot;
+    return &quot;inspect_outlier&quot; if current_norm &gt; ratio * baseline else &quot;no_flag&quot;
+
+print(gradient_flag(30.0, [1.0, 2.0, 3.0]))  # inspect_outlier
+# no_flag 也不证明训练健康；标记后仍需上表的 batch/lr/数值/实现取证
 </code></pre></div>
 
 <blockquote>
-<p>💡 <strong>"回滚 + 换数据顺序"是大模型训练的标准操作</strong>：
-如果尖峰是某批数据引起的，<strong>换个顺序往往就跳过去了</strong>。
-大厂的训练日志里这类回滚很常见 —— <strong>它不是失败，是正常流程。</strong></p>
+<p>💡 恢复能继续运行，不等于根因已修复。先按本页 checkpoint 清单验证恢复状态；若主动跳过数据或改变顺序，记录差异、有效样本量和更新/调度计数。丢弃累计梯度或 AMP 跳过更新时，scaler 与 scheduler 应按所用训练器的实际更新语义协调，不能照搬“zero_grad 后继续走一步”。给重试设上限，反复失败就停下来取证。<strong></strong><strong></strong><strong></strong></p>
 </blockquote>
+<p><strong>回归边界：</strong>从同一健康状态分别重放触发 batch 与正常对照，比较 loss 口径、有限性、实际 lr、梯度/参数增量及实际更新次数；每次只改一个因素。随后在固定、独立的验证数据与约定观察窗口检查质量、再次尖峰和吞吐代价。只有“现象可触发、干预后消失、对照与恢复状态符合预期”的证据，才支持该次定位；未重现或只暂时降 loss，应保留为待查/缓解，不能宣布真实训练已稳定。</p>
+<p>依据：<a href="https://docs.pytorch.org/docs/2.14/notes/amp_examples.html#gradient-clipping">PyTorch AMP 检查与裁剪</a>、<a href="https://docs.pytorch.org/docs/2.14/optim.html#how-to-adjust-learning-rate">调度调用语义</a>、<a href="https://docs.pytorch.org/tutorials/beginner/saving_loading_models.html#saving-loading-a-general-checkpoint-for-inference-and-or-resuming-training">恢复训练状态</a>、<a href="https://docs.pytorch.org/docs/2.14/notes/randomness.html">可复现性边界</a>。上面的排序是组织诊断的建议，不是任何单条日志都能确定根因的定理。</p>
 <hr />
 <h2 id="_4">🔁 五、弹性训练与快速恢复</h2>
 <section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>⭐ 目标：故障后【自动】恢复，不需要人半夜爬起来</p><p>torchrun --nnodes=8 --nproc-per-node=8 \</p><p>--max-restarts=10 \ # ⭐ 自动重启</p><p>--rdzv-backend=c10d \</p><p>--rdzv-endpoint=$MASTER:29500 \</p><p>train.py</p></div></section>
@@ -585,8 +605,8 @@ GPU 利用率显示 100%（在空转），但一步都没往前走。
 <li>checkpoint 里最常被漏掉的是什么？漏了会怎样？</li>
 <li>为什么说"崩溃是好故障"？</li>
 <li>怎么便宜地探测静默错误？各卡的 loss 和梯度范数应该一致吗？</li>
-<li>loss 尖峰的常见原因？五个稳定化手段？</li>
-<li>"跳过异常 batch"怎么实现？</li>
+<li>loss 突升先保存哪些证据，按什么顺序排查？缓解后怎样做回归？</li>
+<li>梯度范数突变为何不能直接等于坏 batch？跳更新有哪些边界？</li>
 <li>不设 <code>TORCH_NCCL_BLOCKING_WAIT</code> 会怎样？</li>
 </ol>
 <details>
@@ -598,8 +618,8 @@ GPU 利用率显示 100%（在空转），但一步都没往前走。
 <li><strong>数据加载器的位置</strong>。漏了会导致恢复后重新从头读数据，某些样本训练多次、某些完全没见过，而且不会报错。</li>
 <li>因为<strong>崩溃会告诉你出事了</strong>。真正危险的是静默失败——训练照跑、loss 也在降，但结果是错的。</li>
 <li><strong>定期 all_gather 各 rank 的 loss 和梯度范数，检查差异</strong>。loss 应该不同（数据不同），但梯度范数在 AllReduce 之后应该一致——不一致说明通信出问题了。</li>
-<li>原因：学习率过大/warmup 太短、<strong>某个 batch 有异常数据</strong>、FP16 溢出、裁剪阈值不合适、数值不稳定。五手段：梯度裁剪、跳过异常 batch、用 BF16、充分 warmup、回滚 + 换数据顺序重跑。</li>
-<li>记录 grad_norm 历史，<strong>如果超过近 100 步中位数的 10 倍就 <code>zero_grad()</code> 丢弃这一步</strong>。非常便宜、收益很大。</li>
+<li>先保存触发 batch、step/rank、loss 口径和健康快照；按输入标签/预处理→每组实际 lr 与优化器/调度恢复→有限性与 AMP→实现模式定位，再单变量重放。裁剪、BF16、warmup、跳更新或回滚是条件化候选；用触发与正常对照、完整恢复状态及固定验证集检查回归，暂时恢复不等于根因闭合。<strong></strong></li>
+<li>用同一口径的已 unscale、裁剪前范数比较既往历史，先检查 NaN/Inf 与参考窗口；示例仅标记观测，不自动跳步。若按策略跳更新，须保存证据、记录数据偏差并协调各 rank、累积梯度、scaler 与调度计数；10 倍不是通用阈值，no_flag 也不证明训练健康。<strong><code></code></strong></li>
 <li>一张卡挂了，<strong>其他卡会永远等下去</strong>——GPU 利用率显示 100%（空转）但一步都没前进，可能几小时后才发现。</li>
 </ol>
 </details>
@@ -612,7 +632,7 @@ GPU 利用率显示 100%（在空转），但一步都没往前走。
 <p>⭐ <strong>checkpoint 里最常漏的是数据加载器的位置</strong>——⚠️ <strong>漏了会重新从头读数据，某些样本训了好几次、某些一次没见过，而且不报错。</strong> 还要存调度器、随机数状态和缩放器。</p>
 <p>⭐⭐ <strong>最可怕的不是崩溃，是静默失败</strong>——训练照跑、loss 也在降，<strong>但结果是错的</strong>。⭐ <strong>崩溃是好故障，它至少会告诉你出事了。</strong></p>
 <p>⭐ <strong>有个极便宜的探测器</strong>：定期把各个 rank 的 loss 和梯度范数收上来比一比——⭐⭐ <strong>loss 应该不同（数据不同），但梯度范数在同步之后必须一致；不一致就是通信出了问题。</strong></p>
-<p>loss 尖峰的五个手段里性价比最高的是 ⭐ <strong>跳过异常 batch</strong>：<strong>梯度范数远超近期中位数就丢掉这一步</strong>——极便宜、收益很大。⭐ 另一条要记的心态：<strong>回滚加换数据顺序重跑，是大厂的标准操作，不是失败。</strong></p>
+<p>loss 突升先取证：对齐 batch 与 loss 口径，再查实际 lr/恢复状态、数值与 AMP、实现模式。梯度突变只提供线索，跳更新或回滚须按策略记录且协调各 rank 与状态；换数据顺序是新分支，缓解后仍要重放和独立验证，不能把暂时恢复当根因修复。<strong></strong><strong></strong><strong></strong></p>
 <p>⚠️⭐ <strong>最后是三个必须设的通信库环境变量</strong>：<strong>不设阻塞等待的那个，一张卡挂了、其余全部会永远等下去</strong>——💀 <strong>GPU 显示满负荷，而一步都没走，几小时后才有人发现。</strong></p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="22-数据管线与存储.html">22-数据管线与存储.md</a></p>

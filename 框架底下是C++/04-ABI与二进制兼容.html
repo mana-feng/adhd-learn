@@ -448,6 +448,67 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 mylib::helper(mylib::Engine const&amp;, double)
 </code></pre></div>
 
+
+<!-- g06-translation-units START -->
+<details id="g06-translation-units" data-code-title="🔎 可选深入：头文件里写的东西，怎样走到链接器？"><summary>🔎 可选深入：头文件里写的东西，怎样走到链接器？</summary>
+
+<p>⭐ 先把一条调用拆开：<strong>头文件使声明可见；实现文件生成定义；链接器把调用与定义接起来；加载器再处理可执行文件需要的动态库。</strong>读到这里已够看名字修饰，下面的小例可跳过。</p>
+<p>以下只讨论普通头文件组织的 <strong>C++17</strong>，不涉及 C++20 modules；示例是独立文件，不要混进上面的原实验。</p>
+<div class="codehilite" data-code-language="cpp"><pre><code>// C++17；三个独立文件，本轮未编译运行。
+// add.h
+#ifndef COURSE_ADD_H
+#define COURSE_ADD_H
+extern int calls;             // 声明：存储由别处的定义提供
+int add(int a, int b);        // 函数声明
+#endif
+
+// a.cpp
+#include &quot;add.h&quot;
+int calls = 0;                // 唯一的非 inline 变量定义
+int add(int a, int b) { ++calls; return a + b; }
+
+// b.cpp
+#include &quot;add.h&quot;
+#include &lt;cstdio&gt;
+int main() {
+    const int result = add(2, 3);
+    std::printf(&quot;%d %d\n&quot;, result, calls);
+}</code></pre></div>
+
+<div class="tw" style="max-width:100%;min-width:0"><table style="table-layout:fixed;width:100%;min-width:0"><thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere">阶段</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere">这个例子里发生什么</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere">该查哪类问题</th></tr></thead><tbody>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">预处理</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">分别展开 a.cpp / b.cpp 的 include 和宏，形成各自翻译单元</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">头文件找不到、宏展开错误</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">编译 → 汇编</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">分别检查类型、生成汇编，再产生 a.o / b.o</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">声明不可见、调用参数类型不符</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">链接</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">b.o 中对 add / calls 的引用由 a.o 提供定义</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">缺定义、重复定义、符号身份不一致</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">加载</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">系统装入程序及所依赖动态库，按平台解析其导入</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">库路径、依赖和导出符号；不是 include 路径</td></tr>
+</tbody></table></div>
+<div class="codehilite" data-code-language="bash"><pre><code># Linux/ELF + GCC，C++17；供复现，非本轮实跑记录
+g++ -std=c++17 -E a.cpp -o a.ii
+g++ -std=c++17 -S a.ii -o a.s
+g++ -c a.s -o a.o
+g++ -std=c++17 -c b.cpp -o b.o
+g++ a.o b.o -o add_demo
+nm -C a.o
+# 仅在链接成功后运行 add_demo；按源码推演预期为：5 1</code></pre></div>
+
+<p>⚠️ 本轮命令环境未发现 GCC / Clang / MSVC，<strong>新增命令与输出均未实跑</strong>；上面的结果是源码推演。Windows 的 MSVC 常用 <code>/c</code>、<code>.obj</code>、<code>link.exe</code> 和 <code>dumpbin</code>，不要直接套用 ELF 的工具、文件后缀或符号拼写。</p>
+<p>做两次<strong>只观察编译/链接诊断</strong>的改动就能分清两类错误：漏掉链接命令中的 <code>a.o</code>，常见报错是未定义引用；把 <code>int calls = 0;</code> 移进同时被两份 .cpp 包含的头文件，会违反一个非 inline 外部变量应有的单一定义要求，常见链接器报重复定义。头文件保护只防<strong>同一翻译单元</strong>内重复包含，挡不住两份 .cpp 各定义一次。跨翻译单元的 ODR 违规不保证都被诊断，不运行违规产物。</p>
+<p>原位修法是头文件写 <code>extern int calls;</code>、一份 .cpp 写定义；C++17 若确实需要头文件定义共享变量，也可用 <code>inline int calls = 0;</code> 并满足 inline 的 ODR 条件。<code>extern int calls = 0;</code> 带初始化器，仍是<strong>定义</strong>。</p>
+<p>🧩 <code>extern</code> 与 <code>extern "C"</code> 不在同一条轴上：前者在这里用于声明外部变量，后者给函数声明/定义指定 <strong>C 语言链接</strong>。上面的“关掉名字修饰”是具体工具链中的观察；语言链接还可能涉及调用约定，<strong>不保证任意编译器、平台或 C++ 类型跨边界互通</strong>。</p>
+<div class="tw" style="max-width:100%;min-width:0"><table style="table-layout:fixed;width:100%;min-width:0"><thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere">变量/名字</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere">作用域：哪里能写这个名字</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere">链接性：是否与别处声明指同一实体</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere">对象存储期</th></tr></thead><tbody>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">普通函数内 <code style="white-space:normal;overflow-wrap:anywhere">int local = 0;</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">块作用域</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">无链接</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">自动；每次进入相应执行创建对象</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">函数内 <code style="white-space:normal;overflow-wrap:anywhere">static int seen = 0;</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">仍是块作用域</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">无链接</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">静态；调用间保留值，不是每次重新创建</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">命名空间内 <code style="white-space:normal;overflow-wrap:anywhere">int calls = 0;</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">命名空间作用域</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">通常外部链接</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">静态</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">命名空间内 <code style="white-space:normal;overflow-wrap:anywhere">static int private_calls = 0;</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">命名空间作用域</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">内部链接，仅本翻译单元</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">静态</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">类的静态数据成员</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">类作用域；用类名限定访问</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">依所属类及其声明规则，并非一律内部链接</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">静态，不随每个实例各造一份</td></tr>
+</tbody></table></div>
+<p>静态成员函数则没有隐式 <code>this</code>，不能把“函数加 static”解释成改变某个对象的存储期。<code>namespace demo { ... }</code> 解决名字组织和冲突，<code>demo::calls</code> 是限定使用；<code>using</code> 影响查找，不会复制变量，也不把自动对象变成静态对象。名字作用域、链接性、对象存储期要分开问。</p>
+<p>全局的已初始化/零初始化对象，在常见 ELF/PE 工具链中可能落在 <code>.data</code>/<code>.bss</code> 等区域；只读对象还可能放入只读段或被优化掉。<strong>段名和物理摆放不是 C++ 标准对所有变量的承诺</strong>；自动存储期也不等于强制放在机器栈上。</p>
+<p>📋 <code>#include "add.h"</code> 与 <code>#include &lt;add.h&gt;</code> 都发生在预处理阶段。以 GCC 为例，引号形式先查包含它的文件所在目录，再走配置的路径；尖括号形式走配置的头文件路径，<code>-I</code>/<code>-iquote</code>/<code>-isystem</code> 可改变搜索。具体顺序查目标工具链，不能背成“引号只找自己写的、尖括号只找系统的”。它们都不负责链接器的 <code>-L</code> 或加载器搜索路径。</p>
+<p>✅ 自检：一份头文件有 include guard，却在两份 .cpp 中各定义了同一个外部全局变量，为什么仍可能链接失败？<strong>每个翻译单元只包含一次，并不等于整个程序只定义一次。</strong></p>
+<p>依据：<a href="https://eel.is/c++draft/basic.link">程序与链接</a>、<a href="https://eel.is/c++draft/basic.def.odr">ODR</a>、<a href="https://eel.is/c++draft/basic.stc">存储期</a>、<a href="https://eel.is/c++draft/dcl.link">语言链接</a>；命令和搜索顺序查 <a href="https://gcc.gnu.org/onlinedocs/gcc/Overall-Options.html">GCC 编译阶段</a>与<a href="https://gcc.gnu.org/onlinedocs/cpp/Search-Path.html">头文件搜索</a>。标准链接是滚动草案，本例限定 C++17 的普通头文件规则。</p>
+
+</details>
+<!-- g06-translation-units END -->
 <h2 id="api-abi">🧩 三、API 和 ABI 差在哪</h2>
 <p>现在可以给 ABI 一个准确的说法了。</p>
 <div class="tw"><table>
@@ -522,6 +583,41 @@ _GLIBCXX_USE_CXX11_ABI = True
 <strong>后半章还有</strong>：第二道关：库文件找不到 · 💀 第三道关：什么都不报，数据是错的 · 于是有了 wheel 标签和 manylinux · 📋 一张排查表
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
+
+<!-- g06-templates-and-libraries START -->
+<details id="g06-templates-and-libraries" data-code-title="🔎 可选深入：模板、对象文件和两种库，各在哪道关？"><summary>🔎 可选深入：模板、对象文件和两种库，各在哪道关？</summary>
+
+<p>看到一个模板“明明写了实现，链接却找不到”，先问：<strong>哪个翻译单元看到了定义，谁为这组类型生成实现？</strong>普通函数可以只靠声明编译调用，再去别的对象文件找定义；需要隐式实例化的模板通常须在相应翻译单元看到定义，因此常把模板定义放进头文件。<strong>不是语法要求所有模板永远只能写在头文件里。</strong></p>
+<div class="codehilite" data-code-language="cpp"><pre><code>// 方案 A：定义在 twice.h 中，对调用方可见（C++17）
+template&lt;class T&gt; T twice(T value) { return value + value; }
+// 调用方 include twice.h 后：twice(3)、twice(1.5) 可分别实例化
+
+// 方案 B：下列是另外一组文件，不与方案 A 混用
+// twice.h
+template&lt;class T&gt; T twice(T value);
+extern template int twice&lt;int&gt;(int);  // 显式实例化声明
+
+// twice.cpp
+#include &quot;twice.h&quot;
+template&lt;class T&gt; T twice(T value) { return value + value; }
+template int twice&lt;int&gt;(int);         // 为 int 提供显式实例化定义
+
+// 调用方：include twice.h；twice(3)；并把 twice.cpp 编出的对象链接进来
+// 这里只提供了 int；twice(1.5) 并不会自动获得 double 的实现。</code></pre></div>
+
+<p>方案 B 的实现文件看得见模板定义，并明确生成 <code>twice&lt;int&gt;</code>；调用方通过显式实例化声明抑制相应的隐式实例化，再由链接器找到定义。要支持 double，必须另提供对应定义/实例化，或改回定义可见的组织。本例未编译，<strong>不能把缺少某种实例化时某个链接器的具体报错当标准保证</strong>。</p>
+<p>模板的收益是泛型复用、编译期类型检查和针对类型生成实现的机会；代价是定义依赖扩散、实例化/诊断时间、潜在的代码体积。优化器可能合并/消除实例，不是每次调用都生成一份，也不保证泛型代码必然更快。</p>
+<div class="tw" style="max-width:100%;min-width:0"><table style="table-layout:fixed;width:100%;min-width:0"><thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere">产物</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere">在哪个阶段参与</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere">交付与边界</th></tr></thead><tbody>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">对象文件 <code style="white-space:normal;overflow-wrap:anywhere">.o / .obj</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">编译/汇编的结果；供链接</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">有符号和重定位信息，通常还不是可独立运行的程序</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">静态库 <code style="white-space:normal;overflow-wrap:anywhere">.a / .lib</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">对象文件的归档；链接器按规则抽取所需成员</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">相关代码进入最终产物；更新这部分实现通常需重新链接交付，体积/复用取舍依链接选项</td></tr>
+<tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">共享库 <code style="white-space:normal;overflow-wrap:anywhere">.so / .dylib / .dll</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">链接时记录依赖/导入，或运行时显式加载</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">可单独部署，但依赖路径、导出和 ABI 必须满足；Windows 的 .lib 也可能是 DLL 的导入库，光看后缀不够</td></tr>
+</tbody></table></div>
+<p>把阶段连起来：<code>.cpp + 头文件 → 翻译单元 → .o/.obj → 直接参与链接或先归档 → 可执行文件/共享库 → 加载</code>。<strong>静态库不是“已经把所有依赖都编进去”</strong>；一个使用静态库的程序仍可依赖共享运行库。对象文件之间仍有调用约定、布局、标准库等兼容要求，静态链接并不会自动消灭 ABI 边界。</p>
+<p>⚠️ 下文保留的结构体布局错配实验属于 <strong>ODR/未定义行为风险示例</strong>。其中历史记录的 <code>159</code> 或退出码 0 都不是可预测结果，本轮不复跑此负例；不能用“连续几次一样”证明安全。</p>
+<p>✅ 自检：模板实现藏在另一份 .cpp 后，为什么链接上那个 .cpp 的对象文件也未必够？<strong>若它没有为调用类型实例化，就未必有相应定义可供链接。</strong>依据：<a href="https://eel.is/c++draft/temp.explicit">显式实例化</a>；库的选项和装载细节须按目标工具链核对。</p>
+
+</details>
+<!-- g06-templates-and-libraries END -->
 <h2 id="_4">🧩 五、第二道关：库文件找不到</h2>
 <p>符号都对，也可能在<strong>加载</strong>那一步就死了 —— 因为你的库依赖别的库，而那些库不在。</p>
 <p>先看一个动态链接的库依赖谁：</p>
@@ -589,6 +685,39 @@ _GLIBCXX_USE_CXX11_ABI = True
 </tbody>
 </table></div>
 <p>⚠️ <strong>一个 Windows 专有的坑</strong>：Python 3.8 之后，<code>ctypes</code> / 扩展模块在 Windows 上<strong>不再用 <code>PATH</code> 找依赖</strong>，要用 <code>os.add_dll_directory()</code>。所以「我把它加进 PATH 了啊」在新版本 Python 上是无效操作 —— 上面实验 ② 用的就是正确写法。</p>
+
+<!-- final-endianness START -->
+<details id="final-endianness" data-code-title="🔎 可选深入：字段偏移与大小端，是两个问题" style="max-width:100%;min-width:0;overflow-wrap:anywhere"><summary>🔎 可选深入：字段偏移与大小端，是两个问题</summary>
+<p>下文的布局错配关注“字段在第几个字节”；<strong>端序关注的是同一个多字节值的各字节怎样排在递增地址上</strong>。二者不能互相替代。以十六进制值 <code>0x01020304</code>、四个 8 位字节为例：</p><div class="tw" style="max-width:100%;min-width:0"><table style="table-layout:fixed;width:100%;min-width:0"><thead><tr><th style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">按递增地址读</th><th style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">四个字节</th><th style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">先放哪一端</th></tr></thead><tbody><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">大端</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">01 · 02 · 03 · 04</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">最高有效字节在低地址</td></tr><tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">小端</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">04 · 03 · 02 · 01</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">最低有效字节在低地址</td></tr></tbody></table></div>
+<div class="codehilite" data-code-language="cpp"><pre><code>// C++17；要求实现提供 uint32_t 且每字节为 8 位
+// 本轮作者未编译运行；只观察有效对象的字节，不执行布局错配负例
+#include &lt;climits&gt;
+#include &lt;cstdint&gt;
+#include &lt;cstdio&gt;
+#include &lt;cstring&gt;
+static_assert(CHAR_BIT == 8 &amp;&amp; sizeof(std::uint32_t) == 4,
+              &quot;this example requires four 8-bit bytes&quot;);
+int main() {
+    const std::uint32_t value = 0x01020304u;
+    unsigned char bytes[sizeof value];
+    std::memcpy(bytes, &amp;value, sizeof value);
+    for (std::size_t i = 0; i &lt; sizeof value; ++i)
+        std::printf(&quot;%02x &quot;, static_cast&lt;unsigned int&gt;(bytes[i]));
+    std::printf(&quot;\n&quot;);
+    const unsigned char wire[4] = {
+        static_cast&lt;unsigned char&gt;(value &gt;&gt; 24),
+        static_cast&lt;unsigned char&gt;(value &gt;&gt; 16),
+        static_cast&lt;unsigned char&gt;(value &gt;&gt; 8),
+        static_cast&lt;unsigned char&gt;(value)
+    };  // 显式按高位字节在前编码
+    const std::uint32_t restored =
+        (std::uint32_t(wire[0]) &lt;&lt; 24) | (std::uint32_t(wire[1]) &lt;&lt; 16) |
+        (std::uint32_t(wire[2]) &lt;&lt; 8) | std::uint32_t(wire[3]);
+    return restored == value ? 0 : 1;
+}</code></pre></div>
+<p>小例用 <code>std::memcpy</code> 将有效整数对象的表示复制到 <code>unsigned char</code> 数组中观察，不把任意整数强转成别的结构体再解引用。<strong>首行输出取决于目标实现</strong>：常见纯大端/纯小端分别对应表中两行，不能把其中一行称为本轮实测，也不假设所有可能实现都只有这两种组织。</p><p><code>wire</code> 则显式规定高位字节在前，因此编码不依赖宿主机端序；读回时先转到无符号 32 位类型再移位组合。真实文件或协议还要明确字段长度、符号、版本和错误处理。<strong>直接把裸结构体内存写出去，不能因为“已经知道端序”就跨平台持久化</strong>：对齐、填充和字段布局仍是另一组条件。下面的历史布局错配例仍不复跑。</p><p>依据：<a href="https://eel.is/c++draft/basic.types">C++ 对象表示</a>与可平凡复制对象的字节拷贝规则。本小例限定 C++17 和上述字节条件，不引入完整网络栈。</p>
+</details>
+<!-- final-endianness END -->
 <h2 id="_5">🧩 六、💀 第三道关：什么都不报，数据是错的</h2>
 <p>前两道关至少会告诉你出事了。这一道不会。</p>
 <p>场景很常见：<strong>库升级了，加了个字段；而你这边还在用旧头文件编译。</strong></p>

@@ -360,16 +360,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p><strong>噪声从哪来（四条，前两条占绝大多数）</strong>：</p>
 <section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>定义模糊 —— 指南没写清边界，两人理解不同</li><li>⭐ 最大的一类，且它产生的是【系统性】噪声</li><li>标注员漂移 —— 换人、换供应商、疲劳、KPI 压力（第 9、10 章）</li><li>工具与流程 —— 界面默认选中、快捷键手滑、批量操作误伤</li><li>客观困难样本 —— 图糊了、文本本来就有歧义</li><li>⚠️ 这不是&quot;错&quot;，是&quot;这条数据不该有确定标签&quot;</li></ol></section>
 <blockquote>
-<p>⭐ <strong>必须先分清两种噪声，它们的处置方式完全相反</strong>：
-<strong>随机噪声</strong>（手滑、疲劳）——各类之间大致对称，模型的集成和正则能扛。
-<strong>系统性噪声</strong>（指南理解偏差）——只往一个方向偏，<strong>正则一点用都没有</strong>，
-因为正则的前提假设就是"错误是随机的"。
-这一条是本章后面所有判断的分水岭。</p>
+<p>⭐ <strong>区分随机噪声与系统性偏差，是为了决定复核重点。</strong>对称随机翻转下，集成、正则和早停可能减轻影响；指南或批次偏差应追查标注依据。<strong>正则不能证明或修正标签语义，但也不能据此断言对系统性噪声一概无效。</strong>处置须看复核证据与受影响类别，不能只凭噪声名称。</p>
 </blockquote>
 <hr />
 <h2 id="_3">🧪 二、噪声对训练到底有多大影响（实跑）</h2>
-<p>下面全是真跑出来的（16000 条、20 维、3 分类，训练 12000 / <strong>干净测试集 4000</strong>）。
-往训练标签里注入 x% 的对称噪声，<strong>在干净测试集上看准确率</strong>：</p>
+<p>下面保留一组<strong>历史合成实验记录</strong>（16000 条、20 维、3 分类，训练 12000 / <strong>干净测试集 4000</strong>）。往训练标签里注入 x% 的对称噪声，在干净测试集看准确率；本轮未重跑，表中表现只适用于这组数据、模型与注噪设置，不能用来设通用清洗门槛。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -556,10 +551,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <hr />
 <h2 id="_4">🔍 三、置信学习：把可疑标签捞出来</h2>
-<p>思路只有一句：<strong>让模型自己去和标签吵架，然后看谁更可信。</strong>
-关键是"模型的意见"必须是<strong>折外（out-of-fold）</strong>的 —— 否则它见过这条标签，
-自然会同意它自己。</p>
-<section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>5 折交叉验证，拿每条样本的【折外】预测概率 p(c | x)</li><li>自信度 = p(给定标签)，越低越可疑</li><li>只有当【模型对另一个类的自信度 &gt; 该类的平均自信度】</li><li>才判&quot;这条标错了&quot; ⭐ 这一步叫 confident joint</li><li>它把&quot;模型没把握&quot;和&quot;模型很有把握但和标签不一致&quot;分开</li></ol></section>
+<p><strong>先找值得核查的模型—标签分歧，不先判谁对。</strong>下方代码只实现折外阈值启发式：概率来自未用该样本训练的模型，降低记忆自身标签的影响。折外不保证概率可靠；分组、时间、重复样本与预处理仍须按任务隔离，5 折只是本例设置。</p>
+<section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>5 折交叉验证，拿每条样本的【折外】预测概率 p(c | x)</li><li>自信度 = p(给定标签)，越低越可疑</li><li>当预测类不同于给定标签，且其概率超过该类平均自信度</li><li>将其列为待复核候选，不据此判定标签错误</li><li>人工依据原始样本、指南与独立意见核查，保留不确定项</li></ol></section>
+
+<p><strong>这段筛选不等于完整 confident learning。</strong>原论文用阈值计数构造给定标签与潜在真标签的 confident joint，再校准边际并归一化估计联合分布，还讨论筛选与排序及其充分条件。本例未实现联合计数与校准；只检查一次分歧，不能套用论文的精确识别保证。这里的联合计数校准也不等同“概率已经校准”。依据：<a href="https://arxiv.org/pdf/1911.00068v6">CL 原论文 §3 与附录 B</a>。</p>
+<p id="g03-label-diagnosis"><strong>多分类中某些类别分不开，先辨三种原因。</strong>① <strong>标签错误或定义歧义</strong>：回看原始材料与指南，双人独立复核、仲裁；确错才更正，歧义应保留不确定或修订定义，不能改成模型喜欢的标签。② <strong>表示或样本覆盖不足</strong>：标签有依据但当前输入缺少区分信息，按混淆类别及来源切片，检查特征、采集质量和少数类覆盖，再在独立留出集验证补充信息或数据是否有效。</p>
+<p>③ <strong>给定可观测信息下的重叠</strong>：即使标注有依据，多个类也可能呈现相同或相近输入；补充决策时可获得的信息，或按业务代价考虑拒识、集合输出/多标签、层级分类或调整类别定义。任务定义改变须重新评测，不能直接比较旧准确率。仅凭混淆矩阵或一个模型失败，不能证明不可约重叠或错误标签。可对照 <a href="https://docs.cleanlab.ai/stable/tutorials/indepth_overview.html">cleanlab 官方工作流中标签问题与分布重叠的区别</a>。</p>
 
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.model_selection</span><span class="w"> </span><span class="kn">import</span> <span class="n">cross_val_predict</span><span class="p">,</span> <span class="n">StratifiedKFold</span>
@@ -567,7 +564,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">find_label_issues</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">n_classes</span><span class="p">,</span> <span class="n">base</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">cv</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;置信学习：返回 (可疑掩码, 模型建议的标签, 自信度)</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;折外阈值启发式：返回 (候选掩码, 模型建议的标签, 自信度)</span>
 <span class="sd">    y 必须是 0..n_classes-1 的整数标签&quot;&quot;&quot;</span>
     <span class="n">y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="nb">int</span><span class="p">)</span>
     <span class="n">base</span> <span class="o">=</span> <span class="n">base</span> <span class="ow">or</span> <span class="n">HistGradientBoostingClassifier</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="n">seed</span><span class="p">)</span>
@@ -578,16 +575,16 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
     <span class="n">pred</span> <span class="o">=</span> <span class="n">proba</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
     <span class="n">self_conf</span> <span class="o">=</span> <span class="n">proba</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">n</span><span class="p">),</span> <span class="n">y</span><span class="p">]</span>                    <span class="c1"># 对&quot;现有标签&quot;的自信度</span>
-    <span class="c1"># ⭐ 每一类的阈值 = 该类样本上的平均自信度（confident joint 的核心）</span>
+    <span class="c1"># 每类平均自信度阈值；此筛选未实现完整联合计数与校准</span>
     <span class="n">thr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">proba</span><span class="p">[</span><span class="n">y</span> <span class="o">==</span> <span class="n">c</span><span class="p">,</span> <span class="n">c</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_classes</span><span class="p">)])</span>
     <span class="n">suspect</span> <span class="o">=</span> <span class="p">(</span><span class="n">pred</span> <span class="o">!=</span> <span class="n">y</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">proba</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">n</span><span class="p">),</span> <span class="n">pred</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">thr</span><span class="p">[</span><span class="n">pred</span><span class="p">])</span>
     <span class="k">return</span> <span class="n">suspect</span><span class="p">,</span> <span class="n">pred</span><span class="p">,</span> <span class="n">self_conf</span>
 
 
-<span class="c1"># ⭐ 用法：suspect 直接送人工重标队列；self_conf 升序排序 = 优先级</span>
+<span class="c1"># 用法：suspect 送人工证据复核；self_conf 升序可作候选优先级</span>
 </code></pre></div>
 
-<p><strong>实测（12000 条，注入不同比例的噪声）</strong>：</p>
+<p><strong>历史合成记录（12000 条，注入不同比例的噪声，本轮未重跑）</strong>。下表旧称 confident joint 的行实际对应上方阈值启发式，数值原样保留，不代表完整 CL 的测评结果：</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -608,7 +605,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td></td>
-<td><strong>confident joint</strong></td>
+<td><strong>阈值启发式</strong><br />（旧称 confident joint）</td>
 <td>551</td>
 <td><strong>0.846</strong></td>
 <td>0.777</td>
@@ -629,7 +626,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td></td>
-<td><strong>confident joint</strong></td>
+<td><strong>阈值启发式</strong><br />（旧称 confident joint）</td>
 <td>1074</td>
 <td><strong>0.875</strong></td>
 <td>0.783</td>
@@ -643,7 +640,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td></td>
-<td><strong>confident joint</strong></td>
+<td><strong>阈值启发式</strong><br />（旧称 confident joint）</td>
 <td>2156</td>
 <td><strong>0.891</strong></td>
 <td>0.801</td>
@@ -651,15 +648,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <blockquote>
-<p>⭐ <strong>两种方法的分工很清楚，别混用</strong>：
-<strong>直接 disagreement</strong>（模型预测 ≠ 标签）召回极高（0.97）但精确率低 ——
-适合当<strong>送人工核查的候选池</strong>，你不介意多看一些。
-<strong>confident joint</strong> 精确率 0.87–0.89 —— 适合<strong>直接动手的清单</strong>。</p>
-<p>⚠️ <strong>一个所有人都会踩的坑：基模型的强弱决定一切。</strong>
-同一份 10% 噪声的数据，用<strong>逻辑回归</strong>（本身准确率只有 0.76）做折外概率时，
-confident joint 的精确率只有 <strong>0.346</strong>；换成 GBDT（准确率 0.95）之后是 <strong>0.875</strong>。
-<strong>置信学习找的是"模型和标签不一致"。模型不行的时候，不一致的那个是模型。</strong>
-⭐ 规矩：<strong>基模型在干净留出集上的准确率，要明显高于「1 − 噪声率」，才有资格审标签。</strong></p>
+<p>⭐ <strong>两种方法都只产生候选。</strong>本表的直接 disagreement 召回较高但有误报；阈值启发式的历史精确率为 0.846、0.875、0.891，也含误报，不能成为直接删除或改标清单。应按原始证据与指南人工复核，记录确认错误、标签有据、歧义与待补信息；另抽未入选样本估计漏检，按类别/来源报告分母。</p>
+<p>⚠️ <strong>模型质量会影响候选质量，但总体准确率不是审标签资格证。</strong>保留的 10% 噪声合成记录中，逻辑回归准确率 0.76、阈值启发式精确率 0.346；GBDT 准确率 0.95、该筛选精确率 0.875。这只是特定设置下的对照。没有“准确率必须高于 1 − 噪声率”的通用门槛；要看类级错误、概率可靠性、分布与独立人工证据，模型和原标签都可能错。</p>
 </blockquote>
 <hr />
 <!--MIDSTOP-->
@@ -670,7 +660,7 @@ confident joint 的精确率只有 <strong>0.346</strong>；换成 GBDT（准确
 </blockquote>
 <hr />
 <h2 id="_5">🛠️ 四、捞出来之后：删、改，还是重标（实跑）</h2>
-<p>这是最容易做错的一步。三种处置的实测对比（同一份数据、同一个随机森林）：</p>
+<p>以下保留同一份合成数据、同一个随机森林的历史处置对比，本轮未重跑。“送人工重标”是旧记录中的处理项，不是本轮真实人工复核证据；本表未完整附上数据生成与标注流程，不能据此保证业务收益。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -710,54 +700,21 @@ confident joint 的精确率只有 <strong>0.346</strong>；换成 GBDT（准确
 </tbody>
 </table></div>
 <blockquote>
-<p>⭐ <strong>两个反直觉但很硬的结论</strong>：
-① <strong>10% 噪声那一行，什么都不做（0.9467）比三种"清洗"都好。</strong>
-因为 confident joint 的精确率是 0.875 —— 你为了删掉 940 条错标签，
-顺手删掉了 134 条对的，而随机森林本来就不在乎那 940 条。
-② <strong>机器自动改标从来没赢过。</strong> 它把"模型的偏见"直接写进了标签，
-<strong>下一轮训练时，模型会在自己的偏见上再自信一次。</strong>
-💀 自动改标是这一章里最危险的一个动作，它制造的是<strong>看不见的</strong>系统性噪声。</p>
+<p>⭐ <strong>这组记录展示了误报的代价，没有给出统一处置规则。</strong>10% 那一行原样训练为 0.9467，高于该表三种处理；1074 个候选、精确率 0.875 对应约 940 个确错和 134 个误报（由已舍入指标估算，非新增计数实验）。不能推成所有 10% 噪声都不处理。机器自动改标在这张表中没有获益，提示把模型分歧直接写成真值可能固化偏差，不等于任何任务都必然失败。</p>
 </blockquote>
-<p><strong>那什么时候该重标？一张判据表</strong>：</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>你的情况</th>
-<th>该做什么</th>
-</tr>
-</thead>
+<p><strong>那什么时候采取什么措施？按证据决定，不用 10% 一刀切</strong>：</p>
+<div class="tw"><table style="width:100%;max-width:100%;min-width:0;table-layout:fixed"><colgroup><col style="width:35%"><col style="width:65%"></colgroup>
+<thead><tr><th style="white-space:normal;overflow-wrap:anywhere">复核发现</th><th style="white-space:normal;overflow-wrap:anywhere">可考虑的处理与验证</th></tr></thead>
 <tbody>
-<tr>
-<td>噪声 &lt; 10%、随机、模型是<strong>集成/有正则</strong></td>
-<td>⭐ <strong>什么都不做</strong>。实测 10% 时随机森林一分没掉</td>
-</tr>
-<tr>
-<td>噪声随机，但模型<strong>容易记忆</strong>（深树、大网络、小数据）</td>
-<td>早停 + 限容量 + 标签平滑，<strong>不用重标</strong></td>
-</tr>
-<tr>
-<td><strong>噪声是系统性的</strong>（集中在某一类 / 某个标注员 / 某个批次）</td>
-<td>⭐ <strong>必须重标，正则救不了</strong> —— 正则假设错误是随机的</td>
-</tr>
-<tr>
-<td>类别极不平衡，正样本很少</td>
-<td>重标<strong>正样本</strong>：一条错的正样本，影响力等于几十条负样本</td>
-</tr>
-<tr>
-<td><strong>评测集有噪声</strong></td>
-<td>⭐ <strong>一定重标</strong>，理由见下一节</td>
-</tr>
-<tr>
-<td>分不清是随机还是系统性</td>
-<td>先抽 300 条做<strong>双人独立重标</strong>，看错误是不是集中在少数几种混淆上</td>
-</tr>
-</tbody>
-</table></div>
+<tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">估计噪声较低、近似随机</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">保留基线，结合受影响类别、错误代价与预算试验处理；低于 10% 也可能伤及关键小类，不自动免检。</td></tr>
+<tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">模型容易记忆</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">比较早停、限容量、鲁棒训练等候选；标签有证据错误时仍应修正，不能用正则替代语义复核。</td></tr>
+<tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">混淆集中于某类、标注员或批次</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">追查指南、来源与采集/表示问题，独立复核后才定受影响范围。确认系统性错标再修指南和相关标签；集中混淆本身不是错标证明。</td></tr>
+<tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">类别不平衡、关键类稀少</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">分层抽检，覆盖假阳性与假阴性，按代价、精确率和召回评估；不能给单个错标赋统一倍数影响。</td></tr>
+<tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">评测标签可疑</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">优先核实关键评测样本，保留原标签、证据及仲裁版本；不照模型输出改评测答案，并使用独立评测检查变化。</td></tr>
+<tr><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">原因或定义尚不清楚</td><td style="white-space:normal;overflow-wrap:anywhere;vertical-align:top">双人独立复核并仲裁，记录歧义；抽样量按类别覆盖与估计不确定性确定，不把固定 300 条当成充分保证。</td></tr>
+</tbody></table></div>
 <blockquote>
-<p>⭐ <strong>最省钱的组合</strong>：<strong>训练集用置信学习捞 Top-N，只送人工重标，不删不改；
-评测集不用置信学习，直接重标或换一套独立标注的。</strong>
-表里 30% 那一行，重标 3471 条换来 <strong>+1.13pp</strong>（0.9270 → 0.9383），
-而删除和自动改标都是<strong>负收益</strong>。</p>
+<p>⭐ <strong>先核查，再决定保留、更正、隔离、补标或调整定义。</strong>候选排序只分配复核预算；保存旧/新标签、证据、指南版本与仲裁理由，用独立留出集和关键切片比较处理前后。表里 30% 那一行，旧记录重标 3471 条后为 <strong>+1.13pp</strong>（0.9270 → 0.9383），删除与自动改标为负收益；这些是该合成条件下的结果，不保证人工复核或清洗总能提升。</p>
 </blockquote>
 <hr />
 <h2 id="_6">💀 五、评测集里的噪声更致命（本章的重点）</h2>
@@ -991,18 +948,18 @@ confident joint 的精确率只有 <strong>0.346</strong>；换成 GBDT（准确
 <li><strong>② 噪声率估计</strong>（每季度）：从评测集抽 300 条双人独立重标，<strong>把「本次评测天花板 ≈ 1 − e」写进模型报告</strong> ⭐</li>
 <li><strong>③ 记忆化体检</strong>（每次训练）：训练准确率明显高于 <code>1 − 估计噪声率</code> = 它在背噪声</li>
 </ul>
-<p><strong>估噪声率的最小实现</strong>（只需要一份双标数据）：</p>
+<p><strong>双标分歧的历史诊断示例</strong>：双人一致仍可能共同偏差，且该子集不代表全量数据。下方返回字段名沿用旧代码；其中“原标签估计错误率”和“评测天花板”不能仅凭双人一致就当成真实错误率或普遍上界，须补独立证据、仲裁与抽样不确定性。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">Counter</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">noise_rate_from_double_labeling</span><span class="p">(</span><span class="n">orig</span><span class="p">,</span> <span class="n">ann_a</span><span class="p">,</span> <span class="n">ann_b</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;orig: 线上在用的标签  ann_a/ann_b: 两位标注员独立重标的结果</span>
-<span class="sd">    返回：标注员之间的不一致率（噪声下界）、以及原标签的估计错误率&quot;&quot;&quot;</span>
+<span class="sd">    返回：标注员不一致率（非真错率）、以及双人一致子集的原标签分歧率&quot;&quot;&quot;</span>
     <span class="n">orig</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="k">lambda</span> <span class="n">v</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">v</span><span class="p">),</span> <span class="p">(</span><span class="n">orig</span><span class="p">,</span> <span class="n">ann_a</span><span class="p">,</span> <span class="n">ann_b</span><span class="p">))</span>
-    <span class="n">disagree</span> <span class="o">=</span> <span class="p">(</span><span class="n">a</span> <span class="o">!=</span> <span class="n">b</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>                       <span class="c1"># ⭐ 两人都不一致 = 这批题本身就难</span>
+    <span class="n">disagree</span> <span class="o">=</span> <span class="p">(</span><span class="n">a</span> <span class="o">!=</span> <span class="n">b</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>                       <span class="c1"># 双标分歧只提示待复核，不能证明样本本身难</span>
     <span class="n">both_agree</span> <span class="o">=</span> <span class="n">a</span> <span class="o">==</span> <span class="n">b</span>
-    <span class="c1"># 只在两位标注员一致的那些题上，评判原标签对不对（这时可以近似当作真值）</span>
+    <span class="c1"># 只算双人一致子集的分歧；两人仍可能同错，不能单独当作真值</span>
     <span class="n">err</span> <span class="o">=</span> <span class="p">(</span><span class="n">orig</span><span class="p">[</span><span class="n">both_agree</span><span class="p">]</span> <span class="o">!=</span> <span class="n">a</span><span class="p">[</span><span class="n">both_agree</span><span class="p">])</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
     <span class="c1"># ⭐ 最有用的一列：错误集中在哪几种混淆上</span>
     <span class="n">conf</span> <span class="o">=</span> <span class="n">Counter</span><span class="p">((</span><span class="nb">int</span><span class="p">(</span><span class="n">o</span><span class="p">),</span> <span class="nb">int</span><span class="p">(</span><span class="n">t</span><span class="p">))</span> <span class="k">for</span> <span class="n">o</span><span class="p">,</span> <span class="n">t</span> <span class="ow">in</span>
@@ -1010,19 +967,16 @@ confident joint 的精确率只有 <strong>0.346</strong>；换成 GBDT（准确
     <span class="k">return</span> <span class="p">{</span>
         <span class="s2">&quot;标注员不一致率&quot;</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">disagree</span><span class="p">),</span> <span class="mi">4</span><span class="p">),</span>
         <span class="s2">&quot;原标签估计错误率&quot;</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">err</span><span class="p">),</span> <span class="mi">4</span><span class="p">),</span>
-        <span class="s2">&quot;评测天花板&quot;</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="nb">float</span><span class="p">(</span><span class="n">err</span><span class="p">),</span> <span class="mi">4</span><span class="p">),</span>      <span class="c1"># ⭐ 写进模型报告的那个数</span>
-        <span class="s2">&quot;Top5 混淆&quot;</span><span class="p">:</span> <span class="n">conf</span><span class="o">.</span><span class="n">most_common</span><span class="p">(</span><span class="mi">5</span><span class="p">),</span>            <span class="c1"># ⭐ 只有 1-2 种 = 系统性噪声</span>
+        <span class="s2">&quot;评测天花板&quot;</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="nb">float</span><span class="p">(</span><span class="n">err</span><span class="p">),</span> <span class="mi">4</span><span class="p">),</span>      <span class="c1"># 沿用旧字段名，非普遍上界，见正文条件</span>
+        <span class="s2">&quot;Top5 混淆&quot;</span><span class="p">:</span> <span class="n">conf</span><span class="o">.</span><span class="n">most_common</span><span class="p">(</span><span class="mi">5</span><span class="p">),</span>            <span class="c1"># 集中混淆是复核线索，不是原因证明</span>
     <span class="p">}</span>
 
 
-<span class="c1"># 判读：Top5 混淆高度集中在一两对类别上 → 系统性噪声 → 改指南 + 重标，别加正则</span>
+<span class="c1"># 判读：先查指南、表示/覆盖和分布重叠；确认标签错误后再修复</span>
 </code></pre></div>
 
 <blockquote>
-<p>⭐ <strong>"Top5 混淆"这一列是本章最实用的一个输出</strong>：
-<strong>错误均匀分布在各种类别对上 = 随机噪声，加正则、用集成就行；
-错误集中在一两对上 = 指南有洞，只能改指南 + 重标。</strong>
-这一个输出就能替你做完第四节那张判据表里最难的那个判断。</p>
+<p>⭐ <strong>“Top5 混淆”用于确定复核切片，不单独判原因。</strong>错误集中可能来自指南歧义、类别先验、表示缺失或分布重叠；分布较散也不能证明独立随机噪声。结合原始证据、独立标注及类级覆盖，按第三、四节的诊断与处置走，不能只靠混淆形状决定改标。</p>
 </blockquote>
 <hr />
 <h2 id="_8">🔗 这一章连到哪里</h2>
@@ -1072,8 +1026,8 @@ confident joint 的精确率只有 <strong>0.346</strong>；换成 GBDT（准确
 <li>实测里 40% 噪声下，随机森林和无限深单棵树的准确率各是多少？差别的原因是什么？</li>
 <li>为什么说「训练准确率 100%」在有噪声的数据上是坏消息？判据怎么写？</li>
 <li>非对称噪声那张表里，40% 时总体准确率掉了多少、类 0 召回掉了多少？这说明什么？</li>
-<li>置信学习的三步是什么？为什么折外概率是必须的？基模型不够强会怎样（给数字）？</li>
-<li>「删掉可疑 / 机器自动改标 / 送人工重标」三种处置，实测哪个最好、哪个最危险？10% 噪声时最该做什么？</li>
+<li>本页折外阈值启发式与完整置信学习有什么区别？为什么分歧只应进入复核队列？</li>
+<li>历史表中的三种处置各有什么条件与风险？为何不能用 10% 设通用门槛，类别难分还要辨哪些原因？</li>
 <li>评测集 10% 噪声会带来哪四个后果？其中"3000 条缩水成 1250 条"是怎么算出来的？</li>
 <li>修 1000 条训练标签和修 400 条评测标签，各买到了什么？</li>
 <li>那个短视频的事故里，根因是什么？为什么模型学得越好、评测分数越高？抽检为什么没抓到？</li>
@@ -1082,12 +1036,12 @@ confident joint 的精确率只有 <strong>0.346</strong>；换成 GBDT（准确
 <summary>👀 答案</summary>
 <ol>
 <li>从 MNIST 的 ~0.15% 到 <strong>QuickDraw 的 ~10%</strong>，ImageNet 验证集约 5.8%、CIFAR-100 约 5.9%，十个测试集平均 3% 左右。第二个结论更重要：修正标签之后模型排名会变 —— 原始标签下更强的大模型会输给更小的模型。业务数据只会更差：外包多分类 5%–15%，主观任务 15%–30%。</li>
-<li><strong>随机噪声</strong>（手滑、疲劳）各类之间大致对称；系统性噪声（指南理解偏差、某个标注员、某个批次）只往一个方向偏。分水岭是因为：正则、集成、早停这些手段的前提假设就是"错误是随机的"，对系统性噪声完全无效，只能改指南 + 重标。</li>
+<li>随机翻转与指南/批次偏差提示不同复核重点。集成、正则和早停可能缓解部分影响，但不能证明标签语义正确；发现集中混淆也不等于已确认错标，应检查指南、表示和类级覆盖，再按证据处置。</li>
 <li>随机森林 <strong>0.9085</strong>（只掉 3.8pp），无限深单棵树 0.5407（掉 32pp）。原因是森林里每棵树只看到 bootstrap 的一部分，一条错标签平均只影响 63% 的树，多数投票时被淹掉；单棵深树则可以给每一条错标签单独开一个叶子。</li>
 <li>因为它意味着模型<strong>把错标签也背下来了</strong>（记忆化）。判据：训练准确率明显高于「1 − 估计噪声率」就说明它在记噪声 —— 40% 噪声下健康上限约 0.6，而随机森林和深树都是 1.0000。</li>
 <li>总体只掉 <strong>5.6pp</strong>（0.8960 → 0.8405），类 0 召回从 0.8553 塌到 0.5457。说明系统性噪声不打总体指标，只打某一类 —— 而那一类往往正是你要抓的那一类（欺诈、违规、疾病）。只看总体指标的团队对它是全盲的。</li>
-<li>①5 折交叉验证拿<strong>折外</strong>预测概率 ②自信度 = p(给定标签)，越低越可疑 ③confident joint：只有当模型对另一个类的自信度高过该类平均自信度时才判"标错"。折外是必须的，因为模型见过这条标签就会同意它自己。基模型不够强时：逻辑回归（准确率 0.76）做基模型，confident joint 精确率只有 0.346；换成 GBDT（0.95）后是 0.875 —— 模型不行时，不一致的那个是模型。</li>
-<li><strong>送人工重标最好</strong>（30% 噪声：0.9270 → 0.9383），机器自动改标最危险（它把模型的偏见写进标签，制造看不见的系统性噪声，实测从没赢过）。10% 噪声时什么都不做最好（0.9467，比三种清洗都高）—— 因为 confident joint 精确率 0.875，你会连带删掉对的样本，而随机森林本来就不在乎那些噪声。</li>
+<li>本页代码取折外概率、计算给定标签自信度，再用预测分歧与类均值阈值筛候选；未实现完整 confident joint 联合计数与校准。原论文的保证有条件，不等于“越过阈值就标错”。历史合成对照中逻辑回归（准确率 0.76）对应候选精确率 0.346，GBDT（0.95）对应 0.875；均不能替代原始材料、指南与独立人工复核，也没有统一准确率资格线。</li>
+<li>历史合成表中，30% 那行“送人工重标”为 0.9270 → 0.9383，10% 那行原样训练 0.9467 高于三种处理；本轮未重跑，不能推广成 10% 不处理或重标总最优。阈值启发式精确率 0.875 仍含误报，改标须有证据；还要辨别标签歧义、表示/覆盖不足与给定信息下的可能重叠，按代价及独立切片评测选方案。</li>
 <li>①<strong>分数有天花板</strong>（真实 0.9463 的模型在 10% 噪声评测集上只测出 0.8568，天花板 0.90）②排名翻转（3000 条评测集，干净时选错概率 0.4%，10% 噪声时 8.3%，二十倍）③真实改进被打折（真差 0.0395 → 测出 0.0336，只剩 85%；20% 噪声时剩 71%）④预算的边际价值错配。"缩水"是这样算的：测出的差的标准差从 0.0058 涨到 0.0090，方差涨 2.4 倍，而方差和 n 成反比，所以 3000/2.4 ≈ 1250 条。</li>
 <li>修 1000 条训练标签：真实水平 0.9473 → 0.9480，<strong>+0.0007，基本白花</strong>，而且你测出来的还是 0.85。修 400 条评测标签：测出 0.9475，和真实值只差 +0.0002 —— 模型没变，但你第一次知道了它真正的水平。修训练标签买的是模型的边际提升，修评测标签买的是"你知不知道自己在哪"。</li>
 <li>根因是<strong>评测集和训练集由同一批人、同一批次标注</strong>，模型学到的偏差和评测集里的偏差完全一致 —— 模型越"错得像标注员"，评测分数越高，指标和真相是反向的。抽检没抓到是因为只抽了置信度低的样本，而这批误判置信度很高 —— 系统性噪声恰恰藏在模型最自信的地方。代价：27 天定位、误下架 11.6 万条、申诉成功率 87%、返工 ¥35 万，以及当季 14 次实验结论全部作废。</li>
@@ -1098,10 +1052,10 @@ confident joint 的精确率只有 <strong>0.346</strong>；换成 GBDT（准确
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
 <p>⭐ <strong>标签本来就有错</strong>：公开数据集实测普遍在百分之几，业务外包多分类 5–15%，主观任务 15–30%。💀 更重要的第二结论是：<strong>修正标签之后模型排名会变</strong>——原始标签下更强的大模型会输给更小的模型。</p>
-<p>⭐ <strong>必须先分两种噪声</strong>：随机噪声（手滑疲劳，集成、正则、早停扛得住）和<strong>系统性噪声</strong>（指南理解偏差，⚠️ <strong>正则完全无效</strong>，因为正则假设错误是随机的）。</p>
+<p>⭐ 随机翻转与系统性偏差只是排查线索。正则、集成和早停不能替代语义复核，也不是对某一类噪声绝对有效或无效；确认标签错误或指南问题后，再针对证据修复。</p>
 <p>⚠️ <strong>系统性噪声不打总体指标，只打某一类</strong>——而那一类正是你要抓的那一类。实测非对称噪声下总体只掉几个点，被针对的那一类召回却塌了一半。</p>
 <p>⭐ 「训练准确率 100%」在有噪声的数据上<strong>不是好消息</strong>，判据是「训练准确率明显高于 1 − 噪声率 = 它在背噪声」。抗噪排序：集成投票 &gt; 早停（最便宜，因为网络总是<strong>先学规律后背噪声</strong>，验证曲线的峰值就是分界）&gt; 限容量、标签平滑、鲁棒损失。</p>
-<p><strong>置信学习</strong>捞出可疑标签之后：⭐ <strong>只送人工重标，不删不改</strong>。💀 机器自动改标从来没赢过——它把模型的偏见写进标签，制造看不见的系统性噪声。⚠️ 而且基模型不行时，不一致的是模型不是标签。</p>
+<p>折外阈值启发式只捞候选，不是完整置信学习。⭐ 先按原始证据、指南与独立意见复核，再决定是否更正；歧义与待补信息可暂保留。旧表中自动改标未获益不代表永远如此，10% 不是免检线；不能因模型自信就把标签改成模型预测。</p>
 <p>💀💀 <strong>评测集噪声比训练集噪声致命得多</strong>，四个后果：<strong>天花板</strong>（好模型也测不出好分数，你会去做无用优化）、<strong>排名翻转</strong>、<strong>真改进被打折</strong>（一个真值 +2pp 的改进会被判成「没效果」然后被放弃）、⭐ <strong>预算错配</strong>——修训练标签买模型的边际提升，<strong>修评测标签买「你知不知道自己在哪」</strong>，预算紧张时永远先修评测集。</p>
 <p>💀 那个广告识别事故的形状：评测集和训练集<strong>同一批人同一批次标的</strong>，于是模型越「错得像标注员」，评测分越高——<strong>指标和真相是反向的</strong>。⭐ 而且系统性噪声<strong>藏在模型最自信的地方</strong>，只抽低置信度样本的抽检永远抓不到它。</p>
 </blockquote>

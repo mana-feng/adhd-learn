@@ -314,6 +314,23 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <blockquote>
 <p>💡 <strong>注意那个趋势</strong>：语音也被「token 化」了——<strong>又回到了第一句话：不同模态先变成可计算表示，表示不一定离散。</strong></p>
 </blockquote>
+<p id="t10-asr-entry"><strong>只看主线可以停在这里：</strong>ASR 是把一段声音转成文字，上面的 Whisper 路线是一种做法。想比较不同的对齐与输出方式，再展开下面的选读；看完可以直接接“视频”。</p>
+<details id="t10-asr-mechanisms">
+<summary>选读：CTC、Transducer、Paraformer 怎样把声音对齐成文字？</summary>
+<p>说话快慢不同，声学时间步数 <code>T</code> 与文字标签数 <code>U</code> 通常不同。<strong>对齐</strong>是在问哪些声音位置对应哪些标签；不能把每个声学帧直接当成一个汉字。下面比较三种识别建模方式，不是三种音频分词器。</p>
+<div class="tw" tabindex="0" role="region" aria-label="三类ASR机制对照表，可横向滚动"><table style="min-width:420px;width:100%;table-layout:fixed"><colgroup><col style="width:32%"><col></colgroup>
+<caption>同一目标：声学特征 → 变长文字标签序列</caption>
+<thead><tr><th scope="col">范式</th><th scope="col">对齐、上下文与解码</th></tr></thead>
+<tbody>
+<tr><th scope="row">CTC<br><small>Connectionist Temporal Classification，连接时序分类</small></th><td><strong>声音 → 编码器 → 每个时间步的“标签或 blank”分布 → 路径合并。</strong>给定声学输入，路径概率按各时间步输出的条件独立因子相乘；编码器本身仍可利用上下文。训练把所有能合并成目标文字的路径概率相加，不要求人工逐帧对齐。推理可逐帧取最大值再合并，但“最可能路径”不保证对应“总概率最大的文字”；前缀搜索或外部语言模型是另外的解码选择。</td></tr>
+<tr><th scope="row">Transducer<br><small>此处特指 RNN Transducer（RNN-T）路线</small></th><td><strong>声音 → encoder；已输出的非 blank 标签历史 → prediction network；两路 → joint 输出分布。</strong>状态用声学位置 <code>t</code> 和已输出标签数 <code>u</code> 表示：选 blank 时前进声学时间，选文字标签时增加 <code>u</code>、更新标签历史，可在同一声学步输出多个标签。训练对可能的变长对齐路径求和。它显式使用输出历史，不能把所有 Encoder–Decoder 都叫 Transducer，也不套用 CTC 的相邻重复折叠规则。</td></tr>
+<tr><th scope="row">Paraformer<br><small>以 Interspeech 2022 原论文为准</small></th><td><strong>声音 → encoder → CIF predictor → 预测标签数与对应声学嵌入 → 双向解码器并行输出标签。</strong>CIF（continuous integrate-and-fire，连续积分触发）累积权重并聚合声学表示，解决长度与软对齐；这里的 predictor 不是 RNN-T 中读取文字历史的 prediction network。推理不逐字把刚输出的标签喂回去。论文训练时用 glancing sampler 混入部分真实标签嵌入来加强上下文学习，推理时关闭它，不能把真实答案作为推理输入。</td></tr>
+</tbody></table></div>
+<p id="t10-ctc-example"><strong>CTC 小例子：</strong>只把 <code>a</code> 当作标签、<code>∅</code> 当作 blank。一条路径 <code>a a ∅ a</code> 先合并相邻重复得到 <code>a ∅ a</code>，再去 blank 得到 <code>a a</code>；而 <code>a a a a</code> 合并后只有一个 <code>a</code>。所以要保留连续两个相同标签，中间需要 blank；不能先删 blank 再把所有相同标签合在一起。blank 表示此步不输出标签，不等于文本空格。这里只演示路径规则，没有识别真实录音。</p>
+<p id="t10-streaming-boundary"><strong>并行、流式、低延迟是三件事。</strong>CTC 或 RNN-T 若要边听边出字，前端和编码器也要限制未来可见范围，并处理分块状态与端点；模型名称本身不保证流式。Graves 2012 的 RNN-T 原论文就用了双向声学网络，不能直接当成实时配置。原版 Paraformer 的双向并行解码面向整段输入；流式变体要另看实现。<a href="https://github.com/modelscope/FunASR/blob/v1.4.14/README.md#usage">FunASR v1.4.14</a> 将 <code>paraformer-zh</code> 与 <code>paraformer-zh-streaming</code> 分列，并在流式示例传递分块、缓存、末块标志和回看配置；不能只把离线音频切小就认定离线模型已变成流式。</p>
+<p id="t10-asr-selection"><strong>怎样取舍：</strong>先问是否必须增量返回、允许看多少未来声音、是否需要显式标签历史，再选具体模型和解码配置。整句任务可测试 Paraformer 的并行输出路径；在线任务则核实所选 CTC/RNN-T 或流式 Paraformer 的因果/分块实现。对同一语言与噪声条件、测试集、文字归一化规则和设备，固定精度、批量、beam/语言模型配置，再比较 CER/WER（字符/词错误率）、计算耗时与音频时长之比 RTF，以及首字、端点到最终结果和整句延迟。低 RTF 不自动等于首字更快；语言覆盖、标签数预测误差、上下文与搜索成本也会影响结果。这里没有三者通用的速度或精度排名。</p>
+<p><small>一手依据：<a href="https://www.cs.toronto.edu/~graves/icml_2006.pdf">CTC 原论文 §3–4</a>；<a href="https://arxiv.org/html/1211.3711v1#S2">RNN Transducer 原论文 §2</a>；<a href="https://www.isca-archive.org/interspeech_2022/gao22b_interspeech.pdf">Paraformer 2022 §2</a>；上述固定版本 FunASR 官方示例。此处为机制与选型读法，未运行 ASR 模型或设备测试。</small></p>
+</details>
 <hr />
 <h2 id="_3">🎬 四、视频</h2>
 <section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">理解：把视频当&quot;一串图片 + 时间维度&quot;</span></div><div class="vb-flow-row"><span class="vb-flow-step">挑战是 token 爆炸（1 分钟视频可能上万 token）</span></div><div class="vb-flow-row"><span class="vb-flow-step">关键技术是时空压缩、关键帧抽取</span></div><div class="vb-flow-row"><span class="vb-flow-step">生成：扩散模型 + 时间维度一致性</span></div><div class="vb-flow-row"><span class="vb-flow-step">挑战是&quot;物体在帧间不能乱变&quot;</span></div><div class="vb-flow-row"><span class="vb-flow-step">时空注意力、3D VAE</span></div></div></section>
