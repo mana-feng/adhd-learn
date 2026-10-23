@@ -311,7 +311,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </details>
 <h1 id="04-gil">04 · GIL：为什么多线程救不了你</h1>
 <details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
-<p>⏱ <strong>94 分钟</strong> ｜ ⭐ <strong>判据不是「CPU 密集还是 I/O 密集」，是「这个操作放不放 GIL」——同样叫 CPU 密集，<code>np.sort</code> 开线程快 3 倍，<code>json.loads</code> 开线程一点不快</strong></p>
+<p>⏱ <strong>94 分钟</strong> ｜ ⭐ <strong>在启用 GIL 的 CPython 中，选择线程或进程须结合等待/计算、具体操作的 GIL 行为与端到端成本</strong>；原实验中 <code>np.sort</code> 开线程约快 3 倍，<code>json.loads</code> 几乎未加速，这些是该次负载记录。</p>
 <h2 id="_1">🎯 一句话</h2>
 <p>本章首先讨论<strong>启用 GIL 的 CPython 解释器</strong>：同一解释器中通常只有一个线程执行 Python 字节码。阻塞 I/O 和某些明确释放 GIL 的原生计算可以并发；“用 C 实现”本身不保证释放 GIL。free-threaded 构建需另查实际运行状态。</p>
 <h2 id="gil">🧩 一、GIL 是什么：同一解释器内的锁</h2>
@@ -403,7 +403,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong>0.002 s 对 0.387 s，差了近 200 倍。</strong> 这 0.39 秒是净开销，从并行省下的时间里扣。<strong>任务总时长如果不到一秒，多进程大概率是亏的。</strong></p>
 <h2 id="gil_1">⭐ 三、真正的分界：这个操作放不放 GIL</h2>
 <p>上一节容易让人得出「CPU 密集就用进程」的结论。<strong>那个结论太粗，而且恰好在最常见的两个场景上给出相反的建议。</strong></p>
-<p>关键在于：<strong>GIL 是可以被主动放开的</strong>。任何 C 扩展在进入一段「不碰 Python 对象」的纯计算之前，都可以调用 <code>Py_BEGIN_ALLOW_THREADS</code> 把锁交出去，算完再拿回来。<strong>锁交出去的那段时间里，别的线程是真的在另一个核上跑。</strong></p>
+<p>关键在于：<strong>GIL 可以在不访问 Python 对象或 Python C API 的原生工作区段主动释放，再于需要时取得</strong>。扩展可使用 <code>Py_BEGIN_ALLOW_THREADS</code> 等机制实现这种分区；这给其他线程执行的机会，是否在不同 CPU 核上并行仍取决于可运行工作、调度和资源，不能只凭放锁或加速倍数断言核心归属。</p>
 <p>同样是「CPU 密集」，两个库的选择不一样：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 同样是「CPU 密集」，线程池管不管用取决于这个操作放不放 GIL</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">json</span><span class="o">,</span><span class="w"> </span><span class="nn">time</span>
@@ -448,32 +448,32 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <td>0.80 s</td>
 <td><strong>0.25 s</strong></td>
 <td>⭐ <strong>3.2×</strong></td>
-<td>排序在 C 里做，全程<strong>放开 GIL</strong>，4 个线程真的在 4 个核上跑</td>
+<td>原 float 排序负载在线程池中获得加速；底层计算区的 GIL 行为须按所用版本核实现，计时不证明整个调用始终放锁，也未测量线程与 CPU 核的对应。</td>
 </tr>
 <tr>
 <td><code>json.loads</code> 解析 13.7 MB</td>
 <td>1.51 s</td>
 <td><strong>1.45 s</strong></td>
 <td><strong>1.04×</strong></td>
-<td><code>json</code> 的 C 加速器全程<strong>在构造 Python 对象</strong>（dict / list / str），碰 Python 对象就不能放锁</td>
+<td>本章启用 GIL 的 CPython 中，普通 <code>json.loads</code> 解析受锁约束；访问和构造 Python 对象须满足对应锁要求，但不能把“全程在构造对象”当作通用等价判据，1.04× 也不单独证明锁状态。</td>
 </tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>判据可以直接背下来</strong>：<strong>这段活里有没有在造 Python 对象。</strong></p>
+<p>⭐ <strong>这里限定启用 GIL 的 CPython：要核对具体操作、数据类型与实现是否释放 GIL，不能只背库名。</strong>例如 NumPy 的 object dtype 操作不释放 GIL；上面的 float 排序实验不能推广到所有数组操作。释放 GIL 也不保证加速，还要看数据共享、内存带宽与调度开销。</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>会放开 GIL（线程真的有用）</th>
-<th>不放开 GIL（线程没用）</th>
+<th>可能释放 GIL 的候选（须核对具体操作）</th>
+<th>启用 GIL 时受锁约束的例子</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>numpy / scipy 的数组运算、排序、线性代数</td>
+<td>numpy / scipy 中已确认释放 GIL 的具体操作与数据类型；不能泛化到 object dtype</td>
 <td>纯 Python 的循环、字符串拼接、字典操作</td>
 </tr>
 <tr>
-<td>PyTorch 的算子（CPU 和 GPU 都是）</td>
+<td>PyTorch 中已确认释放 GIL 的具体算子，按版本与实现核对</td>
 <td><code>json.loads</code> / <code>json.dumps</code></td>
 </tr>
 <tr>
@@ -485,12 +485,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <td>绝大多数纯 Python 写的第三方库</td>
 </tr>
 <tr>
-<td><strong>所有 I/O</strong>：文件读写、socket、<code>time.sleep</code></td>
+<td>具体实现会在阻塞等待区段释放 GIL 的 I/O，例如本章 <code>time.sleep</code>；文件读写和 socket 仍须区分阻塞等待、缓冲命中及调用前后的 Python 处理。</td>
 <td>pickle 序列化本身</td>
 </tr>
 </tbody>
 </table></div>
-<p>⚠️ <strong>这张表里的每一行都该被你自己验一遍，别背。</strong> 我用同样的方法（串行一次、四线程一次）实测了三个常被问到的：</p>
+<p>⚠️ <strong>具体操作的 GIL 行为应另核版本文档或源码，不能由计时倍数推断。</strong>下面保留原记录中串行与四线程的耗时对照；它们描述本次收益，不是“放锁/不放锁”的测量方法。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -521,17 +521,17 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <td>0.174 s</td>
 <td>0.110 s</td>
 <td><strong>1.58</strong></td>
-<td>✅ 放锁（数据小的时候收益被调用开销吃掉）</td>
+<td>✅ 本例 50 MB 输入满足该实现的释放条件；hashlib 是否释放还取决于单次输入大小（官方接口说明超过 2047 字节），不能把小输入一概解释为仅有调用开销。</td>
 </tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>不确定的时候别猜，量一遍。</strong> 上面那 12 行就是模板：同一个函数，串行一次、四线程一次，看倍数。倍数接近核数就是放锁的，接近 1 就是不放的。怎么把这种测量做对（预热、取最小值、别被缓存骗），是 <a href="05-怎么量：计时、剖析、内存.html">05 章</a>整章的内容。</p>
+<p>⭐ <strong>不确定的时候别猜，量一遍。</strong> 上面那 12 行就是模板：同一个函数，串行一次、四线程一次，看倍数。倍数只说明这次实测的并发收益，不能证明放不放 GIL；接近 1 也可能受带宽、开销或共享争用限制。锁状态仍须按具体操作、类型与实现核对。怎么把这种测量做对（预热、取最小值、别被缓存骗），是 <a href="05-怎么量：计时、剖析、内存.html">05 章</a>整章的内容。</p>
 <blockquote>
 <p>⭐ <strong>站内有一处正好卡在这条分界线上</strong>。<a href="../AI全栈/03-后端骨架.html">AI全栈 03 · 后端骨架</a> 讲 async 服务时说：真 CPU 活——解析 50 MB JSON、本地算 embedding——async 救不了，只能扔线程池或独立进程。
-那句话把这类活<strong>指向了两个选项</strong>，而没说什么时候该选哪个。⭐ <strong>这一章补的就是那个判据</strong>：它举的两个例子分别落在分界线两边——<strong>本地算 embedding 走 numpy / torch，扔线程池就管用；解析 50 MB JSON 扔线程池基本没用，得扔进程。</strong></p>
+那句话把这类活<strong>指向了两个选项</strong>，而没说什么时候该选哪个。⭐ <strong>这一章补的就是那个判据</strong>：在启用 GIL 的 CPython 中，<strong>本地 embedding 若具体操作与类型已确认释放 GIL，可先评估线程池；普通 JSON 解析可评估进程池，但也要计入进程启动和数据搬运成本。</strong>仅凭 numpy / torch 的库名不能断言线程池管用。</p>
 </blockquote>
 <h2 id="_2">🚦 四、三种并发怎么选</h2>
-<p>把「放不放 GIL」和「在等还是在算」两个问题交叉，答案就唯一了：</p>
+<p>在启用 GIL 的 CPython 中，把「具体操作是否释放 GIL」和「在等还是在算」交叉，可得到选择起点；数据共享、带宽与开销还会改变结果，答案不是唯一的：</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -544,17 +544,17 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td><strong>在等网络 / 磁盘 / 数据库</strong>，而且库是 <code>async</code> 的</td>
 <td>⭐ <strong>async</strong></td>
-<td>等待期间 GIL 本来就是放开的；协程比线程轻，几千个并发也不吃力</td>
+<td>异步 I/O 可在事件循环中交错推进可挂起的等待；这不是按 GIL 释放或固定连接数保证容量，CPU/阻塞回调仍可能挡住循环。</td>
 </tr>
 <tr>
 <td><strong>在等</strong>，但手上的库是同步的（<code>requests</code>、老的数据库驱动）</td>
 <td>⭐ <strong>线程池</strong></td>
-<td>同上，等待时锁是放开的。线程池是同步库的标准解法，别为了 async 硬换库</td>
+<td>若该同步库在阻塞等待时释放 GIL，可先评估线程池；仍需核具体 API、并发安全与资源上限，不能只凭“同步 I/O”保证效果。</td>
 </tr>
 <tr>
-<td><strong>在算</strong>，而且算的是 numpy / torch / 压缩 / 哈希</td>
+<td><strong>在算</strong>，具体操作与数据类型已确认释放 GIL</td>
 <td>⭐ <strong>线程池</strong></td>
-<td>底层放锁，能真并行，还不用付 pickle 和进程启动的钱</td>
+<td>可先评估线程池，避免进程启动与序列化成本；仍须防止共享写入争用，核对带宽和线程开销，不承诺加速</td>
 </tr>
 <tr>
 <td><strong>在算</strong>，纯 Python 代码（解析、循环、正则）</td>
@@ -596,7 +596,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>串行 2.00 s</p><p>8 线程 0.25 s</p><p>async 0.27 s</p></div></section>
-<p>⭐ <strong>2.00 → 0.25，正好 8 倍</strong>，因为 8 个任务的等待完全重叠了。<strong>线程和 async 在这里打平</strong>——区别不在这个规模上，在几千个连接的规模上：一个线程要几百 KB 到几 MB 的栈，一个协程只要几 KB。</p>
+<p>⭐ 原等待负载记录为 <strong>2.00 → 0.25，正好 8 倍</strong>，<strong>线程和 async 在这组结果中接近</strong>；不能由此设定“几千连接”才有差别的固定分界。原文所述线程几百 KB 到几 MB 的栈、协程几 KB 是实现相关的量级示意，容量与收益还取决于任务、平台和调度，应在目标负载评估。</p>
 <p>⛔ <strong>async 的语法、事件循环怎么转、为什么不能在协程里做阻塞调用</strong>，那些归 <a href="../AI全栈/03-后端骨架.html">AI全栈 03 · 后端骨架</a>。本章只负责「三种里该选哪种」。</p>
 <hr />
 <!--MIDSTOP-->
@@ -895,7 +895,7 @@ if __name__ == &quot;__main__&quot;:
 </tr>
 </tbody>
 </table></div>
-<p>📋 <strong>今天的正确姿势</strong>：<strong>按本章的判据写代码</strong>（放锁的活用线程、不放锁的活用进程），这套写法在 GIL 消失之后依然正确，只是「不放锁的活」那一档会多出一个选项。</p>
+<p>📋 <strong>把本章规则当作选择起点：</strong>在启用 GIL 的 CPython 中，结合等待/计算、具体操作是否释放 GIL、共享争用及启动/搬运成本评估线程或进程；不按“放锁用线程、不放锁用进程”作唯一答案。free-threaded 构建须重新评估这些条件与同步责任，不能沿用受 GIL 约束的选型结论。</p>
 <h2 id="_4">📋 十、一张排查表</h2>
 <div class="tw"><table>
 <thead>
@@ -908,18 +908,18 @@ if __name__ == &quot;__main__&quot;:
 <tbody>
 <tr>
 <td>开了 8 个线程，CPU 占用还是只有一个核</td>
-<td>一、二 —— 活在解释器里跑，抢同一把锁</td>
-<td>换 4 进程再测一次，快了就是 GIL</td>
+<td>一、二 —— 可能是启用 GIL 的 CPython 中解释器计算受锁约束；单核占用也可能来自其他串行瓶颈。</td>
+<td>核对具体操作和类型的实现；串行、线程、进程作同负载对照并计入启动/传输，进程更快也不能单独证明原因是 GIL。</td>
 </tr>
 <tr>
 <td>开线程反而更慢</td>
-<td>二 —— 抢锁和切换的净开销</td>
+<td>二 —— 可能有锁与切换、共享争用或带宽等净开销，须按具体负载定位。</td>
 <td>和串行比，不要和「期望值」比</td>
 </tr>
 <tr>
 <td>同事说线程池管用，我这儿不管用</td>
-<td>⭐ 三 —— 他的活放 GIL，你的不放</td>
-<td>串行/4 线程各测一次，看倍数</td>
+<td>⭐ 三 —— 可能是操作、数据类型、GIL 行为或其他争用/开销条件不同，不能仅由收益差异判定。</td>
+<td>先核版本/类型/实现，再作同输入串行与四线程计时；倍数只描述收益，不反推锁状态。</td>
 </tr>
 <tr>
 <td>4 个进程比串行慢十几倍</td>
@@ -991,8 +991,8 @@ if __name__ == &quot;__main__&quot;:
 <ol>
 <li>GIL 用一句话说是什么规则？为什么 CPython 需要它（和哪个内存管理机制有关）？</li>
 <li>8 核机器上，4 份纯 Python 的 CPU 活开 4 个线程，实测结果是什么？为什么会这样？</li>
-<li>本章说「CPU 密集就开进程」这个说法<strong>太粗</strong>。真正的判据是什么？<code>np.sort</code> 和 <code>json.loads</code> 各落在哪一边，实测倍数分别是多少？</li>
-<li>等 I/O 的活为什么线程和 async 都能赢？实测 8 个 <code>sleep(0.25)</code> 串行和 8 线程分别是多少？两者的区别在什么规模上才显现？</li>
+<li>为什么「CPU 密集就开进程」太粗？应结合哪些操作、类型、GIL 与成本条件？原 float <code>np.sort</code> 和 <code>json.loads</code> 负载的实测倍数分别是多少，为什么不能直接推广？</li>
+<li>本章 <code>sleep(0.25)</code> 与 <code>asyncio.sleep(0.25)</code> 等待示例中，线程和 async 怎样交错等待？原记录 8 个任务串行和 8 线程分别是多少？为什么不能据此规定固定连接数分界？</li>
 <li>spawn 和 fork 的三个关键区别是什么？为什么在 Windows 上「顶层加载模型」这件事特别贵？</li>
 <li>少写 <code>if __name__ == "__main__"</code> 会怎样？为什么这个错误难查（你在终端里先看到的是哪条消息）？</li>
 <li>什么情况下 4 个进程会比串行<strong>慢</strong>？本章那个例子慢了多少倍？给出一条能算的规矩，以及避开的办法。</li>
@@ -1005,8 +1005,8 @@ if __name__ == &quot;__main__&quot;:
 <ol>
 <li><strong>在启用 GIL 的 CPython 中，同一解释器里，同一时刻只有一个线程能执行 Python 字节码。</strong> 它存在是因为 CPython 用引用计数管内存——几乎每条字节码都要加减对象上的计数器，两个线程同时改会导致重复释放或永不释放。给每个对象配锁在技术上可行，但会让单线程程序显著变慢，GIL 是「一把大锁换掉几亿把小锁」的折衷。<code>sys.getswitchinterval()</code>（原记录为 0.005 秒）给出目标切换间隔，实际间隔可能更长；它不保证每 5 毫秒交锁或发生 OS 切换，后续调度由操作系统决定。同一解释器内执行 Python 字节码仍是轮流跑。</li>
 <li>串行 <strong>0.56 s</strong>、4 线程 0.73 s、4 进程 0.38 s —— 开线程比串行还慢，慢的是抢锁和切换的净开销，活一点没少干。进程那档只快 1.5 倍而不是 4 倍，因为起 4 个进程本身就要 0.387 s（同样的空任务开 4 个线程只要 0.002 s，差近 200 倍）。</li>
-<li>判据是 <strong>「这个操作放不放 GIL」</strong>，等价问法是「这段活里有没有在造 Python 对象」。<code>np.sort</code> 排 800 万个 float：串行 0.80 s → 4 线程 0.25 s，3.2 倍，因为排序在 C 里做、全程放开 GIL；<code>json.loads</code> 解析 13.7 MB：1.51 s → 1.45 s，只有 1.04 倍，因为它全程在构造 dict / list / str 这些 Python 对象，碰 Python 对象就不能放锁。</li>
-<li>因为<strong>等待的时候 GIL 是放开的</strong>，8 个任务的等待可以完全重叠。实测串行 2.00 s、8 线程 0.25 s（正好 8 倍）、async 0.27 s。两者在这个规模上打平，区别要到几千个连接才显现：一个线程要几百 KB 到几 MB 的栈，一个协程只要几 KB。</li>
+<li>在启用 GIL 的 CPython 中，<strong>要按具体操作、数据类型和实现核对计算期间是否释放 GIL</strong>；“有没有构造 Python 对象”不是等价判据。原记录中，<code>np.sort</code> 排 800 万个 float：串行 0.80 s → 4 线程 0.25 s（3.2 倍）；<code>json.loads</code> 解析 13.7 MB：1.51 s → 1.45 s（1.04 倍）。这些仅是该次负载的计时，不证明全程锁状态，也不推广到 object dtype 或其他实现。</li>
+<li>在本章 <code>time.sleep</code> 等待示例中，阻塞等待区段释放 GIL，任务可以重叠等待；<code>asyncio.sleep</code> 由事件循环挂起和恢复任务。原记录串行 2.00 s、8 线程 0.25 s（正好 8 倍）、async 0.27 s，只描述这组负载。不能规定“几千连接”才出现区别；原文线程几百 KB 到几 MB 的栈、协程几 KB 是实现相关量级，实际容量仍须测量。</li>
 <li>① fork 是复制当前进程、spawn 是<strong>从零启动一个新解释器</strong>；② fork 的子进程能看见父进程的全部内存，spawn 的什么都看不见，只有被 pickle 传过去的东西；③ spawn 会把主模块重新 import 一遍，所以顶层代码会重跑。Windows 与这里对照的 macOS 3.13/3.14 默认 spawn（原 Windows 3.13 记录中 <code>get_all_start_methods()</code> 只有 <code>['spawn']</code>）；Linux 等 POSIX 的默认值须区分 3.13 的 fork 与 3.14 支持条件下的 forkserver，先查本机上下文。因此顶层写的加载模型 / 连数据库 / 读大 CSV 会被乘以进程数 —— 本章那个例子里 <code>[模块顶层]</code> 打了 3 次（1 个主 + 2 个子）。</li>
 <li>子进程重新 import 主模块时会<strong>再次执行创建进程池那一行</strong>，无限递归。CPython 会抛 <code>RuntimeError: An attempt has been made to start a new process before the current process has finished its bootstrapping phase</code>。⚠️ 难查是因为你在终端里先看到的是 <code>BrokenProcessPool: A process in the process pool was terminated abruptly</code> —— 字面像资源不足，真正的 <code>RuntimeError</code> 被埋在一堆 <code>multiprocessing/spawn.py</code> 栈帧中间；在 Notebook / IDE 里子进程的 stderr 常常根本不显示。</li>
 <li>当<strong>搬数据的钱超过并行省下的钱</strong>时。本章例子：4 份 64 MB 数组只求个和，串行 0.036 s、4 进程 0.870 s，慢了 24 倍（pickle 一份就要 0.055 s，而计算只要 0.009 s）。“10 倍”仅是未经本轮基准验证的经验启发，不是通用门槛；实际比较要计入启动、导入、双向序列化、传输和任务/池复用的端到端成本。避开办法是 别传数据，传「去哪拿数据」（文件路径、行号区间、分片编号），大数组可以用 <code>multiprocessing.shared_memory</code> 只传名字。</li>
@@ -1020,8 +1020,8 @@ if __name__ == &quot;__main__&quot;:
 <blockquote>
 <p>⭐ <strong>在本章启用 GIL 的普通单解释器运行方式下，同一时刻只有一个线程能执行 Python 字节码。</strong> 它存在是因为 CPython 用引用计数管内存，几乎每条字节码都要加减计数器——<strong>拿一把大锁换掉几亿把小锁</strong>。</p>
 <p>⚠️ 实测 4 份纯 Python 的 CPU 活：<strong>4 线程比串行还慢</strong>（慢的是抢锁和切换的净开销），4 进程只快一点点（起进程本身就很贵，而开线程几乎免费）。</p>
-<p>⭐ 但「CPU 密集就开进程」这个说法太粗，<strong>真正的判据是「这个操作放不放 GIL」</strong>，等价问法是「<strong>这段活里有没有在造 Python 对象</strong>」：<code>np.sort</code> 多线程能到三倍多（排序在 C 里做、全程放锁），而 <code>json.loads</code> 几乎没有加速（它全程在构造 dict / list / str）。</p>
-<p>选择表：<strong>等 I/O 且库是异步的 → async；等 I/O 但库是同步的 → 线程池；算的是 numpy / torch / 压缩 / 哈希 → 线程池；算的是纯 Python → 进程池。</strong> 等待类的活里线程和 async 打平，区别要到几千个连接的规模才显现。</p>
+<p>⭐ 在启用 GIL 的 CPython 中，<strong>具体操作与类型确认释放 GIL 时，CPU 计算可评估线程池</strong>；Python 对象操作所需的锁与调用中的可释放区段要分别核对，还要看共享争用和开销。原 <code>np.sort</code> / <code>json.loads</code> 倍数只是本章负载记录，不是库名或锁状态的通则。</p>
+<p><strong>选择起点：</strong>异步 I/O 可评估 async，同步 I/O 可评估线程池；在启用 GIL 的 CPython 中，CPU 计算须核具体操作、类型与实现是否释放 GIL，不能按 numpy / torch / 压缩 / 哈希库名直接决定。纯 Python CPU 工作可评估进程池，并计入启动与搬运成本。原等待实验的结果及线程/async 差异只适用于记录的负载，不设固定连接数分界。</p>
 <p>选了进程之后第二类坑是<strong>进程怎么诞生</strong>：Windows 与这里对照的 macOS 3.13/3.14 默认 spawn；Linux 等 POSIX 须区分 3.13 的 fork 与 3.14 支持条件下的 forkserver，先查本机。spawn 从零启动新解释器并<strong>把主模块重新 import 一遍</strong>——⭐ 进程之间不共享对象，第 01 章那套「两个名字指同一个对象」在这里<strong>全部失效</strong>。</p>
 <p>⚠️ <strong>少写 <code>if __name__ == "__main__"</code> 会无限递归</strong>，而真正的 <code>RuntimeError</code> 被埋在栈中间，你<strong>先看到的是 <code>BrokenProcessPool</code></strong>——字面像资源不足，于是你会去查错地方。</p>
 <p>💀 pickle 的账更贵：几份大数组只求个和，4 进程比串行<strong>慢二十多倍</strong>。⭐ <strong>不要背固定倍数门槛</strong>：在目标 Python 版本和启动上下文下，实测串行与进程池的端到端成本，区分启动/导入、双向序列化、传输、计算和池复用。</p>

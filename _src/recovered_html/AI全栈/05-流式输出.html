@@ -392,6 +392,15 @@ OPEN → Ping → 对端 Pong（控制帧；不是业务确认）
 OPEN → Close ↔ Close → CLOSED
 异常断开 → CLOSED → 应用退避后重新握手 → 新会话</code></pre></div>
 <p>协议 Ping/Pong 由端点实现处理，浏览器 JavaScript 的 WebSocket API 不直接暴露这些控制帧；需要应用可见的探活时，可以另约定消息与超时。<strong>重连不会自动重放业务消息</strong>：例如客户端最后处理到序号 42，断开后重新建连时，43 是否已写入、是否需从 42 之后补拉，要由服务端保留记录与客户端游标/去重约定决定。这个轨迹只是协议与业务边界说明，未执行真实网络或规模压测；稳定业务标识的作用见 <a href="03c-幂等与条件请求.html#idempotency-key">幂等原节</a>。</p>
+<details><summary>可选：在线文档怎样合并编辑，而不只传送消息？</summary>
+<p>以服务端权威的纯文本为例：每次编辑带文档ID、基础版本和稳定操作ID；服务端核对当前编辑权限及接受条件，经所选OT类型转换后应用、提交新版本，再发应用确认并广播。WebSocket只负责双向消息，TCP ACK/Pong不代表编辑获准或冲突已合并；服务端排序和版本号本身也不会合并意图。实际转换应交给成熟且有文档的OT类型；<a href="https://share.github.io/sharedb/types/">ShareDB的OT类型边界</a>与<a href="https://github.com/ottypes/text">纯文本类型说明</a>可帮助区分这些职责。</p>
+<p>下面只手算ASCII、从0起算的不同位置插入：双方从版本7的<code>ab</code>出发，A插入X后本地为<code>Xab</code>、待确认A1；B插入Y后为<code>abY</code>、待确认B1。直接套旧坐标会出现两种结果；校正坐标后，本例两种顺序才得到同一文本，不能把“加1”当完整OT或一般收敛证明。</p>
+<div class="codehilite" data-code-language="text"><pre><code>v7: "ab"; A1=ins(0,"X"), local="Xab"; B1=ins(2,"Y"), local="abY"
+naive A1,B1: "XaYb"; naive B1,A1: "XabY"
+A1 -&gt; v8 "Xab"; transform B1: 2-&gt;3 -&gt; v9 "XabY"
+B1 -&gt; v8 "abY"; transform A1: 0-&gt;0 -&gt; v9 "XabY"</code></pre></div>
+<p>本地立即回显只是暂存编辑；远端更新也须经过OT处理，例如B保留待确认B1时将远端A1作用于<code>abY</code>，得到<code>XabY</code>。只有应用成功确认才推进本次编辑的服务端确认版本（见<a href="https://share.github.io/sharedb/api/doc#submitop">submitOp契约</a>）；确认丢失后以同一操作ID重试并去重，不能再应用一次。重连先补已确认历史，再由所选OT机制重定基准并重发待确认操作；历史有缺口时显式快照/重新同步，同时保留并处理待确认编辑，不能静默丢弃。<a href="03c-幂等与条件请求.html#if-match-http">If-Match/412</a>只能发现整资源写入的旧版本，不能自动合并文本。相同位置插入、删除、富文本、撤销及真实同步延迟不在这个有限例子内。</p>
+</details>
 <p class="muted">依据：<a href="https://www.rfc-editor.org/rfc/rfc9112.html#section-9.3">RFC 9112 §9.3</a>、<a href="https://www.rfc-editor.org/rfc/rfc9113.html#section-8.1">RFC 9113 §2/8.1</a>、<a href="https://www.rfc-editor.org/rfc/rfc9114.html#section-2">RFC 9114 §2</a>、<a href="https://www.rfc-editor.org/rfc/rfc9110.html#section-4.2.2">RFC 9110 §4.2.2</a>、<a href="https://www.rfc-editor.org/rfc/rfc6455.html#section-5">RFC 6455 §5/7</a>、<a href="https://www.rfc-editor.org/rfc/rfc8441.html#section-4">RFC 8441 §4</a>、<a href="https://websockets.spec.whatwg.org/#ping-and-pong-frames">WebSockets 标准 §5</a>。</p>
 <p>本章流式主线可直接继续第三节。想定位“半条消息、连接没关或超时后结果未知”，再看 <a href="#transport-depth">可跳过的传输深入</a>。</p>
 <details id="transport-depth"><summary>可选深入：事件下面的字节流与连接状态</summary>
@@ -405,6 +414,14 @@ OPEN → Close ↔ Close → CLOSED
 <tr><td>电/光/无线信号</td><td>常合并进底层网络接入讨论</td><td>物理层(1)。OSI七层与TCP/IP四层是不同教学划分</td></tr>
 </tbody></table></div>
 <p>以HTTP over TCP为例：应用把事件编码成响应体→HTTP定义消息语义/边界→TCP把字节按序号分段传送→IP跨网络路由→每跳用本地链路承载；对端逐层接收并解析。TCP段、一次 <code>recv</code> 返回和一个SSE事件的边界可以完全不同。HTTP/3走QUIC/UDP路径，不是“下面也必有TCP”。</p>
+<details><summary>可选：这一跳的MAC，和ARP/RARP各解决什么？</summary>
+<p>普通以太网使用48位MAC作为本链路的接口地址；它不是远端IP、用户ID或已认证身份。地址有单播/组播及全局/本地管理等位语义，也可由本地管理，不能概括成每个MAC都永久不变、全球唯一。假设无NAT，A向另一子网B发送IP包：先选路由，首跳帧的目的MAC是网关；路由器在下一链路重新封装帧，IP源/目的仍是A/B。普通二层交换转发不意味着每过一台交换机都改写MAC。</p>
+<div class="tw"><table><thead><tr><th>机制</th><th>方向与适用范围</th></tr></thead><tbody>
+<tr><td>ARP</td><td>在IPv4以太网上，将已选下一跳的IPv4地址解析为链路地址；远端B不在本链路时解析网关。请求广播限于本链路相应广播域，不跨路由器寻找B的MAC。</td></tr>
+<tr><td>RARP</td><td>已知硬件地址，向维护映射的服务器查询协议地址；这是RFC903描述的历史引导机制，不是反向DNS，也不据此断言当前系统采用它。</td></tr>
+</tbody></table></div>
+<p>IPv6邻居解析使用基于ICMPv6的邻居发现（ND），不沿用ARP/RARP。依据：<a href="https://www.rfc-editor.org/rfc/rfc9542.html#section-2.1">RFC9542 §2.1</a>、<a href="https://www.rfc-editor.org/rfc/rfc826.html">RFC826</a>、<a href="https://www.rfc-editor.org/rfc/rfc903.html">RFC903</a>、<a href="https://www.rfc-editor.org/rfc/rfc4861.html#section-3.1">RFC4861 §3.1</a>。</p>
+</details>
 <h3 id="transport-tcp-udp">TCP可靠字节流与UDP数据报，分别承诺什么</h3>
 <p>TCP在连接内提供可靠、有序的<strong>字节流</strong>，不保留一次send的消息边界。应用仍需分隔符/长度等消息格式；连接失败时也可能无法知道对端处理到哪里。UDP保留数据报边界，但本身不保证到达、去重或顺序；丢失、乱序、重复均需按应用语义处理。UDP少一些协议机制不等于在所有负载下必定更快。</p>
 <p>完整文件/文本请求通常希望按序得到全部字节；实时音视频可能更重截止时间、愿意丢掉过期数据，但也要做速率/拥塞控制。若在UDP上自建可靠交付，就要承担业务消息ID、确认、丢失检测/重传、排序去重、拥塞控制、缓冲与安全等职责；QUIC是已有的标准化可靠流方案之一。没有这些设计，不能因“加了ACK”便宣称等价TCP。</p>
@@ -432,10 +449,29 @@ A收到后 → ESTABLISHED：   A → B  ACK     seq=101 ack=701
 B收到最后ACK → ESTABLISHED</code></pre></div>
 <p>SYN占用一个序号，所以确认100的SYN用101；另一方向也独立确认。序号主要计<strong>字节</strong>，不是“第几个包”；纯ACK不消耗序列空间，FIN也消耗一个序号。最后一次确认让B知道自己的初始序号已被A收到，并配合初始序号选择等规则降低旧重复报文的歧义。握手不是服务业务请求已经完成的证据。</p>
 <p>SYN/SYN-ACK丢失会触发相应重传/超时；最后ACK丢失时，B可重发SYN-ACK，A再确认，不必把纯ACK想成有独立重传计时器的业务消息。实际包数可能因重传、同时打开或数据携带而不同，不能把“三次”当任意抓包都只有三包的断言。</p>
+<details><summary>可选：socket调用、握手和等待accept的队列怎样对齐？</summary>
+<div class="tw"><table><thead><tr><th>普通TCP路径</th><th>此时由谁推进</th></tr></thead><tbody>
+<tr><td>服务端 socket → bind → listen</td><td>建立监听fd；收到SYN后可有未完成握手的请求状态，俗称“半连接队列”。这是Linux实现教学，不是TCP规范固定的队列结构。</td></tr>
+<tr><td>客户端 socket → connect；内核推进握手</td><td>握手完成后，服务端连接等待accept，俗称“全连接队列”；应用尚未accept不等于握手未完成。非阻塞connect可能返回EINPROGRESS，须等就绪并核验SO_ERROR等实际完成结果。</td></tr>
+<tr><td>服务端 accept → 新连接fd</td><td>取出一个已完成连接；监听fd继续监听，accept不是第三次握手。双方在连接fd上循环send/recv，按应用格式组帧，处理短读/短写、EOF和错误，最后close。</td></tr>
+</tbody></table></div>
+<p>按<a href="https://man7.org/linux/man-pages/man2/listen.2.html">Linux man-pages 6.19的listen说明</a>，自Linux2.2起，TCP的backlog指<strong>已完成、等待accept</strong>的队列长度，传入值受somaxconn上限约束；已accept的活动连接不占这个等待队列，backlog不是总活动连接数或每端口容量。未完成请求的tcp_max_syn_backlog限制另看；SYN cookies可减少提前分配，此时不能机械套用同一队列图或把两个限制相加。队列满时的行为受内核版本、策略与状态影响，不能断言必然RST或固定丢弃；cookies也不使资源无限。</p>
+<p>普通被动打开需要有效监听端点（也可能继承已有监听fd），单有bind不等于在监听；本进程暂不调用accept时，只要队列等条件允许，内核仍可完成握手。主动客户端不需要listen/accept；<a href="https://www.rfc-editor.org/rfc/rfc9293.html#section-3.5">RFC9293的同时主动打开</a>是另一条状态路径，仍有端点/网络条件，不能据此保证NAT打洞。API边界见<a href="https://man7.org/linux/man-pages/man2/accept.2.html">accept</a>、<a href="https://man7.org/linux/man-pages/man2/connect.2.html">connect</a>及<a href="https://man7.org/linux/man-pages/man7/tcp.7.html">tcp</a>；本页没有运行内核队列或吞吐测试。</p>
+</details>
 <section id="transport-header-reading"><h4>可选读字段：把首部和上面的轨迹对起来</h4>
+<details><summary>可选：IP版本、首部字段与1500字节预算一起读</summary>
+<p>只问“IP首部”而未给版本时，应分别说明IPv4和IPv6；下面按用途归组，不用TCP字段替代IP字段。</p>
+<div class="tw"><table><thead><tr><th>用途</th><th>IPv4</th><th>IPv6基本首部</th></tr></thead><tbody>
+<tr><td>版本、首部长短与流量标记</td><td>Version、IHL；最少20字节，选项/填充使其可变。历史ToS字节如今按DSCP/ECN解释。</td><td>Version、Traffic Class、Flow Label；基本首部固定40字节，扩展首部另计。</td></tr>
+<tr><td>长度、分片与下一协议</td><td>Total Length含IP首部和数据；Identification、Flags、Fragment Offset关联分片；TTL限制存活，Protocol指示上层协议。</td><td>Payload Length不含40字节基本首部，但包含扩展首部；Next Header指出紧随的首部，Hop Limit限制转发跳数。分片由发送端使用Fragment扩展首部，路由器不沿途分片。</td></tr>
+<tr><td>地址与校验</td><td>源/目的地址各32位；Header Checksum只校验IPv4首部，不是整包数据校验。</td><td>源/目的地址各128位；没有基本首部校验和，不代表没有TCP/UDP等上层校验。</td></tr>
+</tbody></table></div>
+<p>沿用路径MTU=1500、TCP首部20字节，且<strong>两者均无选项、IPv6无扩展首部、无隧道或其他封装</strong>的前提，IPv4数据预算仍是1500−20−20=1460，IPv6则为1500−40−20=1440字节；这不是任意实际路径的MSS保证。共存时还要核对DNS的A/AAAA、监听地址、路由与防火墙，见<a href="14-容器化与部署.html#deployment-network-boundaries">现有部署网络链路</a>，不能仅由版本推断更快或更安全。依据：<a href="https://www.rfc-editor.org/rfc/rfc791.html#section-3.1">RFC791 §3.1</a>、<a href="https://www.rfc-editor.org/rfc/rfc2474.html#section-3">RFC2474 §3</a>、<a href="https://www.rfc-editor.org/rfc/rfc3168.html#section-5">RFC3168 §5</a>、<a href="https://www.rfc-editor.org/rfc/rfc8200.html#section-3">RFC8200 §3/4.5</a>。</p>
+</details>
 <p><strong>普通UDP首部固定8字节：</strong>源端口16位｜目的端口16位；长度16位｜校验和16位。长度包含首部和数据。校验和也关联IP伪首部中的地址/协议/长度，检查误码与误投递，不是加密或身份认证。IPv4可用零表示未启用UDP校验；IPv6默认必须校验，计算结果为零时按规范编码为FFFF，零校验仅有满足额外要求的特定隧道例外，不能直接沿用IPv4规则。IPv6巨型报文等扩展另有长度规则，不由这张普通首部示意覆盖。</p>
 <p><strong>TCP基础首部最少20字节：</strong>端口各16位；序号/确认号各32位，对应前面按字节推进的两条序列空间；Data Offset是首部长度的32位字数，值5对应20字节。控制位SYN/FIN/RST/ACK分别用于同步、结束方向、复位与确认号有效性；PSH不把字节流变成消息协议，URG/紧急指针也不是另建一条业务通道。通告窗口参与接收流控；校验和覆盖首部/数据并结合IP伪首部。选项可承载MSS、窗口扩大、SACK许可/块、时间戳等，不是每个包都带全部选项。CWR/ECE与拥塞通知有关，不替代应用状态码。</p>
 <p><strong>MSS、MTU与分片分别看：</strong>MSS是TCP数据段大小的限制，MTU约束链路可承载的IP包大小，TCP分段与IP分片不是同一层。假设路径MTU=1500字节、IPv4/TCP都没有选项或封装，1500−20−20=1460字节是一个数据预算示例；加选项、换IP版本或隧道都要重算，还要服从对端MSS及路径限制。IPv4在条件允许时可分片；IPv6路由器不沿途分片，发送端应按路径条件处理，不能靠“设置MSS”就宣称所有IP分片已消失。</p>
+<p>必要分片只要仍有缺失，就不能完整重组原IP包，路径设备也可能直接丢弃分片；TCP按MSS与路径预算分段可减少这类风险。IP本身不负责可靠重传，MSS也不等于路径MTU探测，更不保证绝无分片。</p>
 <p><strong>前面100/700是教学ISN，不是生产生成法。</strong>RFC9293描述时钟项M加上连接四元组与秘密键的不可外推伪随机函数F，兼顾序列空间推进、旧报文隔离和盲猜注入风险；不能给所有连接固定从0开始，也不能只以“有一个随机数”代替协议条件。ISN不可预测不等于TLS加密，旁路防猜不保护已被观察的应用明文。</p>
 <p><strong>SYN洪泛针对未完成握手的状态资源。</strong>SYN cookies将部分状态编码到SYN-ACK序号，待最终ACK核验后再重建，减少提前分配；它有选项协商/实现与算力代价，也不是身份验证或无限抗压保证。还应结合入口过滤、网络边界防护及队列/资源监测。RFC4987是2007年的机制讨论，不能照搬其中旧内核默认值；实际部署配置和效果须针对当前系统核验，本页没有执行攻击或防护测试。</p>
 <p class="muted">依据：<a href="https://www.rfc-editor.org/rfc/rfc9293.html">RFC9293 §3.1/3.4.1/3.7.1</a>、<a href="https://www.rfc-editor.org/rfc/rfc768.html">RFC768</a>、<a href="https://datatracker.ietf.org/doc/html/rfc8200">RFC8200 §4.5/8.1/8.3</a>、<a href="https://www.rfc-editor.org/rfc/rfc4987.html">RFC4987</a>。</p>
@@ -480,6 +516,9 @@ A等待后:CLOSED</code></pre></div>
 <tr><td>RST</td><td>可能来自不存在的连接/监听端口、状态失配或主动中止等情形；接收方还要做序号/状态校验</td><td>不是任意一个RST必定终止连接，也不是对端断电必然会发RST</td></tr>
 </tbody></table></div>
 <p>若上例最后ACK丢了，B会重传未确认的FIN，TIME_WAIT中的A能再ACK并按规范处理计时；FIN丢失也需重传，达到失败策略可能结束连接，不能承诺网络最终一定恢复。客户端突然断电通常来不及通知；进程崩溃后内核可能关闭或复位socket，但具体结果仍取决于状态/缓冲/选项，不能写成“服务端立即知道”。</p>
+<p><strong>TIME_WAIT重开与已建立连接收到SYN，要分别判断。</strong><a href="https://www.rfc-editor.org/rfc/rfc9293.html#section-3.6.1">RFC9293 §3.6.1</a>允许（MAY）从TIME_WAIT接受新化身，条件包括：本端为新连接分配的<strong>本端ISS高于本端旧化身用过的最大序号</strong>，并在识别为旧重复SYN时返回TIME_WAIT；这不是要求收到的对端SYN.SEQ超过这个门槛。时间戳优化路径另有条件，不能据此推断某Linux配置或实际默认行为。</p>
+<p>对已建立连接的SYN，若采用<a href="https://www.rfc-editor.org/rfc/rfc5961.html#section-4.2">RFC5961 §4.2缓解</a>，无论SYN序号在窗口内外，都发送challenge ACK，然后丢弃该段并停止处理，不能解释为开启新握手。<a href="https://www.rfc-editor.org/rfc/rfc9293.html#section-3.10.7.4">RFC9293 §3.10.7.4</a>另列未采用该缓解的历史路径：窗口内SYN触发复位，窗口外在先前序号检查处回复ACK。两条处理分支不能拼成唯一固定流水线，也不能与TIME_WAIT重开混为一谈；实际内核实现及ACK节流仍需另核。</p>
+<p>例如监听本地<code>192.0.2.10:443</code>，连接四元组可分别为<code>(192.0.2.10,443,198.51.100.20,51000)</code>与<code>(192.0.2.10,443,203.0.113.30,51000)</code>（依次为本地IP/端口、远端IP/端口）：它们共用本地端口，仍是不同连接。四元组候选空间不是实际容量；还要预算文件描述符、内存、NAT、地址分布和负载，不能用IPv4地址数乘端口数得出生产容量，也不要混入监听backlog。</p>
 <p>大量短连接会消耗内核状态、内存和可用连接元组等资源；先看是否能复用连接、是否有本地未关闭资源、瓶颈究竟在句柄/端口/内存/NAT哪一层。<strong>不要无条件缩短等待或开启TIME_WAIT重用</strong>。收到新SYN怎样处理、何时可安全重用、最大连接数是多少，必须给出系统/内核/地址与端口范围/远端分布/配置；缺这些条件的来源题仍保留需澄清，不能用一个“65535”代替所有连接容量。</p>
 <h3 id="transport-evidence">send成功、TCP确认、业务提交是三种证据</h3>
 <div class="tw"><table><thead><tr><th>你看到了什么</th><th>支持什么结论</th><th>还没证明什么</th></tr></thead><tbody>
@@ -487,10 +526,17 @@ A等待后:CLOSED</code></pre></div>
 <tr><td>TCP ACK推进</td><td>对端TCP确认收到相应连续字节</td><td>没有证明对端应用已消费、校验或提交事务</td></tr>
 <tr><td>应用成功响应/持久结果记录</td><td>按该接口契约解释处理结果</td><td>响应丢失时，本地超时仍不能推出“对端没提交”</td></tr>
 </tbody></table></div>
+<p>连接fd的来源与循环读写见<a href="#transport-handshake">上面的socket/队列轨迹</a>；服务端提速先测accept积压、CPU、下游I/O及慢客户端背压，再结合<a href="03-后端骨架.html#io-readiness-depth">I/O就绪</a>与<a href="../Python会咬你的地方/04-GIL：为什么多线程救不了你.html#_2">GIL边界</a>判断，不能用加线程或加backlog保证更快。</p>
 <p>TCP keepalive 是可选的传输探活；应用心跳可检查应用约定的存活点；业务deadline决定等多久并如何取消。三者互不替代，HTTP持久连接只是复用能力。Fetch取消可能只终止本次HTTP/2流（RST_STREAM），不必关闭承载其他流的TCP；与HTTP/1.x连接复用/关闭也有不同处理。取消后还要按第六节回收本次上游资源，不能从浏览器关页推导供应商已经停止计费。未知业务结果仍按 <a href="03c-幂等与条件请求.html#idempotency-key">稳定业务ID与重放契约</a> 查询/重试。</p>
 <p class="muted">依据：<a href="https://www.rfc-editor.org/rfc/rfc9293.html">RFC9293 TCP基本规范</a>、<a href="https://www.rfc-editor.org/rfc/rfc6298.html">RFC6298 RTO</a>、<a href="https://www.rfc-editor.org/rfc/rfc5681.html">RFC5681拥塞/经典快速重传</a>、<a href="https://www.rfc-editor.org/rfc/rfc2018.html">RFC2018 SACK</a>、<a href="https://www.rfc-editor.org/rfc/rfc768.html">RFC768 UDP</a>、<a href="https://www.rfc-editor.org/rfc/rfc1122.html">RFC1122分层与保活</a>、<a href="https://man7.org/linux/man-pages/man2/send.2.html">Linux send</a> / <a href="https://man7.org/linux/man-pages/man7/tcp.7.html">tcp选项</a>、<a href="https://fetch.spec.whatwg.org/">Fetch规范</a>与<a href="https://www.rfc-editor.org/rfc/rfc9113.html#section-6.4">HTTP/2 RST_STREAM</a>。</p>
 </details>
 <details id="barrage-message-trace"><summary>可跳过的应用轨迹：万人在线、每秒十万条弹幕意味着什么？</summary>
+<div class="tw"><table><thead><tr><th>直播中的角色</th><th>协议例子与边界</th></tr></thead><tbody>
+<tr><td>编码器 → 接入服务</td><td>按具体服务选择RTMP/RTMPS等；例如<a href="https://docs.aws.amazon.com/ivs/latest/LowLatencyUserGuide/streaming-config.html">Amazon IVS低延迟接入文档</a>说明支持RTMPS等接入（具体支持与安全配置按服务文档），不能外推所有直播服务。</td></tr>
+<tr><td>向观众分发媒体</td><td>HLS以播放列表描述媒体分段；这里只用<a href="https://www.rfc-editor.org/rfc/rfc8216.html#section-3">RFC8216所述version7</a>作基础例，不推断其他版本或低延迟扩展。</td></tr>
+<tr><td>实时双向音视频</td><td><a href="https://www.rfc-editor.org/rfc/rfc8825.html">WebRTC</a>是一组协作协议，不是只选TCP或UDP就能替代的单一协议。</td></tr>
+</tbody></table></div>
+<p>这些角色可以共存，并非互斥或穷尽的协议分类；按终端、交互方向、可容忍延迟与CDN/规模条件选择，弹幕和控制消息再按本章WebSocket/SSE边界选择，媒体协议本身不证明下述扇出能力。</p>
 <p>这是已观察题干条件的有限设计推演，不搭直播平台。<strong>输入吞吐与扇出必须分开：</strong>若教学假设每条负载100字节，10万条/秒约10MB/秒输入；若全部通过过滤、同一房间且1万人每人都收到每条，则是每秒10亿次消息投递、约100GB/秒负载输出，尚未计协议/复制开销。不能把10MB/秒当全部网络预算，也不能假设每个客户端能展示这么多条。</p>
 <p>入口先鉴权、限制请求量并核对房间；实时敏感词规则应有版本，规则匹配/规范化失败怎样拒绝或暂缓要明示。通过过滤后分配稳定消息ID、房间序号并持久记录，再给出“已接受”语义。按房间分区保持该房间顺序，不承诺跨房间全局时序；客户端本地钟不应成为可信排序依据。规则变更后的历史内容要定义重新审核/撤回策略，不能因缓存旧过滤结果就永远放行。</p>
 <p>广播队列与每客户端缓冲有界；慢客户端可按明确策略采样/降级、断开后带游标补拉，并给出丢弃/缺口提示。若业务要求每条可靠接收，就必须为补传、保留和确认预算资源，不能静默丢弃后仍宣称不丢。重连的重复消息按ID去重，服务端接受、设备收到、画面显示是不同证据。</p>

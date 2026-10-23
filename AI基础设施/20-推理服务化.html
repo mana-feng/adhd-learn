@@ -390,6 +390,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 一边开了连续批处理一边没开，那测的不是引擎。</p>
 <p><strong>顺序：先把配置调对，再考虑换引擎。</strong></p>
 </blockquote>
+<p><strong>再分清谁负责哪一层：</strong>调用外部 API、自行部署已有引擎、扩展已有引擎、自研核心运行时，是四种不同投入；自己部署 vLLM 不等于自研引擎。先列必须的模型、硬件、调度与服务能力，核对具体版本并测出差距，再评估现有方案及扩展是否可行；例如自定义模型注册可能只需扩展，不能预设某项能力今天仍不受支持。只有确认关键缺口后，才给自研原型预算，同时核算正确性、版本兼容、升级维护与运维成本。比较时固定模型、精度与质量要求、输入/输出长度分布、硬件、并发及到达模式、SLO；没有统一的 QPS 或收入门槛，也不能先许诺提速倍数。</p>
 <h3 id="radixattention">🌳 RadixAttention：把前缀共享从"一条"推进到"一棵树"</h3>
 <p>这个机制值得单独讲，因为它和你已经学过的东西是<strong>同一条线上的下一步</strong>。</p>
 <p><a href="16-KV-Cache.html">第 16 章</a>的前缀缓存解决的是"<strong>所有请求共享同一个系统提示词</strong>"，
@@ -577,6 +578,17 @@ python<span class="w"> </span>benchmarks/benchmark_serving.py<span class="w"> </
 </svg>
 <figcaption>请求先进负载均衡，再被分发到若干个各自 <b>TP=2</b> 的推理实例上 —— <b>分发怎么分</b>，比实例本身跑多快还要影响吞吐。</figcaption>
 </figure>
+<details class="g05-content-note"><summary>可选：Redis 租约怎样给路由器提供成员？</summary>
+<p>限定 Redis 7.2 单实例：每服务/稳定实例号一个 key，值含 endpoint、模型版本、phase、每次启动唯一且不复用的 incarnation/token，key 自身带 TTL。用 <code>SET key value NX PX ttl_ms</code> 原子注册，已有 key 不覆盖；租约内身份绑定不变，同 token 不能改 endpoint/版本。<strong>注册存在、TCP 可达、模型 ready 是三件事</strong>，新流量还须通过本页已有就绪检查。</p>
+<div class="tw"><table><caption>同一稳定实例号的协议状态例，A/B 是不同启动 token</caption><thead><tr><th>情形</th><th>条件与结果</th></tr></thead><tbody>
+<tr><td>① A 注册</td><td>先以 loading 建租约；未变为 ready 或模型版本不匹配，不进入新流量集合。</td></tr>
+<tr><td>② A 续约/更新阶段</td><td>在一个 Lua 脚本内读取并比较 token 和绑定身份，匹配才 PEXPIRE；续约只延 TTL。phase 更新也须同一原子条件检查，仅改阶段并保留到期时间，不能借机换身份。</td></tr>
+<tr><td>③ 后台发现</td><td>取值并核有效租约、ready 与目标模型版本；loading/draining 排除。注册记录只是发现候选，不能代替模型就绪证据。</td></tr>
+<tr><td>④ A 过期后 B 接替</td><td>B 用新 token 注册同 key。主动摘除也须同一 Lua 脚本原子比较 token/身份后才 DEL；旧 A 的续约和摘除均不能改动 B。不能先 GET 检查、再裸 DEL/PEXPIRE。</td></tr>
+</tbody></table></div>
+<p>发现端在后台限量、限时续扫；<code>SCAN</code> 返回 cursor=0 才结束一轮，空批次不代表结束，结果须去重，并发变化仍非快照。原子读取值与剩余 TTL，缓存上限与剩余 TTL 取短、从刷新发起时刻计时；刷新失败或到期后，停止给未重新确认的成员新流量，不延长旧缓存。不能每请求 <code>KEYS</code> 全库，也不能只靠过期通知维护集合；排空沿用下方流程。</p>
+<p><strong>TTL 过期只表示租约失效，不证明旧进程已停。</strong>暂停、网络分区和缓存延迟仍可能留下陈旧判断；Redis 故障、异步复制切换也不能保证强一致成员视图或外部工作独占。原子比较只约束本 Redis 实例的记录操作，不能升级为全局共识。此表是协议例，未运行 Redis 服务、故障切换或压测。</p>
+</details>
 
 <p><strong>路由策略的选择</strong>（比想象中重要）：</p>
 <div class="tw"><table>
@@ -589,26 +601,24 @@ python<span class="w"> </span>benchmarks/benchmark_serving.py<span class="w"> </
 <tbody>
 <tr>
 <td>轮询</td>
-<td>最简单，但<strong>忽略了实例的实际负载</strong></td>
+<td>实现简单，可作基线；请求成本相近、到达较均匀时较合适，但不看实例当前积压</td>
 </tr>
 <tr>
 <td><strong>最少请求数</strong></td>
-<td>比轮询好</td>
+<td>按未完成请求数分配，适合请求成本相近的情况；A 只有 1 个长请求、B 有 2 个短请求时，A 未必更空闲</td>
 </tr>
 <tr>
 <td><strong>最少待处理 token</strong> ⭐</td>
-<td><strong>更准确</strong>——一个 4000 token 的请求 ≠ 一个 50 token 的请求</td>
+<td>用排队及执行中请求的剩余 token 估计工作量，能反映长度差异；输出长度未知，Prefill/Decode 每 token 成本也不同，估计仍需校准</td>
 </tr>
 <tr>
 <td><strong>前缀感知路由</strong> ⭐</td>
-<td><strong>把有相同前缀的请求路由到同一实例</strong> → 前缀缓存命中率大涨</td>
+<td>尽量把可复用前缀送到同一实例，增加缓存复用机会；还要看缓存容量与实例负载，热门前缀的黏性可能造成倾斜</td>
 </tr>
 </tbody>
 </table></div>
 <blockquote>
-<p>⭐ <strong>前缀感知路由是一个容易被忽略的大优化</strong>：
-如果你有多个租户，每个租户有自己的长系统提示词，
-<strong>把同一租户的请求固定路由到同一实例</strong>，前缀缓存命中率能从 ~30% 提到 90%+。</p>
+<p>⭐ 多租户各有长系统提示词时，<strong>黏性路由可能提高复用，也可能把热点挤到少数实例</strong>。不能只看命中率：在相同模型、提示分布、到达负载与副本资源下，对照待处理工作量、排队延迟和 SLO，再权衡复用与负载均衡；不能因命中更多就断言整体更快。这里没有执行路由压测，不给通用收益率。</p>
 </blockquote>
 <p id="nc-serving-elastic"><strong>实例数够不够，先数就绪的：</strong>扩容目标不等于已经可服务；新副本完成准备/加载、预热和就绪检查后才放流量。缩容先停止接新请求、排空再回收。把这些状态与排队、尾延迟和错误一起看，就能衔接上面的部署图；完整闭环可选读。</p>
 <details class="g05-content-note" id="nc-serving-depth"><summary>深入：把监控、扩缩与就绪串起来（可跳过）</summary>
@@ -798,7 +808,7 @@ python<span class="w"> </span>benchmarks/benchmark_serving.py<span class="w"> </
 <li><strong>代码补全 TTFT 极敏感</strong>（&lt;200ms，用户等不了）；Agent 输出很长，TPOT 是决定性的，TTFT 反而宽松。</li>
 <li><strong>用固定长度的输入输出</strong>。真实流量长度方差极大，固定长度会让连续批处理的收益被严重高估。要用 ShareGPT 这类真实分布或线上日志回放。</li>
 <li>在固定模型/硬件/配置和请求长度分布下，延迟-吞吐曲线支持一个容量候选；64 只是示例，还需核对其他目标和余量。ceil(峰值并发/候选容量) 只是静态起点，扩缩要另看排队、就绪副本与冷启动时间。<strong></strong></li>
-<li><strong>前缀感知路由</strong>——把有相同前缀的请求（如同一租户）路由到同一实例，前缀缓存命中率能从 ~30% 提到 90%+。</li>
+<li><strong>前缀感知路由</strong>——把可复用前缀尽量送到同一实例，增加复用机会；也要防止黏性热点造成负载倾斜，按同负载的排队延迟与 SLO 验证，不预设命中率或提速幅度。</li>
 <li>因为<strong>大部分服务的平均负载只有峰值的 30-60%</strong>（夜间几乎没流量）。按峰值算容量、按平均算成本，两个数不能混。</li>
 <li>用户关掉页面后服务器还在生成 2000 个 token，<strong>占着 KV Cache 槽位不放</strong>——高并发下会显著吃掉容量。</li>
 <li><strong>结合待处理请求/token、排队时间、TTFT/TPOT 分位数、错误与实际抢占/重算、KV 和资源余量；要保持相同窗口和负载口径。90% 不是通用抢占阈值，一个百分比或 GPU 利用率都不能单独决定扩容。</strong></li>

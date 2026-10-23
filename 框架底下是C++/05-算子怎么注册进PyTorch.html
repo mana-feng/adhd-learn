@@ -810,7 +810,9 @@ int main() {
 <span class="p">}</span>
 </code></pre></div>
 
+<p>读刚才的 <code>class ScaledAdd : public torch::autograd::Function&lt;ScaledAdd&gt;</code>：这里只有一个直接基类，模板实参 ScaledAdd 或 forward/backward 的数量都不是额外基类。多重继承是基类列表中有多个直接基类，可能需要处理同名成员及基类转换歧义，不能仅由此推断固定虚表数量或布局。</p>
 <p>⚠️ <strong>原代码里“不写这行就无限递归”的注释不适用于本例的直接 backend 调用，不能据此断言去掉 guard 的结果。</strong>实际链路是：Autograd 注册的 lambda → <code>ScaledAdd::apply</code> → <code>forward</code> → 直接调用 C++ 函数 <code>scaled_add_cpu</code> → 其中 <code>a + b * s</code> 的内部 ATen 算子。这里没有通过同名 <code>myops::scaled_add</code> 的 dispatcher 包装再次调用自身的边。</p>
+<p>按 C++17 语法，用户定义类型可通过 <code>operator</code> 函数为既有运算符提供语义，<code>a + b * s</code> 仍受原优先级、结合与操作数个数规则约束，不能凭空造运算符或改优先级。语言运算符重载不等于 dispatcher 注册；这里未取得固定 PyTorch 2.13 的相应头文件，不据此声明具体重载签名、注册路径或版本兼容性。</p>
 <p>⭐ <code>AutoDispatchBelowADInplaceOrView guard;</code> 仍保留。它是个 <a href="02-值语义与所有权.html">RAII 对象</a>（和 <a href="01-Python调C++的那条边界.html">01 章</a>的 <code>gil_scoped_release</code> 同一个套路），在作用域内排除 Autograd 和 ADInplaceOrView 相关分派键，影响 <code>scaled_add_cpu</code> 内部 ATen 调用的分派路径；这与直接调用 C++ backend 函数是两件事。<strong>若另一种实现让 <code>forward</code> 经同名算子的 dispatcher 包装重入，且没有排除相应层，才可能再进入同一 Autograd kernel 而递归。</strong>官方旧 dispatcher 教程的 <code>forward → myadd → op.call</code> 属于这种情况；该教程自 PyTorch 2.4 起已废弃，这里仅作历史对照，不是 2.13 的新 API 推荐。</p>
 <p>还要分清梯度记录与分派键排除：固定 <code>v2.13.0</code> 的 <code>custom_function.h</code> 中，<code>Function::apply</code> 在 <code>AutoGradMode(false)</code> 作用域调用 <code>T::forward</code>；这控制梯度记录，并不等于上述 dispatch guard 的键排除。此次读到的 <code>LegacyTypeDispatch.h</code> 是滚动 <code>main</code>，固定 2.13 的该头文件未取得，不能把它当作固定版本的同字节证明。<strong>这不证明 guard 无用或可以删除；本例扩展、去 guard、梯度与递归行为均未实跑。</strong></p>
 <p>⚠️ <strong>只填 CPU 不填 Autograd 的症状</strong>：前向完全正常，反向时要么报 <code>element 0 of tensors does not require grad</code>，要么<strong>梯度悄悄变成 0</strong>。💀 后者不报错，训练看起来在跑、loss 就是不降 —— 它长得不像 bug，所以调试成本极高。</p>

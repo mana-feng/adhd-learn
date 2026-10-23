@@ -440,6 +440,9 @@ print(&quot;本例舍入后USD百万分之一单位:&quot;, units)
 </blockquote>
 <p>⚠️ <strong>看执行计划，别猜</strong>（SQLite <code>EXPLAIN QUERY PLAN</code>，Postgres <code>EXPLAIN (ANALYZE, BUFFERS)</code>），大表上出现 <code>SCAN</code> / <code>Seq Scan</code> 就是信号。也别把索引当免费——每个索引都让写入变慢、占空间，索引数量按实际查询负载、写入维护与空间预算决定，不靠固定“两三个”判断。</p>
 <details><summary>可选深入：这些索引为什么有效——结构、前缀与回表</summary>
+<p><strong>先分清存储引擎：</strong>它是 MySQL 负责表数据存取的组件。这里只比较本章相关的三种；MySQL 8.4 默认是 InnoDB，实例可用引擎与当前默认仍看 <code>SHOW ENGINES</code> 和实际配置。</p>
+<ul><li><strong>InnoDB：</strong>支持事务、崩溃恢复与外键，行数据在聚簇索引中；记录级锁有利于并发，但不意味着任意语句只锁一行。</li><li><strong>MyISAM：</strong>不支持事务和外键，数据与索引分开存放，主要用表级锁；不能用它替代 InnoDB 的事务恢复保证。</li><li><strong>MEMORY：</strong>数据在内存、重启会丢，使用表级锁，可选 HASH/BTREE，不提供事务与外键。</li></ul>
+<p>消息、记账等先按一致性、恢复、并发和持久性要求选择；“读多”本身不是改选 MyISAM 的充分理由。依据：<a href="https://dev.mysql.com/doc/refman/8.4/en/storage-engines.html">MySQL 8.4 存储引擎</a>。</p>
 <h3 id="index-dimensions">先把分类维度拆开</h3>
 <p>索引是帮助定位记录的额外访问结构，也会增加存储与写入维护。下面几类不是互斥选项：同一个索引可以同时是<strong>唯一、复合、二级、B+ 树</strong>。</p>
 <div class="tw"><table style="width:100%;min-width:0;max-width:100%;table-layout:fixed"><thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">维度</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">在回答什么</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">本章例子</th></tr></thead><tbody>
@@ -455,7 +458,10 @@ print(&quot;本例舍入后USD百万分之一单位:&quot;, units)
 <tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">B+ 树</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">按分隔键逐层选子页，到叶层定位键</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">定位起点后沿有序叶层继续读相邻键</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">一个页含多个分隔键、扇出大，层数约随 log<sub>F</sub>N 增长；缓存命中时不必每层都读盘</td></tr>
 <tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">红黑树</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">平衡二叉树，最坏查找 O(log N)</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">也能有序遍历和范围查找</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">二叉指针节点的内存访问与数据库页访问不是同一个成本模型；不能只比较 O(log N) 就断言谁更快</td></tr>
 </tbody></table></div>
-<p><strong>这里解释 B+ 树为何适合页式存储，不做容量估算：</strong>内部页提供路标，叶层保存索引记录；示意路径为“根分隔键 → 选中子页 → 叶层定位 (c1,2) → 继续读 c1 的后续 seq”。真实树高、扇出与 I/O 还受键宽、页大小、缓存和数据量影响。InnoDB 自适应哈希是引擎优化机制，不等于能把普通用户索引随意声明成 HASH。</p>
+<p><strong>这里先解释 B+ 树为何适合页式存储：</strong>内部页提供路标，叶层保存索引记录；示意路径为“根分隔键 → 选中子页 → 叶层定位 (c1,2) → 继续读 c1 的后续 seq”。真实树高、扇出与 I/O 还受键宽、页大小、缓存和数据量影响。InnoDB 自适应哈希是引擎优化机制，不等于能把普通用户索引随意声明成 HASH。</p>
+<p><strong>三层容量只做模型手算：</strong>把根、内部、叶计为三层，假设前两层平均各有 F 个子页、每叶平均 L 条记录，则约为 <strong>F × F × L</strong> 条。取 F=1000、L=100，得 1 亿条；换 F=100、L=100，就只有 100 万条。F/L 来自页可用空间、键/指针或行宽与填充率，聚簇叶和二级叶不同；这不是 MySQL 固定容量，也不是 I/O、内存或吞吐保证。</p>
+<details><summary>缓存影响页成本，怎样观察？</summary><p>MySQL 8.4 / InnoDB 的 <strong>buffer pool 缓存数据页和索引页</strong>；连接池复用的是连接。监控时在同一实例、同一时间窗取 <code>Innodb_buffer_pool_read_requests</code>（逻辑读）与 <code>Innodb_buffer_pool_reads</code>（未由池满足、需磁盘读取）的增量。</p>
+<p>合法区间内，用 <strong>1 − Δ未命中 / Δ逻辑读</strong> 估算读命中率：100 次增量、2 次未命中 → 98%，只是手算。零分母、重启/重置、负增量或未命中大于请求等异常区间标为<strong>不可比</strong>，不报 100%。同时看 I/O 延迟、脏页/等待、预读及未访问即淘汰的页、代表查询；这个页读比率不是查询命中比例或总设备 I/O，高比率也不自动说明健康或应该扩内存。依据：<a href="https://dev.mysql.com/doc/refman/8.4/en/server-status-variables.html#statvar_Innodb_buffer_pool_reads">官方计数定义</a>。未采集真实实例。</p></details>
 <h3 id="index-leaf-lookup">叶记录里有什么，决定要不要再找整行</h3>
 <p><strong>以下仅为 MySQL 8.4 / InnoDB 示意，不是把上面的 SQLite 实验换名：</strong>假设 messages 的主键为 id，另建 (conversation_id, seq)。</p>
 <div class="tw"><table style="width:100%;min-width:0;max-width:100%;table-layout:fixed"><thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">位置</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">符号化记录</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">读取路径</th></tr></thead><tbody>
@@ -464,6 +470,7 @@ print(&quot;本例舍入后USD百万分之一单位:&quot;, units)
 <tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">覆盖读取</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">只需 conversation_id、seq 或已包含的 id</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">所需数据均可从该索引取得时，可以省去上述整行查找；覆盖是查询与索引的关系，不是另一种树</td></tr>
 </tbody></table></div>
 <p>InnoDB 有显式主键时用它作聚簇索引；没有时会选择合适的非空唯一索引，再不满足才生成隐藏键。SQLite 普通 rowid 表、WITHOUT ROWID 表与 PostgreSQL 的行定位机制各有规则，不套用这张 InnoDB 表。</p>
+<p>把层级接起来：<strong>一行 → 聚簇叶记录 → 索引页 → 表空间及其文件</strong>。二级叶保存索引键和主键定位信息，不是所有列的副本。InnoDB 索引页默认 16 KiB，实际由实例页大小配置决定；表空间可只放一张表，也可容纳多表，不能认定一表必一文件。这只是组织示意，未解析磁盘页。依据：<a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-physical-structure.html">索引物理组织</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-tablespace.html">表空间</a>。</p>
 <h3 id="index-prefix-order">最左前缀来自字典序，不是背口诀</h3>
 <p><code>(conversation_id, seq)</code> 先按会话排，再在同一会话内排 seq。固定 c1 后取 seq≥2 是一段连续键；只给 seq=2，则会散落在不同会话段。下面只手算键序：</p><div class="codehilite" data-code-language="python" data-g02-example="index-lex-order"><pre><code>keys = [(&quot;c2&quot;, 1), (&quot;c1&quot;, 3), (&quot;c1&quot;, 1), (&quot;c2&quot;, 2), (&quot;c1&quot;, 2)]
 ordered = sorted(keys)
@@ -533,21 +540,35 @@ assert [k for k in ordered if k[1] == 2] == [(&quot;c1&quot;, 2), (&quot;c2&quot
 <details><summary>可选深入：扩展—收缩搬到 MySQL，哪些前提要重新核？</summary>
 <h3 id="mysql-online-ddl-boundary">在线算法不等于零等待</h3>
 <p>上方是 PostgreSQL 场景，不能直接承诺 MySQL 无停机。MySQL 8.4 / InnoDB 要逐操作核对 INSTANT、INPLACE 或 COPY 的支持条件；列变更、索引、外键、表格式与版本可能改变可选算法。要求 ALGORITHM=INSTANT 可在不支持时失败，不能靠省略算法允许自动选择后再称“确认无重建”。LOCK=NONE 也只适用于允许的操作，不表示完全没有元数据锁。</p>
-<p>先扩展兼容 schema → 发布能同时兼容新旧结构的代码 → 限速回填与核对 → 切读写 → 等旧代码退出后收缩。上线前在相同版本和表条件下测锁等待、长事务、磁盘空间与副本延迟，设置可控超时/回退；备份恢复也另验。“无停机”是服务层目标，不能由 SQLite 例或一条 ALTER 保证。依据：<a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-online-ddl-limitations.html">MySQL 8.4 Online DDL 限制</a>。本轮没有执行 MySQL/PostgreSQL 在线迁移。</p></details>
+<p>先扩展兼容 schema → 发布能同时兼容新旧结构的代码 → 限速回填与核对 → 切读写 → 等旧代码退出后收缩。上线前在相同版本和表条件下测锁等待、长事务、磁盘空间与<a href="#_5">副本延迟</a>，设置可控超时/回退；备份恢复也另验。“无停机”是服务层目标，不能由 SQLite 例或一条 ALTER 保证。依据：<a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-online-ddl-limitations.html">MySQL 8.4 Online DDL 限制</a>。本轮没有执行 MySQL/PostgreSQL 在线迁移。</p>
+<p><strong>“索引重构”先问对象和原因：</strong>更新统计、重建二级索引、重建聚簇表是不同工作，<code>ANALYZE TABLE</code> 不等于物理重建。按“核对象/原因 → 同版本核备份恢复、空间和长事务 → 核算法与锁 → 受控执行 → 核定义、数据、计划与负载”走。MySQL 8.4 普通 InnoDB 的 <code>OPTIMIZE TABLE</code> 可映射为表重建，但 COPY、FULLTEXT 等条件会改变在线能力；不能套通用 <code>REPAIR</code> 或先删主键。源题若未指定引擎，其他实现仍另核。这里只文档核对，未执行维护命令。依据：<a href="https://dev.mysql.com/doc/refman/8.4/en/rebuilding-tables.html">重建方法</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/optimize-table.html">OPTIMIZE 条件</a>。</p>
+<p><strong>回填一张已有表的部分行/列：</strong>下面仅为 MySQL 8.4 文档型写法。目标 <code>target_rows</code> 是 (1,旧A)、(2,旧B)、(3,旧C)；源 <code>source_rows</code> 的 (id,label,apply_flag) 是 (1,新A,1)、(2,新B,0)、(4,新D,1)。两表 id 唯一，先用相同 JOIN/WHERE 做 SELECT 预览主键；只应更新 id=1，2 未通过筛选、3 未匹配。</p>
+<div class="codehilite" data-code-language="sql"><pre data-r3-example="mysql-update-join-doc"><code>UPDATE target_rows AS t JOIN source_rows AS s ON s.id=t.id
+SET t.label=s.label
+WHERE s.apply_flag=1 AND s.label IS NOT NULL
+  AND t.id&gt;=1 AND t.id&lt;4;</code></pre></div>
+<p>本例明确跳过源 NULL，未匹配目标保持；源键重复先拒绝，不能任取一行。更新已有行与用 <code>INSERT ... SELECT</code> 新增行分开；生产回填在短事务中按有界主键区间分批，多表 UPDATE 不支持直接套 <code>ORDER BY/LIMIT</code>。这里只手核三行与<a href="https://dev.mysql.com/doc/refman/8.4/en/update.html">语法文档</a>，未运行 MySQL。</p>
+</details>
 <h2 id="_5">🧩 五、连接池：并发一上来就崩的那个配置</h2>
 <p>Postgres 每个连接是一个<strong>进程</strong>，几百个就能把内存吃光，所以应用侧要复用固定数量的连接。</p>
 <p>以 SQLAlchemy 异步引擎为例（🗓️ 未实跑，需要 Postgres + asyncpg），五个旋钮值得认识：</p>
 <ul>
-<li><code>pool_size</code>：常驻连接数。</li>
+<li><code>pool_size</code>：本例池中可保留的连接数上限，按需创建，不预建。</li>
 <li><code>max_overflow</code>：峰值临时再开几个。</li>
 <li>⭐ <code>pool_timeout</code>：等不到就报错。<strong>无限等 = 请求全挂住，比报错难查得多。</strong></li>
-<li><code>pool_recycle</code>：定期回收，躲开中间层的空闲断连。</li>
+<li><code>pool_recycle</code>：按连接创建以来的年龄，在超过阈值后的下次借出（checkout）时使其失效并替换；不是后台闲置计时器，也不收回已借出的连接。</li>
 <li>⭐ <code>pool_pre_ping</code>：借出前 ping 一下，别拿到已经死掉的连接。</li>
 </ul>
 <p>⭐ <strong><code>pool_size</code> 是一道除法，不是拍脑袋</strong>：数据库能承受的连接总数（比如 100）÷ 应用进程数（4 worker × 2 台 = 8）÷ 还有谁在连同一个库（后台任务、定时脚本、你的 psql）→ 每进程 ~10 个。</p>
 <p>⚠️ <strong>两个真实翻车点</strong>：<strong>忘了乘进程数</strong>（单机测试 <code>pool_size=20</code> 很舒服，上线开 8 个 worker 就是 160 个连接，数据库直接拒连）；以及 ⭐ 池小不是错，池小 + 占着不放才是错——真正的容量瓶颈几乎总是持有时长。</p>
 <hr />
+<p>以上连接池复用通道，与前面的 InnoDB 页缓存不同；回收参数不保证永不断连或固定吞吐。依据：<a href="https://docs.sqlalchemy.org/en/20/core/pooling.html#setting-pool-recycle">SQLAlchemy 2.0 回收机制</a>。</p>
+<p><strong>连接复用不等于复制路由：</strong>写池 → 权威 source；允许陈旧结果的读池 → 健康 replica。复制先建立，由数据访问层或支持相应语义的代理路由，不按 SQL 首词盲分。事务和写后必须见新值的读留在权威节点，或先确认副本已应用所需提交；收到日志不等于已应用。监控延迟、摘除失效副本并重新发现节点，各读写池仍按所有 worker 合算连接预算。路由本身不提供自动复制、零延迟或高可用；未运行复制服务。依据：<a href="https://dev.mysql.com/doc/refman/8.4/en/replication-solutions-scaleout.html">MySQL 读扩展</a>。</p>
+<p><strong>路由之前的复制路径（MySQL 8.4）：</strong>source binlog → replica receiver 接收并写 relay log → applier 应用并提交 → 在能看到该提交的新读中可见。默认异步，源已提交、某副本已接收、该副本已应用是不同状态；启用半同步后，收到确认只证明相应副本已接收并持久化日志，不等于已应用，更不保证全部读副本同步。</p>
+<ul><li><strong>接收落后：</strong>查连接、receiver 状态/错误及接收进度，再定位网络或源端发送等原因。</li><li><strong>已接收但应用落后：</strong>查 applier/worker 错误与应用进度，再看工作负载、大事务、锁等待及资源瓶颈，按原因处理。</li></ul>
+<p><code>Seconds_Behind_Source=0</code> 不是所需提交已可见的充分证明。沿用上面的权威读，或核验所需提交已应用、在合适读视图中读取，并设置等待超时/降级；这会付出延迟、权威节点负载或可用性成本。摘除坏副本、改变读路由只是缓解旧读，不等于修好积压原因；不靠固定 sleep、一键调线程或跳错承诺零延迟。依据：<a href="https://dev.mysql.com/doc/refman/8.4/en/replication-threads.html">复制线程</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/replication-administration-status.html">进度与状态</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/replication-semisync.html">半同步确认</a>。未运行复制服务。</p>
 <h2 id="llm">🧩 六、事务边界：⚠️ 别把 LLM 调用包在事务里</h2>
+<p><strong>事务先划一个本地提交/回滚单元：</strong>例如下面的“写 assistant 消息＋记账＋更新 updated_at”。原子性要求这组操作共同成功或撤回；一致性仍靠业务约束维护合法状态；隔离性按所选级别约束并发可见性；耐久性取决于引擎、提交配置与存储兑现。借着一个连接不等于已经开启事务，LLM 和对象存储调用也不自动加入它。</p>
 <p><strong>这是 AI 应用最常见也最贵的数据库错误。</strong> 写法非常自然：开事务 → 写用户消息 → 调 LLM → 写回复 → 提交，「要么都成功要么都失败，多干净」。问题是<strong>中间那步要三秒到三十秒</strong>，这整段时间里一个连接被占着什么也没干：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span><span class="o">,</span><span class="w"> </span><span class="nn">time</span>
 <span class="n">POOL</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">LLM</span><span class="p">,</span> <span class="n">DB</span> <span class="o">=</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">40</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.005</span>     <span class="c1"># 真实世界一次 LLM 调用常是 3–30 秒</span>
@@ -577,6 +598,26 @@ assert [k for k in ordered if k[1] == 2] == [(&quot;c1&quot;, 2), (&quot;c2&quot
 <p>那「一半成功了怎么办」？不是拉长事务，是<strong>换个模型</strong>：用户消息<strong>先单独提交</strong>；LLM 失败就给会话记一个 <code>failed</code> 状态，让用户看得见、能重试；真正需要原子性的只有最后一小段——写 assistant 消息 + 记账 + 更新 <code>updated_at</code>，一个短事务搞定。</p>
 <p>⚠️ 同源的坑：<strong>别在 <code>SELECT ... FOR UPDATE</code> 之后调外部服务</strong>——那不只占着连接，是<strong>攥着一把行锁</strong>，别的请求会卡死在那些行上。</p>
 <hr />
+<details><summary>并发时：先辨异常与隔离，再看锁等待</summary>
+<p>下面是<strong>同一个 A 事务内</strong>的条件轨迹，不是两次分页请求，也不是已在所有引擎运行的结果：</p>
+<div class="tw"><table><thead><tr><th>现象</th><th>最短轨迹（实现/级别允许时）</th></tr></thead><tbody>
+<tr><td>脏读</td><td>B 写 120 尚未提交，A 读到 120，B 随后回滚</td></tr>
+<tr><td>不可重复读</td><td>A 读同一行得 100；B 改成 120 并提交；A 再读得 120</td></tr>
+<tr><td>幻读</td><td>A 按谓词得 2 行；B 插入匹配行并提交；A 重查同一集合变 3 行</td></tr>
+<tr><td>业务读改写丢失更新</td><td>A 要加 10、B 要加 20，却都先读 100；A 写 110 并提交，B 仍按旧值写 120 并提交，没得到预期 130。是否允许须按级别、锁或版本校验判断</td></tr>
+</tbody></table></div>
+<p><strong>标准级别规定最低禁用现象，实现可以更强：</strong>RU（读未提交）未禁止脏读；RC（读已提交）禁止脏读；RR（可重复读）再禁止不可重复读，但规范仍允许幻读；Serializable 要求成功事务效果等价某一串行次序，不是必须物理排队。丢失更新另看实际读改写方式，不能列成每个级别都必然发生。</p>
+<p>MySQL 8.4 / InnoDB 默认 RR，其普通一致读复用事务快照，RC 则每次一致读取新快照；锁定读按访问路径和隔离条件加锁，不能混作一个幻读矩阵。PostgreSQL 18 默认 RC，RU 实际映射 RC，RR 也不允许幻读，但仍可能有序列化异常；默认与运行设置分清。依据：<a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-transaction-isolation-levels.html">InnoDB 隔离</a>、<a href="https://www.postgresql.org/docs/18/transaction-iso.html">PostgreSQL 隔离</a>。未运行这些双会话轨迹。</p>
+<p><strong>把普通一致读接到 undo：</strong>MySQL 8.4 / InnoDB 用 Read View 筛选版本可见性：视图前已提交的版本可见，当时活跃或后来事务的版本不会因随后提交就自动进入旧视图，自己的写入另有可见性规则。当前版本不可见时，可沿 undo 重构可见旧版本；Read View 是可见性边界，不是复制整库数据，也不是把事务 ID 与当前时钟简单比较。</p>
+<p><strong>同一行的文档型轨迹：</strong>x 已提交为 10；B 写 20 未提交时，A 首次普通一致读建视图，仍读 10。B 提交后，RR 中 A 复用旧视图再读仍为 10；若这条轨迹从开始就选 RC，A 下一次普通一致读的新视图可见 20。A 自己再写 30 后能读到 30，不意味着其他行也刷新到新快照。锁定读沿下方锁规则另看；没有 MVCC 仍可用锁等机制实现隔离，读写阻塞与并发代价不同，并非没有事务。依据：<a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-multi-versioning.html">多版本与 undo</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-consistent-read.html">一致读</a>。未运行双会话。</p>
+<p><strong>锁粒度回答范围，S/X 回答兼容：</strong>表级冲突面大；记录级可提高不同行并发，却有锁管理成本，也不等于任意语句只锁一行。以下只看 InnoDB <strong>同一记录、不同事务</strong>的请求：</p>
+<div class="tw"><table><thead><tr><th>已持有 ↓ / 新请求 →</th><th>S 共享</th><th>X 排它</th></tr></thead><tbody><tr><td>S</td><td>可共享</td><td>等待</td></tr><tr><td>X</td><td>等待</td><td>等待</td></tr></tbody></table></div>
+<p>普通非锁定一致读可读版本，不因该 X 锁就一律阻塞；间隙锁、意向锁及其他数据库的元数据锁不能套这张表。依据：<a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-locking.html">InnoDB 锁</a>。</p>
+<p><strong>模式、对象范围与层级分开分类：</strong>记录锁落在索引记录，gap 锁保护索引间隙，next-key 是记录加其前间隙。以 InnoDB 表 <code>t(k PRIMARY KEY)</code> 已有 10、20、30 为文档型夹具：RR 中 A 按 k 做 <code>WHERE k&gt;10 AND k&lt;30 FOR UPDATE</code>，扫描范围的 gap/next-key 可让 B 插入 15 等待；完整唯一键 <code>k=20</code> 命中现有行时，只需相应记录锁，不锁其前间隙。后者不能套给部分复合唯一键或未命中；完整锁集合还要核语句、隔离级别与实际访问路径，不能只按 WHERE 字面推断。</p>
+<p>这是锁定读对照，普通一致读不自动套 X 锁阻塞规则。RC 通常不为查询扫描加 gap 锁，外键/重复键检查仍有例外；gap 锁之间可以共存，不能套前面的记录 S/X 表。事务结束释放相应锁，与 RC 筛去不匹配记录可提前释放等语句级行为要分清；等待本身不会释放已持锁，异常回滚范围沿用下文说明。以上均未做真实锁测试。依据：<a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-locking.html">锁范围</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-locks-set.html">语句加锁边界</a>。</p>
+<p>表级 IS/IX 声明记录 S/X 需求，协调表与行的层级：IX 与 IX 可并存，整表 S 与 IX 冲突。表意向 IX 不等于 INSERT 的插入意向 gap 锁；<a href="#mysql-online-ddl-boundary">DDL 的 MDL 元数据锁</a>又是另一类。自增分配按<a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-auto-increment-handling.html">官方模式边界</a>另核，这里不展开完整内部锁名录。</p>
+<p><strong>死锁是等待成环：</strong>A 持有行 1 等行 2，B 持有行 2 又等行 1；只有一方等待长事务还不是这个环。统一访问顺序、缩短事务和合适索引可降低风险。InnoDB 死锁回滚整个事务，应用按幂等业务操作、有限次数与退避重试整个事务；锁等待超时默认只回滚当前语句，是否整事务回滚另核配置。未知提交结果仍先查账；这里未执行挂死或真实锁测试。依据：<a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-error-handling.html">错误回滚范围</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-deadlocks-handling.html">死锁处理</a>。</p>
+</details>
 <details><summary>可选深入：批量写入先少掉的是提交次数</summary>
 <h3 id="batch-commit-boundary">同样 300 行，逐条提交与单事务比较</h3><div class="codehilite" data-code-language="python" data-g02-example="batch-commit-count"><pre><code>import sqlite3
 from time import perf_counter
@@ -606,7 +647,11 @@ for batched in (False, True):
 print(&quot;模式/提交次数/本次秒数:&quot;, results)
 </code></pre></div>
 <p>本地内存 SQLite 没有数据库网络往返，也没有本例磁盘同步成本；这里核对了相同结果与 300→1 次提交，耗时不设倍数断言。executemany 在 Python sqlite3 中是重复执行参数化 DML，不等于一条多行 INSERT，更不保证所有客户端都只需一次网络往返；远端效果要按驱动/协议测。</p>
-<p>生产写入按行数/字节/耗时限定批次，避免一个无限事务占锁和撑大日志。中途失败按事务状态回滚，重试使用唯一业务键/幂等标识；网络超时可能是已提交但回复丢失，要查账确认，不能直接整批再插。依据：<a href="https://docs.python.org/3.14/library/sqlite3.html#sqlite3.Cursor.executemany">Python sqlite3 executemany / 事务</a>。</p></details>
+<p>生产写入按行数/字节/耗时限定批次，避免一个无限事务占锁和撑大日志。中途失败按事务状态回滚，重试使用唯一业务键/幂等标识；网络超时可能是已提交但回复丢失，要查账确认，不能直接整批再插。依据：<a href="https://docs.python.org/3.14/library/sqlite3.html#sqlite3.Cursor.executemany">Python sqlite3 executemany / 事务</a>。</p>
+<p><strong>提交成本背后的三个职责（MySQL 8.4 / InnoDB 文档说明）：</strong></p>
+<div class="tw"><table><thead><tr><th>日志</th><th>主要职责，不能互换</th></tr></thead><tbody><tr><td>redo</td><td>记录数据页相关修改，供崩溃恢复重放</td></tr><tr><td>undo</td><td>提供回滚及一致读所需的旧信息</td></tr><tr><td>server binlog</td><td>变更事件供复制、备份后的时间点回放</td></tr></tbody></table></div>
+<p>WAL 的落盘偏序是<strong>对应 redo 持久化 → 该脏页写入数据文件</strong>；内存页先修改不违背它。写 log buffer、交给 OS 写文件、同步到可靠存储是不同阶段。提交确认后的耐久性还要核 <code>innodb_flush_log_at_trx_commit</code>、<code>sync_binlog</code> 与硬件同步保证。原 SQLite 内存例只核 300→1 次提交，不验证这些落盘过程或性能倍数。依据：MySQL <a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-redo-log.html">redo</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-undo-logs.html">undo</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/binary-log.html">binlog</a>。</p>
+</details>
 <details><summary>可选深入：把短事务应用到有限库存抽奖</summary>
 <h3 id="lottery-transaction-boundary">概率、参与资格与库存是三道约束</h3>
 <p>场景约束明确为<strong>千万用户规模、每次合法参与抽样概率 1%、奖品库存 1000、每用户有参与次数上限 K</strong>。题目未给 K 的具体数字，这里保留为配置；小例取 K=2 只为验证边界。1% 是抽样规则，不保证有限批次恰好 1% 中，也不保证库存耗尽后仍能兑现每个命中；“未命中”和“命中但库存耗尽”分开返回。千万用户只是规模要求，下面没有作吞吐压测。</p>

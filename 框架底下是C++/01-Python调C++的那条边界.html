@@ -426,7 +426,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h3 id="native-call-versus-system-call">语言边界与权限边界分别看</h3>
 <p><strong>普通 Python 解释器和它调用的原生扩展通常都在用户态运行。</strong> C++ 编译成机器码不授予内核权限：纯数值循环可以一直在用户态执行。用户态代码受地址空间和权限限制；内核态代码可执行操作系统受保护的管理工作。语言、是否“原生”、是否持有 GIL 都不能直接判定当前权限级别。</p>
 <p>一条最小轨迹是：Python 代码 → 原生包装/计算函数（仍是用户态）→ 需要受保护的文件服务时，经系统库包装发起系统调用 → 内核检查参数和权限、完成/安排服务 → 返回用户态。若数据仍在语言/库缓冲里，这次库调用甚至未必立刻触发写系统调用。分配器也可能先复用用户态已有空间。</p>
-<p>系统调用是应用请求内核服务的受控接口，如文件、进程与内存管理；模式切换也不等于必然切换到另一个线程。这里仅区分调用路径，没有跟踪系统调用次数、测权限切换开销或展开陷入实现。依据：<a href="https://learn.microsoft.com/en-us/windows-hardware/drivers/gettingstarted/user-mode-and-kernel-mode">Windows 用户态/内核态</a>、<a href="https://man7.org/linux/man-pages/man2/syscalls.2.html">Linux 系统调用与库包装</a>。</p></details>
+<p>系统调用是应用请求内核服务的受控接口，如文件、进程与内存管理；模式切换也不等于必然切换到另一个线程。这里仅区分调用路径，没有跟踪系统调用次数、测权限切换开销或展开陷入实现。依据：<a href="https://learn.microsoft.com/en-us/windows-hardware/drivers/gettingstarted/user-mode-and-kernel-mode">Windows 用户态/内核态</a>、<a href="https://man7.org/linux/man-pages/man2/syscalls.2.html">Linux 系统调用与库包装</a>。</p>
+<p>以 <a href="https://cdrdv2-public.intel.com/825758/253668-sdm-vol-3a.pdf">Intel x86 保护模式</a> 作控制转移原因对照，具体术语与处理仍依架构和 OS：<br>外设完成并以中断通知 → 外部硬件中断，相对当前指令异步。<br>访问尚未映射或受保护的页 → 可能触发页故障等处理器异常；OS 可能补页后重试，也可能转成信号等处理，并非一律致命。<br>程序主动请求受保护服务 → 系统调用入口，不能从“调用了 C++”就判定发生。</p>
+<p>软件还可用 <code>INT</code> 指令产生中断，因此不能把所有叫“中断”的入口都说成异步。CPU 异常也不等于 C++ <code>throw</code> 或 Python <code>raise</code>；后面的<a href="#_9">绑定边界坑表</a>所说的语言异常转换，不保证 pybind11 能捕获硬件故障。这里不运行故障注入，也不展开驱动或完整中断处理程序。</p></details>
 <h3 id="_5">🚦 第二笔：每个数都是一个对象</h3>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sys</span><span class="o">,</span><span class="w"> </span><span class="nn">array</span>
 
@@ -670,6 +672,14 @@ Python 在 PyTorch 里的角色是编排：决定调用哪个算子、按什么�
 </code></pre></div>
 
 <p>⭐ <strong>注意 <code>ptr</code> 和 <code>n</code> 是在放开之前取好的</strong> —— 放开之后那段循环只碰裸内存，一个 Python 对象都没碰。这就是上一节说的「结构上保证」。</p>
+<p>读刚才 <code>buf.ptr</code> 的转换时，可用下面四行选读核对“转换了什么、前提由谁保证”；不必把它们当四种通用安全检查：</p>
+<table><thead><tr><th>写法与场景</th><th>前提与边界</th></tr></thead><tbody>
+<tr><td><code>static_cast</code>：现 void* → float* 缓冲区</td><td>存储确实适合目标类型且仍存活；它不检查 dtype、shape、对齐或寿命，也不是运行期安全下转。</td></tr>
+<tr><td><code>dynamic_cast</code>：回看 <a href="04-ABI与二进制兼容.html#api-abi">Base / Child</a> 的类型关系</td><td>checked down/sidecast 需有效对象、多态源和可用 RTTI 等条件；失败的指针结果为 null，引用形式抛 bad_cast。部分向上转换不需多态，不能把此要求套到所有 dynamic_cast。</td></tr>
+<tr><td><code>const_cast</code>：改变 <a href="02-值语义与所有权.html#const-borrow-boundaries">cv 访问路径</a></td><td>去限定不让原本 const 的对象变得可写；不能靠强转绕开对象的真实只读条件。</td></tr>
+<tr><td><code>reinterpret_cast</code>：读 <a href="04-ABI与二进制兼容.html#final-endianness">ABI / 对象表示</a> 时分清转换与访问</td><td>表示转换不自动建立任意目标对象、对齐、别名、寿命或 ABI 正确性；仍须回查<a href="02-值语义与所有权.html#allocation-lifetime-raii">对象生命周期</a>。</td></tr>
+</tbody></table>
+<p>这些是 C++17 的有限用法对照，不执行未定义行为反例；现有绑定代码保持原样，真实缓冲区检查仍不可省。依据：<a href="https://timsong-cpp.github.io/cppwp/n4659/expr.static.cast">static_cast</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/expr.dynamic.cast">dynamic_cast</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/expr.const.cast">const_cast</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/expr.reinterpret.cast">reinterpret_cast</a>。</p>
 <h3 id="_9">🧯 边界上还有三个必踩的坑</h3>
 <div class="tw"><table>
 <thead>

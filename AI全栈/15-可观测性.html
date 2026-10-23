@@ -348,6 +348,23 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="print">🧩 二、结构化日志：为什么不能只 <code>print</code></h2>
 <p><code>print</code> 在开发时很好用，上线后有三个致命缺陷：<strong>没有级别、时间、来源</strong>（只能「全看」或「全不看」）；<strong>多进程一起写</strong>，顺序错乱、还要靠肉眼分辨哪条属于哪个请求；以及最要命的那条 —— ⭐ 拼进一句话里的东西查不出来：写下 <code>print(f"用户 {u} 花了 {c} 分")</code> 之后，「昨天 u_42 一共花了多少」就变成了一次正则考古。</p>
+<details>
+<summary>选读：PB 日输入下，怎样按 IP 和时间窗查次数？</summary>
+<p><strong>先定口径。</strong>源题未给窗口与新鲜度；本例选 UTC 两分钟半开窗口 <code>[起, 止)</code>、每分钟刷新，窗口结束后允许五分钟内迟到修正，结果先标暂定。原始输入按十进制 <code>1 PB = 10^15 B</code>/日算，平均约 <strong>11.574 GB/s</strong>；若平均每条 1000 B，则约 <strong>11.574 M 条/s</strong>。峰值、副本、索引和压缩另算；这是设计输入，不是 PB 能力实测。</p>
+<div>原始日志归档 → 去重与事件时间处理 → 按维度、IP 和分钟桶保存可合并计数/索引 → 查询</div>
+<p><strong>先把事件数对。</strong><code>event_id</code> 在约定范围唯一，重试复用且不重复加计；<code>source_ip</code> 由可信入口取得并规范化，不采信任意 <code>X-Forwarded-For</code>，IP 也不等于唯一用户。固定 <code>tenant_id/event_kind</code>，区分发生时间 <code>event_time</code> 与采集时间 <code>observed_time</code>。迟到归发生时间；watermark/允许迟到是处理策略，不保证再无迟到。超期进入归档回补：按 ID 去重后重算并按版本替换受影响桶，重放不累加旧总数。</p>
+<div class="tw"><table>
+<caption>手设同租户、同类访问，IP 为 198.51.100.7；同日 UTC，非实测日志</caption>
+<thead><tr><th>event_id</th><th>event_time</th><th>observed_time</th></tr></thead>
+<tbody>
+<tr><td>e1</td><td>12:00:10</td><td>12:00:11</td></tr>
+<tr><td>e2</td><td>12:00:40</td><td>12:00:41</td></tr>
+<tr><td>e2（重复）</td><td>12:00:40</td><td>12:01:05</td></tr>
+<tr><td>e3（迟到）</td><td>12:01:20</td><td>12:02:10</td></tr>
+</tbody></table></div>
+<div><strong>含迟到修正后：</strong>查 <code>[12:00:00, 12:02:00)</code>，原始去重计数为 3，分钟桶相加为 2 + 1 = 3；访问频率为 3/120 = 0.025 次/秒。改查 <code>[12:00:30, 12:01:30)</code> 时，边缘原始记录只有 e2、e3，共 2 次，不能把两个整桶的 3 次全部算入。</div>
+<p><strong>查询与保留边界。</strong>按维度、IP 和时间定位；只有桶对齐才直接求和，任意边界须查更细桶或原始边缘。原始、细粒度和去重记录须覆盖约定查询/回补期，过期不承诺精确回补；沿用本页<a href="#prompt">日志隐私、短留存与独立权限</a>。插入触发预计算不会自动修正历史变更，须核底层更新语义；单 SQL/物化视图不保证 PB 快查或端到端 exactly-once。聚合语义复用<a href="../SQL查询这一关/03-聚合与分组.html#_1">SQL03</a>；本例未部署或压测。</p>
+</details>
 <blockquote>
 <p>⭐ <strong>形状：一行一条 JSON，事件名是固定字符串，会变的东西全部进字段。</strong>
 事件名固定，才聚合得起来（「<code>llm_call</code> 今天有 12000 条，其中 37 条带 <code>error_kind</code>」）；

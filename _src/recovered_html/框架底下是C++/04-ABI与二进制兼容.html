@@ -372,6 +372,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h2 id="c">🧩 二、C++ 的函数名，不是你写的那个</h2>
 <p>要理解 ① 得先知道一件事：<strong>你写的函数名不会原样出现在编译产物里。</strong></p>
 <p>C++ 允许重载 —— 同名不同参的函数可以有好几个。但链接器只认名字，不认参数。所以编译器会<strong>把参数类型、命名空间、是不是 const 全部编码进名字里</strong>，这个过程叫 <strong>name mangling（名字修饰）</strong>。</p>
+<p>现有 <code>add</code> 重载把同一抽象操作表达成不同参数接口，调用点按静态类型等信息选择候选；普通函数不能只靠返回类型区分重载，优点是接口表达，不是性能保证。它与派生类覆盖基类虚函数不同：同名但不匹配的派生声明还可能只是隐藏基类名字；后面的 <a href="#api-abi">虚派发草图</a> 共用一份覆盖定义，不把重载统称为运行期多态。</p>
 <div class="codehilite" data-code-language="cpp"><pre><span></span><code><span class="c1">// c04_names.cpp</span>
 <span class="c1">// g++ -O2 -std=c++17 -c c04_names.cpp -o c04_names.o</span>
 <span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;string&gt;</span>
@@ -501,8 +502,16 @@ nm -C a.o
 <tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">命名空间内 <code style="white-space:normal;overflow-wrap:anywhere">static int private_calls = 0;</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">命名空间作用域</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">内部链接，仅本翻译单元</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">静态</td></tr>
 <tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">类的静态数据成员</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">类作用域；用类名限定访问</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">依所属类及其声明规则，并非一律内部链接</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">静态，不随每个实例各造一份</td></tr>
 </tbody></table></div>
+<p>前表的函数局部 static 还可承载一种 C++17 单例获取接口，以下只是读法，<strong>不是设计推荐</strong>：</p>
+<p><strong>局部 static 的获取接口（伪代码，非可编译 C++ 程序）</strong></p>
+<pre><code>Singleton：
+  私有构造；禁止复制/移动等额外实例入口
+  公有静态 instance()：
+    函数内 static Singleton value
+    返回 value 的引用</code></pre>
+<p>动态初始化时，并发入口等待初始化完成；初始化抛异常会在后续进入时重试，初始化期间递归重入则有未定义行为风险。初始化保证不等于之后成员访问自动同步，也不保证跨动态库（DSO）永远全进程唯一；静态销毁时的依赖顺序仍要设计。依据：<a href="https://timsong-cpp.github.io/cppwp/n4659/stmt.dcl">C++17 块作用域静态初始化</a>。</p>
 <p>静态成员函数则没有隐式 <code>this</code>，不能把“函数加 static”解释成改变某个对象的存储期。<code>namespace demo { ... }</code> 解决名字组织和冲突，<code>demo::calls</code> 是限定使用；<code>using</code> 影响查找，不会复制变量，也不把自动对象变成静态对象。名字作用域、链接性、对象存储期要分开问。</p>
-<p>全局的已初始化/零初始化对象，在常见 ELF/PE 工具链中可能落在 <code>.data</code>/<code>.bss</code> 等区域；只读对象还可能放入只读段或被优化掉。<strong>段名和物理摆放不是 C++ 标准对所有变量的承诺</strong>；自动存储期也不等于强制放在机器栈上。</p>
+<p>全局的已初始化/零初始化对象，在常见 ELF/PE 工具链中可能落在 <code>.data</code>/<code>.bss</code> 等区域；只读对象还可能放入只读段或被优化掉。<strong>段名和物理摆放不是 C++ 标准对所有变量的承诺</strong>；自动存储期也不等于强制放在机器栈上。在这些 ELF/PE 常见实现里，<code>.text</code> 是放机器指令的代码区域，和这里的静态数据区域、运行时线程栈及分配器管理存储是不同视图。动态分配不保证一个连续堆区，new/malloc 与系统调用也不是逐次一一对应。</p>
 <p>📋 <code>#include "add.h"</code> 与 <code>#include &lt;add.h&gt;</code> 都发生在预处理阶段。以 GCC 为例，引号形式先查包含它的文件所在目录，再走配置的路径；尖括号形式走配置的头文件路径，<code>-I</code>/<code>-iquote</code>/<code>-isystem</code> 可改变搜索。具体顺序查目标工具链，不能背成“引号只找自己写的、尖括号只找系统的”。它们都不负责链接器的 <code>-L</code> 或加载器搜索路径。</p>
 <p>✅ 自检：一份头文件有 include guard，却在两份 .cpp 中各定义了同一个外部全局变量，为什么仍可能链接失败？<strong>每个翻译单元只包含一次，并不等于整个程序只定义一次。</strong></p>
 <p>依据：<a href="https://eel.is/c++draft/basic.link">程序与链接</a>、<a href="https://eel.is/c++draft/basic.def.odr">ODR</a>、<a href="https://eel.is/c++draft/basic.stc">存储期</a>、<a href="https://eel.is/c++draft/dcl.link">语言链接</a>；命令和搜索顺序查 <a href="https://gcc.gnu.org/onlinedocs/gcc/Overall-Options.html">GCC 编译阶段</a>与<a href="https://gcc.gnu.org/onlinedocs/cpp/Search-Path.html">头文件搜索</a>。标准链接是滚动草案，本例限定 C++17 的普通头文件规则。</p>
@@ -544,6 +553,9 @@ nm -C a.o
 </table></div>
 <p>⭐ <strong>一句话：API 兼容 = 能重新编译；ABI 兼容 = 不用重新编译就能换。</strong></p>
 <p>⚠️ <strong>能悄悄改变 ABI 的东西比你想的多</strong>：编译器版本、C++ 标准版本、标准库的实现和版本、优化选项、是否开异常、结构体里加一个字段、给函数加一个默认参数、给类加一个虚函数……<strong>其中大部分都不会让源码编译失败。</strong></p>
+<p>虚函数先看语言语义：假设 <code>Base::value() const</code> 是虚函数，<code>Child::value() const override</code> 覆盖它；令 <code>Base&amp; r</code> 引用一个 <code>Child</code> 对象，<code>r.value()</code> 就可经基类接口派发到最终覆盖函数 <code>Child::value</code>。这是一份省略类型定义的接口草图，不是完整可编译程序；显式限定的 <code>r.Base::value()</code> 会抑制这种虚派发，构造/析构期间也按当前构造/析构阶段派发，不能一律说调用最派生版本。</p>
+<p>覆盖要求名字、参数列表及 cv/ref 限定等匹配，返回类型须相同或满足受限的类指针/引用协变规则；<code>override</code> 让编译器检查是否真的覆盖。<code>final</code> 类禁止作为基类，<code>final</code> 虚函数禁止继续被覆盖；它们不是 const、同步机制或 ABI 兼容保证。</p>
+<p>机制还要分层：<a href="https://itanium-cxx-abi.github.io/cxx-abi/abi.html#vtable">Itanium C++ ABI</a> 用对象中的虚表指针关联虚表地址点，再由表中的函数入口参与派发；这是一个命名 ABI 的实现模型，不是语言规定 vptr 必在首字节、每对象只有一个或表大小固定。语言上，构造函数不可 virtual，析构函数可以；静态成员函数和成员函数模板本身不可 virtual，别把 PyTorch dispatcher 的注册表与此处虚表当成同一机制。依据：C++17 <a href="https://timsong-cpp.github.io/cppwp/n4659/class.virtual">虚函数/覆盖</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/temp.mem">成员模板</a>。</p>
 <h2 id="_3">🧩 四、第一道关：符号对不上</h2>
 <p>最经典的一次 ABI 断裂，是 GCC 5 改了 <code>std::string</code> 的内部结构。为了让老程序还能用，libstdc++ 同时保留了两套实现，用宏 <code>_GLIBCXX_USE_CXX11_ABI</code> 切换。</p>
 <p>同一份源码，只改这一个宏，看符号名会怎样：</p>
@@ -607,6 +619,26 @@ template int twice&lt;int&gt;(int);         // 为 int 提供显式实例化定�
 
 <p>方案 B 的实现文件看得见模板定义，并明确生成 <code>twice&lt;int&gt;</code>；调用方通过显式实例化声明抑制相应的隐式实例化，再由链接器找到定义。要支持 double，必须另提供对应定义/实例化，或改回定义可见的组织。本例未编译，<strong>不能把缺少某种实例化时某个链接器的具体报错当标准保证</strong>。</p>
 <p>模板的收益是泛型复用、编译期类型检查和针对类型生成实现的机会；代价是定义依赖扩散、实例化/诊断时间、潜在的代码体积。优化器可能合并/消除实例，不是每次调用都生成一份，也不保证泛型代码必然更快。</p>
+<p>再把“选哪一个候选”与“为它生成实现”分开。下面是独立的 <strong>C++17 正例文件，未编译、未运行</strong>：<code>type_traits</code> 取得类型和编译期常量，<code>enable_if_t</code> 在条件为真时提供 type，条件为假则让此处模板参数的直接替换失败，移除该候选。</p>
+<pre><code>// Proposed C++17 teaching file; NOT COMPILED/RUN in this review.
+#include &lt;type_traits&gt;
+template&lt;class T, std::enable_if_t&lt;std::is_integral_v&lt;T&gt;, int&gt; = 0&gt;
+constexpr int classify(T) { return 1; }
+constexpr int classify(...) { return 0; }
+using unsigned_type = std::make_unsigned_t&lt;int&gt;;
+static_assert(std::is_unsigned_v&lt;unsigned_type&gt;);
+static_assert(classify(3) == 1);
+static_assert(classify(3.5) == 0);
+int main() {}
+</code></pre>
+<p>按源码规则推演，<code>unsigned_type</code> 是类型结果，<code>is_unsigned_v</code> 是编译期值；<code>classify(3)</code> 选 integral 候选，<code>classify(3.5)</code> 替换失败后选 ellipsis 备用。先经推导/替换和重载选择确定候选，再按需要实例化，最后仍须有可供链接的定义；这不等于每次模板错误都能自动回退。</p>
+<p>SFINAE 的保护范围只及相应的 <strong>immediate context（直接上下文）</strong> 替换，函数体或另行实例化引出的硬错误不受通用保护。下面必须是<strong>单独的预期编译失败文件</strong>，本轮未执行诊断，更不运行无效程序：</p>
+<pre><code>// SEPARATE expected-failure C++17 teaching file; NOT COMPILED.
+template&lt;class T&gt; int body_error(T value) { return value.missing; }
+int body_error(...) { return 0; }
+int main() { return body_error(1); } // body instantiation error, no fallback
+</code></pre>
+<p>对 <code>body_error(1)</code>，模板候选先获选，随后实例化函数体才发现 int 没有 missing；不会回头选 ellipsis 来吞掉这个错误。C++20 的 requires 可表达部分约束需求，但不混进这里的 C++17 文件；此处不是完整模板元编程教程。依据：<a href="https://timsong-cpp.github.io/cppwp/n4659/temp.deduct">C++17 模板替换边界</a>。</p>
 <div class="tw" style="max-width:100%;min-width:0"><table style="table-layout:fixed;width:100%;min-width:0"><thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere">产物</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere">在哪个阶段参与</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere">交付与边界</th></tr></thead><tbody>
 <tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">对象文件 <code style="white-space:normal;overflow-wrap:anywhere">.o / .obj</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">编译/汇编的结果；供链接</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">有符号和重定位信息，通常还不是可独立运行的程序</td></tr>
 <tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">静态库 <code style="white-space:normal;overflow-wrap:anywhere">.a / .lib</code></td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">对象文件的归档；链接器按规则抽取所需成员</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere">相关代码进入最终产物；更新这部分实现通常需重新链接交付，体积/复用取舍依链接选项</td></tr>

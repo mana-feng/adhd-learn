@@ -1019,7 +1019,26 @@ int main() {
 }
 </code></pre></div>
 <p>这个小例特意在第二个线程创建失败时 join 第一个；它不是完整线程组封装。detach 只解除句柄关联，不等待工作结束、不延长 lambda 捕获引用的寿命；把原实验改成 detach 然后返回，会让 worker 可能访问已销毁的局部数据，禁止这样复现。线程函数中未捕获异常也会 terminate，不能假定由启动者的 catch 自动接住。</p>
-<p>独立计数器 ++ 可以选 atomic，让每次读改写成为原子操作；atomic 不保证无锁，也不会把多个字段的业务不变量合成一个事务。比如“余额减少与转出记录增加”需要一个整体临界区，不能用两个互不相关的 atomic 就声称一致。这里不展开 memory_order、条件变量、线程池或线程安全类。</p>
+<p>独立计数器 ++ 可以选 atomic，让每次读改写成为原子操作；atomic 不保证无锁，也不会把多个字段的业务不变量合成一个事务。比如“余额减少与转出记录增加”需要一个整体临界区，不能用两个互不相关的 atomic 就声称一致。下面只补这些 worker 的接口、状态与收尾读法，不实现完整并发库。</p>
+<p>把上面的“余额＋转出记录”封装成类，边界也必须一起封装；<code>const</code> 方法不会自动线程安全。一个最小接口契约可以这样读，锁管理沿用 02 章，不另写一份 guard 实验：</p>
+<p><strong>余额与记录的接口草图（伪代码，非可编译 C++ 程序）</strong></p>
+<pre><code>Ledger：
+  私有：mutable mutex m、balance、records
+  apply(amount)：持 m 检查并一起更新余额/记录；失败也须保持不变量
+  snapshot() const：持同一 m 复制状态，返回快照</code></pre>
+<p>不导出可变内部引用，所有相关读写都遵守同一锁协议；否则封装就漏了。单个方法安全不等于调用者连续调用多个方法成为原子事务，对象销毁前也必须已无并发访问；草图只提出接口与失败路径约束，不是一份已经验证的类实现。</p>
+<p>若要每线程一份计数，可读函数体内的块作用域声明 <code>thread_local unsigned count = 0;</code>：同一声明在各线程对应独立实体。这个块作用域例若需要动态初始化，在该线程首次经过声明时初始化，已构造对象在线程退出时销毁；池中它随 worker 生存，不会每个任务自动重置。<code>thread_local</code> 指针所指对象仍可能共享，TLS 也不是跨线程发布协议；不由此承诺无开销或固定实现偏移。</p>
+<p>原实验的 <code>relaxed</code> 还需要一句读法：它只让该 atomic 的访问保持原子性，不用它发布其他普通数据。本章固定 C++17，六种内存序按用途区分：</p>
+<ul>
+<li><code>relaxed</code>：该 atomic 的原子访问，不附加跨数据的同步发布。</li>
+<li><code>consume</code>：按读到的值所携带的数据依赖约束后续操作；C++17 的注释建议优先用更强的 acquire，二者定义不同，不把此条推广为所有后续版本的状态。</li>
+<li><code>acquire</code>：获取；用在适用的读取或读改写操作上。</li>
+<li><code>release</code>：释放；用在适用的写入或读改写操作上。</li>
+<li><code>acq_rel</code>：适用的读改写（RMW）同时具有获取与释放作用。</li>
+<li><code>seq_cst</code>：相应操作还参与标准规定的单一总序，不是把全部普通内存操作自动串行化。</li>
+</ul>
+<p>例如先写普通数据，再向 <code>flag</code> 作 release store；另一线程的 acquire load <strong>读到该 store（或其释放序列）写入的值</strong>，才建立这里所说的发布/获取关系，不能只凭时间先后断言。<code>load</code> 不能用 release/acq_rel，<code>store</code> 不能用 consume/acquire/acq_rel；更复杂的 RMW、失败序与生命周期另有约束，不靠一次运行证明正确。依据：C++17 <a href="https://timsong-cpp.github.io/cppwp/n4659/atomics.order">内存序</a>与<a href="https://timsong-cpp.github.io/cppwp/n4659/atomics.types.operations">atomic 操作</a>。</p>
+<p>若要复用 worker 而不是每次新建，线程池的大体流程是：任务队列由 mutex/CV 保护；worker 等“有任务或停止”，锁内取任务，<strong>解锁后执行</strong>，在线程入口处理任务失败，不让异常逃出。关闭时先拒收新任务，再明确选择排空待办或取消尚未开始的任务，通知等待者，最后不持队列锁地 join；否则 join 可能挡住需要该锁的 worker。队列容量是需选择的约束，不能承诺取消任意正在运行的任务；所有者及被捕获对象须活到 worker 终止。02 章的谓词等待可复用，这里不交付通用池或吞吐结论。</p>
 <h3 id="jthread-cpp20-boundary">C++20 可选对照：协作停止不是强杀</h3>
 <p>下面是独立 C++20 例，不可放进原 C++17 编译命令。jthread 在可 join 的析构路径请求停止并 join；stop_token 要由工作代码主动检查，阻塞或忽略请求的 worker 仍可能让析构等待。它也不自动修复捕获对象的寿命顺序。</p><div class="codehilite" data-code-language="cpp" data-g02-example="jthread-cooperative-stop"><pre><code>#include &lt;cassert&gt;
 #include &lt;atomic&gt;

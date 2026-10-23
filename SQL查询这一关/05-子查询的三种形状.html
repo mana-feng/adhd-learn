@@ -656,7 +656,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⚠️ 注意 <code>8 NOT IN (8, NULL)</code> 算出的是确定的 <strong>0</strong>（因为 <code>8 &lt;&gt; 8</code> 是确定的假，<code>假 AND 任何</code> 都是假）。</p>
 <p>⭐ <strong>所以 <code>NOT IN</code> 只在「确实匹配上」时给确定答案，「没匹配上」时给 UNKNOWN —— 恰好把你想要的那些行全部丢掉。</strong></p>
 <p>⚠️ <code>UNKNOWN</code> 在 <code>AND</code> / <code>OR</code> 下的完整传播规则、<code>IS NULL</code> 为什么不能写成 <code>= NULL</code>、以及上面后三行为什么各不相同，全在 <a href="04-NULL与三值逻辑.html">04 章</a>第二节。本节只借它这一个结论。</p>
-<p>回到子查询的视角，这个坑真正的意义是：它把「三选一」变成了「二选一」。<code>IN</code> 和 <code>EXISTS</code> 在肯定方向上确实可以随便挑（上一节实测两者都是 3 行 <code>[1, 5, 7]</code>），但一加上 <code>NOT</code>，<code>IN</code> 那一支就带上了一个不报错的失效模式，而 <code>EXISTS</code> 那一支没有 —— 因为 <code>EXISTS</code> 问的是「有没有配上的行」，<code>b.uid = c.uid</code> 判成 <code>UNKNOWN</code> 就是没配上，是个明确的否，不往外传染。</p>
+<p>回到子查询的视角，这个坑真正的意义是：它把「三选一」变成了「二选一」。上节相同匹配条件的 <code>WHERE</code> 筛选中，<code>IN</code> 与 <code>EXISTS</code> 返回相同行（实测都是 3 行 <code>[1, 5, 7]</code>）；表达式真值却不总相同：<code>IN</code> 可有 <code>UNKNOWN</code>，<code>EXISTS</code> 只返回真或假。加上 <code>NOT</code> 后，<code>IN</code> 那一支就带上了一个不报错的失效模式，而 <code>EXISTS</code> 那一支没有 —— 因为 <code>EXISTS</code> 问的是「有没有配上的行」，<code>b.uid = c.uid</code> 判成 <code>UNKNOWN</code> 就是没配上，是个明确的否，不往外传染。</p>
 <blockquote>
 <p>⭐ <strong>判据可以背下来：只要是「不在某个集合里」，一律写 <code>NOT EXISTS</code>。</strong>
 不用先去查那一列有没有 <code>NULL</code> —— <strong>今天没有不代表明天没有</strong>，而这个 bug 不报错、不告警，
@@ -696,8 +696,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>🗓️ 未实跑：Postgres 在这种情况下会直接报「more than one row returned by a subquery」，MySQL 报 <code>Subquery returns more than 1 row</code> —— 换库时同一条 SQL 会从「悄悄错」变成「直接崩」。</p>
 <h3 id="2-from">② <code>FROM</code> 子查询的别名</h3>
 <p>SQLite 不要求（上面 <code>FROM (SELECT id FROM conv)</code> 跑通了），🗓️ 但 Postgres 和 MySQL 要求（未实跑）。⭐ 一律加别名 <code>AS t</code>，零成本，还让外层引用它的列时有名字可用。</p>
-<h3 id="3-exists-select">③ <code>EXISTS</code> 的 <code>SELECT</code> 列表<strong>根本不求值</strong></h3>
-<p><code>SELECT 1</code> 还是 <code>SELECT *</code>，很多人纠结过。实测：连一个单独跑必定报错的表达式塞进去都没事。</p>
+<h3 id="3-exists-select">③ 普通 <code>EXISTS</code> 例里，<code>SELECT</code> 投影未求值</h3>
+<p><code>SELECT 1</code> 还是 <code>SELECT *</code>？下面这组 SQLite 普通 <code>EXISTS</code> 查询只检查有没有行，投影中的溢出表达式没有被求值。先看本例结果，再划清适用范围。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 
 <span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
@@ -719,7 +719,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>实测输出：</p>
 <section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">单独跑 : OperationalError - integer overflow</span></div><div class="vb-flow-row"><span class="vb-flow-step">EXISTS (SELECT 1 ) -&gt; 4</span></div><div class="vb-flow-row"><span class="vb-flow-step">EXISTS (SELECT NULL ) -&gt; 4</span></div><div class="vb-flow-row"><span class="vb-flow-step">EXISTS (SELECT * ) -&gt; 4</span></div><div class="vb-flow-row"><span class="vb-flow-step">EXISTS (SELECT abs(-9223372036854775808) ) -&gt; 4</span></div></div></section>
-<p>⭐ 那个溢出表达式单独跑必报错，放进 <code>EXISTS</code> 里四次都安然无恙 —— 证明 <code>SELECT</code> 列表压根没被求值，<code>EXISTS</code> 只关心「有没有行」。写 <code>SELECT 1</code> 是习惯，不是优化。</p>
+<p>⭐ 上面四种原普通查询都返回 4，溢出投影没有触发。<strong><code>EXISTS</code> 只问子查询是否返回行，不保证子查询内部不需要计算表达式。</strong>在这组查询里，写 <code>SELECT 1</code> 是表达意图的习惯，不是提速保证。</p>
+<p>边界反例（SQLite 3.53.1 内存对照）：普通 <code>EXISTS(SELECT abs(-9223372036854775808))</code> 返回 1；子查询改为 <code>SELECT abs(-9223372036854775808) INTERSECT SELECT 1</code> 后报 <code>integer overflow</code>；两边都投影 <code>1</code> 时又返回 1。<code>INTERSECT</code> 要用投影值确定交集是否有行。不要依赖表达式副作用或求值次数；其他引擎与版本分别核验。依据：SQLite <a href="https://www.sqlite.org/lang_expr.html#the_exists_operator">EXISTS</a>、<a href="https://www.sqlite.org/lang_select.html#compound_select_statements">复合 SELECT</a>。</p>
 <h2 id="_5">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -772,7 +773,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><code>NOT IN</code> 遇到含 <code>NULL</code> 的子查询，实测返回什么？把 <code>x NOT IN (a, b)</code> 展开成等价式子，说明它为什么塌。</li>
 <li>为什么说这个坑「把三选一变成了二选一」？<code>NOT EXISTS</code> 凭什么不被传染？实测四种写法在这份数据里各返回什么，它们什么时候会分叉？</li>
 <li>标量位置塞进一个多行子查询，SQLite 是什么反应？多列呢？这对写法有什么要求？</li>
-<li>怎么证明 <code>EXISTS</code> 的 <code>SELECT</code> 列表根本没被求值？</li>
+<li>原普通 <code>EXISTS</code> 查询怎样说明溢出投影未求值？为什么加入 <code>INTERSECT</code> 后不能照搬这个结论？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
@@ -786,9 +787,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><code>IN</code> <strong>3 行</strong>、<code>EXISTS</code> 3 行、<code>JOIN</code> 5 行（会话 1 和 7 各有 2 条 assistant 消息，各被带出 2 遍）、<code>JOIN + DISTINCT</code> 回到 3 行。接 <code>SUM(updated_at)</code>：<code>EXISTS</code> 版 299，<code>JOIN</code> 版 499。<code>IN</code>/<code>EXISTS</code> 是半连接（只问有没有），<code>JOIN</code> 是配对（每个匹配产出一行）。</li>
 <li><strong>右表的列你到底要不要</strong>。不要 → <code>EXISTS</code>（结构上不可能扇出）；判据是一小撮字面值/单列小结果集 → <code>IN</code>；要右表的列 → <code>JOIN</code>（自己处理扇出）；要右表的聚合值 → 先聚合再连（扇出在聚合那一步就消掉了）；每行加个小值且没匹配也要保留该行 → 相关标量子查询。</li>
 <li>实测返回 <strong><code>[]</code>（空集），且不报错</strong>。展开是 <code>x &lt;&gt; a AND x &lt;&gt; b</code>，而 <code>7 &lt;&gt; NULL</code> 是 UNKNOWN（实测 <code>None</code>），<code>真 AND UNKNOWN</code> = UNKNOWN，<code>WHERE</code> 只放行确定为真的行。⚠️ 对照：<code>8 NOT IN (8, NULL)</code> 是确定的 0 —— 所以 <code>NOT IN</code> 只在「确实匹配上」时给确定答案，没匹配上的那些正是你想要的行，全被 UNKNOWN 吃掉。</li>
-<li>因为 <code>IN</code> 和 <code>EXISTS</code> 在<strong>肯定</strong>方向上确实可以随便挑（实测都是 3 行 <code>[1,5,7]</code>），但一加 <code>NOT</code>，<code>IN</code> 那一支就带上了一个不报错的失效模式，<code>EXISTS</code> 那一支没有 —— <code>EXISTS</code> 问的是「有没有配上的行」，<code>b.uid = c.uid</code> 判成 UNKNOWN 就是没配上，是个明确的否，不往外传染。实测：<code>NOT IN</code> → <code>[]</code>，<code>NOT EXISTS</code> / <code>LEFT JOIN … IS NULL</code> / <code>NOT IN</code> + 内层过滤 → 都是 <code>[(7,)]</code>。⚠️ 这里一致是因为 <code>conv.uid</code> 本身没有 <code>NULL</code>；外层那一列自己也可能是 <code>NULL</code> 时它们会分叉，那是业务口径的选择，在 <a href="04-NULL与三值逻辑.html">04 章</a>第四节。</li>
+<li>在相同匹配条件的肯定式 <code>WHERE</code> 筛选中，<code>IN</code> 与 <code>EXISTS</code> 实测都返回 3 行 <code>[1,5,7]</code>；这不代表表达式真值相同：<code>IN</code> 可有 <code>UNKNOWN</code>，<code>EXISTS</code> 只返回真或假。加上 <code>NOT</code> 后，<code>IN</code> 那一支就带上了一个不报错的失效模式，<code>EXISTS</code> 那一支没有 —— <code>EXISTS</code> 问的是「有没有配上的行」，<code>b.uid = c.uid</code> 判成 UNKNOWN 就是没配上，是个明确的否，不往外传染。实测：<code>NOT IN</code> → <code>[]</code>，<code>NOT EXISTS</code> / <code>LEFT JOIN … IS NULL</code> / <code>NOT IN</code> + 内层过滤 → 都是 <code>[(7,)]</code>。⚠️ 这里一致是因为 <code>conv.uid</code> 本身没有 <code>NULL</code>；外层那一列自己也可能是 <code>NULL</code> 时它们会分叉，那是业务口径的选择，在 <a href="04-NULL与三值逻辑.html">04 章</a>第四节。</li>
 <li>多<strong>行</strong>：⚠️ 不报错，悄悄取第一行（实测 <code>(1,)</code>）；多列：报 <code>sub-select returns 2 columns - expected 1</code>。要求是自己保证它最多一行 —— 要么是聚合，要么带明确的 <code>ORDER BY</code> + <code>LIMIT 1</code>（不带 <code>ORDER BY</code> 时「第一行是谁」SQL 不做承诺）。🗓️ Postgres / MySQL 在这种情况下会直接报错（未实跑）。</li>
-<li>把一个<strong>单独跑必定报错</strong>的表达式塞进去：<code>abs(-9223372036854775808)</code> 单独跑报 <code>integer overflow</code>，放进 <code>EXISTS</code> 的 <code>SELECT</code> 列表里和 <code>1</code> / <code>NULL</code> / <code>*</code> 一样，实测都返回 4。证明列表压根没被求值，<code>SELECT 1</code> 是习惯不是优化。</li>
+<li>原普通查询把 <code>abs(-9223372036854775808)</code> 放进 <code>EXISTS</code> 的 <code>SELECT</code> 列表，与 <code>1</code> / <code>NULL</code> / <code>*</code> 一样返回 4，说明本例没有求值这个溢出投影；单独运行它仍报 <code>integer overflow</code>。加入 <code>INTERSECT</code> 的子查询可能要用投影值确定结果行，内存反例会报同一溢出错误。<code>EXISTS</code> 检查有没有行，不是子查询内部永不求值的保证；不要依赖表达式副作用。</li>
 </ol>
 </details>
 <h2 id="_7">🛑 可以停在这里</h2>

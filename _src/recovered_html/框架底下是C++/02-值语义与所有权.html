@@ -485,6 +485,8 @@ int main() {
 }
 </code></pre></div>
 <p>观察顺序：基类先于成员；first 先于 second，尽管初始化列表反着写。对非委托构造，虚基类由最派生对象按规定遍历顺序初始化，然后是直接基类声明顺序、非静态成员声明顺序，最后进入函数体。<strong>初始化列表的文本顺序改不了它</strong>。示例的两个成员只依赖 n；不要把 second 写成依赖尚未初始化成员的危险试验。委托构造则先完成目标构造，再执行委托者函数体。</p>
+<p>“虚基类”可用一个最小菱形关系理解：若 <code>L</code>、<code>R</code> 都以 <code>virtual</code> 继承 <code>B</code>，<code>D</code> 再继承 <code>L</code>、<code>R</code>，这些虚继承路径在 <code>D</code> 中共享同一个 <code>B</code> 子对象，由最派生对象初始化；普通重复继承路径则各有子对象。混合虚/非虚路径仍可带来额外的非虚 <code>B</code>，不是所有菱形都自动只有一份。虚继承解决基类子对象关系，虚函数解决调用派发，不能由同一个关键词推出相同用途或固定布局。</p>
+<p>回看现有 <code>Loud : Base</code> 与 <code>Member first/second</code>：有合理基类契约和可替换关系时可考虑继承；独立职责或寿命的部件可用组合表达，避免仅为复用几行实现就继承。这是设计取舍，不是标准强制或“组合永远更好”；含成员不等于运行期多态，继承也不自动需要虚函数。</p>
 <p>默认、复制、移动构造是否由编译器生成有条件：声明其他构造函数会抑制隐式默认构造；用户声明复制/移动或析构函数会影响隐式移动的生成，声明移动操作还可能使隐式复制被定义为删除；成员不可复制也可能使生成的复制构造被删除。因此“没写就一定有”不成立；本节不展开全部特殊成员规则。</p>
 <p><code>Loud b(2)</code> 与 <code>Loud b{2}</code> 都是直接初始化，允许调用 explicit 构造；<code>Loud b = 2</code> 的复制初始化不允许这样隐式转换。故意不能编译的最小反例，须单独作为一个文件：</p><div class="codehilite" data-code-language="cpp" data-g02-example="explicit-fail"><pre><code>struct Loud { explicit Loud(int) {} };
 int main() { Loud value = 1; } // expected compile error: explicit conversion
@@ -502,7 +504,8 @@ int main() { Token value = make(); }
 <p>上面的断言核对值，不锁死 named() 的构造次数。依据 C++17 草案：<a href="https://timsong-cpp.github.io/cppwp/n4659/class.ctor">构造函数</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/class.copy.ctor">复制/移动生成条件</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/class.conv.ctor">转换构造</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/dcl.init.list">列表初始化</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/class.base.init">初始化顺序</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/class.copy.elision">复制消除</a>。</p></details>
 <details><summary>可选深入：Loud 里的 this、默认访问与空指针</summary>
 <h3 id="this-and-nullptr">对象指针不等于所有权</h3>
-<p>在本章 C++17 的非静态成员函数里，this 指向本次调用的对象；const 成员函数中的 this 类型为 const Loud*，限制这条访问路径，不让对象自动线程安全。struct 默认成员访问与默认基类继承为 public，class 默认均为 private；显式写出访问说明后，它们都能有构造、成员函数等机制。以下是独立缩小版 Loud，不改前面的类型。</p><div class="codehilite" data-code-language="cpp" data-g02-example="this-null-default-access"><pre><code>#include &lt;cassert&gt;
+<p>在本章 C++17 的非静态成员函数里，this 指向本次调用的对象；const 成员函数中的 this 类型为 const Loud*，限制这条访问路径，不让对象自动线程安全。struct 默认成员访问与默认基类继承为 public，class 默认均为 private；显式写出访问说明后，它们都能有构造、成员函数等机制。以下是独立缩小版 Loud，不改前面的类型。</p>
+<p>访问级别另问“谁可以用这个成员”：<code>public</code> 对调用方开放；<code>private</code> 仍允许本类成员和友元访问；<code>protected</code> 还允许符合规则的派生类成员/友元访问。对于派生类 <code>D</code> 取得权限的受保护非静态成员访问，通常还要求对象表达式的静态类型是 <code>D</code> 或其派生类，不能因此任意经 <code>Base&amp;</code> 或兄弟派生对象访问；成员指针也有额外限定。访问控制不等于所有权、线程安全或运行期内存隔离。依据：C++17 <a href="https://timsong-cpp.github.io/cppwp/n4659/class.access">访问控制</a>与<a href="https://timsong-cpp.github.io/cppwp/n4659/class.protected">protected 访问规则</a>。</p><div class="codehilite" data-code-language="cpp" data-g02-example="this-null-default-access"><pre><code>#include &lt;cassert&gt;
 #include &lt;cstddef&gt;
 #include &lt;type_traits&gt;
 struct Loud {
@@ -846,6 +849,7 @@ int main() {
 }
 </code></pre></div>
 <p>普通抛异常的 new 在分配失败时抛 std::bad_alloc，malloc 失败返回空指针，另有 nothrow new 的接口。new 表达式若构造失败，通常由匹配的释放函数归还刚分配的存储；完整对象没构造成功，就不会调用它的析构，但已完成构造的子对象会按规则展开。标准 placement new 不负责 free 你给的存储，所以这里在 catch 中归还 malloc 存储。正常路径先析构再 free，异常路径与正常路径的 make_unique 都验证 alive 回到 0。</p>
+<p>存储从哪里来？以 <a href="https://raw.githubusercontent.com/bminor/glibc/glibc-2.42/malloc/malloc.c">glibc 2.42 的 malloc</a> 为例，分配器用块大小、状态等元数据管理存储，可复用已空闲的块，必要时再经 <code>brk</code>/<code>mmap</code> 等路径取得更多虚拟空间。不是每次调用都进内核，也没有适用于所有平台的固定阈值或物理连续保证；返回非空仍不等于所有物理页已驻留。这里接的是 01 章的用户态分配器边界，不改变上面的构造/释放规则。</p>
 <p>“局部对象在栈上、new 对象在堆上”只是常见实现速记。语言讨论的是自动/静态/线程/动态等存储期、生命周期与销毁责任，不强制某个物理栈或堆布局；优化也可能消除实际分配。依据 C++17 草案：<a href="https://timsong-cpp.github.io/cppwp/n4659/expr.new">new 表达式</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/expr.delete">delete 表达式</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/c.malloc">C 存储管理</a>。</p></details>
 <details><summary>可选深入：锁也是 RAII 资源，接口失败怎样传播？</summary>
 <h3 id="lock-ownership-and-errors">guard 固定作用域，unique_lock 可改变持有状态</h3>
@@ -871,7 +875,20 @@ int main() {
     transferred.lock(); // destructor unlocks only if still owning
 }
 </code></pre></div>
-<p>异常可把失败向调用链传播，按规则栈展开时 RAII 清理已构造资源；返回状态/错误码则把分支留给调用者，须检查结果，不能靠“没抛异常”判断成功。接口选择看恢复责任、调用约定、异常边界与团队约定，不能未经测量声称谁永远更快。析构期间再抛异常可能导致 terminate，清理函数应按接口约定处理失败；异常也不意味着数据库写入等外部效果自动回滚。这里不展开条件变量或并发事务。依据：<a href="https://timsong-cpp.github.io/cppwp/n4659/thread.lock.guard">lock_guard</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/thread.lock.unique">unique_lock</a>。</p></details>
+<p>异常可把失败向调用链传播，按规则栈展开时 RAII 清理已构造资源；返回状态/错误码则把分支留给调用者，须检查结果，不能靠“没抛异常”判断成功。接口选择看恢复责任、调用约定、异常边界与团队约定，不能未经测量声称谁永远更快。析构期间再抛异常可能导致 terminate，清理函数应按接口约定处理失败；异常也不意味着数据库写入等外部效果自动回滚。下面只补一次条件等待，不展开并发事务。依据：<a href="https://timsong-cpp.github.io/cppwp/n4659/thread.lock.guard">lock_guard</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/thread.lock.unique">unique_lock</a>。</p>
+<p>这里有三层：RAII 管理器调用 <code>mutex</code> 的接口；互斥原语协调所有权及解锁到随后成功加锁的同步；实现再选择原子状态与等待/唤醒机制。例如 Linux <a href="https://man7.org/linux/man-pages/man2/futex.2.html">futex</a> 可把用户态状态与必要的内核等待连接起来，但 C++ 标准没有规定 <code>std::mutex</code> 必须用 futex，也不是每次 <code>lock</code> 都进内核；公平性、自旋轮数和平台路径不能从 RAII 例推出。</p>
+<p><code>unique_lock</code> 能暂时释放再获取锁，也可交给条件变量等待。下面只交接一次数据：同一 <code>m</code> 保护持久的 <code>ready/stop</code> 状态和数据，先于等待发生的通知要靠状态承接，而非靠通知次数。</p>
+<p><strong>一次条件等待的交接（伪代码，非可编译 C++ 程序）</strong></p>
+<pre><code>worker：
+  unique_lock lock(m)
+  cv.wait(lock, ready || stop 的谓词)
+  若 stop，返回；否则取走数据
+  lock.unlock()；处理一次数据后返回
+主线程：
+  { 持 m 写入数据，ready = true }
+  cv.notify_one()
+  不持 m 调用 worker.join()</code></pre>
+<p><code>cv.wait(lock, pred)</code> 原子地释放锁并进入等待，醒来后重新持锁、复查谓词，因而也处理虚假唤醒；循环本身不能修复未按同一锁协议保护的状态。停止分支同样在锁内置 <code>stop=true</code>，再通知；<code>notify</code> 可在解锁后发出，不要求持锁。<code>m</code>、条件变量、状态和数据都要活到 worker 退出并被 join 之后；不用 sleep 假装同步，也不把这一个标志当生产消息队列。依据：<a href="https://timsong-cpp.github.io/cppwp/n4659/thread.condition.condvar">C++17 condition_variable</a>。</p></details>
 <h2 id="_4">🧩 六、四种指针，四种所有权声明</h2>
 <p><code>unique_ptr</code> / <code>shared_ptr</code> 那两段（③④）演示的是同一件事的两种回答。把它们和裸指针、引用放在一起：</p>
 <div class="tw"><table>
@@ -1068,6 +1085,18 @@ int main() {
 <h3 id="container-capacity-and-borrows">改容器前先问：哪些借用还能继续用？</h3>
 <section data-qsys-repair="QSYS-010" aria-label="迭代器与指针的有限对照">
 <p><strong>迭代器先是“遍历位置＋允许的操作”的抽象。</strong>算法通过同一套接口处理不同序列：对可解引用的位置用 <code>*it</code> 访问元素，用 <code>++it</code> 前进；end 表示结束位置，不能解引用。它不要求迭代器对象本身就是元素的裸地址。</p>
+<p>这些接口常按 STL 的六类组件来理解：容器存元素（如 vector），迭代器给位置与能力，算法处理范围（如 find），函数对象提供策略（如 std::less），适配器包装接口（如 std::stack），分配器供给存储（如 std::allocator）。这是常见教材的分类，不是标准强制枚举；STL 不等于整个 C++ 标准库，不能把 iostream 或 shared_ptr 都归进去。分配器供存储与对象构造是两步，也不代表全部 new 路径。</p>
+<p>沿现有 <code>vector&lt;int&gt;</code> 看一次组件配合：<code>std::find</code> 接收半开范围 <code>[begin, end)</code>，只有结果不等于 end 才解引用。以下是<strong>独立 C++17 文件，未编译、未运行</strong>，不和下方原容器实验合并：</p>
+<pre><code>// Proposed C++17 teaching file; NOT COMPILED/RUN in this review.
+#include &lt;algorithm&gt;
+#include &lt;cassert&gt;
+#include &lt;vector&gt;
+int main() {
+    std::vector&lt;int&gt; values{10,20,30};
+    const auto it = std::find(values.begin(), values.end(), 20);
+    assert(it != values.end() &amp;&amp; *it == 20);
+} // no modification while retaining this iterator
+</code></pre>
 <p>操作能力有层次：输入/输出关注读/写；前向支持多遍前进，双向再支持后退；随机访问还能常数时间按距离跳转，连续迭代器另加元素地址连续的保证。<strong>不是每一种迭代器都能做所有这些操作</strong>，可写性也要另看类型。下面只比较普通 int 数组、vector&lt;int&gt; 与 list&lt;int&gt;：</p><div class="tw"><table style="width:100%;min-width:0;max-width:100%;table-layout:fixed"><thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">遍历位置</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">可用的移动能力</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">地址与表示前提</th></tr></thead><tbody><tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">数组里的 int*</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">在同一有效数组范围内可 ++ / --、按距离跳转与求差；不能越界解引用。</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">裸指针满足适当要求时本身可作迭代器。</td></tr><tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">vector&lt;int&gt;::iterator</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">随机访问，可用 it+n；普通 vector 的元素连续。</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">迭代器类型由实现决定，不要求就是 int*。</td></tr><tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">list&lt;int&gt;::iterator</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">双向，支持 ++ / --；不支持 it+n。逐步走 n 个位置通常需要线性步数。</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">逻辑相邻元素没有连续存储保证，++ 不能理解为通用的地址加 sizeof(int)。</td></tr></tbody></table></div>
 <p>这里的 vector/list 移动能力可用于本章 C++17 语境；<strong>C++20 起的 contiguous_iterator 概念</strong>把连续地址关系正式表达为可约束的要求，普通 vector 的迭代器满足它，但仍不等于“迭代器类型必须是指针”。本比较不包含 vector&lt;bool&gt;，也不扩展全部 traits 或算法要求。</p>
 <p><strong>“支持某操作”与“此刻仍有效”是两件事。</strong>下方 vector/list 失效表仍按具体容器与修改操作判断：重分配后，保存的 vector 指针和迭代器都不能继续使用；list 的稳定性也不保护被删除的元素。不能用裸指针形式、迭代器大小或“能编译”来绕过范围与寿命要求，旧 end 也须按原表重新取得。</p>
@@ -1128,6 +1157,8 @@ int main() {
 <tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">list 插入 / 删除</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">插入不使已有元素借用失效；删除只使被删元素借用失效，其他元素和 end() 保留</td></tr>
 </tbody></table></div>
 <p>表只讨论这些操作，不扩展到 swap/splice、容器被销毁、vector&lt;bool&gt; 特化等情形。vector 是连续存储并支持随机访问；随机访问能力本身并不等于连续存储（例如 deque），list 两者都没有。vector 中间插删要移动后续元素，却常有较好的局部性；list 在<strong>已知位置迭代器</strong>时可常数复杂度插删，但先找位置通常仍是线性遍历，还要支付节点链接、分配及缓存访问成本，不能推出 list 插删总更快。</p>
+<p><code>deque</code> 的标准语义是随机访问，首尾单元素插入/删除为常数复杂度，中间操作通常为线性；它不承诺元素整体连续。<a href="https://gcc.gnu.org/onlinedocs/gcc-15.2.0/libstdc%2B%2B/api/a00440_source.html">libstdc++ 15.2.0</a> 的一种实现用块指针表指向数组块，首尾迭代器记录边界，迭代器负责跨块跳转：既不是连续 vector，也不是每个元素一个链表节点。块大小、对象大小和增长策略不能背成标准通则；元素地址暂时稳定也不代表迭代器永远有效，仍须按具体修改操作查失效规则。</p>
+<p>若要按键选容器，<code>map</code> 按比较器有序，键查找为对数复杂度，适合有序遍历或范围需求；标准不强制它采用红黑树。<code>unordered_map</code> 用哈希桶，合适点查负载下平均常数、最坏线性，哈希与相等判断须相容。键比较/哈希成本、碰撞、负载和内存都影响取舍，不能从 O(1) 推出必然更快；rehash 会使迭代器失效，却不因此使元素指针/引用失效，擦除仍使被擦元素的借用失效。依据：C++17 <a href="https://timsong-cpp.github.io/cppwp/n4659/associative.reqmts">有序</a>与<a href="https://timsong-cpp.github.io/cppwp/n4659/unord.req">无序关联容器</a>。</p>
 <p>安全改写有两个落点：erase 循环接住它返回的下一个迭代器；重分配前只保留逻辑索引，之后从新容器重新取得引用。索引也不是稳定身份，若插删改变了逻辑位置，还须更新索引或改用显式 ID。示例把旧地址提前转成整数用于显示，重分配后既不解引用、比较也不递增旧指针/迭代器；地址数字和增长策略不作固定输出断言。</p>
 <p>依据 C++17 草案：<a href="https://timsong-cpp.github.io/cppwp/n4659/vector.capacity">vector 容量</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/vector.modifiers">vector 插删</a>、<a href="https://timsong-cpp.github.io/cppwp/n4659/list.modifiers">list 插删</a>。以上是标准库的独立编译验证，没有编译 PyTorch 扩展，也不是跨平台性能测量。</p></details>
 <details><summary>可选深入：数组、字符指针与 string_view 的长度从哪来？</summary>
@@ -1150,7 +1181,8 @@ int main() {
     std::cout &lt;&lt; &quot;array bytes=&quot; &lt;&lt; sizeof(a) &lt;&lt; &quot; pointer bytes=&quot; &lt;&lt; sizeof(p) &lt;&lt; &#x27;\n&#x27;;
 }
 </code></pre></div>
-<p>strlen 扫到首个 NUL 才停，前提是指针指向有效且存在终止符的字符序列；没有终止符的 raw 不得交给它。string_view 保存指针和长度，<strong>借用而不拥有字符</strong>，子视图末端不要求 NUL；data() 不能直接当成任意 C 字符串参数。给出显式长度可避免为找长度而扫描，但视图内容比较仍可能线性；不能从名字推出一定比字符指针更快。</p><div class="codehilite" data-code-language="cpp" data-g02-example="string-view-borrow"><pre><code>#include &lt;cassert&gt;
+<p>strlen 扫到首个 NUL 才停，前提是指针指向有效且存在终止符的字符序列；没有终止符的 raw 不得交给它。string_view 保存指针和长度，<strong>借用而不拥有字符</strong>，子视图末端不要求 NUL；data() 不能直接当成任意 C 字符串参数。给出显式长度可避免为找长度而扫描，但视图内容比较仍可能线性；不能从名字推出一定比字符指针更快。</p>
+<p>复制也要说明范围：<code>memcpy(dst, src, count)</code> 与 <code>memmove(dst, src, count)</code> 按 <code>count</code> 字节复制，后者允许源、目标范围重叠；<code>strcpy(dst, src)</code> 复制到源的首个 NUL，连终止符一起复制。<code>memcpy</code>/<code>strcpy</code> 的重叠用法不合法，<code>memmove</code> 允许重叠也不等于允许越界：源必须有效、目标必须有足够容量，字符串源还须正确终止。非平凡对象的所有权与构造/拷贝语义不能用这些字节复制替代；上面的字符缓冲区也不因此自动安全。</p><div class="codehilite" data-code-language="cpp" data-g02-example="string-view-borrow"><pre><code>#include &lt;cassert&gt;
 #include &lt;string&gt;
 #include &lt;string_view&gt;
 int main() {

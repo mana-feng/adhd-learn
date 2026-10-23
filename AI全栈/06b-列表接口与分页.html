@@ -409,6 +409,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="keyset">🧩 二、游标（keyset）分页：什么条件下能稳定续页</h2>
 <p>换个思路：不记「我翻到第几<strong>位置</strong>」，记「我读到的最后一条是<strong>哪一条</strong>」，下一页从它之后接着取。这个「最后一条的标识」就是游标（cursor）。</p>
+<p>这里的 cursor 是跨请求携带的<strong>分页边界令牌</strong>；数据库结果游标则关联查询结果和当前读取位置，驱动的 cursor 对象也不能一律等同服务端游标。SQL 游标接口中，<code>OPEN</code> 准备结果遍历、<code>FETCH</code> 取行、<code>CLOSE</code> 关闭并释放相关资源，具体生命周期依数据库、事务和接口约定。以 <a href="https://dev.mysql.com/doc/refman/8.4/en/cursors.html">MySQL 8.4 存储程序游标</a>为例，它只读、不可滚动、asensitive（结果可能物化，也可能不物化）；这些限制不能泛化到全部数据库游标。</p>
 <div class="codehilite" data-code-language="sql"><pre><span></span><code><span class="c1">-- 第一页：不带游标</span>
 <span class="k">SELECT</span><span class="w"> </span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="n">content</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">messages</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">conversation_id</span><span class="o">=?</span><span class="w"> </span><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">seq</span><span class="w"> </span><span class="k">DESC</span><span class="w"> </span><span class="k">LIMIT</span><span class="w"> </span><span class="mi">20</span><span class="p">;</span>
 <span class="c1">-- 下一页：游标 = 上一页最后一条的 seq，比它小的接着取</span>
@@ -447,6 +448,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>索引怎么建、为什么要带上 <code>ORDER BY</code> 的列，是<a href="06-关系数据库.html">上一章第三节</a>的事；这里直接使用这个结论。</p>
 <h3 id="keyset_1">keyset 的代价：不能跳页</h3>
 <p>游标只知道「上一页的末尾」，所以它<strong>只能一页一页往下翻，给不了「直接跳到第 500 页」</strong>，也给不了「共 1234 页」这种页码条。⭐ 但这对 AI 产品几乎不是损失：<strong>历史对话、消息流、任务列表全是「无限下滑」交互，没人会去点第 500 页。</strong> 真需要跳页的（后台管理表格、报表）另说，那种场景数据量通常也没大到 <code>OFFSET</code> 会疼。</p>
+<p><strong>把深分页、读写分离、分库分表分开看：</strong>单库深分页先复用前面的匹配索引与稳定复合游标；读写分离只改变请求路由，不减少一条查询自身的扫描量，权威读与副本新鲜度仍按<a href="06-关系数据库.html#_5">上一章的读写路由约定</a>处理。分片后，先按已知分片键和路由元数据缩小目标；跨片仍须按同一全局稳定、唯一的顺序合并，续页的全局边界、所需跨片一致性/快照及拓扑变化后的处理也要约定，不能直接在各片套相同的OFFSET。</p>
+<p>只看固定两片、无并发变更的算术反例：按全局唯一数字键升序，<code>A=[1,4,7]</code>、<code>B=[2,3,8]</code>，全局<code>OFFSET 2 LIMIT 2</code>应得<code>[3,4]</code>；各片先做同样截取，只剩<code>A=[7]</code>、<code>B=[8]</code>，再合并取两条得到<code>[7,8]</code>，已经漏过正确页。这只是列表计算，不是MySQL集群测试。</p>
+<p>跨片聚合/连接也不能由一条单库keyset自动解决；评估时记录目标片扇出、各片扫描/返回量、网络传输与合并代价，以及一致性目标。具体路由与合并能力依中间件；<a href="https://dev.mysql.com/doc/refman/8.4/en/limit-optimization.html">MySQL 8.4的LIMIT/排序说明</a>与Vitess的<a href="https://vitess.io/docs/faq/advanced-configuration/vtgate/how-does-vtgate-know-which-shard-to-route-a-query/">路由说明</a>、<a href="https://vitess.io/docs/24.0/user-guides/vschema-guide/advanced-vschema/">24.0 VSchema例</a>仅作各自机制参考，不能当成所有分片产品的通用实现。</p>
 <hr />
 <h2 id="_3">🧩 三、游标要不要编码，翻页途中那条记录被删了怎么办</h2>
 <p>游标要发给前端、下次再带回来。两种做法：</p>

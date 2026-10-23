@@ -690,6 +690,8 @@ R：恢复，把手里的v1写入cache
 </details>
 <p><strong>实现旁注只针对 Redis 7.2.0：</strong>String 对象可采用整数编码，或基于 SDS 的 embstr/raw；不能说每个值都是同一种底层布局。SDS 保存字节长度（读取长度不靠扫描 NUL）及分配容量，能容纳中间的零字节；长度与容量不是一回事，扩容仍可能分配/拷贝。7.2.0 的小 ZSet 可用紧凑 listpack；较大表示用 dict 按成员找分值，skiplist 维护有序访问/排名。listpack 省空间但查找可能扫描；skiplist 与 dict 组合也要付指针/索引内存。</p>
 <p>7.2.0 示例配置的 <code>zset-max-listpack-entries=128</code>、<code>zset-max-listpack-value=64</code> 是该版本可配置的元素数/成员字节长度界限，还受编码安全条件等约束；它们不是所有 Redis 版本或部署的固定规则。排查实际对象要看目标版本与配置，不能仅凭“这是 ZSet”推断它正在使用哪种编码。</p>
+<p><strong>同一 Redis 7.2.0，再沿普通非 TLS 客户端请求看一次职责。</strong>socket 注册到 ae 的关注集合→收到就绪事件→读入/解析→主线程执行命令→排队回复并写回；ae 按编译平台选择后端，Linux 的 epoll 只是一个例子，就绪不等于业务完成，机制见 <a href="03-后端骨架.html#io-readiness-depth">03 的原有读操作说明</a>。<code>io-threads=1</code> 使用主线程；配置多 I/O 线程且进入活跃线程路径后可分担写入，读取/解析还需 <code>io-threads-do-reads=yes</code> 并满足相应客户端/运行条件。I/O 线程中的 <code>processInputBuffer</code> 解析到命令后只标记 <code>CLIENT_PENDING_COMMAND</code>，回到主线程再执行，不能把 I/O 并行当成命令任意并行。</p>
+<p>后台线程可处理 AOF 同步、异步释放等工作，RDB 后台保存可使用子进程，它们与主命令执行分责；长命令仍可能拖延其他请求。本段只核固定版本的 <a href="https://github.com/redis/redis/blob/7.2.0/redis.conf">配置</a>、<a href="https://github.com/redis/redis/blob/7.2.0/src/networking.c">networking.c</a> / <a href="https://github.com/redis/redis/blob/7.2.0/src/ae.c">ae.c</a> 及 <a href="https://github.com/redis/redis/blob/7.2.0/src/bio.c">bio.c</a> / <a href="https://github.com/redis/redis/blob/7.2.0/src/rdb.c">rdb.c</a> 的职责，没有启动 Redis，也不承诺固定 QPS 或多线程加速。</p>
 <h3 id="cache-ranking">一个三人榜：更新、前两名、自己的名次</h3>
 <div class="codehilite" data-code-language="text"><pre><code># Redis 7.2.0语义的预期结果，未启动服务执行
 ZADD rank 10 u1 20 u2 20 u3
@@ -716,6 +718,7 @@ ZREVRANK rank u1                # 0（零基）；页面显示第1名要+1</code
 </details>
 <h3 id="cache-capacity">TTL、淘汰、大 key、热 key 分别看</h3>
 <p><strong>TTL 管寿命，maxmemory 淘汰管容量。</strong>设置 TTL 不等于永远有足够内存，也不意味着该值在到期前必定保留。7.2.0 中可选择 allkeys/volatile 范围的 LRU、LFU、random，或 volatile-ttl；LRU/LFU 是近似策略，volatile 只在带过期时间的候选中选。noeviction 不主动淘汰来腾空间，会让需要新增内存的相关写入报错，已有数据的读取仍可进行；应用必须处理写缓存失败。</p>
+<p><strong>LRU 淘汰最久未被访问的项，命中也会更新最近性。</strong>容量为 2，按“最久未用→最近使用”记：访问 A、B 后是 [A,B]，再命中 A 变为 [B,A]；插入 C 时淘汰 B，留下 [A,C]。FIFO 只按入队先后，同样轨迹可淘汰 A；LFU 依据使用频次，TTL 依据有效期，均不能代替这条最近访问顺序。这是精确 LRU 的概念轨迹，Redis 的采样近似仍按上文边界理解，不是 Redis 实测。</p>
 <p><strong>big key 看体积，hot key 看访问率。</strong>一个很少读取的超大 Hash 仍可能因全量返回、序列化/传输、删除/遍历成本拖慢请求；一个很小的摘要若每秒被大量访问，也可能形成热 key。先量元素数、字节数、请求频率、返回量和慢命令，再限制单次范围/分页、拆分大对象或合并重复读取；拆 key 会改变原子操作边界。不要在生产高峰为定位问题一次拉全量。这里没有给出可通用的“大”阈值，也没有测量 Redis 延迟。</p>
 <p class="muted">依据：<a href="https://learn.microsoft.com/en-us/azure/architecture/patterns/cache-aside">Cache-Aside 模式</a>、<a href="https://redis.io/docs/latest/develop/data-types/probabilistic/bloom-filter/">Bloom 官方说明</a>、<a href="https://redis.io/docs/latest/develop/reference/eviction/">Redis 淘汰策略</a>、<a href="https://github.com/redis/redis/blob/7.2.0/src/sds.h">7.2.0 SDS</a> / <a href="https://github.com/redis/redis/blob/7.2.0/src/object.c">对象编码</a> / <a href="https://github.com/redis/redis/blob/7.2.0/src/t_zset.c">ZSet 源码</a> / <a href="https://github.com/redis/redis/blob/7.2.0/redis.conf">配置</a>；榜单命令见 <a href="https://redis.io/docs/latest/commands/zadd/">ZADD</a>、<a href="https://redis.io/docs/latest/commands/zrange/">ZRANGE</a>、<a href="https://redis.io/docs/latest/commands/zrevrank/">ZREVRANK</a>。</p>
 </details>

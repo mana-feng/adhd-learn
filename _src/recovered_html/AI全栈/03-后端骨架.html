@@ -388,7 +388,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong>普通 Web 应用的瓶颈通常是「算不完」，AI 应用的瓶颈是「等不完」。</strong>
 等待型负载正是 async 的主场，所以 AI 应用比一般 Web 应用<strong>更需要</strong> async。</p>
 </blockquote>
-<p>同步模型下一个工作进程被这 3 秒完全占住，8 个进程就只能同时服务 8 个人；async 下等待期间控制权交回事件循环，一个进程能同时挂着上千个「正在等模型」的请求。</p>
+<p>下面比较的是<strong>在一个事件循环线程里同步阻塞等待与可挂起等待</strong>：前者占住该线程，后者在真正挂起时允许其他任务推进；并发容量还受连接、内存和下游配额约束。</p>
+<p><strong>协程是可挂起、再恢复的执行过程。</strong>Python 的 <code>async def</code> 定义协程函数，调用它得到协程对象；仅构造对象不执行其函数体，<code>await</code> 可推进它，Task 则负责调度协程。</p>
+<p>极小轨迹固定默认非 eager Task 工厂：设 <code>f(name)</code> 先记“始”，<code>await asyncio.sleep(0)</code> 后记“终”；只造 <code>c=f('A')</code> 时记录为空，不使用就 <code>c.close()</code>。顺序 <code>await f('A')</code>、再 <code>await f('B')</code> 得到 A始→A终→B始→B终；先为 A、B 创建 Task 再等待两者，本例得到 A始→B始→A终→B终。<strong>await 已完成对象未必让出控制</strong>，eager 工厂可在 Task 构造时运行协程；这里不保证多核并行或固定耗时（<a href="https://docs.python.org/3.13/library/asyncio-task.html">协程、Task 与 eager 工厂</a>）。</p>
 <h3 id="async_1">⚠️ 但 async 函数里一个同步阻塞调用，会阻塞当前事件循环</h3>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 一段能自己跑出结论的对照：async 里写同步阻塞调用，会在调用返回前阻塞当前事件循环。</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
@@ -424,7 +426,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong>判据背下来</strong>：<code>async def</code> 里只能写「会 await 的等待」。拿不准某个库阻不阻塞，就写成 <code>def</code> 交给线程池——<strong>慢一点，但不会全站一起躺下</strong>。</p>
 </blockquote>
 <details id="io-readiness-depth"><summary>可跳过：一次读操作，怎样从“等网络”回到事件循环？</summary>
-<p><strong>阻塞/非阻塞描述调用是否等待，语言的 async 不直接规定内核模型。</strong>阻塞读在没有数据时可挂起调用线程；非阻塞读在当前无法完成时返回 EAGAIN/EWOULDBLOCK，应用稍后再试，而不是不断空转重试。就绪通知说“现在可以尝试读”，处理器仍要执行读；完成通知则报告已提交的异步操作结束及结果。同步阻塞、非阻塞轮询、就绪多路复用和异步完成是不同组织方式，不能把非阻塞等同CPU永不等待。</p>
+<p><strong>阻塞/非阻塞描述调用是否等待，语言的 async 不直接规定内核模型。</strong>阻塞读在没有数据时可挂起调用线程；非阻塞读在当前无法完成时返回 EAGAIN/EWOULDBLOCK，应用稍后再试，而不是不断空转重试。就绪通知说“现在可以尝试读”，处理器仍要执行读；完成通知则报告已提交的异步操作结束及结果。同步阻塞、非阻塞轮询、就绪多路复用和异步完成是不同组织方式，不能把非阻塞等同CPU永不等待。在 Linux 已设置 socket 的 <code>O_ASYNC</code>、通知目标及 SIGIO 处理方式时，还可用 <a href="https://man7.org/linux/man-pages/man7/socket.7.html">SIGIO 接收 I/O 事件通知</a>；收到后仍需实际读写，并处理就绪条件可能已变化的情况，通知本身不是读已完成的结果。</p>
 <p><strong>Linux的选择器：</strong>select每次给出描述符集合、返回后再检查并准备下一次集合；常见fd_set有FD_SETSIZE限制。poll传入pollfd数组并读revents，不使用同样的位集合上限，但仍需处理所提交的数组。epoll把关注集合持久注册到内核，epoll_wait取就绪事件，避免每轮从用户态重传/检查同样的完整集合。处理返回的k个事件至少仍要做与k相关的工作；注册/移除、复制、回调与真实读写也有成本，所以“epoll是O(1)”不能解释成无限连接或吞吐。</p>
 <p><strong>LT/ET只在上述就绪通知层比较。</strong>水平触发LT在条件仍成立时可再次通知；边缘触发ET关注状态变化。假设一次来了2KiB，处理器只读1KiB就回去等待，新边缘未出现时，剩下1KiB可能一直等不到下一次通知。ET通常配合非阻塞描述符，把当次可处理数据读到EAGAIN；遇到EOF或错误要结束相应路径。若为公平性设置单轮预算，预算用完但尚未排空的连接要由应用继续调度，不能指望新边缘来叫醒它。</p>
 <p><strong>Reactor</strong>围绕就绪事件调度处理器，处理器执行非阻塞I/O；<strong>Proactor</strong>先提交异步操作，再分派完成结果。上层库可以在就绪机制上组合出异步完成接口，不能只看函数名就断言内核实现。比如Python3.13文档中Windows默认ProactorEventLoop，与Unix选择器路径及支持范围不同；具体框架/版本仍要核对。async函数里仍能执行短的同步计算，关键是别让阻塞等待或长CPU工作占住事件循环。本段只补一次读操作的理解，不写服务器或内核源码，也未执行Linux I/O压测。</p>

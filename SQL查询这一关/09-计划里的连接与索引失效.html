@@ -738,7 +738,7 @@ OR 两侧都有索引                   0.6862 ms   MULTI-INDEX OR
 <td><code>… OR amount&gt;99.9</code></td>
 <td><code>SCAN</code></td>
 <td>21.2903 ms</td>
-<td><code>amount</code> 没索引，一侧塌了整条就塌</td>
+<td><code>amount</code> 没索引，本例顶层 <code>OR</code> 选择全扫；整条查询仍须看其他条件与成本</td>
 <td>见下一节</td>
 </tr>
 </tbody>
@@ -756,7 +756,7 @@ OR 两侧都有索引                   0.6862 ms   MULTI-INDEX OR
 </blockquote>
 <p>⚠️ <strong>另一条路是给表达式本身建索引</strong>（Postgres/SQLite 的表达式索引、MySQL 的生成列索引）。
 它有效，但<strong>属于「索引怎么建」，是 <a href="../AI全栈/06-关系数据库.html">AI 全栈 06</a> 的题目</strong>。
-⭐ 本教程的立场：能改写就改写 —— 改写不用加对象、不占空间、不用维护，而且改写之后换个库照样快。</p>
+⭐ 本教程的立场：先核对改写前后的语义、类型与排序规则，再在目标引擎版本、索引、统计和数据下核计划与耗时。</p>
 <hr />
 <!--MIDSTOP2-->
 <blockquote>
@@ -772,7 +772,7 @@ OR 两侧都有索引                   0.6862 ms   MULTI-INDEX OR
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
 <h2 id="or-like">🔧 五、<code>OR</code> 的三种命运，和一个 <code>LIKE</code> 的意外</h2>
-<p><code>OR</code> 值得单独一节，因为它是<strong>唯一一个「同一个写法，命运取决于另一侧」</strong>的坑：</p>
+<p>本节用同一张表比较三种 <code>OR</code> 写法：分支能否索引化会影响可选路径，是否采用仍由优化器比较成本。</p>
 <p data-r2-note="historical-like-boundary"><strong>先限定下面历史记录的前提：</strong>原代码生成统一小写的 ASCII <code>u</code> 加数字 ID，原列/索引采用默认 BINARY 比较；在这批固定数据上，<code>LIKE 'u00123%'</code> 与 <code>&gt;='u00123' AND &lt;'u00124'</code> 选中相同的行。原代码和旧输出中的“范围改写（永远有效）”标签保留作历史记录，<strong>不是当前的普遍建议</strong>：这个范围谓词不受 LIKE 开关影响，不代表它在允许大小写混合或不同排序规则的数据上仍与 LIKE 等价。先核结果语义，再核计划和耗时。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span><span class="o">,</span><span class="w"> </span><span class="nn">random</span><span class="o">,</span><span class="w"> </span><span class="nn">time</span>
 
@@ -849,14 +849,13 @@ LIKE &#39;u00123%&#39;（默认）      10.3474 ms
 </code></pre></div>
 
 <p><strong>三件事：</strong></p>
-<p><strong>① <code>OR</code> 两侧都有索引时，现代数据库能各走各的索引再合并</strong>（计划里那句 <code>MULTI-INDEX OR</code>，实测 0.0066 ms）。
+<p><strong>① 本例 SQLite 在两侧可索引化时，选择各走索引再合并</strong>（计划里那句 <code>MULTI-INDEX OR</code>，实测 0.0066 ms）。
 ⭐ <strong>所以「<code>OR</code> 一定用不上索引」是个过时的说法。</strong>
 🗓️ 未实跑：MySQL 管这叫 <code>index_merge</code>，Postgres 叫 <code>BitmapOr</code>，⚠️ 三家的触发条件都不一样。</p>
-<p>② 只要有一侧没索引，整条就塌成 <code>SCAN</code>（实测 15.7034 ms，比①慢约 2400 倍）。
-⭐ <strong>这是 <code>OR</code> 真正的危险之处：它不是「<code>OR</code> 慢」，是「<code>OR</code> 的速度由最差的那一侧决定」。</strong>
-💀 于是加一个看起来无害的过滤条件，能让一条一直很快的查询突然变慢一千倍，而 SQL 只多了七个字。
-⚠️ 手工改写成 <code>UNION</code> 在本机反而更慢（0.0179 ms，因为多了一步去重的 <code>TEMP B-TREE</code>）——
-⭐ <strong>别背「<code>OR</code> 要改 <code>UNION</code>」这条口诀，先看计划。</strong></p>
+<p>② 原夹具中，<code>amount</code> 分支无可用索引，这个顶层 <code>OR</code> 的旧计划选择 <code>SCAN</code>（实测 15.7034 ms，比①慢约 2400 倍）。
+<strong>这个结果只描述原夹具，不能推出一侧无索引就必然整条全扫。</strong>其他可索引的 <code>AND</code> 条件仍可能先筛行，例如 <code>a=17 AND (b=3 OR c=5)</code> 中，即使 <code>c</code> 无索引，也可能先按 <code>a</code> 定位；实际路径与耗时须在目标版本、索引、统计和数据下核验。
+⚠️ 手工改写成 <code>UNION</code> 在原本机实验反而更慢（0.0179 ms，因为多了一步去重的 <code>TEMP B-TREE</code>）——
+⭐ <strong>别背「<code>OR</code> 要改 <code>UNION</code>」这条口诀，先看计划。</strong>依据：<a href="https://www.sqlite.org/optoverview.html#or_optimizations">SQLite OR 优化</a>。</p>
 <p><strong>③ 两个和直觉相反的实测</strong>，都值得单独记住：</p>
 <div class="tw"><table>
 <thead>
@@ -1072,7 +1071,7 @@ db.close()
 <li>数据库在说「<strong>这儿缺一个索引，我先临时建一个</strong>」—— 而临时索引每次查询都要重建。看到它就该去 <a href="../AI全栈/06-关系数据库.html">AI 全栈 06</a> 补一个真索引。</li>
 <li>对本例的<strong>普通 ts 列索引</strong>，<code>substr(ts,...)</code> 条件未必能直接用它定位；语义等价的原列范围比较可作为候选改写。不能排除匹配的表达式/函数/生成列索引或可证明的优化器改写。SQLite 表达式索引还要求表达式匹配与函数确定性，其他引擎/版本另核；最终看实际计划与耗时。参见 <a href="https://sqlite.org/expridx.html">SQLite 表达式索引</a>。日期筛选的半开区间保留，避免漏掉秒内的小数部分。</li>
 <li><code>amount*2 &gt; 199</code> → <strong><code>amount &gt; 99.5</code></strong>；<code>YEAR(created)=2026</code> → <code>created &gt;= '2026-01-01' AND created &lt; '2027-01-01'</code>。这些改写要先确认语义等价，再核目标引擎的实际计划。右端用 <code>&lt;</code> 是因为 <code>&lt;= '2026-03-05 23:59:59'</code> 会漏掉那一秒里的毫秒。</li>
-<li>① 两侧都有索引 → <code>MULTI-INDEX OR</code>，各走各的索引再合并，<strong>0.0066 ms</strong>；② 手工改 <code>UNION</code> → 0.0179 ms，反而更慢（多了去重的 <code>TEMP B-TREE</code>）；③ 一侧没索引 → 整条塌成 <code>SCAN</code>，15.7034 ms，比①慢约 2400 倍。所以 <code>OR</code> 的真正危险不是「<code>OR</code> 慢」，是「速度由最差的那一侧决定」—— 加一个看起来无害的条件就能让查询慢一千倍。口诀不能背，因为①②的对比表明改写有可能更慢，先看计划。</li>
+<li>原 SQLite 夹具：① 两侧可索引化 → <code>MULTI-INDEX OR</code>，各走索引再合并，<strong>0.0066 ms</strong>；② 手工改 <code>UNION</code> → 0.0179 ms，反而更慢（多了去重的 <code>TEMP B-TREE</code>）；③ <code>amount</code> 一侧无索引，该顶层 <code>OR</code> 选择 <code>SCAN</code>，15.7034 ms，比①慢约 2400 倍。这些是旧环境记录，不是固定性能关系；其他可索引的 <code>AND</code> 条件仍可能先筛行。改写可能更慢，先核结果，再看目标环境的计划和耗时。</li>
 <li>原 SQLite 实验的默认 LIKE 对 ASCII 大小写不敏感，与普通 BINARY 索引的模式不匹配；原连接打开 <code>PRAGMA case_sensitive_like=ON</code> 后，历史计划从 <code>SCAN</code> 变为 <code>SEARCH</code>，10.3474 ms → 0.0033 ms，约 3100 倍。这些数字仍是旧环境记录，不是本轮基准。范围条件虽不受 LIKE 开关影响，<strong>语义却不保证相同</strong>：默认 LIKE 在新增两行反例中返回大小写两行，BINARY 范围只返回小写一行。历史“永远有效”仅在原全小写固定数据、BINARY 边界匹配的等价前提下阅读；先断言结果相等，再查目标版本/设置下的计划和耗时。原 NOCASE 受控例保留 LIKE 与匹配索引，不要求靠改开关解决。</li>
 <li><strong>第 0 步：先确认慢的真是这条 SQL</strong> —— 连接池排队、一次取十万行的序列化、尤其是循环里发了 200 条查询（N+1，每条 0.1 ms 单看都完美）。看到 <code>SCAN</code> 大表后按顺序问：① <code>WHERE</code> 里的列被包住了吗（最常中、最便宜）② 这列到底有没有索引（有就去 AI 全栈 06）③ 是不是本来就该全扫（统计全表、取走大半张表时 <code>SCAN</code> 就是正确答案，别硬掰优化器）。改完要同时看计划和量耗时。</li>
 </ol>
@@ -1085,7 +1084,7 @@ db.close()
 <p>另外三个记号：<strong><code>USING COVERING INDEX</code></strong>（要的列全在索引里，连表都不碰——多要一列就退回回表，⭐ 这正是「<code>SELECT *</code> 往往要求索引之外的列」的完整版）、<strong><code>USE TEMP B-TREE FOR ORDER BY</code></strong>（分页慢先找它）、<strong><code>AUTOMATIC INDEX</code></strong>（⭐ 数据库在说「这儿缺一个索引」）。</p>
 <p>🔗 <strong>连接的代价就一句话：嵌套循环，代价 ≈ 外层行数 × 内层每次查找的代价。</strong> ⭐ <strong>同一对表、同一个问题，最优连接顺序会因为有没有索引而反转</strong>——所以别手工钉死顺序，那等于把今天的数据分布焊进 SQL。</p>
 <p>对本例的<strong>普通 ts 列索引</strong>，<code>substr(ts,...)</code> 条件未必能直接用它定位；语义等价的原列范围比较可作为候选改写。不能排除匹配的表达式/函数/生成列索引或可证明的优化器改写。SQLite 表达式索引还要求表达式匹配与函数确定性，其他引擎/版本另核；最终看实际计划与耗时。参见 <a href="https://sqlite.org/expridx.html">SQLite 表达式索引</a>。日期筛选的半开区间保留，避免漏掉秒内的小数部分。</p>
-<p>🔧 ⚠️ <strong><code>OR</code> 的速度由最差的那一侧决定</strong>：两侧都有索引时很快，<strong>一侧没索引整条就塌成全扫</strong>——加一个看似无害的条件就能慢上千倍。</p>
+<p>🔧 <strong><code>OR</code> 分支能否索引化，会影响候选访问路径。</strong>原夹具的一侧无索引时，该顶层 <code>OR</code> 选择全扫；整条查询若还有可索引的 <code>AND</code> 条件，仍可能先筛行。别把旧计划和毫秒数当成所有查询的保证。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="10-拿SQL审问一份数据.html">10-拿SQL审问一份数据.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
