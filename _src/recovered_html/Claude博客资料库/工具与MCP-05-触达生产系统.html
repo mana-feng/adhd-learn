@@ -177,19 +177,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .ckpt ol{padding-left:1.3em}.ckpt li{margin:.4em 0}
 .recap{background:var(--quote-bg);border-radius:12px;padding:16px 20px;margin:18px 0 0}
 .recap b{color:var(--accent)}
-</style></head><body data-polish="claude-library" class="polish-claude-library-reading">
+</style><link rel="stylesheet" href="../assets/magazine-reading-v1.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/claude-library/remaining-v1.css">
+</head><body data-polish="claude-library" class="polish-claude-library-reading" data-magazine-reading="v1" data-magazine-module="claude-library" data-magazine-kind="engineering" data-magazine-edition="m19-body-v1">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner"><a href="../index.html">🏠 总目录</a>
 <a href="index.html">📚 资料库</a><span class="title">工具与 MCP</span>
 <button id="themeToggle" title="切换深浅色">🌗</button></div></header>
-<main>
+<main class="mg-main">
 <h1>用 MCP 构建触达生产系统的 Agent</h1>
 <div class="adhd-head">
 <p class="meta">⏱ <strong>12 分钟</strong> ｜ 🏭 <strong>从玩具到生产的那道坎</strong></p>
 <h2 id="tldr">🎯 一句话</h2>
 <p class="tl">本文把 MCP 作为生产集成的重要标准化层，讨论<strong>远程连接、意图导向工具、认证与上下文效率</strong>。协议接通后仍要另行验证权限、副作用、幂等、审计和恢复。</p>
 </div>
-<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>生产接入怎样表达意图、权限与副作用？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav>
+<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>生产接入怎样表达意图、权限与副作用？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav><header class="mg-cover g06-body-cover"><div class="mg-cover-copy"><p class="mg-kicker">Claude 博客资料库 · 工具与MCP</p><p class="mg-question">生产接入怎样表达意图、权限与副作用？</p><p class="mg-dek">先比较三种连接路径，再决定系统需要暴露什么能力。</p><p class="mg-outcome">读完可以：在接入前核对意图、任务权限、副作用与返回数据的边界。</p><nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_1">从这个问题开始</a><a href="#mg-claude-library-reading-start">直接进入完整解释</a></nav></div></header>
 <div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>Building Agents That Reach Production Systems with MCP(用 MCP 构建触达生产系统的 Agent）</dd><dt>原文链接</dt><dd><a href="https://claude.com/blog/building-agents-that-reach-production-systems-with-mcp" target="_blank" rel="noopener">https://claude.com/blog/building-agents-that-reach-production-systems-with-mcp</a></dd><dt>作者</dt><dd>Anthropic（鸣谢 Den Delimarsky、David Soria Parra 等）</dd><dt>发布日期</dt><dd>2026-04-22</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。版本、参数与案例数字属于原文所示条件，不是本资料库的实测结果；产品状态与接口以实施时官方文档为准。</div></div>
 <details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
 <ul>
@@ -203,16 +205,16 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#recap">🛑 可以停在这里</a></li>
 </ul>
 </div>
-</details>
+</details><span id="mg-claude-library-reading-start" class="g06-body-start" aria-hidden="true"></span>
 <p>原文主张把 MCP（Model Context Protocol）作为云端生产 Agent 连接外部系统的重要标准化选项——相比直接 API 调用和 CLI，它有更好的可移植性和语义表达。</p>
-<h2 id="_1">三种连接方式对比</h2>
+<p class="g06-body-lead">先比较三种连接路径，再决定系统需要暴露什么能力。</p><h2 id="_1" class="g06-body-chapter" data-mg-stop>三种连接方式对比</h2>
 <ol>
 <li><strong>直接 API 调用：</strong> 沙箱内发 HTTP 请求。简单场景可用，但规模化后出现 M×N 集成问题——每个 Agent-服务组合都要定制认证和工具描述</li>
 <li><strong>命令行工具（CLI）：</strong> 轻量、复用现有工具，需要可运行命令的环境；既可在本地也可在云端运行，受限客户端通常需要后端代执行</li>
 <li><strong>MCP：</strong> 标准化协议层，远程 server 以标准化的认证、发现和丰富语义暴露能力，跨任意兼容客户端和部署环境工作</li>
 </ol>
 <p>成熟的集成最终三种方式都会提供，但 MCP 是生产系统的战略复利层。MCP SDK 月下载量已从 1 亿增长到 3 亿+。</p>
-<h2 id="mcp-server">构建有效 MCP Server 的设计模式</h2>
+<p class="g06-body-lead">Server 描述可执行的操作，客户端决定怎样高效使用；两侧都要表达边界。</p><h2 id="mcp-server" class="g06-body-chapter" data-mg-stop>构建有效 MCP Server 的设计模式</h2>
 <h3 id="server">远程 Server 架构</h3>
 <p>唯一在 Web、移动、云部署间都被主要客户端优化支持的形态。</p>
 <h3 id="_2">按意图分组工具</h3>
@@ -230,16 +232,16 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>Claude Managed Agents 的 Vaults 安全存储和刷新 OAuth token，无需自建密钥管理</li>
 <li>MCP 隧道支持仅出站连接，触达私有网络内的系统</li>
 </ul>
-<h2 id="mcp">上下文高效的 MCP 客户端模式</h2>
+<h2 id="mcp" class="g06-body-chapter" data-mg-stop>上下文高效的 MCP 客户端模式</h2>
 <ul>
 <li><strong>Tool Search：</strong> 延迟加载工具定义、运行时发现——工具定义 token 减少 85%+ 且不损准确率</li>
 <li><strong>Programmatic Tool Calling：</strong> 工具结果在代码沙箱中处理而非原样返回模型——复杂多步流程 token 减少约 37%</li>
 </ul>
-<h2 id="mcp-skills">MCP 与 Skills 的配合</h2>
+<p class="g06-body-lead">连接工具与携带工作方法可以配合，但不能因此略过生产权限和副作用核对。</p><h2 id="mcp-skills" class="g06-body-chapter" data-mg-stop>MCP 与 Skills 的配合</h2>
 <p>Skills 提供「如何有效使用 MCP 工具」的程序性知识。<br class="prose-beat">两种分发模式：
 1. <strong>插件捆绑：</strong> skills + MCP servers 打包为插件（例：Cowork 数据插件含 10 个 skills 和 8 个 MCP server，覆盖 Snowflake、Databricks、BigQuery、Hex）
 2. <strong>Server 分发 Skills：</strong> 提供方随 MCP server 发布 skills，新兴扩展支持从 server 直接下发、版本与 API 依赖对齐</p>
-<h2 id="_6">建议清单</h2>
+<h2 id="_6" class="g06-body-chapter" data-mg-stop>建议清单</h2>
 <ol>
 <li>把远程 MCP server 作为云端生产 Agent 的关键集成层</li>
 <li>设计意图导向的工具而非穷举式 API 镜像</li>
@@ -250,7 +252,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ol>
 <p>生态数据：官方目录 200+ MCP server，日服务量达数百万次。</p>
 <hr />
-<div class="ckpt"><h2 id="ckpt">✅ 检查点</h2>
+<div class="ckpt"><h2 id="ckpt" class="g06-body-chapter" data-mg-stop>✅ 检查点</h2>
 <ol>
 <li>Agent 接入生产系统必须先解决哪四件事？</li>
 <li>为什么幂等性对 Agent 特别重要？</li>
@@ -265,7 +267,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ol>
 </details>
 </div>
-<div class="recap"><h2 id="recap">🛑 可以停在这里</h2>
+<div class="recap"><h2 id="recap" class="g06-body-chapter" data-mg-stop>🛑 可以停在这里</h2>
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>生产写操作先回答重复执行、失败和恢复时会发生什么。</li><li>幂等、限流、审计与明确的副作用说明帮助控制重试风险。</li><li>高风险动作在执行前展示准确目标并取得所需授权。</li></ul></section></div>
 <nav class="pagenav"><a href="index.html"><div class="dir">← 返回</div>📚 资料库目录</a>
 <a class="next" href="../智能体工程教程/index.html"><div class="dir">系统学习 →</div>🎓 智能体工程教程</a></nav>
@@ -282,4 +284,5 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
 <link rel="stylesheet" href="../assets/polish-claude-library-reader.css">
+<script defer src="../assets/magazine-reading-v1.js"></script>
 </body></html>

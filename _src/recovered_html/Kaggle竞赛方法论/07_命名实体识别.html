@@ -183,7 +183,10 @@ th,td{min-width:5.2em}
 </style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="kaggle-methods">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/magazine-reading-v1.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/kaggle-methods/reader.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/kaggle-methods/remaining-reader.css">
+</head><body data-polish-module="kaggle-methods" data-magazine-reading="v1" data-magazine-module="kaggle-methods" data-magazine-remainder="v1" data-magazine-kind="engineering">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -193,7 +196,7 @@ th,td{min-width:5.2em}
   <button class="js-done-btn">☐ 打卡</button>
   <button id="themeToggle" title="切换深浅色">🌗</button>
 </div></header>
-<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<main class="mg-main"><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#tldr">🎯 一句话</a></li>
 <li><a href="#ner_1">一、NER任务概述</a></li>
@@ -214,14 +217,15 @@ th,td{min-width:5.2em}
 </div>
 </details>
 <h1 id="ner">命名实体识别（NER）</h1>
+<header class="mg-cover kg-cover-remainder"><div class="mg-cover-copy"><p class="mg-kicker">Kaggle竞赛方法论 / 07</p><p class="mg-question">Token 的预测，怎样回到原文实体边界？</p><p class="mg-dek">把标注、解码和字符坐标对齐分开查阅；原表、边界细节与规则完整保留。</p><p class="mg-outcome">能找到 Offset Mapping 与空格处理条目，区分 token 位置和原文字符位置。</p><nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#offset-mapping">先查原字符偏移映射</a><a href="#mg-kaggle-methods-07-reading-start">直接进入完整正文</a></nav><nav class="kg-remainder-stops" aria-label="原小节阅读入口"><a href="#_1">二、标注方法</a> · <a href="#_3">四、解码器对比</a> · <a href="#offset-mapping">六、Offset Mapping修正</a> · <a href="#_5">七、分词器空格切分修复</a> · <a href="#bad-case">八、Bad Case分析</a></nav></div><figure class="mg-visual kg-remainder-map" aria-label="Token预测到原文字符区间的坐标桥梁"><ol><li><a href="#_1"><strong>Token 级标注与预测</strong><br>先区分标注和解码层</a></li><li><a href="#offset-mapping"><strong>Offset Mapping → 原文字符区间</strong><br>用原文记录的起止位置连接两套坐标</a></li><li><a href="#_5"><strong>提取边界时再查空格处理</strong><br>具体分词器与特殊 token 条件仍看原表</a></li></ol><figcaption>原文对齐关系示意，不是一次分词器运行；token 序号不能直接当原文字符位置。特殊 token、子词和空格边界须按原条目核查。</figcaption></figure></header><span class="kg-reading-start" id="mg-kaggle-methods-07-reading-start"></span>
 <p>⏱ <strong>35 分钟</strong> ｜ ⭐ <strong>结构最复杂的 NLP 题型</strong></p>
 <hr />
-<h2 id="tldr">🎯 一句话</h2>
+<h2 id="tldr" class="kg-heading" data-mg-stop>🎯 一句话</h2>
 <p>NER 比文本分类难，难在<strong>它是「带结构的预测」</strong>——标签之间有约束（B 后面不能直接跟另一个 B），实体有边界，边界差一个字就全错。所以这一章的重点是<strong>解码器的选择</strong>和边界对齐的工程细节，后者才是真正吃掉大部分调试时间的地方。</p>
 <hr />
-<h2 id="ner_1">一、NER任务概述</h2>
+<h2 id="ner_1" class="kg-heading" data-mg-stop>一、NER任务概述</h2>
 <h3 id="11">1.1 任务定义</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 1，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -248,7 +252,7 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <h3 id="12">1.2 竞赛特殊挑战</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 2，可横向浏览"><table>
 <thead>
 <tr>
 <th>挑战</th>
@@ -279,9 +283,9 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <hr />
-<h2 id="_1">二、标注方法</h2>
+<h2 id="_1" class="kg-heading" data-mg-stop>二、标注方法</h2>
 <h3 id="21-bio">2.1 BIO标注体系</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 3，可横向浏览"><table>
 <thead>
 <tr>
 <th>标签</th>
@@ -308,7 +312,7 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <h3 id="22-bioes">2.2 BIOES标注体系</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 4，可横向浏览"><table>
 <thead>
 <tr>
 <th>标签</th>
@@ -345,7 +349,7 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <h3 id="23">2.3 标注方法选择</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 5，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -377,9 +381,9 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <hr />
-<h2 id="_2">三、编码器架构</h2>
+<h2 id="_2" class="kg-heading" data-mg-stop>三、编码器架构</h2>
 <h3 id="31">3.1 主流编码器</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 6，可横向浏览"><table>
 <thead>
 <tr>
 <th>编码器</th>
@@ -416,7 +420,7 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <h3 id="32">3.2 编码器选择建议</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 7，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -443,9 +447,9 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <hr />
-<h2 id="_3">四、解码器对比</h2>
+<h2 id="_3" class="kg-heading" data-mg-stop>四、解码器对比</h2>
 <h3 id="41-crf">4.1 CRF（条件随机场）</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 8，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -480,7 +484,7 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <h3 id="42-linear">4.2 Linear（线性分类头）</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 9，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -511,7 +515,7 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <h3 id="43-span-based">4.3 Span-based（基于片段的解码）</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 10，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -538,7 +542,7 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <h3 id="44">4.4 解码器选择建议</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 11，可横向浏览"><table>
 <thead>
 <tr>
 <th>解码器</th>
@@ -573,9 +577,9 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <hr />
-<h2 id="-b">四-B、高级解码器</h2>
+<h2 id="-b" class="kg-heading" data-mg-stop>四-B、高级解码器</h2>
 <h3 id="globalpointer">GlobalPointer</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 12，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -606,7 +610,7 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <h3 id="mrc-nerner">MRC-NER（机器阅读理解式NER）</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 13，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -637,7 +641,7 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <h3 id="biaffine">Biaffine解码器</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 14，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -664,7 +668,7 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <h3 id="_4">解码器选择决策</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 15，可横向浏览"><table>
 <thead>
 <tr>
 <th>场景</th>
@@ -701,8 +705,8 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <hr />
-<h2 id="flatner">五、FLAT：中文NER的利器</h2>
-<div class="tw"><table>
+<h2 id="flatner" class="kg-heading" data-mg-stop>五、FLAT：中文NER的利器</h2>
+<div class="tw" tabindex="0" role="region" aria-label="表格 16，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -737,8 +741,8 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <hr />
-<h2 id="offset-mapping">六、Offset Mapping修正</h2>
-<div class="tw"><table>
+<h2 id="offset-mapping" class="kg-heading" data-mg-stop>六、Offset Mapping修正</h2>
+<div class="tw" tabindex="0" role="region" aria-label="表格 17，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -773,8 +777,8 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <hr />
-<h2 id="_5">七、分词器空格切分修复</h2>
-<div class="tw"><table>
+<h2 id="_5" class="kg-heading" data-mg-stop>七、分词器空格切分修复</h2>
+<div class="tw" tabindex="0" role="region" aria-label="表格 18，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -805,8 +809,8 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <hr />
-<h2 id="bad-case">八、Bad Case分析</h2>
-<div class="tw"><table>
+<h2 id="bad-case" class="kg-heading" data-mg-stop>八、Bad Case分析</h2>
+<div class="tw" tabindex="0" role="region" aria-label="表格 19，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -837,9 +841,9 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <hr />
-<h2 id="ner_2">九、NER模型融合策略</h2>
+<h2 id="ner_2" class="kg-heading" data-mg-stop>九、NER模型融合策略</h2>
 <h3 id="91">9.1 融合挑战</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 20，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -865,7 +869,7 @@ th,td{min-width:5.2em}
 </code></pre></div>
 
 <h3 id="93">9.3 融合权重优化</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 21，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -892,7 +896,7 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <hr />
-<h2 id="ner_3">十、NER竞赛实战要点</h2>
+<h2 id="ner_3" class="kg-heading" data-mg-stop>十、NER竞赛实战要点</h2>
 <h3 id="101">10.1 提分路线图</h3>
 <div class="codehilite"><pre><span></span><code>1. 基线 → BERT Base + CRF + BIO标注
 2. 编码器升级 → RoBERTa / DeBERTa
@@ -905,7 +909,7 @@ th,td{min-width:5.2em}
 </code></pre></div>
 
 <h3 id="102">10.2 常见踩坑点</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 22，可横向浏览"><table>
 <thead>
 <tr>
 <th>坑点</th>
@@ -942,10 +946,10 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <hr />
-<h2 id="xref">🔗 这一章连到哪里</h2>
-<div class="tw"><table class="xref"><thead><tr><th>去哪</th><th>为什么</th></tr></thead><tbody><tr><td><a href="../大模型全景导论/03-Tokenizer与上下文.html">大模型导论 03 Tokenizer 与上下文</a></td><td>Offset Mapping 修正、空格切分踩坑的根源都是 subword 分词</td></tr><tr><td><a href="../大模型全景导论/02-Transformer原理.html">大模型导论 02 Transformer 原理</a></td><td>NER 编码器就是 Transformer Encoder，token 级输出从哪来</td></tr><tr><td><a href="../机器学习与深度学习基础/13-RNN与序列建模.html">ML基础 13 RNN 与序列建模</a></td><td>BiLSTM 编码器和序列标注任务的原始形态</td></tr></tbody></table></div>
+<h2 id="xref" class="kg-heading" data-mg-stop>🔗 这一章连到哪里</h2>
+<div class="tw" tabindex="0" role="region" aria-label="表格 23，可横向浏览"><table class="xref"><thead><tr><th>去哪</th><th>为什么</th></tr></thead><tbody><tr><td><a href="../大模型全景导论/03-Tokenizer与上下文.html">大模型导论 03 Tokenizer 与上下文</a></td><td>Offset Mapping 修正、空格切分踩坑的根源都是 subword 分词</td></tr><tr><td><a href="../大模型全景导论/02-Transformer原理.html">大模型导论 02 Transformer 原理</a></td><td>NER 编码器就是 Transformer Encoder，token 级输出从哪来</td></tr><tr><td><a href="../机器学习与深度学习基础/13-RNN与序列建模.html">ML基础 13 RNN 与序列建模</a></td><td>BiLSTM 编码器和序列标注任务的原始形态</td></tr></tbody></table></div>
 <hr />
-<h2 id="ckpt">✅ 检查点</h2>
+<h2 id="ckpt" class="kg-heading" data-mg-stop>✅ 检查点</h2>
 <ol>
 <li>NER 为什么比文本分类难？难在哪里？</li>
 <li>CRF 解决了什么问题？它和「每个位置独立 softmax」的区别是什么？</li>
@@ -964,7 +968,7 @@ th,td{min-width:5.2em}
 </ol>
 </details>
 <hr />
-<h2 id="recap">🛑 可以停在这里</h2>
+<h2 id="recap" class="kg-heading" data-mg-stop>🛑 可以停在这里</h2>
 <blockquote>
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>NER 不只判断类别，还要保证实体边界与标签结构正确。</li><li>BIO、CRF 与 span 方法表达的结构不同，嵌套实体要选择合适表示。</li><li>用原文反查 offset 和抽取结果，先排除对齐错误再调模型。</li></ul></section>
 </blockquote>
@@ -996,4 +1000,5 @@ th,td{min-width:5.2em}
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
 <link rel="stylesheet" href="../assets/polish-kaggle-methods-reader.css">
+<script defer src="../assets/magazine-reading-v1.js"></script>
 </body></html>

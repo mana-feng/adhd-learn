@@ -280,7 +280,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="polish-ai-fullstack-reading">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/magazine-reading-v1.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/ai-fullstack/remaining.css">
+</head><body class="polish-ai-fullstack-reading" data-magazine-reading="v1" data-magazine-module="ai-fullstack" data-magazine-kind="engineering" data-magazine-scope="remaining-v1">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -290,7 +292,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <button class="js-done-btn">☐ 打卡</button>
   <button id="themeToggle" title="切换深浅色">🌗</button>
 </div></header>
-<main><noscript><p class="polish-noscript" role="note">正文和导航链接仍可阅读；打卡、主题切换与代码、图解工具需要 JavaScript。</p></noscript><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<main class="mg-main">
+<header class="mg-cover mg-remaining-cover" data-mg-authored="M14-remaining-06b" data-mg-layout="diagnostic"><div class="mg-cover-copy"><p class="mg-kicker">AI全栈 / 06b</p><p class="mg-question">列表翻页时，为什么会重复、漏项或越来越慢？</p><p class="mg-dek">偏移、游标和排序约定要一起看；跨分片与批量部分失败有各自边界。</p><p class="mg-outcome">能按访问方式选择分页，并说明游标失效时怎样响应。</p><nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#offset">先看偏移分页的代价</a><a href="#mg-ai-fullstack-06b-reading-start">直接读完整解释</a></nav><p class="mg-route-note"><a href="#keyset">再看游标依赖的排序</a></p></div></header>
+<span class="mg-reading-start" id="mg-ai-fullstack-06b-reading-start"></span>
+<noscript><p class="polish-noscript" role="note">正文和导航链接仍可阅读；打卡、主题切换与代码、图解工具需要 JavaScript。</p></noscript><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#offset">🧩 一、OFFSET 分页的两个必然死法</a></li>
@@ -316,7 +321,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>上一章（<a href="06-关系数据库.html">06</a>）建好了 <code>messages</code> 表、<code>seq</code> 列、<code>(conversation_id, seq)</code> 索引，实测「点开会话」从 3.802 秒降到 0.0019 秒。<strong>那是查一条会话的全部消息。这一章是这张表怎么往外一页一页地翻。</strong></p>
 </blockquote>
 <hr />
-<h2 id="offset">🧩 一、<code>OFFSET</code> 分页的两个必然死法</h2>
+<h2 id="offset" data-mg-stop>🧩 一、<code>OFFSET</code> 分页的两个必然死法</h2>
 <p>翻页最直觉的写法，几乎每份教程的第一版都长这样：</p>
 <div class="codehilite" data-code-language="sql"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="n">content</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">messages</span><span class="w"> </span><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">id</span><span class="w"> </span><span class="k">DESC</span><span class="w"> </span><span class="k">LIMIT</span><span class="w"> </span><span class="mi">20</span><span class="w"> </span><span class="k">OFFSET</span><span class="w"> </span><span class="o">?</span><span class="p">;</span>
 <span class="c1">-- 第 1 页 OFFSET 0，第 2 页 OFFSET 20，第 N 页 OFFSET (N-1)*20</span>
@@ -407,7 +412,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong>一句话记住</strong>：<code>OFFSET</code> 假设「列表在你翻页期间是冻结的」。<strong>AI 应用里它一秒都不冻结</strong>——所以这个假设从一开始就不成立。</p>
 </blockquote>
 <hr />
-<h2 id="keyset">🧩 二、游标（keyset）分页：什么条件下能稳定续页</h2>
+<h2 id="keyset" data-mg-stop>🧩 二、游标（keyset）分页：什么条件下能稳定续页</h2>
 <p>换个思路：不记「我翻到第几<strong>位置</strong>」，记「我读到的最后一条是<strong>哪一条</strong>」，下一页从它之后接着取。这个「最后一条的标识」就是游标（cursor）。</p>
 <p>这里的 cursor 是跨请求携带的<strong>分页边界令牌</strong>；数据库结果游标则关联查询结果和当前读取位置，驱动的 cursor 对象也不能一律等同服务端游标。SQL 游标接口中，<code>OPEN</code> 准备结果遍历、<code>FETCH</code> 取行、<code>CLOSE</code> 关闭并释放相关资源，具体生命周期依数据库、事务和接口约定。以 <a href="https://dev.mysql.com/doc/refman/8.4/en/cursors.html">MySQL 8.4 存储程序游标</a>为例，它只读、不可滚动、asensitive（结果可能物化，也可能不物化）；这些限制不能泛化到全部数据库游标。</p>
 <div class="codehilite" data-code-language="sql"><pre><span></span><code><span class="c1">-- 第一页：不带游标</span>
@@ -740,4 +745,5 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-ai-fullstack-reader.css"></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-ai-fullstack-reader.css"><script defer src="../assets/magazine-reading-v1.js"></script>
+</body></html>

@@ -177,19 +177,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .ckpt ol{padding-left:1.3em}.ckpt li{margin:.4em 0}
 .recap{background:var(--quote-bg);border-radius:12px;padding:16px 20px;margin:18px 0 0}
 .recap b{color:var(--accent)}
-</style></head><body data-polish="claude-library" class="polish-claude-library-reading">
+</style><link rel="stylesheet" href="../assets/magazine-reading-v1.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/claude-library/remaining-v1.css">
+</head><body data-polish="claude-library" class="polish-claude-library-reading" data-magazine-reading="v1" data-magazine-module="claude-library" data-magazine-kind="engineering" data-magazine-edition="m19-body-v1">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner"><a href="../index.html">🏠 总目录</a>
 <a href="index.html">📚 资料库</a><span class="title">智能体构建模式</span>
 <button id="themeToggle" title="切换深浅色">🌗</button></div></header>
-<main>
+<main class="mg-main">
 <h1>规模化托管 Agent：让大脑与双手解耦</h1>
 <div class="adhd-head">
 <p class="meta">⏱ <strong>14 分钟</strong> ｜ 🧠 <strong>决策和执行分开放</strong></p>
 <h2 id="tldr">🎯 一句话</h2>
 <p class="tl"><strong>把控制循环、执行环境和会话日志分开，让它们可以分别替换与恢复。</strong>执行环境可以按需求连接，但这不自动保证数据不出内网；工具返回给托管模型的内容仍需审查。</p>
 </div>
-<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>会话、控制循环与执行环境分开后，怎样恢复和鉴权？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav>
+<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>会话、控制循环与执行环境分开后，怎样恢复和鉴权？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav><header class="mg-cover g06-body-cover"><div class="mg-cover-copy"><p class="mg-kicker">Claude 博客资料库 · 智能体构建模式</p><p class="mg-question">会话、控制循环与执行环境分开后，怎样恢复和鉴权？</p><p class="mg-dek">先识别会话、控制循环和执行环境各自保存或执行什么，再看耦合为何妨碍恢复。</p><p class="mg-outcome">读完可以：在会话、控制循环和执行环境解耦后，核对状态恢复与权限责任。</p><nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_1">从这个问题开始</a><a href="#mg-claude-library-reading-start">直接进入完整解释</a></nav></div><figure class="mg-visual g06-body-figure" id="mg-claude-library-mechanism"><p class="g06-figure-heading">可恢复记录与可替换执行分开</p><ul class="g06-body-flow"><li><b>Session</b><span>外部追加事件日志，保存可查询的会话记录</span></li><li><b>Harness</b><span>调用模型、整理上下文并路由工具动作</span></li><li><b>Sandbox</b><span>接受执行请求，完成代码或文件操作</span></li></ul><p class="g06-body-note">恢复：从外部事件记录重建工作；鉴权：仍分别核对工具、数据、网络与凭据位置。</p><figcaption>职责关系示意，不是处理流水线。可恢复存储不等于历史自动全部入窗；更换执行环境不证明权限已正确恢复或数据不会外传。</figcaption></figure></header>
 <div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>Scaling Managed Agents: Decoupling the Brain from the Hands（规模化托管 Agent：让大脑与双手解耦）</dd><dt>原文链接</dt><dd><a href="https://www.anthropic.com/engineering/managed-agents" target="_blank" rel="noopener">https://www.anthropic.com/engineering/managed-agents</a></dd><dt>作者</dt><dd>Lance Martin、Gabe Cemaj、Michael Cohen（Anthropic）</dd><dt>发布日期</dt><dd>2026-04-08</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。版本、参数与案例数字属于原文所示条件，不是本资料库的实测结果；产品状态与接口以实施时官方文档为准。</div></div>
 <details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
 <ul>
@@ -206,11 +208,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#recap">🛑 可以停在这里</a></li>
 </ul>
 </div>
-</details>
+</details><span id="mg-claude-library-reading-start" class="g06-body-start" aria-hidden="true"></span>
 <p>Anthropic 构建的 Managed Agents 托管服务，把 Agent 的三个组件（session、harness、sandbox）拆成<strong>独立可替换的接口</strong>。这样 harness 中编码的假设不会随 Claude 变强而变成技术债——系统能容纳未来的发展而无需重新设计。</p>
-<h2 id="_1">要解决的核心问题</h2>
+<p class="g06-body-lead">先识别会话、控制循环和执行环境各自保存或执行什么，再看耦合为何妨碍恢复。</p><h2 id="_1" class="g06-body-chapter" data-mg-stop>要解决的核心问题</h2>
 <p>harness 会编码关于 Claude 能力局限的假设，而这些假设会过时。例如 Sonnet 4.5 有「上下文焦虑」，工程师为此加了上下文重置机制；到 Opus 4.5 这些变通就没必要了。<strong>「harness 编码假设」，因此需要不断修订。</strong></p>
-<h2 id="_2">架构：大脑与双手解耦</h2>
+<h2 id="_2" class="g06-body-chapter" data-mg-stop>架构：大脑与双手解耦</h2>
 <h3 id="_3">概念框架</h3>
 <p>类比操作系统通过「进程」「文件」这类抽象接口虚拟化硬件——<code>read()</code> 在千差万别的存储技术上行为一致。Managed Agents 用同样的思路虚拟化三个组件：</p>
 <ol>
@@ -218,14 +220,14 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>Harness：</strong> 调用 Claude 并路由工具调用的控制循环</li>
 <li><strong>Sandbox（沙箱）：</strong> 执行代码和文件操作的环境</li>
 </ol>
-<h2 id="_4">耦合架构的问题：「别养宠物」</h2>
+<h2 id="_4" class="g06-body-chapter" data-mg-stop>耦合架构的问题：「别养宠物」</h2>
 <p>原文回顾了把组件放进同一个容器时的三个问题：</p>
 <ul>
 <li><strong>状态难恢复：</strong>会话依赖容器存活，容器无响应时需要人工维护。原文称之为“宠物问题”。</li>
 <li><strong>故障难定位：</strong>WebSocket 事件流不足以区分控制循环、网络或容器故障；直接进入含用户数据的容器调试又有隐私障碍。</li>
 <li><strong>网络假设过强：</strong>默认资源都与 harness 同处一地，接入客户私有 VPC 时需要额外处理连接关系。</li>
 </ul>
-<h2 id="_5">解耦后的架构</h2>
+<p class="g06-body-lead">事件可恢复不等于全部历史自动进入窗口，执行环境可替换也不等于权限自动继承。</p><h2 id="_5" class="g06-body-chapter" data-mg-stop>解耦后的架构</h2>
 <p><strong>harness 移到容器外部</strong>：不再运行在容器内，而是通过 <code>execute(name, input) → string</code> 把容器当工具调用——容器从「宠物」变成可互换的「牲畜」。容器失败时 harness 捕获错误，Claude 可以用标准配方重新拉起一个新容器重试。</p>
 <p><strong>harness 自身也可替换</strong>：因为 session 日志存在 harness 之外。失败的 harness 通过 <code>wake(sessionId)</code> 重启、<code>getSession(id)</code> 取回事件日志、恢复运行；运行中持续通过 <code>emitEvent(id, event)</code> 记录事件。</p>
 <p><strong>安全边界要看凭据能否被生成代码读到。</strong>原文指出，代码与凭据共处一个容器会增加提示注入后的凭据窃取风险；不是任意提示注入都必然成功。</p>
@@ -235,28 +237,28 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>保险库认证：</strong>OAuth 等凭据放在沙箱外，由专用 MCP 代理根据会话关联的授权调用外部服务，harness 不直接取得这些凭据。</li>
 </ul>
 <p><strong>部署时还要单独核对：</strong>工具权限、返回数据和网络边界。以上是原文架构说明，不是数据绝不外传的证明。</p>
-<h2 id="session">Session 作为外部上下文对象</h2>
+<h2 id="session" class="g06-body-chapter" data-mg-stop>Session 作为外部上下文对象</h2>
 <p>长周期任务可能超出上下文窗口。把事件持久化到窗口之外，可以在摘要或裁剪之后保留可查询记录；它不意味着所有历史都会自动进入模型上下文。</p>
 <p><code>getEvents()</code> 接口支持三类读取：</p>
 <ul><li>按位置选取事件片段。</li><li>回到某个时刻之前，查看发生了什么。</li><li>从上次停止阅读的位置继续。</li></ul>
 <p>harness 还能在把事件送进 Claude 上下文前做变换，实现上下文组织和 prompt cache 优化。<strong>这把「可恢复的存储」与「上下文管理」分开了</strong>——未来的 harness 可以采用任何新出现的上下文工程技术。</p>
-<h2 id="_6">规模化：多大脑，多双手</h2>
+<p class="g06-body-lead">扩展到多个控制循环或执行环境后，仍要核对状态、工具权限和返回数据边界。</p><h2 id="_6" class="g06-body-chapter" data-mg-stop>规模化：多大脑，多双手</h2>
 <p>原文报告其自身系统的首 token 延迟改善。TTFT 指从接收任务到产生第一个响应 token 的等待时间：</p>
 <ul><li><strong>p50 下降约 60%。</strong></li><li><strong>p95 下降超过 90%。</strong></li></ul>
 <p>这些是原文系统的测量结果，不是采用相同架构就能复现的通用加速比。</p>
 <p>原因：过去每个大脑都要有自己的容器并承担完整启动成本（克隆仓库、拉起进程、拉取事件）；现在容器只在工具调用需要时才配置，不需要沙箱交互的会话可以立即开始推理。</p>
 <p><strong>多大脑：</strong> 解耦让 harness 变成无状态可扩展——多大脑就是启动多个 harness，只在必要时连上双手。</p>
 <p><strong>多双手：</strong> <code>execute(name, input) → string</code> 接口支持无限种执行环境——容器、自定义工具、MCP server，或理论上任何系统。harness 不关心「手」是容器、手机还是别的什么。<strong>关键是大脑之间可以互相传递双手</strong>，从而支持协作式 Agent 场景。</p>
-<h2 id="_7">设计原则</h2>
+<h2 id="_7" class="g06-body-chapter" data-mg-stop>设计原则</h2>
 <ul>
 <li><strong>接口有主见，实现不设限：</strong> 对 Claude 需要什么接口（会话操作和计算）有强主张，但不对具体实现做任何假设</li>
 <li><strong>缩小故障影响：</strong>分离状态与执行有助于独立恢复；仍需测试超时、重试、幂等与共享依赖，不能推断所有故障都能自动恢复或绝不级联。</li>
 <li><strong>面向未来：</strong> 无需架构改动就能容纳未来的 harness；不同的任务专用 harness（如 Claude Code）在系统内工作方式相同</li>
 </ul>
-<h2 id="_8">结论</h2>
+<h2 id="_8" class="g06-body-chapter" data-mg-stop>结论</h2>
 <p>Managed Agents 解决的是计算领域的经典问题——为「尚未被构想出来的程序」设计系统。通过用通用接口虚拟化 Agent 组件，系统能在 Claude 能力持续提升、新的 harness 需求不断涌现时同步演进，而不需要重新设计。</p>
 <hr />
-<div class="ckpt"><h2 id="ckpt">✅ 检查点</h2>
+<div class="ckpt"><h2 id="ckpt" class="g06-body-chapter" data-mg-stop>✅ 检查点</h2>
 <ol>
 <li>「大脑-双手」解耦解决了什么问题？</li>
 <li>这种架构对数据边界意味着什么？</li>
@@ -271,7 +273,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ol>
 </details>
 </div>
-<div class="recap"><h2 id="recap">🛑 可以停在这里</h2>
+<div class="recap"><h2 id="recap" class="g06-body-chapter" data-mg-stop>🛑 可以停在这里</h2>
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>决策与工具执行可以放在不同环境，但要有明确的通信与授权边界。</li><li>本地执行不等于数据不外传，工具返回内容仍需审查。</li><li>跨环境的日志、版本与故障恢复要能对齐。</li></ul></section></div>
 <nav class="pagenav"><a href="index.html"><div class="dir">← 返回</div>📚 资料库目录</a>
 <a class="next" href="../智能体工程教程/index.html"><div class="dir">系统学习 →</div>🎓 智能体工程教程</a></nav>
@@ -288,4 +290,5 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
 <link rel="stylesheet" href="../assets/polish-claude-library-reader.css">
+<script defer src="../assets/magazine-reading-v1.js"></script>
 </body></html>

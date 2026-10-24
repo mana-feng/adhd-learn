@@ -1,3 +1,13 @@
+<div hidden data-agent-magazine="v1" data-magazine-kind="engineering"></div>
+
+<header class="mg-cover" style="grid-template-columns:minmax(0,1fr)"><div class="mg-cover-copy">
+<p class="mg-kicker">智能体工程 · 16f</p>
+<p class="mg-question">记忆被召回，就可以跳过当前权限了吗？</p>
+<p class="mg-outcome">读完能做的判断：区分Hermes能力、本机结果与记忆生命周期，保留只读工具边界。</p>
+<nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_2">从这个问题的原解释开始</a><a href="#mg-agent-engineering-16f-reading-start">直接进入完整解释</a></nav>
+</div></header>
+<span id="mg-agent-engineering-16f-reading-start" tabindex="-1"></span>
+
 # 16f Hermes 与记忆生命周期
 
 > 本章保留教学代码、路径说明与历史验证结论；完整实验工程和运行记录未随本站及公开仓库分发。命令用于说明调用方式，复现需自行准备对应实现、数据与环境。

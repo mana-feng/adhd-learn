@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="pytorch-framework">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/magazine-reading-v1.css"><link rel="stylesheet" href="../assets/magazine-rollout/pytorch-framework/remaining.css"></head><body data-polish-module="pytorch-framework" data-magazine-reading="v1" data-magazine-module="pytorch-framework" data-magazine-kind="math-code">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -290,7 +290,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <button class="js-done-btn">☐ 打卡</button>
   <button id="themeToggle" title="切换深浅色">🌗</button>
 </div></header>
-<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<main class="mg-main"><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">🔘 一、它真的只改了一个布尔</a></li>
@@ -307,6 +307,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="07-train-eval">07 · <code>train()</code> / <code>eval()</code> 到底改了什么</h1>
+<aside class="mg-remaining-entry" aria-label="本页问题与阅读路径"><p class="mg-remaining-question">调用 eval 以后，为什么梯度仍在、模型统计量却变了？</p><p class="mg-remaining-outcome">区分 training 状态、BatchNorm 统计量与 grad mode，沿原验证事故核开关。</p><nav aria-label="原文阅读停靠点"><a href="#batchnormrunning_mean">三、⭐ BatchNorm：running_mean 是在【前向】里更新的</a><a href="#eval">四、事故：忘了 eval() 跑验证，统计量被永久污染</a><a href="#eval-no_grad">五、eval() 和 no_grad() 是两个正交的开关</a><a href="#mg-pytorch-framework-remaining-start">直接进入完整原文</a></nav></aside><span id="mg-pytorch-framework-remaining-start" aria-hidden="true"></span>
+
 <details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>68 分钟</strong> ｜ ⭐ <strong>实测：BN 的 <code>running_mean</code> 在【前向】里就更新了 —— <code>no_grad()</code> 拦不住，<code>requires_grad=False</code> 也拦不住</strong></p>
 <h2 id="_1">🎯 一句话</h2>
@@ -370,7 +372,7 @@ Dropout eval : [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 <li><code>p</code> 是<strong>丢弃</strong>概率，<code>nn.Dropout(0.5)</code> 丢一半。</li>
 <li><code>eval()</code> 下 <code>nn.Dropout</code> <strong>返回输入本身</strong>，不做任何事 —— 所以它在推理时既不慢也不占显存。</li>
 </ul>
-<h2 id="batchnormrunning_mean">📊 三、⭐ BatchNorm：<code>running_mean</code> 是在【前向】里更新的</h2>
+<h2 id="batchnormrunning_mean" data-mg-stop="">📊 三、⭐ BatchNorm：<code>running_mean</code> 是在【前向】里更新的</h2>
 <p>这是本章的正题，也是站内此前完全没有的一节。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -460,7 +462,7 @@ Dropout eval : [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 <strong>后半章还有</strong>：事故：忘了 <code>eval()</code> 跑验证，统计量被永久污染 · <code>eval()</code> 和 <code>no_grad()</code> 是两个正交的开关 · 到底哪些层在看 <code>training</code> · 三个最容易漏掉 <code>eval()</code> 的地方
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<h2 id="eval">💀 四、事故：忘了 <code>eval()</code> 跑验证，统计量被永久污染</h2>
+<h2 id="eval" data-mg-stop="">💀 四、事故：忘了 <code>eval()</code> 跑验证，统计量被永久污染</h2>
 <blockquote>
 <p>⚠️ 本节输出块没固定种子，<code>running_mean</code> 的<strong>具体数值每次运行不同</strong>（下面是某次实跑）；稳定可复现的是「train 下会动、eval 下不动」这两个结论。</p>
 </blockquote>
@@ -521,7 +523,7 @@ Dropout eval : [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 或者更狠一点，记下 <code>bn.num_batches_tracked</code> 在验证前后有没有变。
 这个数只增不减，<strong>它变了就说明有 batch 在训练模式下走过前向</strong>。</p>
 </blockquote>
-<h2 id="eval-no_grad">🚦 五、<code>eval()</code> 和 <code>no_grad()</code> 是两个正交的开关</h2>
+<h2 id="eval-no_grad" data-mg-stop="">🚦 五、<code>eval()</code> 和 <code>no_grad()</code> 是两个正交的开关</h2>
 <p>它们经常一起出现，于是被当成一回事。实测一下：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -736,4 +738,4 @@ Dropout eval : [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-pytorch-framework-reader.css"></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-pytorch-framework-reader.css"><script defer src="../assets/magazine-reading-v1.js"></script></body></html>

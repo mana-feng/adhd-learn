@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="cpp-underneath">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/magazine-reading-v1.css"><link rel="stylesheet" href="../assets/magazine-rollout/cpp-underneath/remaining.css"></head><body data-polish-module="cpp-underneath" data-magazine-reading="v1" data-magazine-module="cpp-underneath" data-magazine-kind="engineering">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -290,7 +290,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <button class="js-done-btn">☐ 打卡</button>
   <button id="themeToggle" title="切换深浅色">🌗</button>
 </div></header>
-<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<main class="mg-main"><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">🧩 一、⭐ 先看一条查表失败的报错</a></li>
@@ -307,6 +307,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="05-pytorch">05 · 算子怎么注册进 PyTorch</h1>
+<aside class="mg-remaining-entry" aria-label="本页问题与阅读路径"><p class="mg-remaining-question">算子名存在，为什么某个后端仍然找不到实现？</p><p class="mg-remaining-outcome">沿 schema 与 DispatchKeySet 找查表坐标，再看原注册宏和后端实现边界。</p><nav aria-label="原文阅读停靠点"><a href="#schema">二、行坐标：算子名和它的 schema</a><a href="#dispatchkeyset">三、列坐标：DispatchKeySet</a><a href="#dump">四、⭐ 直接把那张表 dump 出来</a><a href="#mg-cpp-underneath-remaining-start">直接进入完整原文</a></nav></aside><span id="mg-cpp-underneath-remaining-start" aria-hidden="true"></span>
+
 <details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>80 分钟</strong> ｜ ⭐ <strong>一条报错里同时给出了算子名和分派键 —— 那正好是 dispatcher 那张表的两个坐标轴</strong></p>
 <h2 id="_1">🎯 一句话</h2>
@@ -454,7 +456,7 @@ This could be because the operator doesn&#39;t exist for this backend, or was om
 </table></div>
 <p>⚠️⚠️ <strong><code>CUDA</code> 那一列的 ❌ 是本机的假象，不是 PyTorch 的事实。</strong> 本机装的是 <strong>CPU 版轮子</strong>，<code>torch_cuda</code> 那批库根本不在包里，那些格子从没被填过。⭐ 这恰好演示了更重要的一件事：这张表不是编译期写死的常量表，是运行时一批一批被「加载进来」的 —— 第五节会看到填格子的动作发生在哪一刻。</p>
 <p>⭐ <strong>顺带记住 <code>Meta</code> 这一列</strong>：「只算形状不算数值」的假后端，形状推导和 <code>torch.compile</code> 都靠它，三个算子全有。</p>
-<h2 id="schema">🧩 二、行坐标：算子名和它的 schema</h2>
+<h2 id="schema" data-mg-stop="">🧩 二、行坐标：算子名和它的 schema</h2>
 <p><code>aten::gelu</code> 不是随手起的字符串，它背后挂着一条<strong>签名</strong>（schema）。Python 侧直接能问：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># c05_schema.py</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -526,7 +528,7 @@ This could be because the operator doesn&#39;t exist for this backend, or was om
 </table></div>
 <p>⚠️ <strong>别名标记不是文档，是给编译器看的合同。</strong> <code>torch.compile</code>、functionalization、<code>torch.jit</code> 全靠它判断「这个算子会不会偷改我的输入」。⭐ 自己写算子时<strong>填错它的后果是别的通道上出现随机错误</strong>，而不是当场报错。</p>
 <p>⭐ <strong>schema 是唯一的真相源</strong>：C++ 那边的函数签名、Python 这边的 <code>torch.ops.aten.gelu</code>、类型存根 <code>.pyi</code>、还有 <a href="06-读源码路线图.html">06 章</a>会翻的那堆 <code>ATen/ops/*.h</code>，<strong>全是从同一份 schema 生成的</strong>。这就是为什么改一个算子的签名在 PyTorch 里是件大事。</p>
-<h2 id="dispatchkeyset">🧩 三、列坐标：DispatchKeySet</h2>
+<h2 id="dispatchkeyset" data-mg-stop="">🧩 三、列坐标：DispatchKeySet</h2>
 <p>一个 tensor 身上带的是<strong>一组</strong>分派键，不是一个：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># c05_keyset.py</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -574,7 +576,7 @@ This could be because the operator doesn&#39;t exist for this backend, or was om
 </tbody>
 </table></div>
 <p>⭐ <strong>上面几层「干完自己的事再往下发一次」的动作叫 redispatch。</strong> ⚠️ 由此得到一条很实用的推论：<strong>「注册一个 CPU kernel」和「让它可导」是两件独立的事</strong> —— 你填的是 <code>CPU</code> 那格，<code>Autograd</code> 那格还空着（第六节）。</p>
-<h2 id="dump">🧩 四、⭐ 直接把那张表 dump 出来</h2>
+<h2 id="dump" data-mg-stop="">🧩 四、⭐ 直接把那张表 dump 出来</h2>
 <p>前面都在推理，现在直接看。PyTorch 有个内部接口能打印某一行的全部格子：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># c05_dump.py</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -952,4 +954,4 @@ int main() {
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-cpp-underneath-reader.css"></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-cpp-underneath-reader.css"><script defer src="../assets/magazine-reading-v1.js"></script></body></html>

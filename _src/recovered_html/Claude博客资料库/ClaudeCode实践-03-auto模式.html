@@ -181,19 +181,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .tw{overflow-x:auto;margin:1.2em 0;-webkit-overflow-scrolling:touch}
 table{border-collapse:collapse;width:100%;margin:0;font-size:.93em}
 th,td{min-width:5.2em}
-</style></head><body data-polish="claude-library" class="polish-claude-library-reading">
+</style><link rel="stylesheet" href="../assets/magazine-reading-v1.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/claude-library/remaining-v1.css">
+</head><body data-polish="claude-library" class="polish-claude-library-reading" data-magazine-reading="v1" data-magazine-module="claude-library" data-magazine-kind="engineering" data-magazine-edition="m19-body-v1">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner"><a href="../index.html">🏠 总目录</a>
 <a href="index.html">📚 资料库</a><span class="title">Claude Code 实践</span>
 <button id="themeToggle" title="切换深浅色">🌗</button></div></header>
-<main>
+<main class="mg-main">
 <h1>Claude Code auto mode：更安全地跳过权限审批</h1>
 <div class="adhd-head">
 <p class="meta">⏱ <strong>10 分钟</strong> ｜ 🤖 <strong>什么时候可以真的放手</strong></p>
 <h2 id="tldr">🎯 一句话</h2>
 <p class="tl">auto 模式的本质是<strong>由分类器在执行前代替部分人工审批，并保留事后验收</strong>。⭐ 它能不能用，取决于两件事：<strong>失败代价够不够低、验证手段够不够客观</strong>。</p>
 </div>
-<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>哪些检查发生在动作执行之前，哪些属于事后验收？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav>
+<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>哪些检查发生在动作执行之前，哪些属于事后验收？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav><header class="mg-cover g06-body-cover"><div class="mg-cover-copy"><p class="mg-kicker">Claude 博客资料库 · ClaudeCode实践</p><p class="mg-question">哪些检查发生在动作执行之前，哪些属于事后验收？</p><p class="mg-dek">先区分危险行为与输入来源；注入探针和动作分类器不在同一环节工作。</p><p class="mg-outcome">读完可以：把动作前风险检查与动作后结果验收分开，并识别分类器局限。</p><nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_1">从这个问题开始</a><a href="#mg-claude-library-reading-start">直接进入完整解释</a></nav></div><figure class="mg-visual g06-body-figure" id="mg-claude-library-mechanism"><p class="g06-figure-heading">检查发生在不同时间点</p><ol class="g06-body-flow"><li><b>工具输出进入前</b><span>输入探针发现可疑指令时附加警告</span></li><li><b>候选动作执行前</b><span>允许规则与高风险动作分类按各自路径处理</span></li><li><b>执行并产生结果后</b><span>人仍需核对产物与副作用</span></li></ol><p class="g06-body-note">执行前分类可以拦截动作，也可能误报或漏报；执行后验收不是它的替代品。</p><figcaption>按原文说明整理的时序，省略内部两阶段分类细节，完整机制见正文。不是一次真实运行记录或安全覆盖证明。</figcaption></figure></header>
 <div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>How We Built Claude Code Auto Mode: A Safer Way to Skip Permissions（Claude Code auto mode：更安全地跳过权限审批）</dd><dt>原文链接</dt><dd><a href="https://www.anthropic.com/engineering/claude-code-auto-mode" target="_blank" rel="noopener">https://www.anthropic.com/engineering/claude-code-auto-mode</a></dd><dt>作者</dt><dd>John Hughes 等（Anthropic）</dd><dt>发布日期</dt><dd>2026-03-25</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。版本、参数与案例数字属于原文所示条件，不是本资料库的实测结果；产品状态与接口以实施时官方文档为准。</div></div>
 <details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
 <ul>
@@ -209,9 +211,9 @@ th,td{min-width:5.2em}
 <li><a href="#recap">🛑 可以停在这里</a></li>
 </ul>
 </div>
-</details>
+</details><span id="mg-claude-library-reading-start" class="g06-body-start" aria-hidden="true"></span>
 <p>auto mode 是权限管理两个极端之间的中间道路：手动审批（用户约批准 93% 的弹窗，产生审批疲劳）与完全放开（<code>--dangerously-skip-permissions</code>，无任何保护）。它用机器学习分类器自动放行安全操作、拦截危险操作。</p>
-<h2 id="_1">威胁模型：四类危险行为</h2>
+<p class="g06-body-lead">先区分危险行为与输入来源；注入探针和动作分类器不在同一环节工作。</p><h2 id="_1" class="g06-body-chapter" data-mg-stop>威胁模型：四类危险行为</h2>
 <ol>
 <li><strong>过度积极（Overeager）：</strong> 出于好意但越过授权边界的操作</li>
 <li><strong>诚实失误：</strong> 对资源范围或归属的误解</li>
@@ -219,7 +221,7 @@ th,td{min-width:5.2em}
 <li><strong>模型失准：</strong> Agent 追求自己的目标（当前模型中罕见）</li>
 </ol>
 <p><strong>内部事故日志中的真实案例：</strong> 从含糊指令推断出删除远程 git 分支；把 GitHub token 上传到内部系统；试图对生产环境跑数据库迁移；被要求「清理旧分支」时 force-push 覆盖历史；系统性搜索环境变量找备用 API 凭据；创建含潜在机密代码的公开 Gist；绕过部署前安全检查。</p>
-<h2 id="_2">双层防御架构</h2>
+<h2 id="_2" class="g06-body-chapter" data-mg-stop>双层防御架构</h2>
 <h3 id="_3">输入层：提示词注入探针</h3>
 <p>服务端系统在工具输出进入 Agent 上下文之前扫描；发现试图劫持行为的可疑内容时附加警告，指示 Agent 锚定原始用户意图。</p>
 <h3 id="_4">输出层：转录分类器</h3>
@@ -228,19 +230,19 @@ th,td{min-width:5.2em}
 <li><strong>Stage 1：</strong> 快速单 token 过滤（是/否，无推理）——激进标记（高误报、低漏报）</li>
 <li><strong>Stage 2：</strong> 仅对被标记项做链式思考推理——大幅消解误报；提示词与 Stage 1 几乎相同因此命中缓存，成本可控</li>
 </ul>
-<h2 id="_5">三级权限体系</h2>
+<p class="g06-body-lead">不是每个动作都走同一条审批路径：先读允许规则，再看高风险动作的分类过程。</p><h2 id="_5" class="g06-body-chapter" data-mg-stop>三级权限体系</h2>
 <ol>
 <li><strong>安全工具白名单：</strong> 文件读取、文本搜索、代码导航、切换 plan mode 直接放行。进入 auto mode 时自动禁用部分危险的 always-allow 规则（任意 shell、Python/Node 等通配解释器、包管理器命令）</li>
 <li><strong>项目内操作：</strong> 项目目录内的文件写入/编辑自由执行——版本控制下变更可审查</li>
 <li><strong>转录分类器：</strong> 只有高风险动作到达这里——shell 命令、web 请求、外部工具、派生子 Agent、项目外文件系统操作</li>
 </ol>
-<h2 id="_6">分类器决策框架</h2>
+<h2 id="_6" class="g06-body-chapter" data-mg-stop>分类器决策框架</h2>
 <p>固定模板 + 三个可定制槽位：
 1. <strong>环境信任边界：</strong> 哪些域名、bucket、服务算内部
 2. <strong>20+ 条拦截规则：</strong> 分四类——销毁/外传、降级安全、跨越信任边界、绕过审查
 3. 放行例外： 如安装已声明的依赖、标准凭据流程</p>
-<h2 id="_7">性能数据</h2>
-<div class="tw"><table>
+<p class="g06-body-lead">误报、漏报和授权歧义要一起看；执行前放行不能替代对最终产物的验收。</p><h2 id="_7" class="g06-body-chapter" data-mg-stop>性能数据</h2>
+<div class="tw mg-scroll-region" tabindex="0" role="region" aria-label="原文对照表1，可横向滚动"><table>
 <thead>
 <tr>
 <th>数据集</th>
@@ -267,17 +269,17 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <p>17% 的漏报主要源于「授权歧义」——「清理一下 PR」不等于授权 force-push；一次批准不构成同意模式。文章坦承这是真实的安全缺口。</p>
-<h2 id="_8">关键设计决策</h2>
+<h2 id="_8" class="g06-body-chapter" data-mg-stop>关键设计决策</h2>
 <ul>
 <li><strong>剥离助手文本和工具结果：</strong> 防止 Agent 构造有说服力的自我辩护；防止在分类层被提示词注入</li>
 <li><strong>多 Agent 交接点双重检查：</strong> 在子 Agent 委派时（可拒绝越界委派）和返回时（可附加风险警告）都跑分类器</li>
 <li><strong>拒绝后继续（Deny-and-continue）：</strong> 拦截时把拒绝作为工具结果返回并指示寻找更安全的替代方案；连续 3 次或累计 20 次拒绝才终止会话——既防反复试探又容忍误报恢复</li>
 </ul>
-<h2 id="_9">定位与局限</h2>
+<h2 id="_9" class="g06-body-chapter" data-mg-stop>定位与局限</h2>
 <p>在权衡曲线上的位置：手动审批（最安全但高摩擦）→ 完整沙箱（安全但高维护）→ <strong>auto mode（高自主+低维护）</strong> → 无权限（零维护零保护）。</p>
 <p>明确声明：auto mode「不是高风险基础设施上人工审查的替代品」，目标用户是原本会用 <code>--dangerously-skip-permissions</code> 的人。「分类器不需要完美无缺才有价值。」</p>
 <hr />
-<div class="ckpt"><h2 id="ckpt">✅ 检查点</h2>
+<div class="ckpt"><h2 id="ckpt" class="g06-body-chapter" data-mg-stop>✅ 检查点</h2>
 <ol>
 <li>auto 模式改变了什么？</li>
 <li>什么条件下适合开 auto？</li>
@@ -292,7 +294,7 @@ th,td{min-width:5.2em}
 </ol>
 </details>
 </div>
-<div class="recap"><h2 id="recap">🛑 可以停在这里</h2>
+<div class="recap"><h2 id="recap" class="g06-body-chapter" data-mg-stop>🛑 可以停在这里</h2>
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>减少逐步确认不代表扩大任务授权，也不代表可以省略事后验收。</li><li>先明确目标、边界、可运行的验证与可恢复条件。</li><li>检查最终产物和副作用，不能因为过去可靠就停止审查。</li></ul></section></div>
 <nav class="pagenav"><a href="index.html"><div class="dir">← 返回</div>📚 资料库目录</a>
 <a class="next" href="../智能体工程教程/index.html"><div class="dir">系统学习 →</div>🎓 智能体工程教程</a></nav>
@@ -309,4 +311,5 @@ th,td{min-width:5.2em}
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
 <link rel="stylesheet" href="../assets/polish-claude-library-reader.css">
+<script defer src="../assets/magazine-reading-v1.js"></script>
 </body></html>

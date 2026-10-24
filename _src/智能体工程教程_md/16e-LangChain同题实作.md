@@ -1,3 +1,13 @@
+<div hidden data-agent-magazine="v1" data-magazine-kind="engineering"></div>
+
+<header class="mg-cover" style="grid-template-columns:minmax(0,1fr)"><div class="mg-cover-copy">
+<p class="mg-kicker">智能体工程 · 16e</p>
+<p class="mg-question">接上LangChain后，业务规则还由谁检查？</p>
+<p class="mg-outcome">读完能做的判断：比较模型输入、参数失败和幂等重放，框架封装不替代核心合同。</p>
+<nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_4">从这个问题的原解释开始</a><a href="#mg-agent-engineering-16e-reading-start">直接进入完整解释</a></nav>
+</div></header>
+<span id="mg-agent-engineering-16e-reading-start" tabindex="-1"></span>
+
 # 16e · LangChain 同题实作
 
 > 本章保留教学代码、路径说明与历史验证结论；完整实验工程和运行记录未随本站及公开仓库分发。命令用于说明调用方式，复现需自行准备对应实现、数据与环境。

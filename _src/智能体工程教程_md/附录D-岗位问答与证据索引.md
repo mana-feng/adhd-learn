@@ -1,3 +1,15 @@
+<div hidden data-agent-magazine="v1" data-magazine-kind="reference" data-agent-appendix-d="v1"></div>
+
+<script defer src="../assets/magazine-rollout/agent-engineering/appendix-d-fragment-v1.js"></script>
+
+<header class="mg-cover" style="grid-template-columns:minmax(0,1fr)"><div class="mg-cover-copy">
+<p class="mg-kicker">智能体工程 · 附录 D</p>
+<p class="mg-question">一次口述回答，能打开哪一份核对证据？</p>
+<p class="mg-outcome">按原六类36卡定位短答、追问和证据；只读到概念或未实跑时保留原限制。</p>
+<nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_2">用原搜索定位问题</a><a href="#mg-agent-engineering-d-reading-start">直接进入完整卡片与说明</a></nav>
+</div></header>
+<span id="mg-agent-engineering-d-reading-start" tabindex="-1"></span>
+
 # 附录 D · 岗位问答与证据索引
 
 > 本页保留教学路径与历史验证结论；所列完整实验工程、报告和运行记录仅在本地留存，未随本站及公开仓库分发。

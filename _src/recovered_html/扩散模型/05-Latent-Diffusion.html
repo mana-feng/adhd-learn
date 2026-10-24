@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading topic-reading diffusion-reader">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script><link rel="stylesheet" href="../assets/magazine-reading-v1.css"><link rel="stylesheet" href="../assets/magazine-rollout/diffusion/remaining.css"></head><body data-magazine-reading="v1" data-magazine-module="diffusion" data-magazine-phase="remaining" data-magazine-kind="math-code" class="overview-reading topic-reading diffusion-reader">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -290,7 +290,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <button class="js-done-btn">☐ 打卡</button>
   <button id="themeToggle" title="切换深浅色">🌗</button>
 </div></header>
-<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<main class="mg-main"><header class="mg-remaining-cover"><p class="mg-kicker">扩散模型 / 05</p><p class="mg-question">扩散搬到潜空间，省的是哪一种成本？</p><p class="mg-dek">先明确尺寸/卷积与注意力假设，再分训练、文生图、图生图三路径，保留重建/KL/缩放/VQ边界。</p><nav class="mg-actions" aria-label="本章阅读入口"><a class="mg-primary" href="#_2">先看：一、先把账算出来：像素空间的哪些操作很贵</a><a href="#mg-diffusion-05-reading-start">直接读完整正文</a></nav></header><span class="mg-reading-start" id="mg-diffusion-05-reading-start"></span><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">💸 一、先把账算出来：像素空间的哪些操作很贵</a></li>
@@ -305,13 +305,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ul>
 </div>
 </details>
-<div class="ov-layout"><article class="ov-body"><h1 id="05-latent-diffusion">05 · Latent Diffusion：在压缩过的空间里扩散</h1>
+<div class="ov-layout"><article class="ov-body mg-article"><h1 id="05-latent-diffusion">05 · Latent Diffusion：在压缩过的空间里扩散</h1>
 <!-- topic-reading -->
 
 <p><link rel="stylesheet" href="../assets/diff-formula-help.css"><script defer src="../assets/diff-formula-help.js"></script></p>
 <p>⏱ <strong>40 分钟</strong> ｜ 阅读与计数实验参考，可分次完成 ｜ <strong>先区分“少了多少个数”和“真的快了多少”</strong></p>
 <hr />
-<h2 id="_1">🎯 一句话</h2>
+<h2 id="_1" class="mg-remaining-heading" data-mg-stop>🎯 一句话</h2>
 <p><strong>Latent Diffusion 把反复去噪放在较小的潜变量张量上做，最后用解码器变成图像。</strong> 它能减少某些计算开销，但尺寸比不等于整机加速比，重建误差也不是所有生成图的统一画质上限。</p>
 <p>先记一组具体尺寸：在本页采用的 <strong>Stable Diffusion 1.x 示例</strong>中，512×512×3 的图像可编码成 64×64×4 的潜变量。元素数从 <strong>786,432</strong> 变成 <strong>16,384</strong>，是原来的 1/48。潜变量仍是一组实数，不是一张缩小后给人看的 RGB 图片。</p>
 <p>这一页有三个入口：</p>
@@ -322,7 +322,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ul>
 <p>上一章的 DDIM 主要改变采样方式和步数。本章主要改变<strong>反复计算发生在哪里</strong>；两者可以组合，但不能保证任意压缩率和任意步数都保持原质量。</p>
 <hr />
-<h2 id="_2">💸 一、先把账算出来：像素空间的哪些操作很贵</h2>
+<h2 id="_2" class="mg-remaining-heading" data-mg-stop>💸 一、先把账算出来：像素空间的哪些操作很贵</h2>
 <p>512×512 的 RGB 图有 <strong>512×512×3 = 786,432</strong> 个数。若在像素空间直接去噪，网络处理的输入、输出仍是这个空间尺度的图像张量。</p>
 <p>但 <strong>U-Net 的中间特征图不是始终 512×512</strong>：它会下采样，再逐步上采样，通道数和注意力位置也由架构决定。不能把最高分辨率的单层成本乘上总层数，当成真实 U-Net 的总成本。</p>
 <h3 id="latent-conv-assumption">一个明确假设下的卷积账</h3>
@@ -340,7 +340,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>这笔算术没有错，错的是把它读成“所有像素扩散模型都必须占这些显存”。实际模型可以在较低分辨率做注意力，也可以采用不完整保存打分矩阵的实现；模型参数、其他激活和训练梯度还要另外计算。</p>
 <p>事实上，<a href="https://github.com/openai/guided-diffusion">OpenAI 的 guided-diffusion 官方仓库</a>已提供 512×512 像素模型，并把注意力放在指定的较低分辨率上；同一仓库也提供 64→256、128→512 的超分路线。<strong>级联超分是一种设计，不是高分辨率像素扩散唯一能走的路。</strong></p>
 <hr />
-<h2 id="_3">🗜️ 二、把扩散搬进潜空间：先分清你正在做哪件事</h2>
+<h2 id="_3" class="mg-remaining-heading" data-mg-stop>🗜️ 二、把扩散搬进潜空间：先分清你正在做哪件事</h2>
 <p><strong>潜空间</strong>就是自编码器学到的图像表示空间。“潜”不是另一个神秘坐标系，而是模型内部用来表达图像的一组数。</p>
 <p>自编码器有两个部分：</p>
 <ul>
@@ -422,7 +422,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>例如 $\bar\alpha_t=0.25$ 时，干净信号乘 0.5，噪声乘 $\sqrt{0.75}$。系数的形式与像素扩散相同，<strong>不代表可以把任何像素模型的调度、缩放和预测目标原封不动移过来</strong>。</p>
 <p>反复去噪器能在较小空间工作，这是潜空间路线的核心收益。E、D、文本编码等开销是否可以忽略，仍取决于分辨率、步数和具体实现；尤其步数很少时，固定开销占比会变大。</p>
 <hr />
-<h2 id="_4">🔢 三、三个倍数，别混成一个</h2>
+<h2 id="_4" class="mg-remaining-heading" data-mg-stop>🔢 三、三个倍数，别混成一个</h2>
 <p>下表继续使用 512×512×3 与 64×64×4，batch 为 1。卷积采用前面的固定层假设；注意力只数<strong>全局自注意力的打分矩阵元素</strong>。</p>
 <div class="tw"><table>
 <thead>
@@ -463,7 +463,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>图像对固定长度文本的<strong>交叉注意力</strong>是 N×M，不是 N×N。M 不变时，打分矩阵按 N 缩放；不能把 4096 倍直接套过去。注意力层的投影和其他操作也不全按 N² 变化。</li>
 </ol>
 <hr />
-<h2 id="_5">🧪 四、动手：这笔账自己算一遍</h2>
+<h2 id="_5" class="mg-remaining-heading" data-mg-stop>🧪 四、动手：这笔账自己算一遍</h2>
 <p><strong>这是计数实验，不是模型性能测试。</strong> 保留下面完整的 PyTorch 小程序：它只创建两个小 CPU 张量来数元素，不下载模型，也不需要 GPU。运行环境需有 PyTorch；<code>numel()</code> 返回元素总数，不返回字节数。</p>
 <p>卷积函数假设输出高宽与输入相同，batch 为 1、不分组，一次乘加算 2 FLOPs，忽略偏置。程序没有真的执行卷积或注意力，也不会申请前面那张巨大的矩阵。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 像素空间 vs 潜空间：同一件事各要花多少算力（纯计数，不测秒）</span>
@@ -560,7 +560,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>可以在这里停：你已经知道 48／64／4096 分别在比什么。后半页转向另一个问题——压缩会影响什么、怎样查明原因。</p>
 </blockquote>
 <hr />
-<h2 id="_6">🔍 五、代价：先查重建，再谈细节从哪里损失</h2>
+<h2 id="_6" class="mg-remaining-heading" data-mg-stop>🔍 五、代价：先查重建，再谈细节从哪里损失</h2>
 <p>自编码器通常追求感知上接近原图，不是无损逐像素还原。它可能把细笔画、规则网格、密集纹理等细节重建错；具体问题要对着具体模型和图片检查。</p>
 <h3 id="latent-reconstruction-test">重建图是诊断工具，不是所有生成图的硬上限</h3>
 <p>把一张已知原图只做编码、解码，得到：</p>
@@ -584,7 +584,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p><strong>3. 使用与模型匹配的更高分辨率。</strong> 下采样仍为 8 倍时，1024×1024 对应 128×128 潜网格。如果同一个文字区域也随画面同比放大，它能覆盖更多潜格；但如果只是增加画布、字仍只有原来的像素大小，这个推论就不成立。更高尺寸还要考虑模型训练范围、位置表示、算力和重建能力。</p>
 <p>这三条都在改变模型的表示或工作条件，不能保证独立于训练而提升质量。应使用一致的原图重建、生成任务和评估口径做对照。</p>
 <hr />
-<h2 id="kl">⚖️ 六、KL 项在这里到底管什么</h2>
+<h2 id="kl" class="mg-remaining-heading" data-mg-stop>⚖️ 六、KL 项在这里到底管什么</h2>
 <p>先区分两类“高斯”，否则很容易把这节读反：</p>
 <ul>
 <li><strong>自编码器的后验</strong> $q_\phi(z_{\mathrm{AE}}\mid x)$：给定一张真实图，它的潜变量可以是什么。KL 正则约束的是这层分布。</li>
@@ -674,7 +674,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </table></div>
 <p>这一点可以直接检查 <a href="https://github.com/CompVis/latent-diffusion/blob/main/ldm/models/autoencoder.py">CompVis 的 VQModelInterface</a>：<code>encode</code> 返回连续 h，<code>decode</code> 内部调用量化。两种 LDM 都在学习的表示空间中做生成，不是在证明某个固定潜先验已经完美拟合数据。</p>
 <hr />
-<h2 id="_7">🔗 这一章连到哪里</h2>
+<h2 id="_7" class="mg-remaining-heading" data-mg-stop>🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -702,7 +702,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <hr />
-<h2 id="_8">✅ 检查点</h2>
+<h2 id="_8" class="mg-remaining-heading" data-mg-stop>✅ 检查点</h2>
 <ol>
 <li>本页 SD 1.x 尺寸例子中，512×512×3 和 64×64×4 各有多少元素？48 倍是在比什么，能否泛化为所有潜空间模型？</li>
 <li>137.44 GB（128 GiB）是按哪些假设算出的？它为什么不是所有像素扩散模型必需的显存？</li>
@@ -725,7 +725,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ol>
 </details>
 <hr />
-<h2 id="_9">🛑 可以停在这里</h2>
+<h2 id="_9" class="mg-remaining-heading" data-mg-stop>🛑 可以停在这里</h2>
 <p>你已经能区分：潜空间缩小了什么、几种流程分别在哪里编码、重建对照能证明什么。这些比背下三个加速倍数更重要。</p>
 <p>回来排查时，从具体问题进入：<a href="#_2">算力／显存口径</a>、<a href="#_6">细节与重建</a>、<a href="#latent-scaling">潜变量缩放</a>、<a href="#latent-vq">KL 与 VQ 的区别</a>。训练 OOM 可去上面的显存优化链接，不必把整页重读。</p>
 <p>⚡ <strong>走神救援</strong></p>
@@ -807,4 +807,4 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   });
 })();
 
-</script></body></html>
+</script><script defer src="../assets/magazine-reading-v1.js"></script></body></html>

@@ -177,19 +177,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .ckpt ol{padding-left:1.3em}.ckpt li{margin:.4em 0}
 .recap{background:var(--quote-bg);border-radius:12px;padding:16px 20px;margin:18px 0 0}
 .recap b{color:var(--accent)}
-</style></head><body data-polish="claude-library" class="polish-claude-library-reading">
+</style><link rel="stylesheet" href="../assets/magazine-reading-v1.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/claude-library/remaining-v1.css">
+</head><body data-polish="claude-library" class="polish-claude-library-reading" data-magazine-reading="v1" data-magazine-module="claude-library" data-magazine-kind="engineering" data-magazine-edition="m19-body-v1">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner"><a href="../index.html">🏠 总目录</a>
 <a href="index.html">📚 资料库</a><span class="title">工具与 MCP</span>
 <button id="themeToggle" title="切换深浅色">🌗</button></div></header>
-<main>
+<main class="mg-main">
 <h1>Claude 开发者平台的高级工具使用</h1>
 <div class="adhd-head">
 <p class="meta">⏱ <strong>12 分钟</strong> ｜ 🛠️ <strong>工具设计的进阶细节</strong></p>
 <h2 id="tldr">🎯 一句话</h2>
 <p class="tl">本文的三种能力分别处理<strong>工具定义过大、工具调用中间数据过多、复杂参数惯例不清</strong>：按需搜索、程序化调用、工具使用示例。先找到实际瓶颈，再选择组合。</p>
 </div>
-<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>瓶颈是工具发现、数据体积，还是调用惯例？</p><p><a href="#tool-search-tool">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav>
+<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>瓶颈是工具发现、数据体积，还是调用惯例？</p><p><a href="#tool-search-tool">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav><header class="mg-cover g06-body-cover"><div class="mg-cover-copy"><p class="mg-kicker">Claude 博客资料库 · 工具与MCP</p><p class="mg-question">瓶颈是工具发现、数据体积，还是调用惯例？</p><p class="mg-dek">先定位瓶颈：发现工具、处理大量返回值、理解调用惯例，分别对应不同机制。</p><p class="mg-outcome">读完可以：按工具发现、数据体积、调用惯例三个瓶颈组合能力。</p><nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#tool-search-tool">从这个问题开始</a><a href="#mg-claude-library-reading-start">直接进入完整解释</a></nav></div></header>
 <div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>Introducing Advanced Tool Use on the Claude Developer Platform（Claude 开发者平台的高级工具使用）</dd><dt>原文链接</dt><dd><a href="https://www.anthropic.com/engineering/advanced-tool-use" target="_blank" rel="noopener">https://www.anthropic.com/engineering/advanced-tool-use</a></dd><dt>作者</dt><dd>Bin Wu 等（Anthropic）</dd><dt>发布日期</dt><dd>2025-11-24</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。版本、参数与案例数字属于原文所示条件，不是本资料库的实测结果；产品状态与接口以实施时官方文档为准。</div></div>
 <details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
 <ul>
@@ -203,9 +205,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#recap">🛑 可以停在这里</a></li>
 </ul>
 </div>
-</details>
+</details><span id="mg-claude-library-reading-start" class="g06-body-start" aria-hidden="true"></span>
 <p>有效的 Agent 需要三种传统工具调用模式给不了的能力：不耗上下文的动态工具发现、用代码而非逐次 API 调用的高效编排、从用法示例（而非仅 schema）学习。原文发布时，Anthropic 将这三种能力作为 beta 特性介绍；以下版本号和启用方式保留发布时记录。</p>
-<h2 id="tool-search-tool">特性一：Tool Search Tool（工具搜索）</h2>
+<p class="g06-body-lead">先定位瓶颈：发现工具、处理大量返回值、理解调用惯例，分别对应不同机制。</p><h2 id="tool-search-tool" class="g06-body-chapter" data-mg-stop>特性一：Tool Search Tool（工具搜索）</h2>
 <p><strong>解决的问题：</strong> 工具定义吞噬 token 预算。示例：GitHub+Slack+Sentry+Grafana+Splunk 五个服务器共 58 个工具，对话还没开始就消耗约 55K token；再加 Jira 逼近 100K+。</p>
 <p><strong>工作方式：</strong>
 - 工具标记 <code>defer_loading: true</code> 延迟加载
@@ -218,7 +220,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>与 prompt caching 兼容（延迟加载的工具不在初始提示词中）</li>
 </ul>
 <p><strong>适用：</strong> 10+ 工具的大型库、多 MCP server、工具定义超 10K token 时。</p>
-<h2 id="programmatic-tool-calling">特性二：Programmatic Tool Calling（程序化工具调用）</h2>
+<h2 id="programmatic-tool-calling" class="g06-body-chapter" data-mg-stop>特性二：Programmatic Tool Calling（程序化工具调用）</h2>
 <p><strong>解决的问题：</strong> 中间结果污染上下文 + 推理开销。处理 10MB 日志会把整个文件挤进上下文；跨表查询会累积每一条记录。</p>
 <p><strong>工作方式：</strong>
 1. 工具标记 <code>allowed_callers: ["code_execution_20250825"]</code>
@@ -237,12 +239,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>准确率：知识检索 25.6% → 28.5%；GIA 基准 46.5% → 51.2%</li>
 </ul>
 <p><strong>适用：</strong> 有依赖关系的多步流程、并行操作、大数据集摘要、条件逻辑。实际应用：Claude for Excel 用它处理数千行表格而不压垮上下文。</p>
-<h2 id="tool-use-examples">特性三：Tool Use Examples（工具使用示例）</h2>
+<h2 id="tool-use-examples" class="g06-body-chapter" data-mg-stop>特性三：Tool Use Examples（工具使用示例）</h2>
 <p><strong>解决的问题：</strong> JSON Schema 只定义结构合法性，表达不了使用惯例——日期格式（"2024-11-06" 还是 "Nov 6, 2024"？）、ID 惯例（UUID 还是 "USR-12345"？）、嵌套结构何时填、参数之间的关联（升级级别与 SLA 小时数如何随优先级变化）。</p>
 <p><strong>工作方式：</strong> 在工具定义中加入 <code>input_examples</code> 数组，展示最小、部分、完整三类调用示例。Claude 从少量示例中学会格式惯例、嵌套模式和参数关联。</p>
 <p><strong>效果：</strong> 复杂参数处理的准确率从 72% → 90%。</p>
 <p><strong>适用：</strong> 复杂嵌套结构、有领域惯例的 API、大量可选参数、区分相似工具。</p>
-<h2 id="_1">组合策略</h2>
+<p class="g06-body-lead">组合策略依赖任务形态，不是把三项特性全部打开就能获得同样收益。</p><h2 id="_1" class="g06-body-chapter" data-mg-stop>组合策略</h2>
 <p>按最大瓶颈选择切入点，而非同时全上：</p>
 <ul>
 <li>工具定义撑爆上下文 → Tool Search Tool</li>
@@ -251,14 +253,14 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ul>
 <p><strong>配置要点：</strong> 常用的 3-5 个工具保持常载，其余延迟加载；文档写清返回格式；示例用真实数据而非泛型占位符，每个工具 1-5 个。</p>
 <p>API 启用：<code>betas=["advanced-tool-use-2025-11-20"]</code>。</p>
-<h2 id="_2">结论</h2>
+<h2 id="_2" class="g06-body-chapter" data-mg-stop>结论</h2>
 <p>三个特性共同让 Agent 突破基础限制：动态发现代替预载全部定义、代码编排代替逐次推理调用、示例学习补足 schema 校验。按瓶颈分层采用，支撑跨数十个工具和大数据集的复杂 Agent 工作流。</p>
 <hr />
-<div class="ckpt"><h2 id="ckpt">✅ 检查点</h2>
+<div class="ckpt"><h2 id="ckpt" class="g06-body-chapter" data-mg-stop>✅ 检查点</h2>
 <ol><li>三个高级工具特性分别解决哪个瓶颈？</li><li>工具定义太大和中间结果太大，应该选同一种办法吗？</li><li>工具使用示例与参数校验有什么不同？</li></ol>
 <details><summary>👀 答案</summary><ol><li>Tool Search 按需发现工具，减少预加载定义；Programmatic Tool Calling 在代码环境里组合调用和处理数据；Tool Use Examples 展示有效调用的惯例。</li><li>不是。定义太多先看工具搜索与延迟加载；结果太多先看程序化调用与过滤。可以组合，但要先确认主要瓶颈并记录实际 token、延迟和任务成功率。</li><li>示例帮助模型理解日期格式、可选字段和参数关系；Schema 与服务端校验仍需拒绝非法输入。示例不会自动成为安全边界。</li></ol></details>
 </div>
-<div class="recap"><h2 id="recap">🛑 可以停在这里</h2>
+<div class="recap"><h2 id="recap" class="g06-body-chapter" data-mg-stop>🛑 可以停在这里</h2>
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>先定位瓶颈：工具定义、中间数据，还是调用惯例。</li><li>分别选按需搜索、代码编排或示例，不必一次全部引入。</li><li>原文 beta 名称和工具版本属于发布时配置，实施前核对当前接口。</li></ul></section></div>
 <nav class="pagenav"><a href="index.html"><div class="dir">← 返回</div>📚 资料库目录</a>
 <a class="next" href="../智能体工程教程/index.html"><div class="dir">系统学习 →</div>🎓 智能体工程教程</a></nav>
@@ -275,4 +277,5 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
 <link rel="stylesheet" href="../assets/polish-claude-library-reader.css">
+<script defer src="../assets/magazine-reading-v1.js"></script>
 </body></html>

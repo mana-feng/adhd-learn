@@ -183,7 +183,10 @@ th,td{min-width:5.2em}
 </style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="kaggle-methods">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/magazine-reading-v1.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/kaggle-methods/reader.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/kaggle-methods/remaining-reader.css">
+</head><body data-polish-module="kaggle-methods" data-magazine-reading="v1" data-magazine-module="kaggle-methods" data-magazine-remainder="v1" data-magazine-kind="engineering">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -193,7 +196,7 @@ th,td{min-width:5.2em}
   <button class="js-done-btn">☐ 打卡</button>
   <button id="themeToggle" title="切换深浅色">🌗</button>
 </div></header>
-<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<main class="mg-main"><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#tldr">🎯 一句话</a></li>
 <li><a href="#_2">一、目标检测后处理流程</a></li>
@@ -212,19 +215,20 @@ th,td{min-width:5.2em}
 </div>
 </details>
 <h1 id="_1">检测后处理与框融合</h1>
+<header class="mg-cover kg-cover-remainder"><div class="mg-cover-copy"><p class="mg-kicker">Kaggle竞赛方法论 / 12</p><p class="mg-question">重叠检测框，是丢弃、降分，还是融合坐标？</p><p class="mg-dek">把 NMS、Soft-NMS 和 WBF 的动作分开看，再回到原参数、阈值搜索与验证条目。</p><p class="mg-outcome">能区分三类处理动作，并找到阈值选择、融合和密集目标的原限制。</p><nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#nms">先看原重叠框处理</a><a href="#mg-kaggle-methods-12-reading-start">直接进入完整正文</a></nav><nav class="kg-remainder-stops" aria-label="原小节阅读入口"><a href="#_2">一、目标检测后处理流程</a> · <a href="#nms">二、NMS(非极大值抑制)</a> · <a href="#wbf">三、WBF(加权框融合)</a> · <a href="#oof">四、OOF（折外预测）与置信度阈值选择</a> · <a href="#_13">九、检测竞赛常见踩坑点</a></nav></div><figure class="mg-visual kg-remainder-map" aria-label="同一类重叠框问题的并列处理动作"><ol><li><a href="#nms"><strong>标准 NMS → 保留与抑制</strong><br>按原条件选择保留框并抑制重叠框</a></li><li><a href="#nms"><strong>Soft-NMS → 调整分数</strong><br>用原规则降低重叠框分数</a></li><li><a href="#wbf"><strong>WBF → 匹配与融合</strong><br>按原参数匹配框并融合其坐标</a></li></ol><figcaption>三个并列动作，不是必须串行执行的三步，也不承诺某法总会更好；原密集目标限制、匹配阈值与验证要求完整保留。</figcaption></figure></header><span class="kg-reading-start" id="mg-kaggle-methods-12-reading-start"></span>
 <aside class="g03-content-note reading-information" aria-label="阅读边界"><p>OOF 是 out-of-fold：每条样本由未用该样本训练的折内模型产生预测。阈值搜索是折外预测的一种用途，不是 OOF 的全称；选阈值后还需独立留出集或外层验证估计效果。参见 <a href="https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.cross_val_predict.html">scikit-learn 折外预测说明</a>。</p></aside>
 
 <p>⏱ <strong>30 分钟</strong> ｜ ⭐⭐ <strong>检测赛的分数就在这一步</strong></p>
 <hr />
-<h2 id="tldr">🎯 一句话</h2>
+<h2 id="tldr" class="kg-heading" data-mg-stop>🎯 一句话</h2>
 <p><strong>检测赛里，同一个模型经过好的后处理和差的后处理，mAP 能差好几个点。</strong>这一章的顺序就是后处理管线的顺序：<strong>置信度过滤 → 框去重（NMS/Soft-NMS）→ 多模型融合（WBF）</strong>。三步里最容易被忽略的是第一步的阈值搜索。</p>
 <hr />
-<h2 id="_2">一、目标检测后处理流程</h2>
+<h2 id="_2" class="kg-heading" data-mg-stop>一、目标检测后处理流程</h2>
 <h3 id="_3">完整后处理管线</h3>
 <div class="codehilite"><pre><span></span><code>多模型预测 → 置信度过滤(OOF选阈值) → 框融合(NMS/WBF/Soft-NMS) → 最终结果
 </code></pre></div>
 
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 1，可横向浏览"><table>
 <thead>
 <tr>
 <th>步骤</th>
@@ -251,9 +255,9 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <hr />
-<h2 id="nms">二、NMS(非极大值抑制)</h2>
+<h2 id="nms" class="kg-heading" data-mg-stop>二、NMS(非极大值抑制)</h2>
 <h3 id="nms_1">标准NMS</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 2，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -280,7 +284,7 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <h3 id="soft-nms">Soft-NMS</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 3，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -315,7 +319,7 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <h3 id="nms_2">NMS变体选择</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 4，可横向浏览"><table>
 <thead>
 <tr>
 <th>场景</th>
@@ -342,9 +346,9 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <hr />
-<h2 id="wbf">三、WBF(加权框融合)</h2>
+<h2 id="wbf" class="kg-heading" data-mg-stop>三、WBF(加权框融合)</h2>
 <h3 id="wbf_1">WBF原理</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 5，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -375,7 +379,7 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <h3 id="wbf-vs-nms-vs-soft-nms">WBF vs NMS vs Soft-NMS</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 6，可横向浏览"><table>
 <thead>
 <tr>
 <th>方法</th>
@@ -406,7 +410,7 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <h3 id="wbf_2">WBF参数</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 7，可横向浏览"><table>
 <thead>
 <tr>
 <th>参数</th>
@@ -438,9 +442,9 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <hr />
-<h2 id="oof">四、OOF（折外预测）与置信度阈值选择</h2>
+<h2 id="oof" class="kg-heading" data-mg-stop>四、OOF（折外预测）与置信度阈值选择</h2>
 <h3 id="oof_1">折外预测与阈值搜索的分工</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 8，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -467,7 +471,7 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <h3 id="oof_2">OOF实现方法</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 9，可横向浏览"><table>
 <thead>
 <tr>
 <th>方法</th>
@@ -490,7 +494,7 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <h3 id="_4">阈值选择建议</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 10，可横向浏览"><table>
 <thead>
 <tr>
 <th>场景</th>
@@ -517,9 +521,9 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <hr />
-<h2 id="cv">五、伪标签在CV中的应用</h2>
+<h2 id="cv" class="kg-heading" data-mg-stop>五、伪标签在CV中的应用</h2>
 <h3 id="_5">伪标签使用场景</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 11，可横向浏览"><table>
 <thead>
 <tr>
 <th>场景</th>
@@ -554,7 +558,7 @@ th,td{min-width:5.2em}
 </code></pre></div>
 
 <h3 id="_7">伪标签注意事项</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 12，可横向浏览"><table>
 <thead>
 <tr>
 <th>注意点</th>
@@ -585,9 +589,9 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <hr />
-<h2 id="_8">六、分割后处理</h2>
+<h2 id="_8" class="kg-heading" data-mg-stop>六、分割后处理</h2>
 <h3 id="_9">分割后处理方法</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 13，可横向浏览"><table>
 <thead>
 <tr>
 <th>方法</th>
@@ -633,7 +637,7 @@ th,td{min-width:5.2em}
 </code></pre></div>
 
 <hr />
-<h2 id="_11">七、检测融合实战流程</h2>
+<h2 id="_11" class="kg-heading" data-mg-stop>七、检测融合实战流程</h2>
 <div class="codehilite"><pre><span></span><code>1. 各模型独立预测 → 得到各自的框集合
 2. 合并所有模型的框集合
 3. 用WBF/NMS进行框融合
@@ -643,7 +647,7 @@ th,td{min-width:5.2em}
 </code></pre></div>
 
 <h3 id="_12">融合多样性保证</h3>
-<div class="tw"><table>
+<div class="tw" tabindex="0" role="region" aria-label="表格 14，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -670,8 +674,8 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <hr />
-<h2 id="sahi">八、SAHI（切片辅助推理）</h2>
-<div class="tw"><table>
+<h2 id="sahi" class="kg-heading" data-mg-stop>八、SAHI（切片辅助推理）</h2>
+<div class="tw" tabindex="0" role="region" aria-label="表格 15，可横向浏览"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -723,8 +727,8 @@ th,td{min-width:5.2em}
 </code></pre></div>
 
 <hr />
-<h2 id="_13">九、检测竞赛常见踩坑点</h2>
-<div class="tw"><table>
+<h2 id="_13" class="kg-heading" data-mg-stop>九、检测竞赛常见踩坑点</h2>
+<div class="tw" tabindex="0" role="region" aria-label="表格 16，可横向浏览"><table>
 <thead>
 <tr>
 <th>坑点</th>
@@ -771,10 +775,10 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <hr />
-<h2 id="xref">🔗 这一章连到哪里</h2>
-<div class="tw"><table class="xref"><thead><tr><th>去哪</th><th>为什么</th></tr></thead><tbody><tr><td><a href="09_任务类型与模型架构.html">Kaggle 09 任务类型与模型架构</a></td><td>⭐ 框和置信度是从哪儿吐出来的——Head 的<strong>分类分支+回归分支</strong>、以及 Anchor 这个候选框先验；先有这一层，本章的 NMS 才有意义</td></tr><tr><td><a href="../机器学习与深度学习基础/12-CNN.html">ML基础 12 CNN</a></td><td>检测模型 Backbone 那一层在算什么（⚠️ 那一章只讲卷积和分类网络，<strong>不含检测头</strong>，检测部分看上一行）</td></tr><tr><td><a href="../机器学习与深度学习基础/05-评估与过拟合.html">ML基础 05 评估与过拟合</a></td><td>置信度阈值在 OOF 上搜出来，本身就是一次会过拟合的调参</td></tr><tr><td><a href="../模型上线之后/02-离线好不等于线上好.html">模型上线之后 02 离线好不等于线上好</a></td><td>阈值在验证集调到最优、换个分布就失效，这是同一个坑</td></tr></tbody></table></div>
+<h2 id="xref" class="kg-heading" data-mg-stop>🔗 这一章连到哪里</h2>
+<div class="tw" tabindex="0" role="region" aria-label="表格 17，可横向浏览"><table class="xref"><thead><tr><th>去哪</th><th>为什么</th></tr></thead><tbody><tr><td><a href="09_任务类型与模型架构.html">Kaggle 09 任务类型与模型架构</a></td><td>⭐ 框和置信度是从哪儿吐出来的——Head 的<strong>分类分支+回归分支</strong>、以及 Anchor 这个候选框先验；先有这一层，本章的 NMS 才有意义</td></tr><tr><td><a href="../机器学习与深度学习基础/12-CNN.html">ML基础 12 CNN</a></td><td>检测模型 Backbone 那一层在算什么（⚠️ 那一章只讲卷积和分类网络，<strong>不含检测头</strong>，检测部分看上一行）</td></tr><tr><td><a href="../机器学习与深度学习基础/05-评估与过拟合.html">ML基础 05 评估与过拟合</a></td><td>置信度阈值在 OOF 上搜出来，本身就是一次会过拟合的调参</td></tr><tr><td><a href="../模型上线之后/02-离线好不等于线上好.html">模型上线之后 02 离线好不等于线上好</a></td><td>阈值在验证集调到最优、换个分布就失效，这是同一个坑</td></tr></tbody></table></div>
 <hr />
-<h2 id="ckpt">✅ 检查点</h2>
+<h2 id="ckpt" class="kg-heading" data-mg-stop>✅ 检查点</h2>
 <ol>
 <li>检测后处理的完整管线是哪三步？</li>
 <li>标准 NMS 的缺陷是什么？Soft-NMS 怎么改进的？</li>
@@ -795,7 +799,7 @@ th,td{min-width:5.2em}
 </ol>
 </details>
 <hr />
-<h2 id="recap">🛑 可以停在这里</h2>
+<h2 id="recap" class="kg-heading" data-mg-stop>🛑 可以停在这里</h2>
 <blockquote>
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>置信度过滤、去重和跨模型框融合承担不同任务。</li><li>NMS 与加权框融合处理重叠候选的方式不同，密集目标需要特别检查误删。</li><li>融合会改变分数分布，阈值应在验证预测上重新评估。</li></ul></section>
 </blockquote>
@@ -827,4 +831,5 @@ th,td{min-width:5.2em}
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
 <link rel="stylesheet" href="../assets/polish-kaggle-methods-reader.css">
+<script defer src="../assets/magazine-reading-v1.js"></script>
 </body></html>

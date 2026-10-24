@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading topic-reading diffusion-reader">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script><link rel="stylesheet" href="../assets/magazine-reading-v1.css"><link rel="stylesheet" href="../assets/magazine-rollout/diffusion/remaining.css"></head><body data-magazine-reading="v1" data-magazine-module="diffusion" data-magazine-phase="remaining" data-magazine-kind="math-code" class="overview-reading topic-reading diffusion-reader">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -290,7 +290,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <button class="js-done-btn">☐ 打卡</button>
   <button id="themeToggle" title="切换深浅色">🌗</button>
 </div></header>
-<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<main class="mg-main"><header class="mg-remaining-cover"><p class="mg-kicker">扩散模型 / 06</p><p class="mg-question">CFG同一状态的两份预测，怎样影响更新方向？</p><p class="mg-dek">沿文本向量→交叉注意力→条件/空条件预测组合→尺度与资源→temperature对照。</p><nav class="mg-actions" aria-label="本章阅读入口"><a class="mg-primary" href="#_2">先看：一、文本先变成一串向量</a><a href="#mg-diffusion-06-reading-start">直接读完整正文</a></nav></header><span class="mg-reading-start" id="mg-diffusion-06-reading-start"></span><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">📝 一、文本先变成一串向量</a></li>
@@ -305,24 +305,24 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ul>
 </div>
 </details>
-<div class="ov-layout"><article class="ov-body"><h1 id="06-cfg">06 · 条件控制：文本与 CFG</h1>
+<div class="ov-layout"><article class="ov-body mg-article"><h1 id="06-cfg">06 · 条件控制：文本与 CFG</h1>
 <!-- topic-reading -->
 
 <p><link rel="stylesheet" href="../assets/diff-formula-help.css"><script defer src="../assets/diff-formula-help.js"></script></p>
 <p>⏱ <strong>22 分钟</strong> ｜ ⭐ <strong>看懂标准 CFG 的两份预测，再分清哪些 guidance 参数不按这条公式工作</strong></p>
 <hr />
-<h2 id="_1">🎯 一句话</h2>
+<h2 id="_1" class="mg-remaining-heading" data-mg-stop>🎯 一句话</h2>
 <p><strong>文本条件告诉去噪网络“想生成什么”；标准 CFG 再把有条件与无该语义条件的预测作差，在采样时调节这份差。</strong></p>
 <p>这一章以 SD-v1 式文本条件和标准双分支 CFG 为主例。这里的 guidance scale 不是所有模型、所有 UI 中同名参数的统一定义；<a href="#_4">第五节</a>会单独说明蒸馏模型的边界。</p>
 <p>从上一章的潜空间继续：每次去噪都可以读取条件，而不只是把提示词混进初始噪声。想先看滑块怎么算，去<a href="#cfg">第三节</a>；想看一段能运行的数值例子，去<a href="#s">第四节</a>。</p>
 <hr />
-<h2 id="_2">📝 一、文本先变成一串向量</h2>
+<h2 id="_2" class="mg-remaining-heading" data-mg-stop>📝 一、文本先变成一串向量</h2>
 <p><strong>在 SD-v1 这个接口里，提示词先经过冻结的 CLIP ViT-L/14 文本塔，得到 token 级隐藏状态。</strong> 它使用 77 个位置、每个位置 768 维的表示；不是一整句话只给一个向量。</p>
 <p>这里的 <strong>77 是位置数，不是 77 个词</strong>：序列还包含特殊标记和填充位置，一个词也可能拆成多个 token。该基础实现把短输入补齐、长输入截断；某些工具另外实现了长提示词处理，不能只凭这个数字判断所有 UI。<a href="https://github.com/CompVis/stable-diffusion/blob/main/ldm/modules/encoders/modules.py#L123">SD-v1 文本编码器</a>、<a href="https://github.com/CompVis/stable-diffusion/blob/main/configs/stable-diffusion/v1-inference.yaml">模型配置</a>、<a href="https://github.com/openai/CLIP/blob/main/clip/clip.py#L205">CLIP 分词入口</a>。</p>
 <p>保留一串向量，下一步就能让不同图像位置取不同的文本信息。例如“戴红帽子的猫”，帽子区域与爪子区域可以使用不同的权重。</p>
 <p>但这不是“文本条件必须是一串”的定理。全局向量、类别标签也能作为条件；把文本汇总成一个向量也不等于语义全丢了。本页选择 token 序列，是因为要解释接下来的交叉注意力。</p>
 <hr />
-<h2 id="_3">🔀 二、交叉注意力：图像位置怎样取文本信息</h2>
+<h2 id="_3" class="mg-remaining-heading" data-mg-stop>🔀 二、交叉注意力：图像位置怎样取文本信息</h2>
 <p><strong>交叉注意力放在选定的注意力模块里，不是每一个卷积层都执行一次。</strong> 在 SD-v1 的 U-Net 中，模块位置由分辨率配置等结构设置决定；各次去噪调用都能使用同一份文本条件。<a href="https://github.com/CompVis/stable-diffusion/blob/main/ldm/modules/diffusionmodules/openaimodel.py">U-Net 实现</a>。</p>
 <figure class="dia">
 <svg viewBox="0 0 760 304" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="图像特征投影为查询Q，文本分别投影为K和V；Q与K得到按文本位置归一化的权重，再用权重加权V">
@@ -382,7 +382,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>每头打分矩阵是 <strong>N×L</strong>；若批内有 B 个样本、每个模块有 heads 个头，写全形状就是 <strong>B×heads×N×L</strong>。沿最后一个轴做 softmax 后，每个图像位置取得一组文本权重，再把 V 加权取回。<a href="https://github.com/CompVis/stable-diffusion/blob/main/ldm/modules/attention.py#L156">交叉注意力实现</a>。</p>
 <p>所以，“提示词塞在哪里”的准确答案是：<strong>文本条件被传入主干，在配置好的条件模块中使用。</strong> 文本编码通常可先算一次并缓存；每次去噪的图像特征会变化，注意力关联也随之变化。时间条件 <code>t</code> 是另一条输入，留到下一章讲。</p>
 <hr />
-<h2 id="cfg">🎚️ 三、CFG：同一状态取两份预测</h2>
+<h2 id="cfg" class="mg-remaining-heading" data-mg-stop>🎚️ 三、CFG：同一状态取两份预测</h2>
 <p><strong>先决条件在训练阶段：模型必须学过缺少这份语义条件时怎样预测。</strong> 标准 CFG 训练会以设定概率把语义条件替换为训练时约定的空语义条件（null）；带噪输入和时间条件仍在。不是推理时随手关闭任意条件模型，也不是随机清零一部分嵌入元素。<a href="https://arxiv.org/html/2207.12598v1">CFG 原论文算法 1</a>。</p>
 <p>例如 SD-v1-3/1-4 的训练说明写了 <strong>10% 文本条件丢弃</strong>；这是具体版本的超参数，不是 CFG 必须使用的常数。“无条件”在这里指<strong>不带指定文本语义条件</strong>，仍然看着 <code>x_t</code> 和 <code>t</code>。<a href="https://github.com/CompVis/stable-diffusion/blob/main/README.md">CompVis 训练说明</a>。</p>
 <p>采样时，对<strong>同一个 <code>x_t</code>、同一个 <code>t</code>、同一种预测参数化</strong>取得两份结果：带文本的 <code>ε_cond</code> 与 null 条件的 <code>ε_uncond</code>。本页沿用 ε 预测记号，再合成：</p>
@@ -447,7 +447,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>classifier guidance 需要额外的分类器提供引导；classifier-free guidance 联合学习条件与 null 预测，不再需要那一个额外分类器。它不是“没有条件”，也不是“引导不花计算”。</p>
 </details>
 <hr />
-<h2 id="s">📉 四、<code>s</code> 调大，先看预测数值会发生什么</h2>
+<h2 id="s" class="mg-remaining-heading" data-mg-stop>📉 四、<code>s</code> 调大，先看预测数值会发生什么</h2>
 <p><strong>这个实验只检查合成公式，不评测图像。</strong> 下面保留两个假预测张量和固定种子，观察向量范数与越过 ±3 的分量数。无需下载模型。</p>
 <p>代码沿用“训练时见过”“训练尺度”的打印标签；在本例里它们只指<strong>标准高斯参考</strong>。真实噪声预测器的输出分布不必等于训练噪声目标的分布，不能从这个标签推出真实模型的合法范围。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># CFG 合成出来的 ε，随 s 被放大成什么样</span>
@@ -513,7 +513,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>真实生成中，过强引导可能伴随过饱和、结构或纹理伪影，以及多样性下降；它们需要图像实验验证，<strong>不是本页随机向量表的观测结果</strong>。也不存在由这张表推导出的通用最佳 s。<a href="https://arxiv.org/html/2207.12598v1">CFG 论文的质量与多样性讨论</a>。</p>
 <p>实际比较时，固定模型、提示词与采样器，对每个 s 使用同一组多个种子；既看条件匹配，也看细节和样本间差异。多样性不能靠一张图判断。</p>
 <hr />
-<h2 id="_4">💰 五、代价与例外：先认清是哪一种 guidance</h2>
+<h2 id="_4" class="mg-remaining-heading" data-mg-stop>💰 五、代价与例外：先认清是哪一种 guidance</h2>
 <p><strong>标准双分支 CFG 每个去噪状态需要两份预测。</strong> 若采样器恰好有 50 次这样的去噪评估，就是 <strong>100 份预测工作</strong>。两份可以分别调用，也可以合成一个较大的 batch；不代表一定有 100 次函数调用，墙钟时间也不必恰好翻倍。</p>
 <p>合批可能减少调度和重复访存、改善设备利用率，但没有把第二份输入对应的网络计算抹掉。计时前先对齐：采样器的“步”、模型评估次数、每次 batch 大小、硬件与实际耗时。</p>
 <p><strong>同名参数不一定执行同一算法。</strong> 以下是具体实现的边界，不是未来所有模型的通则：</p>
@@ -546,7 +546,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>对应一手入口：<a href="https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L695">SD 的 CFG 开关</a>、<a href="https://huggingface.co/stabilityai/sdxl-turbo#diffusers">SDXL-Turbo 模型卡</a>、<a href="https://huggingface.co/black-forest-labs/FLUX.1-dev#key-features">FLUX.1-dev 模型卡</a>、<a href="https://github.com/black-forest-labs/flux/blob/main/src/flux/model.py#L78">BFL 模型条件</a>与<a href="https://github.com/black-forest-labs/flux/blob/main/src/flux/sampling.py#L281">参考采样循环</a>、<a href="https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/flux/pipeline_flux.py">Diffusers FluxPipeline</a>。实现边界核对于 2026-09-11。</p>
 <p>所以，看到“20 步出图”或一个 guidance 滑块，先查模型版本与管线。<strong>别把“没有显式双分支 CFG”读成“没有文本条件”。</strong></p>
 <hr />
-<h2 id="temperature">🌡️ 六、与 temperature 对照：不是同一根滑块</h2>
+<h2 id="temperature" class="mg-remaining-heading" data-mg-stop>🌡️ 六、与 temperature 对照：不是同一根滑块</h2>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -586,7 +586,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>可保留的类比是：<strong>采样参数会改变结果分布，需要按任务做受控比较。</strong> 但两者的数学操作、方向和实现代价不同；降低语言模型随机性，不等于增加扩散条件差。<a href="https://huggingface.co/docs/transformers/main/en/internal/generation_utils#transformers.TemperatureLogitsWarper">温度缩放说明</a>。</p>
 <p>一次只改一个变量，是为了知道变化由谁造成，不是因为两种旋钮等价。保留一个可复查的基准设置，再逐项试验，比记住一个跨模型“安全默认值”可靠。</p>
 <hr />
-<h2 id="_5">🔗 这一章连到哪里</h2>
+<h2 id="_5" class="mg-remaining-heading" data-mg-stop>🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -615,7 +615,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </table></div>
 <p>图文对规模与训练目标见 <a href="https://arxiv.org/abs/2103.00020">CLIP 原论文</a>；训练数据规模属于文本编码器的来历，不是本页假预测实验的规模。</p>
 <hr />
-<h2 id="_6">✅ 检查点</h2>
+<h2 id="_6" class="mg-remaining-heading" data-mg-stop>✅ 检查点</h2>
 <ol>
 <li>本页 SD-v1 文本接口输出一个向量还是一串？77 是否指 77 个词？为什么保留不同位置有用？</li>
 <li>交叉注意力里 Q、K、V 各来自哪边？打分矩阵什么形状？是否每层都有、是否保证属性绝不串到别处？</li>
@@ -634,7 +634,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ol>
 </details>
 <hr />
-<h2 id="_7">🛑 可以停在这里</h2>
+<h2 id="_7" class="mg-remaining-heading" data-mg-stop>🛑 可以停在这里</h2>
 <p>现在你可以把三件事分开：<strong>文本怎样进入网络、标准 CFG 怎样组合预测、当前模型是否真的执行这条双分支公式。</strong></p>
 <p>要查提示词长度与局部关联，回看前两节；要查 s 的数值与计时口径，回看第三至五节。出现颜色、纹理或多样性问题时，先在同一组种子下与已记录的基准比较，不把所有问题都归因于一个滑块。</p>
 <p>⚡ <strong>走神救援</strong></p>
@@ -715,4 +715,4 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   });
 })();
 
-</script></body></html>
+</script><script defer src="../assets/magazine-reading-v1.js"></script></body></html>

@@ -1,3 +1,13 @@
+<div hidden data-agent-magazine="v1" data-magazine-kind="engineering"></div>
+
+<header class="mg-cover" style="grid-template-columns:minmax(0,1fr)"><div class="mg-cover-copy">
+<p class="mg-kicker">智能体工程 · 11e</p>
+<p class="mg-question">PDF提取出了字，表格关系就保住了吗？</p>
+<p class="mg-outcome">读完能做的判断：检查真实解析失败、表头关系与升级记录，而非只看输出存在。</p>
+<nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_3">从这个问题的原解释开始</a><a href="#mg-agent-engineering-11e-reading-start">直接进入完整解释</a></nav>
+</div></header>
+<span id="mg-agent-engineering-11e-reading-start" tabindex="-1"></span>
+
 # PDF 与表格解析实验
 
 > 本章保留教学代码、路径说明与历史验证结论；完整实验工程和运行记录未随本站及公开仓库分发。命令用于说明调用方式，复现需自行准备对应实现、数据与环境。

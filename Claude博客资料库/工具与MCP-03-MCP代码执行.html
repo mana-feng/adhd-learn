@@ -177,19 +177,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .ckpt ol{padding-left:1.3em}.ckpt li{margin:.4em 0}
 .recap{background:var(--quote-bg);border-radius:12px;padding:16px 20px;margin:18px 0 0}
 .recap b{color:var(--accent)}
-</style></head><body data-polish="claude-library" class="polish-claude-library-reading">
+</style><link rel="stylesheet" href="../assets/magazine-reading-v1.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/claude-library/remaining-v1.css">
+</head><body data-polish="claude-library" class="polish-claude-library-reading" data-magazine-reading="v1" data-magazine-module="claude-library" data-magazine-kind="engineering" data-magazine-edition="m19-body-v1">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner"><a href="../index.html">🏠 总目录</a>
 <a href="index.html">📚 资料库</a><span class="title">工具与 MCP</span>
 <button id="themeToggle" title="切换深浅色">🌗</button></div></header>
-<main>
+<main class="mg-main">
 <h1>用 MCP 代码执行构建更高效的 Agent</h1>
 <div class="adhd-head">
 <p class="meta">⏱ <strong>10 分钟</strong> ｜ 🧰 <strong>把工具调用换成写代码</strong></p>
 <h2 id="tldr">🎯 一句话</h2>
 <p class="tl">与其让模型一次次调用工具、每次都把结果读回上下文，不如<strong>让它写一段代码，在沙箱里一次跑完</strong>。⭐ 这样中间结果留在执行环境里，<strong>不占上下文</strong>。</p>
 </div>
-<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>哪些中间结果可以留在受限执行环境中处理？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav>
+<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>哪些中间结果可以留在受限执行环境中处理？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav><header class="mg-cover g06-body-cover"><div class="mg-cover-copy"><p class="mg-kicker">Claude 博客资料库 · 工具与MCP</p><p class="mg-question">哪些中间结果可以留在受限执行环境中处理？</p><p class="mg-dek">工具定义加载和中间数据回传是两个不同成本；目录图先说明工具如何被发现。</p><p class="mg-outcome">读完可以：区分工具发现成本与中间结果体积，说明受限执行环境中的处理边界。</p><nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_1">从这个问题开始</a><a href="#mg-claude-library-reading-start">直接进入完整解释</a></nav></div></header>
 <div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>Code Execution with MCP: Building More Efficient Agents（用 MCP 代码执行构建更高效的 Agent）</dd><dt>原文链接</dt><dd><a href="https://www.anthropic.com/engineering/code-execution-with-mcp" target="_blank" rel="noopener">https://www.anthropic.com/engineering/code-execution-with-mcp</a></dd><dt>作者</dt><dd>Adam Jones、Conor Kelly（Anthropic）</dd><dt>发布日期</dt><dd>2025-11-04</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。版本、参数与案例数字属于原文所示条件，不是本资料库的实测结果；产品状态与接口以实施时官方文档为准。</div></div>
 <details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
 <ul>
@@ -203,14 +205,14 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#recap">🛑 可以停在这里</a></li>
 </ul>
 </div>
-</details>
+</details><span id="mg-claude-library-reading-start" class="g06-body-start" aria-hidden="true"></span>
 <p>随着 Agent 通过 MCP 连接的工具越来越多，传统的直接工具调用变得低效。把 MCP server 呈现为<strong>可编程的代码 API</strong>，让 Agent 用代码与之交互，可以大幅减少 token 消耗。</p>
-<h2 id="_1">两个低效问题</h2>
+<p class="g06-body-lead">工具定义加载和中间数据回传是两个不同成本；目录图先说明工具如何被发现。</p><h2 id="_1" class="g06-body-chapter" data-mg-stop>两个低效问题</h2>
 <h3 id="1">1. 工具定义过载</h3>
 <p>MCP 客户端把所有工具定义预先载入上下文窗口——连接数千个工具时，Agent 在读用户请求之前就要先处理「数十万 token」的文档，徒增延迟和成本。</p>
 <h3 id="2">2. 中间结果重复过境</h3>
 <p>直接工具调用要求所有结果流经模型上下文。典型例子：从 Google Drive 下载会议转录并附加到 Salesforce——完整转录文本要过境上下文两次（一次作为检索结果，一次写入更新调用）。一场 2 小时会议可能多耗 50,000 token。</p>
-<h2 id="_2">解法：代码执行</h2>
+<h2 id="_2" class="g06-body-chapter" data-mg-stop>解法：代码执行</h2>
 <p>把 MCP server 组织成文件系统结构：</p>
 <figure class="dia" aria-label="按文件夹组织的 MCP 工具服务">
 <svg viewBox="0 0 800 280" role="img" aria-labelledby="mcp-folder-title mcp-folder-desc" xmlns="http://www.w3.org/2000/svg">
@@ -229,7 +231,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>每个工具是一个带类型接口的 TypeScript 文件。Agent 通过探索文件系统按需发现和加载工具，编写代码直接处理数据，只把最终结果返回给模型。</p>
 <p><strong>效果：</strong> 文中案例 token 用量从 150,000 降到 2,000——<strong>节省 98.7%</strong>。</p>
-<h2 id="_3">五大收益</h2>
+<p class="g06-body-lead">逐项看哪些处理留在受限环境、哪些结果返回模型，并把安全和基础设施成本放回收益旁。</p><h2 id="_3" class="g06-body-chapter" data-mg-stop>五大收益</h2>
 <ol>
 <li><strong>渐进式披露：</strong> 模型擅长导航文件系统，按需加载工具定义；辅以可配置详细级别的 <code>search_tools</code>（仅名称/含描述/完整 schema）</li>
 <li><strong>上下文高效的工具结果：</strong> 在执行环境内过滤转换数据——获取 10,000 行表格时「Agent 只看到 5 行而不是 10,000 行」</li>
@@ -237,12 +239,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>隐私保护：</strong> 中间结果默认留在执行环境；PII 可由 MCP 客户端自动 token 化，数据从来源流向目的地而不进入模型上下文</li>
 <li><strong>状态持久化与技能：</strong> 中间结果可写文件跨会话续用；可复用的代码实现可以保存为「技能」，让 Agent 的工具箱随时间进化</li>
 </ol>
-<h2 id="_4">注意事项</h2>
+<h2 id="_4" class="g06-body-chapter" data-mg-stop>注意事项</h2>
 <p>代码执行引入复杂性：需要安全的执行环境（沙箱、资源限制、监控），这些基础设施带来「直接工具调用所没有的运维开销和安全考量」。需要在 token 效率收益与实现成本之间权衡。</p>
-<h2 id="_5">结论</h2>
+<p class="g06-body-lead">原文的节省比例来自具体案例，是否值得使用仍取决于当前数据和执行边界。</p><h2 id="_5" class="g06-body-chapter" data-mg-stop>结论</h2>
 <p>这一方法本质上是把成熟的软件工程模式应用到 Agent 架构。MCP 是基础协议，代码执行是其上的演进中的最佳实践——作者鼓励社区分享实践发现。</p>
 <hr />
-<div class="ckpt"><h2 id="ckpt">✅ 检查点</h2>
+<div class="ckpt"><h2 id="ckpt" class="g06-body-chapter" data-mg-stop>✅ 检查点</h2>
 <ol>
 <li>「代码执行」相比逐次调用工具，主要省下了什么？</li>
 <li>什么类型的任务最适合这种模式？</li>
@@ -257,7 +259,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ol>
 </details>
 </div>
-<div class="recap"><h2 id="recap">🛑 可以停在这里</h2>
+<div class="recap"><h2 id="recap" class="g06-body-chapter" data-mg-stop>🛑 可以停在这里</h2>
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>中间结果不需模型逐条判断时，可以在受限执行环境中完成组合计算。</li><li>只回传必要结果，减少上下文体积和往返。</li><li>代码执行扩大了能力面，必须同时限制文件、网络与凭证权限。</li></ul></section></div>
 <nav class="pagenav"><a href="index.html"><div class="dir">← 返回</div>📚 资料库目录</a>
 <a class="next" href="../智能体工程教程/index.html"><div class="dir">系统学习 →</div>🎓 智能体工程教程</a></nav>
@@ -274,4 +276,5 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
 <script src="../assets/diagram-reader.js"></script><link rel="stylesheet" href="../assets/polish-claude-library-reader.css">
+<script defer src="../assets/magazine-reading-v1.js"></script>
 </body></html>

@@ -177,19 +177,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .ckpt ol{padding-left:1.3em}.ckpt li{margin:.4em 0}
 .recap{background:var(--quote-bg);border-radius:12px;padding:16px 20px;margin:18px 0 0}
 .recap b{color:var(--accent)}
-</style></head><body data-polish="claude-library" class="polish-claude-library-reading">
+</style><link rel="stylesheet" href="../assets/magazine-reading-v1.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/claude-library/remaining-v1.css">
+</head><body data-polish="claude-library" class="polish-claude-library-reading" data-magazine-reading="v1" data-magazine-module="claude-library" data-magazine-kind="engineering" data-magazine-edition="m19-body-v1">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner"><a href="../index.html">🏠 总目录</a>
 <a href="index.html">📚 资料库</a><span class="title">Claude Code 实践</span>
 <button id="themeToggle" title="切换深浅色">🌗</button></div></header>
-<main>
+<main class="mg-main">
 <h1>Anthropic 如何用 Claude Code 做大规模代码迁移</h1>
 <div class="adhd-head">
 <p class="meta">⏱ <strong>12 分钟</strong> ｜ 🚚 <strong>批量任务的正确打开方式</strong></p>
 <h2 id="tldr">🎯 一句话</h2>
 <p class="tl">迁移先建立<strong>规则手册、依赖图与行为验证</strong>，再拆成可定位失败、可恢复的小批次。切分依据是依赖和接口，并非所有任务都应按单文件提交。</p>
 </div>
-<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>迁移单元怎样切分，才能验证并恢复？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav>
+<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>迁移单元怎样切分，才能验证并恢复？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav><header class="mg-cover g06-body-cover"><div class="mg-cover-copy"><p class="mg-kicker">Claude 博客资料库 · ClaudeCode实践</p><p class="mg-question">迁移单元怎样切分，才能验证并恢复？</p><p class="mg-dek">案例中的速度要与消耗、测试覆盖和上线后回归一起看，不能只保留完成时间。</p><p class="mg-outcome">读完可以：按依赖与接口切分迁移任务，并区分编译通过、冒烟和行为对齐。</p><nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_1">从这个问题开始</a><a href="#mg-claude-library-reading-start">直接进入完整解释</a></nav></div><figure class="mg-visual g06-body-figure" id="mg-claude-library-mechanism"><p class="g06-figure-heading">切分依赖，再接验证闸门</p><ol class="g06-body-flow"><li><b>定义迁移单元</b><span>规则手册、依赖图和缺口清单先建立</span></li><li><b>样本压力测试</b><span>试验翻译方式，只保留修订后的规则</span></li><li><b>并行翻译</b><span>按依赖与接口划分可协作的批次</span></li><li><b>编译与冒烟</b><span>先发现基本构建和运行问题</span></li><li><b>行为对齐</b><span>再检查迁移前后的行为差异</span></li></ol><p class="g06-body-note">失败回到对应单元与规则；编译通过还没有证明行为保持一致。</p><figcaption>原六步架构的阅读索引，图中合并展示编译与冒烟检查，行为对齐另列；不是本资料库实施过的迁移，也不保证原案例的速度或成本可复现。</figcaption></figure></header>
 <div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>How Anthropic Runs Large-Scale Code Migrations with Claude Code（Anthropic 如何用 Claude Code 做大规模代码迁移）</dd><dt>原文链接</dt><dd><a href="https://claude.com/blog/ai-code-migration" target="_blank" rel="noopener">https://claude.com/blog/ai-code-migration</a></dd><dt>作者</dt><dd>Anthropic（Claude 博客）</dd><dt>发布日期</dt><dd>2026-07-16</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。版本、参数与案例数字属于原文所示条件，不是本资料库的实测结果；产品状态与接口以实施时官方文档为准。</div></div>
 <details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
 <ul>
@@ -203,12 +205,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#recap">🛑 可以停在这里</a></li>
 </ul>
 </div>
-</details>
+</details><span id="mg-claude-library-reading-start" class="g06-body-start" aria-hidden="true"></span>
 <p>代码迁移（把生产代码库转换到新语言）已从「多年、百万美元级」的项目变成「数周可完成」的工作。核心洞察是：</p>
 <blockquote>
 <p><strong>「你要修的不是代码，而是产出代码的那个流程（循环）。」</strong></p>
 </blockquote>
-<h2 id="_1">两个真实案例</h2>
+<p class="g06-body-lead">案例中的速度要与消耗、测试覆盖和上线后回归一起看，不能只保留完成时间。</p><h2 id="_1" class="g06-body-chapter" data-mg-stop>两个真实案例</h2>
 <h3 id="bun-zig-rust">Bun 迁移（Zig → Rust）</h3>
 <ul>
 <li><strong>规模：</strong> 一百万行代码，不到两周</li>
@@ -223,7 +225,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>配置：</strong> 12 个子 Agent、8 道阶段闸门、3 轮对抗式审查</li>
 <li><strong>收益：</strong> 编译时间从约 30 分钟降到每平台约 2 秒；二进制启动快 6 倍；退役了一条独立的部署流水线</li>
 </ul>
-<h2 id="_2">六步迁移架构</h2>
+<p class="g06-body-lead">并行单元来自依赖与接口；规则手册、样本压力测试和验证闸门共同决定如何切分。</p><h2 id="_2" class="g06-body-chapter" data-mg-stop>六步迁移架构</h2>
 <h3 id="1">第 1 步：打地基（三条并行工作流）</h3>
 <ul>
 <li><strong>规则手册（Rulebook）：</strong> 记录两种语言间的翻译政策——惯用法、类型、架构决策</li>
@@ -246,7 +248,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>行为对齐：</strong> 对新旧两套代码库跑完整测试套件；用构建守护进程串行化昂贵的重建操作</li>
 <li><strong>没有测试套件时的替代方案：</strong> 建对等性测试台（parity harness）对比真实场景，或让 Claude 自主设计并通宵运行端到端测试</li>
 </ul>
-<h2 id="ai">为什么 AI 改变了迁移的经济账</h2>
+<p class="g06-body-lead">经济账解释为什么值得迁移，工程实践解释怎样限制失败的影响范围。</p><h2 id="ai" class="g06-body-chapter" data-mg-stop>为什么 AI 改变了迁移的经济账</h2>
 <ul>
 <li><strong>工作天然可并行：</strong> 数千个独立文件单元支持并发执行</li>
 <li><strong>规格明确：</strong> 原代码库本身就是参考规格</li>
@@ -254,7 +256,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>工作队列自动生成：</strong> 编译错误和测试失败自动填充待办队列</li>
 <li><strong>模式可检测：</strong> 系统性问题在审查循环中浮现，防止悄然偏移</li>
 </ul>
-<h2 id="_3">六条关键实践</h2>
+<h2 id="_3" class="g06-body-chapter" data-mg-stop>六条关键实践</h2>
 <ol>
 <li><strong>把人力前置</strong>到规则手册和压力测试上；后续阶段基本是「烧队列」</li>
 <li><strong>关注失败的模式而非单个失败</strong>——人的注意力应该放在模式上</li>
@@ -263,10 +265,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>坚持对抗式审查</strong>——长任务中它值那个 token 成本</li>
 <li><strong>别照搬本文：</strong> 每次迁移都不同，先和 Claude 一起做针对性规划</li>
 </ol>
-<h2 id="_4">结论</h2>
+<h2 id="_4" class="g06-body-chapter" data-mg-stop>结论</h2>
 <p>语言迁移不再需要「关乎存亡」的理由来立项——长期存在的瓶颈或维护负担现在就足以证明投资合理。通过把迁移围绕系统性验证循环（而非人工代码审查）来组织，并策略性地搭配不同档位的模型，历史上需要「多年工程」的项目可以压缩到几周，迁移的算术从根本上变了。</p>
 <hr />
-<div class="ckpt"><h2 id="ckpt">✅ 检查点</h2>
+<div class="ckpt"><h2 id="ckpt" class="g06-body-chapter" data-mg-stop>✅ 检查点</h2>
 <ol>
 <li>大规模代码迁移该怎么切分任务？</li>
 <li>为什么「一次性全改完」是错的？</li>
@@ -281,7 +283,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ol>
 </details>
 </div>
-<div class="recap"><h2 id="recap">🛑 可以停在这里</h2>
+<div class="recap"><h2 id="recap" class="g06-body-chapter" data-mg-stop>🛑 可以停在这里</h2>
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>迁移单元要能独立验证、定位失败与恢复。</li><li>先确定迁移规则和边界案例，再批量推进。</li><li>每批检查产物及保留项，异常回到明确的人工处理入口。</li></ul></section></div>
 <nav class="pagenav"><a href="index.html"><div class="dir">← 返回</div>📚 资料库目录</a>
 <a class="next" href="../智能体工程教程/index.html"><div class="dir">系统学习 →</div>🎓 智能体工程教程</a></nav>
@@ -298,4 +300,5 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
 <link rel="stylesheet" href="../assets/polish-claude-library-reader.css">
+<script defer src="../assets/magazine-reading-v1.js"></script>
 </body></html>

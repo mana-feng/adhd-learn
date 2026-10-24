@@ -1,3 +1,13 @@
+<div hidden data-agent-magazine="v1" data-magazine-kind="engineering"></div>
+
+<header class="mg-cover" style="grid-template-columns:minmax(0,1fr)"><div class="mg-cover-copy">
+<p class="mg-kicker">智能体工程 · 13b</p>
+<p class="mg-question">协作式检索看起来更忙，结果真的更好吗？</p>
+<p class="mg-outcome">读完能做的判断：对齐三种路径的输入、预算和实跑记录，保留失败与开销。</p>
+<nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_3">从这个问题的原解释开始</a><a href="#mg-agent-engineering-13b-reading-start">直接进入完整解释</a></nav>
+</div></header>
+<span id="mg-agent-engineering-13b-reading-start" tabindex="-1"></span>
+
 # 单 Agent 与协作式检索对照
 
 > 本章保留教学代码、路径说明与历史验证结论；完整实验工程和运行记录未随本站及公开仓库分发。命令用于说明调用方式，复现需自行准备对应实现、数据与环境。

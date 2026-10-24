@@ -177,19 +177,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .ckpt ol{padding-left:1.3em}.ckpt li{margin:.4em 0}
 .recap{background:var(--quote-bg);border-radius:12px;padding:16px 20px;margin:18px 0 0}
 .recap b{color:var(--accent)}
-</style></head><body data-polish="claude-library" class="polish-claude-library-reading">
+</style><link rel="stylesheet" href="../assets/magazine-reading-v1.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/claude-library/remaining-v1.css">
+</head><body data-polish="claude-library" class="polish-claude-library-reading" data-magazine-reading="v1" data-magazine-module="claude-library" data-magazine-kind="engineering" data-magazine-edition="m19-body-v1">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner"><a href="../index.html">🏠 总目录</a>
 <a href="index.html">📚 资料库</a><span class="title">Claude Code 实践</span>
 <button id="themeToggle" title="切换深浅色">🌗</button></div></header>
-<main>
+<main class="mg-main">
 <h1>超越权限弹窗：用沙箱让 Claude Code 更安全更自主</h1>
 <div class="adhd-head">
 <p class="meta">⏱ <strong>10 分钟</strong> ｜ 📦 <strong>先划好笼子，再放手</strong></p>
 <h2 id="tldr">🎯 一句话</h2>
 <p class="tl">沙箱通过文件系统与网络限制控制 Agent 能造成的影响，减少边界内常规操作的审批负担。<strong>隔离边界与授权范围仍要实际配置和验证</strong>，不能由“已启用沙箱”推断所有动作都安全。</p>
 </div>
-<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>文件系统与网络两条沙箱边界为什么要同时设计？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav>
+<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>文件系统与网络两条沙箱边界为什么要同时设计？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav><header class="mg-cover g06-body-cover"><div class="mg-cover-copy"><p class="mg-kicker">Claude 博客资料库 · ClaudeCode实践</p><p class="mg-question">文件系统与网络两条沙箱边界为什么要同时设计？</p><p class="mg-dek">先看为什么逐次审批会失效，再看哪些影响范围应由环境限制。</p><p class="mg-outcome">读完可以：区分文件与网络两条边界，并在授权范围内核对隔离配置。</p><nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_1">从这个问题开始</a><a href="#mg-claude-library-reading-start">直接进入完整解释</a></nav></div><figure class="mg-visual g06-body-figure" id="mg-claude-library-mechanism"><p class="g06-figure-heading">两条边界，分别核对</p><ul class="g06-body-flow"><li><b>文件系统</b><span>哪些路径允许读写，哪些区域必须隔离</span></li><li><b>网络</b><span>哪些目的地获准连接，哪些请求应被阻断</span></li></ul><p class="g06-body-note">启用后仍核对：进程资源、凭据、越界处理和恢复路径。</p><figcaption>依据原文双边界架构整理。图中两项不是先后步骤；具体权限与隔离效果需按平台配置验证，不代表“启用沙箱就全部安全”。</figcaption></figure></header>
 <div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>Beyond Permission Prompts: Making Claude Code More Secure and Autonomous with Sandboxing（超越权限弹窗：用沙箱让 Claude Code 更安全更自主）</dd><dt>原文链接</dt><dd><a href="https://www.anthropic.com/engineering/claude-code-sandboxing" target="_blank" rel="noopener">https://www.anthropic.com/engineering/claude-code-sandboxing</a></dd><dt>作者</dt><dd>David Dworken、Oliver Weller-Davies 等（Anthropic）</dd><dt>发布日期</dt><dd>2025-10-20</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。版本、参数与案例数字属于原文所示条件，不是本资料库的实测结果；产品状态与接口以实施时官方文档为准。</div></div>
 <details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
 <ul>
@@ -204,19 +206,19 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#recap">🛑 可以停在这里</a></li>
 </ul>
 </div>
-</details>
+</details><span id="mg-claude-library-reading-start" class="g06-body-start" aria-hidden="true"></span>
 <p>Anthropic 为 Claude Code 引入两项沙箱特性，用操作系统级隔离边界取代持续的用户审批，<strong>权限弹窗减少 84%</strong>，同时提升安全性和开发自主性。</p>
-<h2 id="_1">问题：权限弹窗疲劳</h2>
+<p class="g06-body-lead">先看为什么逐次审批会失效，再看哪些影响范围应由环境限制。</p><h2 id="_1" class="g06-body-chapter" data-mg-stop>问题：权限弹窗疲劳</h2>
 <p>Claude Code 默认只读，修改和执行命令需要用户批准。这带来两个相互纠缠的问题：
 1. <strong>效率低：</strong> 例行操作也要不断打断开发者手动批准
 2. <strong>安全反而变差：</strong> 「审批疲劳」让开发者越来越不看清楚就点同意——本意是安全机制，实际效果打折</p>
-<h2 id="_2">方案：双边界沙箱架构</h2>
+<p class="g06-body-lead">文件路径与网络目的地是两条不同边界；Bash 和 Web 场景的配置也要分别阅读。</p><h2 id="_2" class="g06-body-chapter" data-mg-stop>方案：双边界沙箱架构</h2>
 <p>不再逐个动作请求许可，而是预定义边界让 Claude 在安全区内自主工作。<strong>文件系统隔离和网络隔离必须同时具备</strong>——缺网络控制，攻击者可以窃走敏感文件；缺文件系统控制，攻击者可以逃逸沙箱。</p>
 <h3 id="_3">文件系统隔离</h3>
 <p>限制 Claude 只能读写当前工作目录等指定区域，阻止被提示词注入攻击的 Claude 修改系统关键文件或敏感配置。</p>
 <h3 id="_4">网络隔离</h3>
 <p>通过沙箱外运行的代理服务器强制域名限制，只允许连接批准的服务器——防止被攻陷的 Agent 外传敏感信息（如 SSH 密钥）或下载恶意软件。</p>
-<h2 id="bash">特性一：沙箱化 Bash 工具</h2>
+<h2 id="bash" class="g06-body-chapter" data-mg-stop>特性一：沙箱化 Bash 工具</h2>
 <ul>
 <li>基于 OS 级原语：Linux 用 <strong>bubblewrap</strong>，macOS 用 <strong>seatbelt</strong></li>
 <li>覆盖范围不止 Claude 的直接操作，还包括其派生的脚本、程序、子进程</li>
@@ -224,7 +226,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>可配置：哪些路径可访问、代理放行哪些域名</li>
 <li><strong>已开源：</strong> anthropic-experimental/sandbox-runtime 仓库，供其他团队构建更安全的 AI Agent</li>
 </ul>
-<h2 id="claude-code-on-the-web">特性二：Claude Code on the Web</h2>
+<h2 id="claude-code-on-the-web" class="g06-body-chapter" data-mg-stop>特性二：Claude Code on the Web</h2>
 <ul>
 <li>每个会话运行在隔离的云端沙箱中，Agent 在预定义安全约束内拥有完整服务器权限</li>
 <li><strong>凭据永不入沙箱：</strong> git 凭据、签名密钥都不放在 Claude Code 运行的沙箱内</li>
@@ -235,13 +237,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   4. 附加认证 token 后再转发给 GitHub</li>
 <li>即使沙箱内代码被攻陷，也无法获得未授权的仓库访问或推送到非预期分支</li>
 </ul>
-<h2 id="_5">上手方式</h2>
+<p class="g06-body-lead">启用入口只是起点，回到可访问范围、凭据和恢复路径逐项核对。</p><h2 id="_5" class="g06-body-chapter" data-mg-stop>上手方式</h2>
 <ol>
 <li>Claude Code 里输入 <code>/sandbox</code> 启用沙箱化 bash</li>
 <li>claude.com/code 体验 Web 版</li>
 <li>Agent 开发者可集成开源的 sandbox-runtime</li>
 </ol>
-<h2 id="_6">关键结论</h2>
+<h2 id="_6" class="g06-body-chapter" data-mg-stop>关键结论</h2>
 <ul>
 <li><strong>靠架构而非靠审批实现安全：</strong> 即使 Claude 被提示词注入成功操纵，沙箱边界依然有效</li>
 <li><strong>自主性提升生产力：</strong> 弹窗减少 84%，开发循环更快</li>
@@ -249,7 +251,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>凭据零暴露：</strong> Web 版设计保证认证材料始终在 Agent 触及范围之外</li>
 </ul>
 <hr />
-<div class="ckpt"><h2 id="ckpt">✅ 检查点</h2>
+<div class="ckpt"><h2 id="ckpt" class="g06-body-chapter" data-mg-stop>✅ 检查点</h2>
 <ol>
 <li>沙箱最实际的价值是什么？</li>
 <li>沙箱要限制哪几个维度？</li>
@@ -264,7 +266,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ol>
 </details>
 </div>
-<div class="recap"><h2 id="recap">🛑 可以停在这里</h2>
+<div class="recap"><h2 id="recap" class="g06-body-chapter" data-mg-stop>🛑 可以停在这里</h2>
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>沙箱用边界限制错误和恶意输入可能造成的后果。</li><li>文件、网络、进程资源与凭证分别检查，不能只隔离其中一项。</li><li>自动执行之前先确认权限范围和恢复路径，不把连续成功当成没有风险。</li></ul></section></div>
 <nav class="pagenav"><a href="index.html"><div class="dir">← 返回</div>📚 资料库目录</a>
 <a class="next" href="../智能体工程教程/index.html"><div class="dir">系统学习 →</div>🎓 智能体工程教程</a></nav>
@@ -281,4 +283,5 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
 <link rel="stylesheet" href="../assets/polish-claude-library-reader.css">
+<script defer src="../assets/magazine-reading-v1.js"></script>
 </body></html>

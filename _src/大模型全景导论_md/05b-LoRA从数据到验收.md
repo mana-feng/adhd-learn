@@ -1,5 +1,8 @@
 # 05b｜LoRA：从数据到验收
 
+<header class="mg-remaining-cover"><p class="mg-kicker">大模型全景导论 / 05b</p><p class="mg-question">loss下降后，怎样证明数据、重载与任务三道门都过了？</p><p class="mg-dek">沿监督token边界→资源与训练条件→新进程重载及未见题比较，保留全部调用示意和未验收状态。</p><nav class="mg-actions" aria-label="本章阅读入口"><a class="mg-primary" href="#token">先看：停止点一：先看模型到底会学哪几个 token</a><a href="#mg-llm-overview-05b-reading-start">直接读完整正文</a></nav></header><span class="mg-reading-start" id="mg-llm-overview-05b-reading-start"></span>
+
+
 > 本章给出数据、训练与保存重载的验收契约。完整实验工程与运行记录未随本站分发；以下命令是调用方式示意，不能在空目录直接运行。需先自行实现对应脚本并准备数据与环境。
 
 > 一句话带走：数据能被训练、适配器能被重载、任务真的变好，是三道不同的门。

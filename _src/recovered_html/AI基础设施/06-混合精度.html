@@ -280,7 +280,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="polish-ai-infra-reading">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/magazine-reading-v1.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/ai-infra/remaining.css">
+</head><body class="polish-ai-infra-reading" data-magazine-reading="v1" data-magazine-module="ai-infra" data-magazine-kind="math-code">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -290,7 +292,25 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <button class="js-done-btn">☐ 打卡</button>
   <button id="themeToggle" title="切换深浅色">🌗</button>
 </div></header>
-<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<main class="mg-main mg-remaining">
+<!-- G05 remaining page framing; original knowledge below stays complete. -->
+<header class="mg-cover mg-remaining-cover" aria-label="本页问题与阅读入口">
+<div class="mg-cover-copy">
+<p class="mg-kicker">AI基础设施 · 06</p>
+<p class="mg-question">用了 BF16，为什么某些状态还要留在 FP32？</p>
+<p class="mg-dek">较低精度可以减少元素存储和搬运，但数值范围、梯度与权重更新有不同风险。原环图只描述一种显式主副本方案。</p>
+<p class="mg-outcome">读完能判断：区分动态范围、权重更新与梯度信息损失，理解一种混合精度方案。</p>
+<nav class="mg-actions" aria-label="本页阅读入口">
+<a class="mg-primary" href="#_2">一、五种数字格式</a>
+<a href="#mg-ai-infra-06-reading-start">直接进入完整正文</a>
+<a href="#mg-ai-infra-06-figure-1">对照本章原图与图注</a>
+</nav>
+<nav class="mg-reading-map" aria-label="本章其他定位"><a href="#_4">⚙️ 三、&quot;混合&quot;精度：哪些用低精度，哪些不能</a><a href="#loss-scalingfp16">🩹 四、Loss Scaling：FP16 专属的补丁</a></nav>
+</div>
+</header>
+<span id="mg-ai-infra-06-reading-start"></span>
+<!-- End G05 remaining entry. -->
+<details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">🔢 一、五种数字格式</a></li>
@@ -366,7 +386,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <section class="reading-information"><p class="reading-information-title">关键信息</p><ul><li><span>本例中适合尝试 BF16/FP16 的部分：</span></li><li><span>矩阵乘、卷积（占 90%+ 的计算量）</span></li><li><span>激活值（占大部分显存）</span></li><li><span>前向和反向的中间结果</span></li><li><span>本例采用的 FP32 保存/累加策略（非统一规定）：</span></li><li><span>⭐ 主权重副本（master weights）</span></li><li><span>优化器状态（Adam 的 m、v）</span></li><li><span>Softmax / LayerNorm 的【累加部分】</span></li><li><span>损失的求和归约</span></li></ul></section>
 <h3 id="fp32">⭐ 为什么本例使用 FP32 主权重副本</h3>
 <section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">典型情况：权重 = 1.0，学习率 × 梯度 = 0.0001</span></div><div class="vb-flow-row"><span class="vb-flow-step">FP16 下：1.0 的最小可表示间隔约 0.001</span></div><div class="vb-flow-row"><span class="vb-flow-step">1.0 + 0.0001 = 1.0 ⭐ 更新【完全丢失】💀</span></div><div class="vb-flow-row"><span class="vb-flow-step">所以：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 用 FP32 保存主权重，更新累加在 FP32 上</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 每步把它转成 BF16 拿去做前向/反向</span></div></div></section>
-<figure class="dia">
+<figure class="dia" id="mg-ai-infra-06-figure-1">
 <svg viewBox="0 0 700 262" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="混合精度训练的一圈：FP32 主权重转成 BF16 做前向反向，梯度再转回 FP32 更新主权重">
 <text class="dia-t" x="350" y="26" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">一圈下来：FP32 负责【存和累加】，BF16 负责【算】</text>
 <line x1="210" y1="80" x2="262" y2="80" stroke="var(--accent)" stroke-width="1.8"/>
@@ -590,4 +610,5 @@ FP32 主权重 4 + Adam 的 m 4 + v 4 = 12。
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-ai-infra-reader.css"></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-ai-infra-reader.css"><script defer src="../assets/magazine-reading-v1.js"></script>
+</body></html>

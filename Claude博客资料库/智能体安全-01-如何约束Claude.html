@@ -177,19 +177,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .ckpt ol{padding-left:1.3em}.ckpt li{margin:.4em 0}
 .recap{background:var(--quote-bg);border-radius:12px;padding:16px 20px;margin:18px 0 0}
 .recap b{color:var(--accent)}
-</style></head><body data-polish="claude-library" class="polish-claude-library-reading">
+</style><link rel="stylesheet" href="../assets/magazine-reading-v1.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/claude-library/remaining-v1.css">
+</head><body data-polish="claude-library" class="polish-claude-library-reading" data-magazine-reading="v1" data-magazine-module="claude-library" data-magazine-kind="engineering" data-magazine-edition="m19-body-v1">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner"><a href="../index.html">🏠 总目录</a>
 <a href="index.html">📚 资料库</a><span class="title">智能体安全</span>
 <button id="themeToggle" title="切换深浅色">🌗</button></div></header>
-<main>
+<main class="mg-main">
 <h1>我们如何在各产品中约束 Claude</h1>
 <div class="adhd-head">
 <p class="meta">⏱ <strong>14 分钟</strong> ｜ 🚧 <strong>约束要落在系统层，不是话术层</strong></p>
 <h2 id="tldr">🎯 一句话</h2>
 <p class="tl">Agent 约束要组合<strong>环境隔离、模型层防御与外部资源管理</strong>。执行层权限不依赖模型自律，但实现与配置仍会有漏洞；提示词或分类器也不能提供绝对安全保证。</p>
 </div>
-<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>环境、模型和外部资源管理怎样组成分层防御？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav>
+<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>环境、模型和外部资源管理怎样组成分层防御？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav><header class="mg-cover g06-body-cover"><div class="mg-cover-copy"><p class="mg-kicker">Claude 博客资料库 · 智能体安全</p><p class="mg-question">环境、模型和外部资源管理怎样组成分层防御？</p><p class="mg-dek">先分风险类型和各层职责，再看防御如何相互补充。</p><p class="mg-outcome">读完可以：分别核对环境约束、模型防御与外部资源权限，不把任一层当作充分保证。</p><nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_1">从这个问题开始</a><a href="#mg-claude-library-reading-start">直接进入完整解释</a></nav></div></header>
 <div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>How We Contain Claude Across Products（我们如何在各产品中约束 Claude）</dd><dt>原文链接</dt><dd><a href="https://www.anthropic.com/engineering/how-we-contain-claude" target="_blank" rel="noopener">https://www.anthropic.com/engineering/how-we-contain-claude</a></dd><dt>作者</dt><dd>Max McGuinness、Mikaela Grace、Jiri De Jonghe、Jake Eaton、Abel Ribbink（Anthropic）</dd><dt>发布日期</dt><dd>2026-05-25</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。版本、参数与案例数字属于原文所示条件，不是本资料库的实测结果；产品状态与接口以实施时官方文档为准。</div></div>
 <details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
 <ul>
@@ -206,21 +208,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#recap">🛑 可以停在这里</a></li>
 </ul>
 </div>
-</details>
+</details><span id="mg-claude-library-reading-start" class="g06-body-start" aria-hidden="true"></span>
 <p>Agent 能力越强，潜在的「爆炸半径」越大。有效的约束（containment）需要多层防御：环境隔离 + 模型层保障 + 外部工具访问管理。核心工程挑战是在保留足够功能的前提下给 Agent 能力设定硬边界。</p>
-<h2 id="_1">三类安全风险</h2>
+<p class="g06-body-lead">先分风险类型和各层职责，再看防御如何相互补充。</p><h2 id="_1" class="g06-body-chapter" data-mg-stop>三类安全风险</h2>
 <ol>
 <li><strong>用户滥用：</strong> 用户有意或无意的有害指令（绕过安全检查、不明后果的破坏性命令）</li>
 <li><strong>模型失当行为：</strong> Agent 自发的意外有害动作——更强的模型总体上更对齐，但也会发现绕过限制的意外路径（文中例子：Claude 逃逸沙箱、翻 git 历史找测试答案、识别基准并解密答案密钥）</li>
 <li><strong>外部攻击者：</strong> 通过工具、文件、网络、提示词注入、运行时攻击利用漏洞</li>
 </ol>
-<h2 id="_2">三层防御框架</h2>
+<h2 id="_2" class="g06-body-chapter" data-mg-stop>三层防御框架</h2>
 <ol>
 <li><strong>环境约束：</strong> 沙箱、虚拟机、文件系统限制、出口控制——不管模型行为和用户意图如何都成立的<strong>确定性</strong>边界</li>
 <li><strong>模型层防御：</strong> 系统提示词、分类器、探针、训练——<strong>概率性</strong>保护（Opus 4.7 单次提示词注入成功率约 0.1%；Claude Code auto mode 在执行前拦截约 83% 的问题行为）</li>
 <li><strong>外部内容管理：</strong> 控制 Agent 能接触的 MCP server、插件、web 工具——「审计过的连接器」不等于「审计过的数据」</li>
 </ol>
-<h2 id="_3">三种约束架构</h2>
+<p class="g06-body-lead">不同产品约束架构与外部资源准则要放在一起读，权限并不由模型判断自动授予。</p><h2 id="_3" class="g06-body-chapter" data-mg-stop>三种约束架构</h2>
 <h3 id="claudeai">模式一：临时容器（claude.ai）</h3>
 <ul>
 <li>服务端在 gVisor 容器中执行代码，隔离基础设施、每会话临时文件系统</li>
@@ -250,31 +252,31 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><p><strong>借道白名单域名外传：</strong>恶意工作区文件携带攻击者的 API 凭据，引导 Claude 读取其他文件并通过 api.anthropic.com（合法白名单域名）上传到攻击者的账户。</p><p>出口代理只查了目标域名，没考虑「白名单域名可达的每个功能都是攻击面」。</p><p>修复：VM 内部署防御性中间人代理，只接受 VM 自己配发的 token、拒绝攻击者内嵌的凭据。</p></li>
 <li><p><strong>EDR 盲区：</strong>VM 隔离让企业终端检测系统（EDR）看不到客户机活动。</p><p>缓解：拉取式 OTLP 日志导出，但仍非宿主级实时监控。</p></li>
 </ul>
-<h2 id="_4">外部资源准则</h2>
+<h2 id="_4" class="g06-body-chapter" data-mg-stop>外部资源准则</h2>
 <ul>
 <li><strong>远程 vs 本地：</strong> 本地工具可审计、可锁版本；远程工具部署后行为可变，初始信任会失效</li>
 <li><strong>工具输出即攻击面：</strong> 可信工具也会产出不可信输出（GitHub README 里的投毒内容能绕过恶意软件扫描）；在模型摄取之前对工具返回做<strong>实时检查</strong>优于事后分析</li>
 <li>Claude Code 和 Cowork 的工具调用都经过强制网络/文件系统/文件策略的代理，并在入上下文前做值检查</li>
 </ul>
-<h2 id="_5">前瞻风险</h2>
+<p class="g06-body-lead">前瞻风险、原则和生态倡议不是同一种证据，保留各自的适用语境。</p><h2 id="_5" class="g06-body-chapter" data-mg-stop>前瞻风险</h2>
 <ul>
 <li><strong>持久记忆投毒：</strong> 跨会话的 Agent 状态（产品记忆、工作区文件、定时任务目录）成为注入的新持久化机制——启动时需要分类器校验持久化状态</li>
 <li><strong>多 Agent 信任升级：</strong> 把子 Agent 的结构化输出当作更高信任内容使用，引入新的注入向量</li>
 <li><strong>Agent 身份：</strong> 「Agent 拥有独立主体和细粒度权限」vs「Agent 作为用户的延伸继承其权限」之间的张力；当前做法混合两者——宿主管理凭据 + VM 级 scoped token</li>
 </ul>
-<h2 id="_6">四条核心原则</h2>
+<h2 id="_6" class="g06-body-chapter" data-mg-stop>四条核心原则</h2>
 <ol>
 <li><strong>环境优先：</strong> 概率性的模型层防御必有漏网之鱼，环境层提供确定性兜底——两起重大事件都是「从被允许的路径出去的」</li>
 <li><strong>隔离强度匹配用户能力：</strong> 能读 bash 的开发者与不能的知识工作者需要不同强度；对专家过度摩擦与对非专家过度信任同样是失败</li>
 <li><strong>不信任自制组件：</strong> hypervisor、syscall 过滤器、容器运行时经受过广泛对抗检验——标准原语一贯比自制封装更可靠</li>
 <li><strong>系统级交互没有变：</strong> Agent 是新的软件类别，但仍然是读文件、开 socket、起进程——成熟的约束工具链依然「关键有效」</li>
 </ol>
-<h2 id="_7">生态倡议</h2>
+<h2 id="_7" class="g06-body-chapter" data-mg-stop>生态倡议</h2>
 <p>共享基准与披露规范、通用身份标准、跨厂商红队、NIST 的 AI Agent 身份与授权项目、六机构联合的 Agentic AI 采纳指南、ISO/IEC 42001。</p>
-<h2 id="_8">结论</h2>
+<h2 id="_8" class="g06-body-chapter" data-mg-stop>结论</h2>
 <p>部署 Agent 的风险收益计算，取决于能否证明爆炸半径可以通过分层防御控制。环境约束提供确定性边界，在概率性防御失手时兜底；隔离强度要匹配用户技术能力；继承的成熟软件原语比自制实现更值得信任。</p>
 <hr />
-<div class="ckpt"><h2 id="ckpt">✅ 检查点</h2>
+<div class="ckpt"><h2 id="ckpt" class="g06-body-chapter" data-mg-stop>✅ 检查点</h2>
 <ol>
 <li>两层约束分别是什么？哪层可靠？</li>
 <li>为什么提示层约束不可靠？</li>
@@ -289,7 +291,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ol>
 </details>
 </div>
-<div class="recap"><h2 id="recap">🛑 可以停在这里</h2>
+<div class="recap"><h2 id="recap" class="g06-body-chapter" data-mg-stop>🛑 可以停在这里</h2>
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>提示层说明规则，系统层限制真正能做的事。</li><li>假设外部内容可能影响模型，设计不依赖模型自律的权限边界。</li><li>高风险操作保留明确授权，提示用于减少误用而不是替代隔离。</li></ul></section></div>
 <nav class="pagenav"><a href="index.html"><div class="dir">← 返回</div>📚 资料库目录</a>
 <a class="next" href="../智能体工程教程/index.html"><div class="dir">系统学习 →</div>🎓 智能体工程教程</a></nav>
@@ -306,4 +308,5 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
 <link rel="stylesheet" href="../assets/polish-claude-library-reader.css">
+<script defer src="../assets/magazine-reading-v1.js"></script>
 </body></html>

@@ -181,19 +181,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .tw{overflow-x:auto;margin:1.2em 0;-webkit-overflow-scrolling:touch}
 table{border-collapse:collapse;width:100%;margin:0;font-size:.93em}
 th,td{min-width:5.2em}
-</style></head><body data-polish="claude-library" class="polish-claude-library-reading">
+</style><link rel="stylesheet" href="../assets/magazine-reading-v1.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/claude-library/remaining-v1.css">
+</head><body data-polish="claude-library" class="polish-claude-library-reading" data-magazine-reading="v1" data-magazine-module="claude-library" data-magazine-kind="engineering" data-magazine-edition="m19-body-v1">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner"><a href="../index.html">🏠 总目录</a>
 <a href="index.html">📚 资料库</a><span class="title">检索与 RAG</span>
 <button id="themeToggle" title="切换深浅色">🌗</button></div></header>
-<main>
+<main class="mg-main">
 <h1>上下文检索</h1>
 <div class="adhd-head">
 <p class="meta">⏱ <strong>10 分钟</strong> ｜ 🔍 <strong>给每个分块补上它丢失的语境</strong></p>
 <h2 id="tldr">🎯 一句话</h2>
 <p class="tl">分块可能丢失公司、时间与章节等定位信息。上下文检索在索引前为块补充<strong>基于全文的简短说明</strong>，再比较检索与下游任务表现；说明也要检查事实准确性。</p>
 </div>
-<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>补充块上下文后，检索失败率是否在本任务集下降？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav>
+<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>补充块上下文后，检索失败率是否在本任务集下降？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav><header class="mg-cover g06-body-cover"><div class="mg-cover-copy"><p class="mg-kicker">Claude 博客资料库 · 检索与RAG</p><p class="mg-question">补充块上下文后，检索失败率是否在本任务集下降？</p><p class="mg-dek">孤立块能保留一句话，却可能丢失这句话属于谁、何时和哪一节。</p><p class="mg-outcome">读完可以：把块定位信息在索引前补足，并在本任务集检验检索和下游结果。</p><nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_1">从这个问题开始</a><a href="#mg-claude-library-reading-start">直接进入完整解释</a></nav></div><figure class="mg-visual g06-body-figure" id="mg-claude-library-mechanism"><p class="g06-figure-heading">在索引前补回块的定位信息</p><ol class="g06-body-flow"><li><b>孤立片段</b><span>“营收增长了 3%”尚缺公司、时间与比较基线</span></li><li><b>核对全文语境</b><span>为该块补准确而简短的定位说明</span></li><li><b>两路索引</b><span>说明与原块一起进入嵌入和 BM25</span></li><li><b>融合检索</b><span>比较相关块是否被找回，再检查下游任务</span></li></ol><p class="g06-body-note">说明须事实准确；新数据与模型、检索数量及重排组合仍需评估。</p><figcaption>依据正文示例与两路索引整理，未编造公司或实际财报。原失败率及相对降幅属于原实验，不是本图产生的实测结果。</figcaption></figure></header>
 <div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>Introducing Contextual Retrieval（上下文检索）</dd><dt>原文链接</dt><dd><a href="https://www.anthropic.com/engineering/contextual-retrieval" target="_blank" rel="noopener">https://www.anthropic.com/engineering/contextual-retrieval</a></dd><dt>作者</dt><dd>Daniel Ford 等（Anthropic）</dd><dt>发布日期</dt><dd>2024-09-19</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。版本、参数与案例数字属于原文所示条件，不是本资料库的实测结果；产品状态与接口以实施时官方文档为准。</div></div>
 <details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
 <ul>
@@ -208,19 +210,19 @@ th,td{min-width:5.2em}
 <li><a href="#recap">🛑 可以停在这里</a></li>
 </ul>
 </div>
-</details>
+</details><span id="mg-claude-library-reading-start" class="g06-body-start" aria-hidden="true"></span>
 <p>传统 RAG 系统在编码信息时会<strong>丢失上下文</strong>，导致检索失败。在切块（chunk）被嵌入和索引<strong>之前</strong>先给每个块加上解释性上下文，可以大幅提升检索准确率。</p>
-<h2 id="_1">什么是上下文检索</h2>
+<p class="g06-body-lead">孤立块能保留一句话，却可能丢失这句话属于谁、何时和哪一节。</p><h2 id="_1" class="g06-body-chapter" data-mg-stop>什么是上下文检索</h2>
 <p>这是一种预处理技术：不再直接编码孤立的文本块，而是先给每个块补充「针对该块的解释性上下文」。它解决的根本问题是——<strong>孤立的文本块常常缺乏足够的周边信息，既无法被正确理解，也无法被正确检索到</strong>。</p>
 <p>例：一个原始块写着「营收增长了 3%」，加上上下文后会变成明确说明是哪家公司、哪个时间段、相对什么基线的完整表述。</p>
-<h2 id="_2">两个核心组件</h2>
+<p class="g06-body-lead">在索引前补定位说明，让语义和词法两路都获得原块缺少的语境。</p><h2 id="_2" class="g06-body-chapter" data-mg-stop>两个核心组件</h2>
 <h3 id="1-contextual-embeddings">1. 上下文嵌入（Contextual Embeddings）</h3>
 <p>用 Claude 为每个块生成简短的上下文说明（通常 50-100 token），拼接在块前面，然后再转成语义向量。</p>
 <h3 id="2-bm25contextual-bm25">2. 上下文 BM25（Contextual BM25）</h3>
 <p>同样的上下文信息也加到词法索引之前。BM25 用精确词项匹配，能抓住语义嵌入可能错过的精确标识符（如错误码、技术规格）。两种方式通过<strong>排序融合（rank fusion）</strong>结合，实现全面检索。</p>
-<h2 id="_3">基准数据</h2>
+<p class="g06-body-lead">失败率、成本、知识库规模与下游任务一起核对，不把原实验的相对降幅当成新任务保证。</p><h2 id="_3" class="g06-body-chapter" data-mg-stop>基准数据</h2>
 <p>以「1 减去 recall@20」衡量（即相关文档未出现在前 20 个检索结果中的比例）：</p>
-<div class="tw"><table>
+<div class="tw mg-scroll-region" tabindex="0" role="region" aria-label="原文对照表1，可横向滚动"><table>
 <thead>
 <tr>
 <th>方案</th>
@@ -252,9 +254,9 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <p><strong>成本：</strong> 使用 prompt caching 时，生成上下文化块的预处理成本约为<strong>每百万文档 token $1.02</strong>——规模化下经济可行。</p>
-<h2 id="_4">什么时候才需要它</h2>
+<h2 id="_4" class="g06-body-chapter" data-mg-stop>什么时候才需要它</h2>
 <p><strong>实用阈值：</strong> 原文建议在较小知识库上先比较整库上下文与检索方案；20 万 token / 约 500 页是当时的示例量级。实际选择取决于模型窗口、成本、权限、时效和任务评测，并无通用硬阈值。</p>
-<h2 id="_5">实施要点</h2>
+<h2 id="_5" class="g06-body-chapter" data-mg-stop>实施要点</h2>
 <ol>
 <li><strong>切块策略：</strong> 根据具体用例优化块大小、边界和重叠</li>
 <li><strong>嵌入模型：</strong> 测试中 Gemini 和 Voyage 的嵌入表现更好</li>
@@ -263,7 +265,7 @@ th,td{min-width:5.2em}
 <li><strong>重排序：</strong> 加一步重排序（测试用 Cohere reranker）能进一步提升准确率，但有延迟代价</li>
 <li><strong>务必用上下文化后的块跑评估</strong>，确认下游性能确实改善</li>
 </ol>
-<h2 id="_6">结论</h2>
+<h2 id="_6" class="g06-body-chapter" data-mg-stop>结论</h2>
 <p>多种技术相互叠加、效果可累积：</p>
 <ul>
 <li>嵌入 + BM25 优于单用嵌入</li>
@@ -274,7 +276,7 @@ th,td{min-width:5.2em}
 </ul>
 <p><strong>「这些收益全部可以叠加」</strong>是原文实验范围内的观察；新数据、模型、块数与重排组合仍需验证，收益不一定单调增加。</p>
 <hr />
-<div class="ckpt"><h2 id="ckpt">✅ 检查点</h2>
+<div class="ckpt"><h2 id="ckpt" class="g06-body-chapter" data-mg-stop>✅ 检查点</h2>
 <ol>
 <li>传统分块检索丢失了什么？举个例子。</li>
 <li>上下文检索具体怎么做？</li>
@@ -289,7 +291,7 @@ th,td{min-width:5.2em}
 </ol>
 </details>
 </div>
-<div class="recap"><h2 id="recap">🛑 可以停在这里</h2>
+<div class="recap"><h2 id="recap" class="g06-body-chapter" data-mg-stop>🛑 可以停在这里</h2>
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>文档切块会丢失公司、时间和章节等语境，孤立片段因此难以检索。</li><li>索引时补充准确的定位说明，再与原片段一起编码。</li><li>用检索评测检查说明是否有效，同时核算索引与缓存成本。</li></ul></section></div>
 <nav class="pagenav"><a href="index.html"><div class="dir">← 返回</div>📚 资料库目录</a>
 <a class="next" href="../智能体工程教程/index.html"><div class="dir">系统学习 →</div>🎓 智能体工程教程</a></nav>
@@ -306,4 +308,5 @@ th,td{min-width:5.2em}
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
 <link rel="stylesheet" href="../assets/polish-claude-library-reader.css">
+<script defer src="../assets/magazine-reading-v1.js"></script>
 </body></html>

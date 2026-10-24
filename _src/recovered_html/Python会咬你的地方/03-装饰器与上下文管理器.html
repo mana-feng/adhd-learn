@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="python-pitfalls">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/magazine-reading-v1.css"><link rel="stylesheet" href="../assets/magazine-rollout/python-pitfalls/reader.css"></head><body data-polish-module="python-pitfalls" data-magazine-reading="v1" data-magazine-module="python-pitfalls" data-magazine-kind="engineering">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -290,7 +290,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <button class="js-done-btn">☐ 打卡</button>
   <button id="themeToggle" title="切换深浅色">🌗</button>
 </div></header>
-<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<main class="mg-main"><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#deco-f-decof">🧩 一、@deco 就是 f = deco(f)，而且它在定义那一刻就跑完了</a></li>
@@ -312,12 +312,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="03">03 · 装饰器与上下文管理器</h1>
+<header class="mg-cover mg-python-cover"><div class="mg-cover-copy">
+<p class="mg-kicker">PYTHON / 03 · 绑定与退出</p>
+<p class="mg-question">装饰器换了谁，<code>with</code> 离开时谁负责收尾？</p>
+<p class="mg-dek">先看定义时的函数绑定，再看资源退出时的异常路径；两者都容易因“表面写法”误判时机。</p>
+<p class="mg-outcome">读完能沿原代码分清包装发生的时机、叠加顺序和异常是否继续传播。</p>
+<nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#deco-f-decof">从装饰器绑定开始</a><a href="#mg-python-pitfalls-reading-start">直接进入完整解释</a></nav>
+</div><figure class="mg-visual mg-python-flow" aria-labelledby="mg-python-pitfalls-flow-title" aria-describedby="mg-python-pitfalls-flow-desc"><p id="mg-python-pitfalls-flow-title"><strong>两条控制路径：绑定与退出</strong></p><p id="mg-python-pitfalls-flow-desc" class="mg-python-flow-lede">先看什么时候改变函数绑定，再看离开 <code>with</code> 时谁接收异常状态。</p><div class="mg-python-flow-lanes"><div class="mg-python-flow-lane"><p><strong>装饰器 · 定义时绑定</strong></p><ol><li>定义函数并应用 <code>@deco</code></li><li><code>f = deco(f)</code>，把返回值绑定到名字 <code>f</code></li><li>之后调用当前绑定的 <code>f</code></li></ol></div><div class="mg-python-flow-lane"><p><strong>with · 退出时收尾</strong></p><ol><li>进入 <code>with</code> 上下文</li><li>执行主体，可能正常结束或出现异常</li><li>调用 <code>__exit__</code> 接收退出状态</li></ol></div></div><figcaption>只画调用路径：装饰器在定义时返回新绑定；<code>with</code> 退出时把异常状态交给 <code>__exit__</code>。参数、异常是否被压制及资源细节以正文原代码为准；图不代表运行输出。</figcaption></figure></header>
+<span id="mg-python-pitfalls-reading-start" aria-hidden="true"></span>
+
 <details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>138 分钟</strong> ｜ ⭐ <strong><code>@deco</code> 就是 <code>f = deco(f)</code>，<code>with x:</code> 就是 <code>try/finally</code> —— 两句话，剩下全是它们咬人的地方</strong></p>
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>装饰器是「在定义那一刻把函数换掉」，上下文管理器是「把一对必须成双的操作绑死」。</strong>
 上一章讲的是「你以为拿到数据、其实拿到一次性动作」；这一章讲的是<strong>你以为那两行代码是配置，其实它们在 import 的时候就已经跑完了</strong>——以及 <code>with</code> 那个能把异常整个吃掉的开关。</p>
-<h2 id="deco-f-decof">🧩 一、<code>@deco</code> 就是 <code>f = deco(f)</code>，而且它在定义那一刻就跑完了</h2>
+<h2 id="deco-f-decof" data-mg-stop="">🧩 一、<code>@deco</code> 就是 <code>f = deco(f)</code>，而且它在定义那一刻就跑完了</h2>
 <p>装饰器没有任何特殊语义。<code>@deco</code> 写在 <code>def f</code> 上面，等价于 <code>def f</code> 之后紧跟一行 <code>f = deco(f)</code>。</p>
 <p>⭐ <strong>关键推论：<code>deco</code> 是在【定义函数】那一刻执行的，不是在【调用函数】那一刻。</strong></p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 装饰器就是 f = deco(f)：它在【定义那一刻】就执行了</span>
@@ -749,7 +758,7 @@ assert &quot;_Gate__hidden&quot; in vars(Gate)
 <p>这里有意用修饰后的名字取值，说明它<strong>不是访问屏障</strong>。<code>vars(Gate)</code> 看类字典；<code>len(g)</code> 通过特殊方法协议得到 3。下文的 <code>__enter__</code>/<code>__exit__</code> 也属于已有协议，不是用来“隐藏”方法的前缀。单独的 <code>_</code> 在交互环境、模式匹配等上下文还有专门规则，不能把这张前缀表推广成所有下划线的含义。</p><p>依据：<a href="https://docs.python.org/3.13/tutorial/classes.html#private-variables">Python 3.13 类与名称修饰</a>、<a href="https://docs.python.org/3.13/reference/lexical_analysis.html#reserved-classes-of-identifiers">保留名字类别</a>。</p>
 </details>
 <!-- final-names END -->
-<h2 id="with">🧩 六、<code>with</code> 背后就两个方法</h2>
+<h2 id="with" data-mg-stop="">🧩 六、<code>with</code> 背后就两个方法</h2>
 <p><code>with obj as x:</code> 展开之后只有两步：调 <code>obj.__enter__()</code>，把返回值绑给 <code>x</code>；块结束时<strong>无论怎么结束</strong>，调 <code>obj.__exit__(异常类型, 异常对象, traceback)</code>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># with 背后就两个方法：__enter__ 和 __exit__</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Trace</span><span class="p">:</span>
@@ -855,7 +864,7 @@ assert &quot;_Gate__hidden&quot; in vars(Gate)
 </tbody>
 </table></div>
 <p>📋 <strong>判据</strong>：<strong>一对操作只要「必须成双」（开/关、加锁/解锁、进事务/提交、改全局状态/还原），就写成上下文管理器</strong>，不要靠人记得写 <code>finally</code>。已经是上下文管理器的常见对象：文件、<code>threading.Lock</code>（<a href="04-GIL：为什么多线程救不了你.html">04 章</a> 那些锁都能直接 <code>with</code>）、数据库连接与游标、<code>torch.no_grad()</code>、<code>tempfile.TemporaryDirectory()</code>。</p>
-<h2 id="__exit__-true">💀 八、<code>__exit__</code> 返回 True 会把异常吞掉</h2>
+<h2 id="__exit__-true" data-mg-stop="">💀 八、<code>__exit__</code> 返回 True 会把异常吞掉</h2>
 <p>这是本章一号杀手。<code>__exit__</code> 的返回值有一个你可能不知道自己在用的含义：<strong>返回真值 = 「这个异常我处理掉了，别往外抛」</strong>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 💀 __exit__ 返回 True 会把异常吞掉，而且不留任何痕迹</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">contextlib</span>
@@ -1343,4 +1352,4 @@ assert &quot;_Gate__hidden&quot; in vars(Gate)
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-python-pitfalls-reader.css"></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-python-pitfalls-reader.css"><script defer src="../assets/magazine-reading-v1.js"></script></body></html>

@@ -177,19 +177,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .ckpt ol{padding-left:1.3em}.ckpt li{margin:.4em 0}
 .recap{background:var(--quote-bg);border-radius:12px;padding:16px 20px;margin:18px 0 0}
 .recap b{color:var(--accent)}
-</style></head><body data-polish="claude-library" class="polish-claude-library-reading">
+</style><link rel="stylesheet" href="../assets/magazine-reading-v1.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/claude-library/remaining-v1.css">
+</head><body data-polish="claude-library" class="polish-claude-library-reading" data-magazine-reading="v1" data-magazine-module="claude-library" data-magazine-kind="engineering" data-magazine-edition="m19-body-v1">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner"><a href="../index.html">🏠 总目录</a>
 <a href="index.html">📚 资料库</a><span class="title">工具与 MCP</span>
 <button id="themeToggle" title="切换深浅色">🌗</button></div></header>
-<main>
+<main class="mg-main">
 <h1>用 Agent 为 Agent 写有效的工具</h1>
 <div class="adhd-head">
 <p class="meta">⏱ <strong>14 分钟</strong> ｜ ⭐ <strong>ACI：像设计 API 一样设计给模型的接口</strong></p>
 <h2 id="tldr">🎯 一句话</h2>
 <p class="tl">工具是确定性接口与非确定性决策之间的契约。<strong>用途、边界、参数、返回值与错误提示要一起设计</strong>，再用代表性任务检查模型是否选对、用对并能修复错误。</p>
 </div>
-<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>工具的用途、参数、返回值与错误提示怎样一起验证？</p><p><a href="#agent">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav>
+<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>工具的用途、参数、返回值与错误提示怎样一起验证？</p><p><a href="#agent">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav><header class="mg-cover g06-body-cover"><div class="mg-cover-copy"><p class="mg-kicker">Claude 博客资料库 · 工具与MCP</p><p class="mg-question">工具的用途、参数、返回值与错误提示怎样一起验证？</p><p class="mg-dek">工具不仅供程序调用，也要让 Agent 能正确理解用途与限制。</p><p class="mg-outcome">读完可以：把工具用途、参数、响应和错误提示一起放入可迭代评估。</p><nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#agent">从这个问题开始</a><a href="#mg-claude-library-reading-start">直接进入完整解释</a></nav></div></header>
 <div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>Writing Effective Tools for Agents—with Agents（用 Agent 为 Agent 写有效的工具）</dd><dt>原文链接</dt><dd><a href="https://www.anthropic.com/engineering/writing-tools-for-agents" target="_blank" rel="noopener">https://www.anthropic.com/engineering/writing-tools-for-agents</a></dd><dt>作者</dt><dd>Ken Aizawa 等（Anthropic）</dd><dt>发布日期</dt><dd>2025-09-11</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。版本、参数与案例数字属于原文所示条件，不是本资料库的实测结果；产品状态与接口以实施时官方文档为准。</div></div>
 <details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
 <ul>
@@ -202,16 +204,16 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#recap">🛑 可以停在这里</a></li>
 </ul>
 </div>
-</details>
+</details><span id="mg-claude-library-reading-start" class="g06-body-start" aria-hidden="true"></span>
 <p>为 Agent 写高质量工具需要重新思考软件开发实践：工具不是简单的函数封装，而是<strong>确定性系统与非确定性 Agent 之间的新契约</strong>。「Agent 的能力上限由我们给它的工具决定」。文章给出一套评估驱动的工具改进方法论，包括让 Agent 参与优化自己的工具。</p>
-<h2 id="agent">理解 Agent 工具的特殊性</h2>
+<p class="g06-body-lead">工具不仅供程序调用，也要让 Agent 能正确理解用途与限制。</p><h2 id="agent" class="g06-body-chapter" data-mg-stop>理解 Agent 工具的特殊性</h2>
 <ul>
 <li>传统软件是确定性契约（同输入同输出）；Agent 是非确定性的——可能以不同方式调用工具，或根本不调用</li>
 <li>工具要容纳 Agent 可能采取的多种合理策略</li>
 <li>Agent 会偶尔幻觉或误解用法，设计要考虑其局限而非假设最优使用</li>
 <li>对 Agent 最顺手的工具，往往对人也直觉友好</li>
 </ul>
-<h2 id="_1">工作流：原型 → 评估 → 迭代</h2>
+<p class="g06-body-lead">先用原型暴露实际误用，再通过评估改变工具接口，而不只修改提示词。</p><h2 id="_1" class="g06-body-chapter" data-mg-stop>工作流：原型 → 评估 → 迭代</h2>
 <h3 id="1">1. 快速原型</h3>
 <ul>
 <li>用 Claude Code 编写工具（喂给它官方 API 的 llms.txt 文档）</li>
@@ -228,7 +230,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p><strong>分析结果：</strong> 读 Agent 的推理找困惑点；读原始转录抓 Agent 不会明说的隐式行为。例子：Anthropic 发现 Claude 会在搜索词后多余地拼接 "2025"，根源是工具描述有误导。</p>
 <h3 id="3-claude">3. 让 Claude 改进工具</h3>
 <p>把评估转录喂给 Claude Code，让它分析模式并系统性重构工具。内部实测：Claude 优化后的 Slack/Asana MCP server 性能超过专家手写版本。</p>
-<h2 id="_2">五条工具设计原则</h2>
+<p class="g06-body-lead">用途、命名、参数、响应和错误提示一起影响可用性，逐项看五条原则。</p><h2 id="_2" class="g06-body-chapter" data-mg-stop>五条工具设计原则</h2>
 <h3 id="1_1">1. 选对工具（而非更多工具）</h3>
 <ul>
 <li>Agent 的上下文有限，计算机内存无限——不要把「返回全部联系人列表」这种工具给 Agent</li>
@@ -259,10 +261,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>参数命名无歧义（<code>user_id</code> 优于 <code>user</code>）</li>
 <li>小改进大回报：Claude Sonnet 3.5 在精化工具描述后拿下 SWE-bench Verified 的 SOTA</li>
 </ul>
-<h2 id="_3">结论</h2>
+<h2 id="_3" class="g06-body-chapter" data-mg-stop>结论</h2>
 <p>「为 Agent 构建有效工具，需要把软件开发实践从可预测的确定性模式转向非确定性模式。」有效工具的共性：定义清晰无歧义、审慎使用 Agent 上下文、可灵活组合进多种工作流、让 Agent 能直觉地解决真实任务。与其铺开全面的工具集，不如深耕少数高影响工作流的工具，用评估驱动持续进化。</p>
 <hr />
-<div class="ckpt"><h2 id="ckpt">✅ 检查点</h2>
+<div class="ckpt"><h2 id="ckpt" class="g06-body-chapter" data-mg-stop>✅ 检查点</h2>
 <ol>
 <li>给模型的工具和给人的 API，设计取向有什么不同？</li>
 <li>工具命名和参数设计上有哪些实用原则？</li>
@@ -277,7 +279,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ol>
 </details>
 </div>
-<div class="recap"><h2 id="recap">🛑 可以停在这里</h2>
+<div class="recap"><h2 id="recap" class="g06-body-chapter" data-mg-stop>🛑 可以停在这里</h2>
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>工具说明要包含用途、边界、参数和何时不该使用。</li><li>让容易误用的条件进入参数约束，不全靠模型猜测。</li><li>在真实任务中检查选用是否正确、调用是否成功、错误能否修复。</li></ul></section></div>
 <nav class="pagenav"><a href="index.html"><div class="dir">← 返回</div>📚 资料库目录</a>
 <a class="next" href="../智能体工程教程/index.html"><div class="dir">系统学习 →</div>🎓 智能体工程教程</a></nav>
@@ -294,4 +296,5 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
 <link rel="stylesheet" href="../assets/polish-claude-library-reader.css">
+<script defer src="../assets/magazine-reading-v1.js"></script>
 </body></html>

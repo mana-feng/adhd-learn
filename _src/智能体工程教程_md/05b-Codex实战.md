@@ -1,3 +1,13 @@
+<div hidden data-agent-magazine="v1" data-magazine-kind="engineering"></div>
+
+<header class="mg-cover" style="grid-template-columns:minmax(0,1fr)"><div class="mg-cover-copy">
+<p class="mg-kicker">智能体工程 · 05b</p>
+<p class="mg-question">预算刚好到30分钟，应当允许还是拒绝？</p>
+<p class="mg-outcome">读完能做的判断：用原任务卡的边界反例、修复结果与diff证明一次小修改。</p>
+<nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#3">从这个问题的原解释开始</a><a href="#mg-agent-engineering-05b-reading-start">直接进入完整解释</a></nav>
+</div></header>
+<span id="mg-agent-engineering-05b-reading-start" tabindex="-1"></span>
+
 # 05b · Codex 实战：把一次修改做成可验收的小任务
 
 > 本章保留教学代码、路径说明与历史验证结论；完整实验工程和运行记录未随本站及公开仓库分发。命令用于说明调用方式，复现需自行准备对应实现、数据与环境。

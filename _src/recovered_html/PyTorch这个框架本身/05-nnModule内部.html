@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="pytorch-framework">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/magazine-reading-v1.css"><link rel="stylesheet" href="../assets/magazine-rollout/pytorch-framework/reader.css"></head><body data-polish-module="pytorch-framework" data-magazine-reading="v1" data-magazine-module="pytorch-framework" data-magazine-kind="engineering">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -290,7 +290,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <button class="js-done-btn">☐ 打卡</button>
   <button id="themeToggle" title="切换深浅色">🌗</button>
 </div></header>
-<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<main class="mg-main"><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#selfx">🚪 一、self.x = ... 的那一刻，海关做了一次类型检查</a></li>
@@ -306,13 +306,20 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="05-nnmodule">05 · <code>nn.Module</code> 内部：它是怎么找到你的参数的</h1>
+<header class="mg-cover"><div class="mg-cover-copy">
+<p class="mg-kicker">PYTORCH / 05 · nn.Module 注册</p><p class="mg-question">子模块能算出梯度，为什么优化器和 state_dict 看不见它？</p>
+<p class="mg-dek">沿 self.x 的属性注册路径查参数，再对照普通 Python list 里未被自动发现的子模块。</p><p class="mg-outcome">读完可用原代码检查模块/参数是否被注册，以及 .to()、保存和优化器各能看见什么。</p>
+<nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#selfx">从属性注册开始</a><a href="#mg-pytorch-framework-reading-start">直接进入完整解释</a></nav>
+</div><figure class="mg-visual mg-pytorch-flow" aria-labelledby="mg-pytorch-framework-flow-title"><p id="mg-pytorch-framework-flow-title"><strong>同样创建 nn.Linear，存放位置决定 Module 是否自动发现</strong></p><div class="mg-pytorch-paths"><div><strong>self.layer = nn.Linear(...)</strong><span>作为 Module 属性注册 → 子模块可被递归遍历。</span></div><div><strong>self.layers = [nn.Linear(...)]</strong><span>普通 Python list 是普通属性 → 列表内的模块不会因此自动注册。</span></div></div><figcaption>只示本页两种写法的注册路径；实际梯度、优化器、state_dict、ModuleList 修法和版本条件以正文原代码与表为准。图不是新运行结果。</figcaption></figure></header>
+<span id="mg-pytorch-framework-reading-start" aria-hidden="true"></span>
+
 <details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>120 分钟</strong> ｜ ⭐ <strong>实测：装在 Python list 里的三个 <code>nn.Linear</code>，梯度照算、权重永远不动、<code>state_dict</code> 里也没有 —— 全程不报一个错</strong></p>
 <h2 id="_1">🎯 一句话</h2>
 <p><strong><code>nn.Module</code> 认参数只靠一件事：你写 <code>self.x = ...</code> 的那一刻，<code>__setattr__</code> 做了一次类型检查，把东西分进三个字典（<code>_parameters</code> / <code>_buffers</code> / <code>_modules</code>）。</strong>
 没进这三个字典的，<code>parameters()</code> 找不到（<strong>优化器看不见</strong>）、<code>state_dict()</code> 存不了（存盘丢失）、<code>.to()</code> 也搬不动（设备/精度不跟着变）。</p>
 <p>⭐ 「为什么我的参数没被优化器更新」，答案几乎全在这一句里。</p>
-<h2 id="selfx">🚪 一、<code>self.x = ...</code> 的那一刻，海关做了一次类型检查</h2>
+<h2 id="selfx" data-mg-stop="">🚪 一、<code>self.x = ...</code> 的那一刻，海关做了一次类型检查</h2>
 <p>先看三种写法各去了哪：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -469,7 +476,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <strong>后面还有</strong>（约 35 分钟）：装在 Python list 里的子模块，一个都不算数 · 名字是从根往下递归拼出来的
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<h2 id="python-list">💀 二、装在 Python list 里的子模块，一个都不算数</h2>
+<h2 id="python-list" data-mg-stop="">💀 二、装在 Python list 里的子模块，一个都不算数</h2>
 <p>⚠️ <strong>这是本章最贵的一条，也是「参数不更新」最常见的成因。</strong></p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -769,7 +776,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <strong>后半章还有</strong>：<code>.to()</code> / <code>.float()</code> 为什么能一次改掉全部（以及谁不会跟着搬） · <code>forward</code> 和 <code>__call__</code> 的区别（hook 会被跳过） · 一个 20 行的自检器
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<h2 id="to-float">🚚 四、<code>.to()</code> / <code>.float()</code> 为什么能一次改掉全部</h2>
+<h2 id="to-float" data-mg-stop="">🚚 四、<code>.to()</code> / <code>.float()</code> 为什么能一次改掉全部</h2>
 <p>答案就是第一节那三个表 —— <strong>因为有表可遍历</strong>。
 <code>nn.Module._apply(fn)</code> 做三件事：递归所有子模块 → 对 <code>_parameters</code> 里每一个套 <code>fn</code> → 对 <code>_buffers</code> 里每一个套 <code>fn</code>。
 ⚠️ <strong><code>__dict__</code> 它根本不看。</strong></p>
@@ -897,7 +904,7 @@ RuntimeError: expected m1 and m2 to have the same dtype, but got: double != floa
 <strong>最后一段还有</strong>：<code>forward</code> 和 <code>__call__</code> 不是一回事 · 一个 20 行的自检器
 这一章确实长，分三次读完全没问题 —— 回来直接从下一节接着看。</p>
 </blockquote>
-<h2 id="forward-__call__">📞 五、<code>forward</code> 和 <code>__call__</code> 不是一回事</h2>
+<h2 id="forward-__call__" data-mg-stop="">📞 五、<code>forward</code> 和 <code>__call__</code> 不是一回事</h2>
 <p><code>m(x)</code> 走的是 <code>nn.Module.__call__</code>，它按顺序做四件事：
 <strong>跑 forward pre-hook → 跑 <code>forward</code> → 跑 forward hook → 给输出挂上 backward hook</strong>。
 <code>m.forward(x)</code> 只做中间那一件。</p>
@@ -1167,4 +1174,4 @@ RuntimeError: expected m1 and m2 to have the same dtype, but got: double != floa
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-pytorch-framework-reader.css"></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-pytorch-framework-reader.css"><script defer src="../assets/magazine-reading-v1.js"></script></body></html>

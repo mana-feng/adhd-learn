@@ -279,7 +279,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading llm-reader">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script><link rel="stylesheet" href="../assets/magazine-reading-v1.css"><link rel="stylesheet" href="../assets/magazine-rollout/llm-overview/remaining.css"></head><body data-magazine-reading="v1" data-magazine-module="llm-overview" data-magazine-phase="remaining" data-magazine-kind="math-code" class="overview-reading llm-reader">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -289,7 +289,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <button class="js-done-btn">☐ 打卡</button>
   <button id="themeToggle" title="切换深浅色">🌗</button>
 </div></header>
-<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<main class="mg-main"><header class="mg-remaining-cover"><p class="mg-kicker">大模型全景导论 / 06b</p><p class="mg-question">同一组分数，换个解码规则会留下哪些候选？</p><p class="mg-dek">从一次decode到greedy/beam/top-k/top-p，区分温度改分布与截断选候选。</p><nav class="mg-actions" aria-label="本章阅读入口"><a class="mg-primary" href="#_2">先看：先接住上一章</a><a href="#mg-llm-overview-06b-reading-start">直接读完整正文</a></nav></header><span class="mg-reading-start" id="mg-llm-overview-06b-reading-start"></span><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">🧭 先接住上一章</a></li>
@@ -304,15 +304,15 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ul>
 </div>
 </details>
-<div class="ov-layout"><article class="ov-body"><h1 id="06b">06b · 解码策略：模型是怎么选出下一个词的</h1>
+<div class="ov-layout"><article class="ov-body mg-article"><h1 id="06b">06b · 解码策略：模型是怎么选出下一个词的</h1>
 <p>⏱ <strong>24 分钟</strong> ｜ ⭐ <strong>输出飘、复读、JSON 偶尔崩 —— 从这一页开始查</strong></p>
 <hr />
-<h2 id="_1">🎯 一句话</h2>
+<h2 id="_1" class="mg-remaining-heading" data-mg-stop>🎯 一句话</h2>
 <p>模型每一步吐出来的是一个<strong>概率分布</strong>，不是一个词。<strong>从这个分布里挑出下一个 token 的那套规则，就是解码策略。</strong>
 这一页讲挑法本身：贪心、Beam Search、top-k、top-p 各自在做什么。
 ⭐ 参数具体怎么配、出了问题怎么排查，在下一页。</p>
 <hr />
-<h2 id="_2">🧭 先接住上一章</h2>
+<h2 id="_2" class="mg-remaining-heading" data-mg-stop>🧭 先接住上一章</h2>
 <p><a href="06-推理优化.html">第 6 章推理优化</a>的三大武器（量化 / 批处理 / 投机解码）解决的是「<strong>这一步跑得多快</strong>」。
 这一章解决完全不同的另一件事：「<strong>这一步选哪个词</strong>」。</p>
 <p><strong>两者侧重点不同但会相互影响</strong>，但经常被混在一起。分开的办法很简单，看现象：</p>
@@ -337,13 +337,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>它是<strong>每个调 API 的人天天在动、却最少被讲清楚</strong>的东西。
 <strong>唯一的前置</strong>是知道 decode 是一个一个吐 token 的——<a href="06-推理优化.html">第 6 章「两个阶段」</a>讲过。</p>
 <hr />
-<h2 id="decode">🎲 一步 decode 里到底发生了什么</h2>
+<h2 id="decode" class="mg-remaining-heading" data-mg-stop>🎲 一步 decode 里到底发生了什么</h2>
 <section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">① 模型吐出 logits —— 一个和词表一样长的实数向量</span></div><div class="vb-flow-row"><span class="vb-flow-step">词表 10 万</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">10 万个分数，可以是任意实数（3.0、-8.2、0.35…）</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 它【不是概率】，还没归一化</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 温度缩放：logits ÷ T ← temperature 在这里生效</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 截断候选集：top_k / top_p ← 把长尾砍掉</span></div><div class="vb-flow-row"><span class="vb-flow-step">④ softmax 归一化</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">抽签 ← 真正「选」出那一个 token</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 注意顺序：温度【先】改变分布形状，截断【再】在改过之后的分布上切。</span></div><div class="vb-flow-row"><span class="vb-flow-step">所以调大 T 会让 top_p 放进来更多词 —— 这两个旋钮不是独立的。</span></div></div></section>
 <blockquote>
 <p>⚠️ 主流实现（HuggingFace transformers、vLLM）的默认顺序是 <strong>温度 → top_k → top_p</strong>，
 但不同框架不保证一致。<strong>拿不准就只动一个参数</strong>，别指望跨框架搬参数还是同一个行为。</p>
 </blockquote>
-<h2 id="greedy">🥇 Greedy：永远选最大的那个</h2>
+<h2 id="greedy" class="mg-remaining-heading" data-mg-stop>🥇 Greedy：永远选最大的那个</h2>
 <p>每一步取 <code>argmax</code>，不抽签。<strong>等价于 T→0</strong>。</p>
 <div class="tw"><table>
 <thead>
@@ -363,7 +363,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<h2 id="beam-search">🌲 Beam Search：以及开放式生成的取舍</h2>
+<h2 id="beam-search" class="mg-remaining-heading" data-mg-stop>🌲 Beam Search：以及开放式生成的取舍</h2>
 <p>机制：不再只留一条路，而是同时留 <strong>k 条部分序列（beam）</strong>。每一步把每条 beam 的所有可能扩展都算出来，按累计对数概率排序，全局取前 k 条继续。</p>
 <section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">k = 3，第 t 步：</span></div><div class="vb-flow-row"><span class="vb-flow-step">3 条 beam × 每条取若干候选</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">一堆候选序列</span></div><div class="vb-flow-row"><span class="vb-flow-step">按 Σ log p 排序</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">只留前 3 条</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">进入第 t+1 步</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 长度偏好：每多一个词就多乘一个 &lt;1 的概率，总分只会更低</span></div><div class="vb-flow-row"><span class="vb-flow-step">beam search 天然偏爱【短句】</span></div><div class="vb-flow-row"><span class="vb-flow-step">所以要配长度惩罚 length_penalty，把总分除以 长度^α</span></div></div></section>
 <p>Beam search 常用于机器翻译、语音识别等受输入约束的生成任务；翻译与摘要仍可有多种合理答案，序列概率不等于任务质量。</p>
@@ -400,11 +400,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <p>⚠️ <strong>一个常见的搬运事故</strong>：把翻译服务里调好的 <code>num_beams=5</code> 原样搬到"生成营销文案"上，
 结果每次生成的十条文案开头几乎一模一样。<strong>参数没错，任务变了</strong>——从"有唯一正确答案"变成了"要多样性"。</p>
-<h2 id="top-k-k">✂️ top-k：固定砍到 k 个</h2>
+<h2 id="top-k-k" class="mg-remaining-heading" data-mg-stop>✂️ top-k：固定砍到 k 个</h2>
 <p>只保留概率最高的 k 个候选，重新归一化再抽签。</p>
 <p><strong>它的毛病只有一条：k 是固定数量，但分布形状是变的。</strong></p>
 <section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">分布很尖（&quot;中华人民共和&quot; 后面几乎必然是 &quot;国&quot;）</span></div><div class="vb-flow-row"><span class="vb-flow-step">k=50 会把 49 个荒唐候选硬塞进候选集</span></div><div class="vb-flow-row"><span class="vb-flow-step">分布很平（一个故事的开头，几百个词都合理）</span></div><div class="vb-flow-row"><span class="vb-flow-step">k=50 又把大量合理选项砍掉了</span></div></div></section>
-<h2 id="top-p-nucleus-sampling">🎯 top-p 核采样（nucleus sampling）：候选集自适应</h2>
+<h2 id="top-p-nucleus-sampling" class="mg-remaining-heading" data-mg-stop>🎯 top-p 核采样（nucleus sampling）：候选集自适应</h2>
 <p>按概率<strong>从大到小累加</strong>，累计达到或超过 p 就停手，只在这个"核"里抽签。</p>
 <p>⭐ <strong>关键优点：候选集大小自己会变。</strong> 分布尖 → 核可能只有 1–2 个；分布平 → 核可以有几百个。这正好补上了 top-k 的毛病，它是一种常见采样方式；0.9 / 0.95 是候选配置，并非所有模型的默认值。</p>
 <figure class="dia">
@@ -485,7 +485,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </figure>
 
 <p><code>top_p=1.0</code> 表示不做核截断；0.9 会缩小候选集，但不保证事实正确、JSON 合法或安全。应按任务比较，且核对服务的实际处理顺序。</p>
-<h2 id="_3">🔗 想再深一层，去哪一套</h2>
+<h2 id="_3" class="mg-remaining-heading" data-mg-stop>🔗 想再深一层，去哪一套</h2>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -509,7 +509,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <hr />
-<h2 id="_4">✅ 检查点</h2>
+<h2 id="_4" class="mg-remaining-heading" data-mg-stop>✅ 检查点</h2>
 <ol>
 <li>一步 decode 里的四个动作按什么顺序发生？为什么说 <code>temperature</code> 和 <code>top_p</code> 不是独立的两个旋钮？</li>
 <li>Beam Search 适合什么任务？开放式生成为什么不用它（至少说出两条）？</li>
@@ -524,7 +524,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ol>
 </details>
 <hr />
-<h2 id="_5">🛑 可以停在这里</h2>
+<h2 id="_5" class="mg-remaining-heading" data-mg-stop>🛑 可以停在这里</h2>
 <p>读到这里，你已经知道那几个参数各自在分布上做了什么手脚 —— 这足够让你看懂 API 文档里的 <code>temperature</code> / <code>top_p</code> / <code>top_k</code> 分别是什么。</p>
 <p>⚠️ <strong>什么时候看下一页</strong>：你已经知道它们是什么，但<strong>不知道该配成多少</strong>；或者线上出现了复读、JSON 偶尔打不开、同样输入两次结果不一样。</p>
 <p>⚡ <strong>走神救援</strong></p>
@@ -564,4 +564,4 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/llm-reader.css"></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/llm-reader.css"><script defer src="../assets/magazine-reading-v1.js"></script></body></html>

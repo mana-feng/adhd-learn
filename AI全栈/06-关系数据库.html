@@ -280,7 +280,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body class="polish-ai-fullstack-reading">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/magazine-reading-v1.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/ai-fullstack/remaining.css">
+</head><body class="polish-ai-fullstack-reading" data-magazine-reading="v1" data-magazine-module="ai-fullstack" data-magazine-kind="math-code" data-magazine-scope="remaining-v1">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -290,7 +292,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <button class="js-done-btn">☐ 打卡</button>
   <button id="themeToggle" title="切换深浅色">🌗</button>
 </div></header>
-<main><noscript><p class="polish-noscript" role="note">正文和导航链接仍可阅读；打卡、主题切换与代码、图解工具需要 JavaScript。</p></noscript><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<main class="mg-main">
+<header class="mg-cover mg-remaining-cover" data-mg-authored="M14-remaining-06" data-mg-layout="math"><div class="mg-cover-copy"><p class="mg-kicker">AI全栈 / 06</p><p class="mg-question">聊天记录放进数据库，怎样避免留下难补的坑？</p><p class="mg-dek">先决定关系与键，再看索引、迁移、连接池和事务的等待边界。</p><p class="mg-outcome">能区分查询性能问题与数据一致性问题。</p><nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#json">从两张表与 JSON 的选择开始</a><a href="#mg-ai-fullstack-06-reading-start">直接读完整解释</a></nav><p class="mg-route-note"><a href="#llm">核对事务与模型等待</a></p></div></header>
+<span class="mg-reading-start" id="mg-ai-fullstack-06-reading-start"></span>
+<noscript><p class="polish-noscript" role="note">正文和导航链接仍可阅读；打卡、主题切换与代码、图解工具需要 JavaScript。</p></noscript><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">🧩 一、先把清单列全</a></li>
@@ -365,7 +370,7 @@ Postgres 还是 MySQL 五分钟能定；漏掉一列 token 数，三个月后你
 <p>⭐ <strong>判据</strong>：<strong>可推导的能晚点存，不可推导的必须当场存。</strong> 用量、成本、状态变更、审计，都是「事件过去就消失」的东西。</p>
 </blockquote>
 <hr />
-<h2 id="json">🧩 二、对话为什么是两张表，不是一张 JSON</h2>
+<h2 id="json" data-mg-stop>🧩 二、对话为什么是两张表，不是一张 JSON</h2>
 <p>最省事的做法是把消息塞进一个 JSON 列。<strong>能跑，但三件事会打脸</strong>：⚠️ 追加一条要<strong>整读、改、整写回</strong>，两个请求同时追加时后写的会整段覆盖先写的；算不了账（这个用户这月花了多少，没法直接 <code>SUM</code>）；查不了单条（「所有重试失败的 assistant 消息」在两张表里是一句 <code>WHERE</code>）。</p>
 <div class="codehilite" data-code-language="sql"><pre><span></span><code><span class="c1">-- SQLite 专用建表例（原环境已实跑）；迁移 PostgreSQL 需另改方言与数据语义</span>
 <span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">conversations</span><span class="w"> </span><span class="p">(</span>
@@ -567,7 +572,7 @@ WHERE s.apply_flag=1 AND s.label IS NOT NULL
 <p><strong>路由之前的复制路径（MySQL 8.4）：</strong>source binlog → replica receiver 接收并写 relay log → applier 应用并提交 → 在能看到该提交的新读中可见。默认异步，源已提交、某副本已接收、该副本已应用是不同状态；启用半同步后，收到确认只证明相应副本已接收并持久化日志，不等于已应用，更不保证全部读副本同步。</p>
 <ul><li><strong>接收落后：</strong>查连接、receiver 状态/错误及接收进度，再定位网络或源端发送等原因。</li><li><strong>已接收但应用落后：</strong>查 applier/worker 错误与应用进度，再看工作负载、大事务、锁等待及资源瓶颈，按原因处理。</li></ul>
 <p id="mysql-replica-lag"><code>Seconds_Behind_Source=0</code> 不是所需提交已可见的充分证明。沿用上面的权威读，或核验所需提交已应用、在合适读视图中读取，并设置等待超时/降级；这会付出延迟、权威节点负载或可用性成本。摘除坏副本、改变读路由只是缓解旧读，不等于修好积压原因；不靠固定 sleep、一键调线程或跳错承诺零延迟。依据：<a href="https://dev.mysql.com/doc/refman/8.4/en/replication-threads.html">复制线程</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/replication-administration-status.html">进度与状态</a>、<a href="https://dev.mysql.com/doc/refman/8.4/en/replication-semisync.html">半同步确认</a>。未运行复制服务。</p>
-<h2 id="llm">🧩 六、事务边界：⚠️ 别把 LLM 调用包在事务里</h2>
+<h2 id="llm" data-mg-stop>🧩 六、事务边界：⚠️ 别把 LLM 调用包在事务里</h2>
 <p><strong>事务先划一个本地提交/回滚单元：</strong>例如下面的“写 assistant 消息＋记账＋更新 updated_at”。原子性要求这组操作共同成功或撤回；一致性仍靠业务约束维护合法状态；隔离性按所选级别约束并发可见性；耐久性取决于引擎、提交配置与存储兑现。借着一个连接不等于已经开启事务，LLM 和对象存储调用也不自动加入它。</p>
 <p><strong>这是 AI 应用最常见也最贵的数据库错误。</strong> 写法非常自然：开事务 → 写用户消息 → 调 LLM → 写回复 → 提交，「要么都成功要么都失败，多干净」。问题是<strong>中间那步要三秒到三十秒</strong>，这整段时间里一个连接被占着什么也没干：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span><span class="o">,</span><span class="w"> </span><span class="nn">time</span>
@@ -864,4 +869,5 @@ db.close()
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-ai-fullstack-reader.css"></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-ai-fullstack-reader.css"><script defer src="../assets/magazine-reading-v1.js"></script>
+</body></html>

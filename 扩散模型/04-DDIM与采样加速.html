@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script></head><body class="overview-reading topic-reading diffusion-reader">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/overview-reading.css"><script defer src="../assets/overview-reading.js"></script><link rel="stylesheet" href="../assets/magazine-reading-v1.css"><link rel="stylesheet" href="../assets/magazine-rollout/diffusion/remaining.css"></head><body data-magazine-reading="v1" data-magazine-module="diffusion" data-magazine-phase="remaining" data-magazine-kind="math-code" class="overview-reading topic-reading diffusion-reader">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -290,7 +290,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <button class="js-done-btn">☐ 打卡</button>
   <button id="themeToggle" title="切换深浅色">🌗</button>
 </div></header>
-<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<main class="mg-main"><header class="mg-remaining-cover"><p class="mg-kicker">扩散模型 / 04</p><p class="mg-question">减少采样更新次数，具体改了哪条路径？</p><p class="mg-dek">按网络评估成本→t到s更新→eta→选点代码→复现和步数评估组织长文。</p><nav class="mg-actions" aria-label="本章阅读入口"><a class="mg-primary" href="#_2">先看：一、慢在哪：先数网络评估，再看单次成本</a><a href="#mg-diffusion-04-reading-start">直接读完整正文</a></nav></header><span class="mg-reading-start" id="mg-diffusion-04-reading-start"></span><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">🐌 一、慢在哪：先数网络评估，再看单次成本</a></li>
@@ -307,13 +307,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ul>
 </div>
 </details>
-<div class="ov-layout"><article class="ov-body"><h1 id="04-ddim">04 · DDIM 与采样加速</h1>
+<div class="ov-layout"><article class="ov-body mg-article"><h1 id="04-ddim">04 · DDIM 与采样加速</h1>
 <!-- topic-reading -->
 
 <p><link rel="stylesheet" href="../assets/diff-formula-help.css"><script defer src="../assets/diff-formula-help.js"></script></p>
 <p>⏱ <strong>42 分钟</strong> ｜ 阅读与实验参考，可分次完成 ｜ <strong>先分清步数、随机性和复现条件</strong></p>
 <hr />
-<h2 id="_1">🎯 一句话</h2>
+<h2 id="_1" class="mg-remaining-heading" data-mg-stop>🎯 一句话</h2>
 <p><strong>DDIM 用当前预测和目标噪声水平构造更新，允许选一张更稀疏的采样时间表。</strong> 它可以减少模型调用，但不是“去掉随机数就能无损跳步”，也没有所有模型通用的 50 步答案。</p>
 <p>先把界面上的三个设置分开：</p>
 <ul>
@@ -324,14 +324,14 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>想理解跳步，先看<a href="#ddim">两次计算</a>；只想动手，去<a href="#1000-50">时间表</a>或<a href="#_4">可复算的小实验</a>。公式推导放在折叠里，不必先读完推导才继续。</p>
 <p>上一章训练噪声预测器，本章用它生成样本。对于本页的噪声预测参数化，保持训练时的噪声表、时间标记和输入约定一致，可以复用权重来换采样方式；不能把任何预测类型的模型不加转换地代进来。</p>
 <hr />
-<h2 id="_2">🐌 一、慢在哪：先数网络评估，再看单次成本</h2>
+<h2 id="_2" class="mg-remaining-heading" data-mg-stop>🐌 一、慢在哪：先数网络评估，再看单次成本</h2>
 <p>通常一次去噪的结果，是下一次去噪的输入；同一个样本的这条链需要依次执行。减少链上的更新次数，是加速的一条路。</p>
 <p><strong>但“步数”不一定等于“网络前向次数”。</strong> 某些求解器一次更新需要多次评估；CFG 还要取得有条件和无条件预测，可能合成一个更大的 batch 调用。比较速度时应同时记录这些设置。</p>
 <p>一个便于理解的近似是：重复部分的耗时，取决于<strong>网络评估次数（NFE）与每次评估成本</strong>。最后还要加编码、解码、调度和数据搬运等开销。</p>
 <p>同一批图片可以并行处理，这可能提高吞吐量，却不代表一次出 8 张几乎免费。计算量、显存和实际延迟都会受 batch 大小与硬件影响。</p>
 <p>你可以从两端节省工作：本章减少或改善采样更新；下一章让反复去噪处理较小的潜变量。图的大小同样会影响单次成本，不能排除在外。</p>
 <hr />
-<h2 id="ddpm">🎲 二、相邻步公式不能只改一个下标</h2>
+<h2 id="ddpm" class="mg-remaining-heading" data-mg-stop>🎲 二、相邻步公式不能只改一个下标</h2>
 <p><strong>不能直接把相邻步公式里的 t−1 改成 t−20，同时保留原来的系数。</strong> 原因是系数描述了特定的时间间隔，不是随机性禁止跳步。</p>
 <p>本页用 $\beta_t$ 表示从 t−1 到 t 的加噪量，$\alpha_t=1-\beta_t$，$\bar\alpha_t=\prod_{s=1}^t\alpha_s$。横线表示从起点累计的信号保留比例，不是另一个可随意调的参数。</p>
 <p>先看一步由什么组成：当前样本 $x_t$、模型预测的噪声，以及可能新抽取的高斯噪声 $z$。</p>
@@ -350,7 +350,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>若把时间表重新选得稀疏，并为新的间隔重算系数，<strong>随机采样仍然可以跳步</strong>。例如 <a href="https://github.com/openai/improved-diffusion/blob/main/improved_diffusion/respace.py">OpenAI 的 respacing 实现</a>会保留选中时刻的累计噪声比例、构造新的间隔参数，并映射回模型原来的时间标记。</p>
 <p>因此，“按原相邻链完整执行要走完它的步数”是对指定算法的描述；“所有带随机项的算法都必须走 1000 步”则不是。</p>
 <hr />
-<h2 id="ddim">⏩ 三、DDIM 的一步：先估计，再走向选定的噪声水平</h2>
+<h2 id="ddim" class="mg-remaining-heading" data-mg-stop>⏩ 三、DDIM 的一步：先估计，再走向选定的噪声水平</h2>
 <p>想象你正在 t=1000，准备直接到 t′=500。你需要当前的预测，也需要目标时刻的累计系数；不是简单把原来一个小步执行一半。</p>
 <p>本页约定 $t'&lt;t$，数学时间 0 是干净端点，$\bar\alpha_0=1$。为减少重复文字，把当前噪声预测简记为：</p>
 <p>$$e_t=\epsilon_\theta(x_t,t).$$</p>
@@ -406,7 +406,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>可以先停：你已经知道“一步怎样算”和“为什么可以选更少的时刻”。下一节只是在这个更新里调节新噪声的大小。</p>
 </blockquote>
 <hr />
-<h2 id="ddpm-ddim">🎛️ 四、η：控制新噪声，不负责保证质量</h2>
+<h2 id="ddpm-ddim" class="mg-remaining-heading" data-mg-stop>🎛️ 四、η：控制新噪声，不负责保证质量</h2>
 <p>常见的选择把这一段的标准差写成：</p>
 <p>$$\sigma_{t\to t'}=\eta\sqrt{\frac{1-\bar\alpha_{t'}}{1-\bar\alpha_t}}\sqrt{1-\frac{\bar\alpha_t}{\bar\alpha_{t'}}}.$$</p>
 <p>η 读作 eta。它是无量纲的控制系数；另外两项依赖这次更新的起点与目标，不能省略后直接把 η 当噪声标准差。</p>
@@ -417,7 +417,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>采用其他 DDPM 方差、预测裁剪或额外引导后，“η=1 与某个实现完全等价”还需重新核对。<a href="https://github.com/ermongroup/ddim/blob/main/functions/denoising.py">DDIM 官方更新代码</a>可以逐项对照这些系数。</p>
 <p>少步数可能影响质量，但不能解释成“新增噪声必然要用后面几百步洗掉”。随机程度与时间网格都是设计选择，没有“少步数与随机性绝对不能兼得”的定律。</p>
 <hr />
-<h2 id="1000-50">🔢 五、动手：从 1000 个噪声水平中选出 50 个</h2>
+<h2 id="1000-50" class="mg-remaining-heading" data-mg-stop>🔢 五、动手：从 1000 个噪声水平中选出 50 个</h2>
 <p><strong>这段程序只打印时间表，不生成图片，也不是完整采样器。</strong> 需要 PyTorch，不下载模型，不需要 GPU。</p>
 <p>这里保留 0、20、40…980 的数组索引例子。注意它采用零起始下标：代码 <code>abar[0]</code> 已经加过第一步噪声，对应前面数学记号的 $\bar\alpha_1$，不是干净端点 $\bar\alpha_0=1$。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 从 1000 个已加噪的时间水平中选 50 个；本段仅查看表，不执行采样。</span>
@@ -504,7 +504,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>从索引 980 回到 560，信号系数约从 0.0077 增至 0.2022。它说明不同时间水平的信噪比例不同，<strong>没有证明高噪声段无用、细节只在最后形成，或均匀选点一定浪费</strong>。</p>
 <p>要比较选点方式，应固定模型和评估任务，实际测生成质量与成本。仅看加噪系数不能替代这项实验。</p>
 <hr />
-<h2 id="_3">🎰 六、固定轨迹有什么用：复现、图生图与插值</h2>
+<h2 id="_3" class="mg-remaining-heading" data-mg-stop>🎰 六、固定轨迹有什么用：复现、图生图与插值</h2>
 <h3 id="ddim-reproducibility">1. 复现：种子之外还要保存什么</h3>
 <p>η=0 时没有新的步内抽样，但初始噪声仍然是随机的。固定全部输入与计算之后，采样器定义一条确定轨迹。</p>
 <p>分享结果时，同时记录模型及版本、提示词和负面提示词、尺寸、初始噪声或种子、采样器、步数、时间表、η、CFG 和其他处理设置。</p>
@@ -521,7 +521,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p><strong>球面插值（SLERP）是控制方向和半径的一种选择。</strong> 归一化线性插值也能控制范数；它们都不自动保证完整高斯分布或生成图的语义连续。零向量、近同向与反向端点还需单独处理。</p>
 <p>本页只核验噪声统计，没有运行图像插值质量实验。因此可以得出“线性中点收缩了尺度”，不能报告“使用 SLERP 后灰图问题已消失”。</p>
 <hr />
-<h2 id="_4">📉 七、怎样判断增加步数有没有用</h2>
+<h2 id="_4" class="mg-remaining-heading" data-mg-stop>📉 七、怎样判断增加步数有没有用</h2>
 <p><strong>固定条件比较质量与成本，不预先规定 50 步够用。</strong> 下面采用很小的一维分布，能在 CPU 上复算，不需要训练网络。</p>
 <h3 id="ddim-experiment-setup">先明确这次实验在测什么</h3>
 <p>目标分布有两个峰：一半样本来自均值 −2、标准差 0.5 的高斯，另一半来自均值 2、标准差 0.5 的高斯。</p>
@@ -600,7 +600,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>上面的新实验补齐了分布、网格、随机流和完整代码。保留要研究的问题——步数怎样影响质量——同时撤去不成立的“硬地板”和通用阈值推断。</p>
 </details>
 <hr />
-<h2 id="_5">🗓️ 八、步数、时间表和求解器怎样一起选择</h2>
+<h2 id="_5" class="mg-remaining-heading" data-mg-stop>🗓️ 八、步数、时间表和求解器怎样一起选择</h2>
 <p><strong>先定比较条件，再改一个设置。</strong> 时间表决定在哪里评估，求解器决定怎样利用预测更新；两者都可能影响少步数表现。</p>
 <h3 id="ddim-schedule-options">三种选点思路</h3>
 <p><strong>均匀选点。</strong> 在某个时间参数上等间隔取点，简单且便于比较。要说明是哪一个参数，并检查取整、重复点和端点；不能只写一个 <code>range</code> 就认为任意 S 都正确。</p>
@@ -612,7 +612,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>但某方法“十几步等于另一方法五十步”需要指定模型、引导、任务和质量指标。比较时同时记录实际 NFE；不能仅凭界面上的 step 数判断成本或精度。</p>
 <p>可以先测试 20、50、100 等预算，再用多组固定种子与同一任务比较质量、耗时和显存。<strong>这是实验起点，不是合格步数清单。</strong> 若后两档仍有值得付费的改善，就继续测，而不是被“50 步足够”拦住。</p>
 <hr />
-<h2 id="_6">🔗 这一章连到哪里</h2>
+<h2 id="_6" class="mg-remaining-heading" data-mg-stop>🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -636,7 +636,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <hr />
-<h2 id="_7">✅ 检查点</h2>
+<h2 id="_7" class="mg-remaining-heading" data-mg-stop>✅ 检查点</h2>
 <ol>
 <li>为什么不能只把相邻步公式的 t−1 改成 t−20？这是否意味着随机采样绝对不能跳步？</li>
 <li>DDIM 为什么能复用常见噪声预测权重？需要保持哪些模型和时间约定？</li>
@@ -659,7 +659,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ol>
 </details>
 <hr />
-<h2 id="_8">🛑 可以停在这里</h2>
+<h2 id="_8" class="mg-remaining-heading" data-mg-stop>🛑 可以停在这里</h2>
 <p>你现在能分清：采样器怎样更新、时间表选哪些点、随机性从哪里来。选择步数时，用当前任务的质量与成本结果，而不是背一个固定数字。</p>
 <p>回来时按问题进入：<a href="#ddim-reproducibility">复现</a>、<a href="#ddim-img2img">strength 对照</a>、<a href="#ddim-interpolation">插值尺度</a>、<a href="#_4">步数实验</a>或<a href="#_5">时间表与求解器</a>。</p>
 <p>⚡ <strong>走神救援</strong></p>
@@ -740,4 +740,4 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   });
 })();
 
-</script></body></html>
+</script><script defer src="../assets/magazine-reading-v1.js"></script></body></html>

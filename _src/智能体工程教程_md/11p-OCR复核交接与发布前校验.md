@@ -1,3 +1,13 @@
+<div hidden data-agent-magazine="v1" data-magazine-kind="engineering"></div>
+
+<header class="mg-cover" style="grid-template-columns:minmax(0,1fr)"><div class="mg-cover-copy">
+<p class="mg-kicker">智能体工程 · 11p</p>
+<p class="mg-question">原图换了位置，下一位维护者怎样找到同一份材料？</p>
+<p class="mg-outcome">读完能做的判断：用指纹、修订正文与复核范围建立可核验交接，不覆盖旧候选。</p>
+<nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#4">从这个问题的原解释开始</a><a href="#mg-agent-engineering-11p-reading-start">直接进入完整解释</a></nav>
+</div></header>
+<span id="mg-agent-engineering-11p-reading-start" tabindex="-1"></span>
+
 # OCR复核交接与发布前校验
 
 > 本章保留教学代码、路径说明与历史验证结论；完整实验工程和运行记录未随本站及公开仓库分发。命令用于说明调用方式，复现需自行准备对应实现、数据与环境。

@@ -181,19 +181,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .tw{overflow-x:auto;margin:1.2em 0;-webkit-overflow-scrolling:touch}
 table{border-collapse:collapse;width:100%;margin:0;font-size:.93em}
 th,td{min-width:5.2em}
-</style></head><body data-polish="claude-library" class="polish-claude-library-reading">
+</style><link rel="stylesheet" href="../assets/magazine-reading-v1.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/claude-library/remaining-v1.css">
+</head><body data-polish="claude-library" class="polish-claude-library-reading" data-magazine-reading="v1" data-magazine-module="claude-library" data-magazine-kind="engineering" data-magazine-edition="m19-body-v1">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner"><a href="../index.html">🏠 总目录</a>
 <a href="index.html">📚 资料库</a><span class="title">Harness 设计</span>
 <button id="themeToggle" title="切换深浅色">🌗</button></div></header>
-<main>
+<main class="mg-main">
 <h1>长时运行 Agent 的有效 Harness</h1>
 <div class="adhd-head">
 <p class="meta">⏱ <strong>14 分钟</strong> ｜ ⭐ <strong>Harness 是什么、为什么需要它</strong></p>
 <h2 id="tldr">🎯 一句话</h2>
 <p class="tl">Harness 是<strong>包在模型外面的那层工程结构</strong>：循环控制、状态管理、错误处理、终止条件。⭐ <strong>模型决定「做什么」，Harness 决定「怎么把它跑稳」。</strong></p>
 </div>
-<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>下一轮 Agent 从哪里找回目标与未完成功能？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav>
+<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>下一轮 Agent 从哪里找回目标与未完成功能？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav><header class="mg-cover g06-body-cover"><div class="mg-cover-copy"><p class="mg-kicker">Claude 博客资料库 · Harness设计</p><p class="mg-question">下一轮 Agent 从哪里找回目标与未完成功能？</p><p class="mg-dek">两种失败都发生在长任务推进中；先看初始化和后续编码会话怎样分工。</p><p class="mg-outcome">读完可以：找到跨会话交接的目标、未完成功能与可恢复产物。</p><nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_1">从这个问题开始</a><a href="#mg-claude-library-reading-start">直接进入完整解释</a></nav></div><figure class="mg-visual g06-body-figure" id="mg-claude-library-mechanism"><p class="g06-figure-heading">跨会话交接靠可读取产物</p><ol class="g06-body-flow"><li><b>初始化会话</b><span>建立环境、功能清单与初始记录</span></li><li><b>外部产物</b><span>功能状态、进度文件与版本历史供下一轮读取</span></li><li><b>后续编码会话</b><span>选择未完成项，小步实现并运行验证</span></li></ol><p class="g06-body-note">只有核对后的进度才能更新状态；下一轮从产物找目标，不依赖模型自动记住上轮。</p><figcaption>依据原文两段式职责及状态交接整理；不是通用自动记忆机制。功能 JSON 和具体会话流程完整保留在正文。</figcaption></figure></header>
 <div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>Effective Harnesses for Long-Running Agents（长时运行 Agent 的有效 Harness）</dd><dt>原文链接</dt><dd><a href="https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents" target="_blank" rel="noopener">https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents</a></dd><dt>作者</dt><dd>Justin Young（Anthropic）</dd><dt>发布日期</dt><dd>2025-11-26</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。版本、参数与案例数字属于原文所示条件，不是本资料库的实测结果；产品状态与接口以实施时官方文档为准。</div></div>
 <details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
 <ul>
@@ -211,15 +213,15 @@ th,td{min-width:5.2em}
 <li><a href="#recap">🛑 可以停在这里</a></li>
 </ul>
 </div>
-</details>
+</details><span id="mg-claude-library-reading-start" class="g06-body-start" aria-hidden="true"></span>
 <p>当 AI Agent 处理跨越多个上下文窗口的复杂项目时，会面临连续性和一致性的难题——<strong>每个新会话开始时都对之前的工作毫无记忆</strong>。Anthropic 设计了一套由「初始化 Agent + 迭代编码 Agent」组成的两段式架构，让 Claude 能在大型软件项目上持续取得进展而不丢失上下文。</p>
 <p>文章用了一个类比：想象一群软件工程师轮班工作，但每个人上班时对前一班的工作完全没有记忆——如果没有显式的知识传递机制，项目无法保持连贯。</p>
-<h2 id="_1">两种典型失败模式</h2>
+<p class="g06-body-lead">两种失败都发生在长任务推进中；先看初始化和后续编码会话怎样分工。</p><h2 id="_1" class="g06-body-chapter" data-mg-stop>两种典型失败模式</h2>
 <ol>
 <li><strong>过度野心（Over-ambition）：</strong> Agent 试图在单个上下文窗口内完成整个应用，导致实现不完整、代码无文档，后续会话浪费大量精力从损坏状态中恢复。</li>
 <li><strong>过早宣告完成（Premature completion）：</strong> 后续的 Agent 实例看到部分已完成的功能，就错误地宣布整个项目已经完成，尽管规格说明远未实现。</li>
 </ol>
-<h2 id="agent">架构方案：两段式 Agent 框架</h2>
+<h2 id="agent" class="g06-body-chapter" data-mg-stop>架构方案：两段式 Agent 框架</h2>
 <h3 id="agent_1">初始化 Agent（仅第一个会话）</h3>
 <ul>
 <li>通过专门的提示词创建基础设施</li>
@@ -237,7 +239,7 @@ th,td{min-width:5.2em}
 <li>在标记功能完成前进行严格的端到端测试</li>
 </ul>
 <p>两种 Agent 的区别仅在于初始提示词，其余系统基础设施完全相同。</p>
-<h2 id="_2">环境管理组件</h2>
+<p class="g06-body-lead">目标与未完成项写在哪里，比希望下一轮记住历史更可操作；把清单和会话流程对照读。</p><h2 id="_2" class="g06-body-chapter" data-mg-stop>环境管理组件</h2>
 <h3 id="feature-list">功能清单（Feature List）</h3>
 <p>初始化 Agent 用 <strong>JSON 格式</strong>生成完整的功能规格。在 Claude.ai 克隆项目的演示中包含 200+ 个功能项，初始全部标记为 "failing"。每个功能条目结构类似：</p>
 <div class="codehilite"><pre><span></span><code><span class="p">{</span>
@@ -257,7 +259,7 @@ th,td{min-width:5.2em}
 </ul>
 <h3 id="_4">测试机制</h3>
 <p>Claude 起初难以识别未完成的功能实现。提供浏览器自动化工具（Puppeteer MCP server）后效果显著改善——Agent 像真人用户一样点击按钮、验证视觉变化、确认数据持久化，能发现纯代码审查发现不了的 bug。</p>
-<h2 id="_5">标准会话工作流</h2>
+<h2 id="_5" class="g06-body-chapter" data-mg-stop>标准会话工作流</h2>
 <p>每个编码会话遵循固定的初始化流程：</p>
 <ol>
 <li>确认当前工作目录</li>
@@ -268,8 +270,8 @@ th,td{min-width:5.2em}
 <li>开始专注开发选定的功能</li>
 </ol>
 <p>典型会话开场是「我先了解一下项目当前状态」，然后立即运行诊断命令，避免浪费 token 重新摸索项目状况。</p>
-<h2 id="_6">失败模式与对策一览</h2>
-<div class="tw"><table>
+<p class="g06-body-lead">对策表、原文验证与未解问题各有证据范围，不把案例成果外推为通用保证。</p><h2 id="_6" class="g06-body-chapter" data-mg-stop>失败模式与对策一览</h2>
+<div class="tw mg-scroll-region" tabindex="0" role="region" aria-label="原文对照表1，可横向滚动"><table>
 <thead>
 <tr>
 <th>问题</th>
@@ -300,25 +302,25 @@ th,td{min-width:5.2em}
 </tr>
 </tbody>
 </table></div>
-<h2 id="_7">关键洞察</h2>
+<h2 id="_7" class="g06-body-chapter" data-mg-stop>关键洞察</h2>
 <ul>
 <li><strong>借鉴人类工程实践：</strong> 整个框架反映了优秀软件工程师的日常习惯——清晰的文档、带说明的 commit、保持可合并状态、验证后再算完成。</li>
 <li><strong>JSON 优于 Markdown：</strong> 关键跟踪文件用结构化数据格式，减少模型意外破坏项目元数据。</li>
 <li><strong>像人一样测试：</strong> 明确要求 Agent 用真实 UI 交互（而非仅单元测试）来验证，能发现代码检查遗漏的 bug。</li>
 <li><strong>上下文感知：</strong> 利用 git 历史和进度文件，Agent 能快速了解项目状态而不用瞎猜。</li>
 </ul>
-<h2 id="_8">成果验证</h2>
+<h2 id="_8" class="g06-body-chapter" data-mg-stop>成果验证</h2>
 <p>该方案使 Claude Opus 4.5 成功构建了一个可运行的 Claude.ai 克隆——一个跨越多个上下文窗口、包含数十个功能的完整全栈 Web 应用。</p>
-<h2 id="_9">未解问题与未来方向</h2>
+<h2 id="_9" class="g06-body-chapter" data-mg-stop>未解问题与未来方向</h2>
 <ul>
 <li><strong>多 Agent 架构：</strong> 专门化的 Agent（测试 Agent、QA Agent、代码清理 Agent）是否会优于单一通用 Agent？</li>
 <li><strong>领域泛化：</strong> 当前优化针对全栈 Web 开发，在科研、金融建模等长周期自主任务上的应用尚未探索。</li>
 <li><strong>工具局限：</strong> Claude 无法通过当前自动化工具感知浏览器原生 alert 弹窗，依赖这些 UI 元素的功能容易有 bug。</li>
 </ul>
-<h2 id="_10">结论</h2>
+<h2 id="_10" class="g06-body-chapter" data-mg-stop>结论</h2>
 <p>长时运行的 Agent 需要超越原始上下文窗口管理的显式架构支持。通过功能规格、进度文档、版本控制集成和严格测试协议等环境脚手架，开发者可以让 Claude 在跨会话的长期项目中持续高效工作。该框架把 Agent 的局限转化为可管理的工作流模式，同时保持代码质量和项目连贯性。</p>
 <hr />
-<div class="ckpt"><h2 id="ckpt">✅ 检查点</h2>
+<div class="ckpt"><h2 id="ckpt" class="g06-body-chapter" data-mg-stop>✅ 检查点</h2>
 <ol>
 <li>Harness 具体包含哪些部分？</li>
 <li>为什么说没有 Harness 的 Agent 只能做演示？</li>
@@ -333,7 +335,7 @@ th,td{min-width:5.2em}
 </ol>
 </details>
 </div>
-<div class="recap"><h2 id="recap">🛑 可以停在这里</h2>
+<div class="recap"><h2 id="recap" class="g06-body-chapter" data-mg-stop>🛑 可以停在这里</h2>
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>Harness 管理循环、状态、错误、终止与可观测性。</li><li>成功退出之外，还要处理超时、预算耗尽和持续无进展。</li><li>记录每一步的结果，让失败可以定位和恢复。</li></ul></section></div>
 <nav class="pagenav"><a href="index.html"><div class="dir">← 返回</div>📚 资料库目录</a>
 <a class="next" href="../智能体工程教程/index.html"><div class="dir">系统学习 →</div>🎓 智能体工程教程</a></nav>
@@ -350,4 +352,5 @@ th,td{min-width:5.2em}
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
 <link rel="stylesheet" href="../assets/polish-claude-library-reader.css">
+<script defer src="../assets/magazine-reading-v1.js"></script>
 </body></html>

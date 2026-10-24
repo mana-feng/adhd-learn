@@ -280,7 +280,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */</style><link rel="stylesheet" href="../assets/vendor/katex/katex.min.css">
 <script defer src="../assets/vendor/katex/katex.min.js"></script>
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
- onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script></head><body data-polish-module="sql-query">
+ onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/magazine-reading-v1.css"><link rel="stylesheet" href="../assets/magazine-rollout/sql-query/remaining.css"></head><body data-polish-module="sql-query" data-magazine-reading="v1" data-magazine-module="sql-query" data-magazine-kind="engineering">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
@@ -290,7 +290,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <button class="js-done-btn">☐ 打卡</button>
   <button id="themeToggle" title="切换深浅色">🌗</button>
 </div></header>
-<main><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
+<main class="mg-main"><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">🧭 一、先划清这一章不讲什么</a></li>
@@ -306,6 +306,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="09">09 · 执行计划里的连接，和写法怎么毁掉索引</h1>
+<aside class="mg-remaining-entry" aria-label="本页问题与阅读路径"><p class="mg-remaining-question">有索引仍然慢，先看哪条实际访问证据？</p><p class="mg-remaining-outcome">先核结果一致，再读计划、连接顺序和谓词形态，保留原环境与耗时条件。</p><nav aria-label="原文阅读停靠点"><a href="#_3">二、怎么读一份计划：两个动词，一个陷阱</a><a href="#sargability">四、sargability：六种把索引废掉的写法</a><a href="#slow-query-evidence-loop">从线上现象到回归：先找负载入口</a><a href="#mg-sql-query-remaining-start">直接进入完整原文</a></nav></aside><span id="mg-sql-query-remaining-start" aria-hidden="true"></span>
+
 <details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>104 分钟</strong> ｜ ⚠️ <strong>实测：索引在、计划里也写着 <code>COVERING INDEX</code>，它照样是 <code>SCAN</code> 全表</strong></p>
 <h2 id="_1">🎯 一句话</h2>
@@ -354,7 +356,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 MySQL 是 <code>EXPLAIN FORMAT=TREE</code>，输出的字面完全不一样。
 ⭐ 可迁移的是判据（「有没有做全表扫」「索引用上没有」「有没有额外排序」），不可迁移的是字面。
 所以下面每一处我都会先说结论、再给 SQLite 的原文，⚠️ <strong>别去背原文</strong>。</p>
-<h2 id="_3">🔤 二、怎么读一份计划：两个动词，一个陷阱</h2>
+<h2 id="_3" data-mg-stop="">🔤 二、怎么读一份计划：两个动词，一个陷阱</h2>
 <p>一张 20 万行的事件表，<code>user_id</code> 上有索引。六种查询各看一次计划：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span><span class="o">,</span><span class="w"> </span><span class="nn">random</span>
 
@@ -578,7 +580,7 @@ events 在外层      0.0140 s
 <strong>后半章还有</strong>：sargability：六种把索引废掉的写法 · <code>OR</code> 的三种命运，和一个 <code>LIKE</code> 的意外 · 一条查询慢了，按什么顺序查
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<h2 id="sargability">🧨 四、sargability：六种把索引废掉的写法</h2>
+<h2 id="sargability" data-mg-stop="">🧨 四、sargability：六种把索引废掉的写法</h2>
 <p>前面都是「索引够不够」，这一节反过来 —— ⭐ <strong>索引明明在，是你的写法让它用不上。</strong></p>
 <p>对本例的<strong>普通列索引</strong>，将条件写成原列与常量范围的比较，通常更容易利用索引；用 <code>substr(ts,...)</code> 包住列未必能使用原来的 ts 索引。表达式索引、生成列索引、优化器改写是例外，最终仍需查看实际计划与耗时。参见 <a href="https://sqlite.org/expridx.html">SQLite 表达式索引</a>。日期筛选使用 <code>ts &gt;= 起点 AND ts &lt; 下一天</code>，避免漏掉秒内的小数部分。</p>
 <p>20 万行，<code>user_id</code> 和 <code>ts</code> 上都有索引：</p>
@@ -992,7 +994,7 @@ db.close()
 本章第二节 ⑤ 那条 <code>SCAN ev USING COVERING INDEX ix_user</code>，
 拿去给任何一个只扫一眼的人看，都会得到「索引用上了呀」的结论。</p>
 </blockquote>
-<h3 id="slow-query-evidence-loop">从线上现象到回归：先找负载入口</h3>
+<h3 id="slow-query-evidence-loop" data-mg-stop="">从线上现象到回归：先找负载入口</h3>
 <p>单条计划只是闭环中间一步。先固定观察时间窗，按<strong>标准化语句/查询类别</strong>聚合，保留有代表性的参数分布与返回行数；同一 SQL 模板在不同参数上可能选择不同计划。</p>
 <div class="tw"><table data-qread-task="QREAD-004" data-qread-anchor="slow-query-evidence-loop" style="width:100%;min-width:0;max-width:100%;table-layout:fixed"><thead><tr><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">阶段</th><th style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">最少留下的证据</th></tr></thead><tbody>
 <tr><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">日志 / 监控召回</td><td style="min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:normal">频次、平均与分位耗时、总耗时，以及数据库耗时与应用排队/取数耗时的边界</td></tr>
@@ -1113,4 +1115,4 @@ db.close()
   var bar=document.getElementById('scrollbar');
   addEventListener('scroll',function(){var h=document.documentElement,
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
-})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-sql-query-reader.css"></body></html>
+})();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/diagram-reader.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script><link rel="stylesheet" href="../assets/polish-sql-query-reader.css"><script defer src="../assets/magazine-reading-v1.js"></script></body></html>

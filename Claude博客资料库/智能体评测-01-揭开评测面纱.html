@@ -181,19 +181,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 .tw{overflow-x:auto;margin:1.2em 0;-webkit-overflow-scrolling:touch}
 table{border-collapse:collapse;width:100%;margin:0;font-size:.93em}
 th,td{min-width:5.2em}
-</style></head><body data-polish="claude-library" class="polish-claude-library-reading">
+</style><link rel="stylesheet" href="../assets/magazine-reading-v1.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/claude-library/remaining-v1.css">
+</head><body data-polish="claude-library" class="polish-claude-library-reading" data-magazine-reading="v1" data-magazine-module="claude-library" data-magazine-kind="engineering" data-magazine-edition="m19-body-v1">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner"><a href="../index.html">🏠 总目录</a>
 <a href="index.html">📚 资料库</a><span class="title">智能体评测</span>
 <button id="themeToggle" title="切换深浅色">🌗</button></div></header>
-<main>
+<main class="mg-main">
 <h1>揭开 AI Agent 评测的面纱</h1>
 <div class="adhd-head">
 <p class="meta">⏱ <strong>14 分钟</strong> ｜ ⭐ <strong>没有评测就没有迭代</strong></p>
 <h2 id="tldr">🎯 一句话</h2>
 <p class="tl">评测的作用不是「打个分」，而是<strong>让你的改动能被判断是好是坏</strong>。⭐ 没有评测，你所有的优化都只是<strong>凭感觉换一个说法</strong>。</p>
 </div>
-<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>怎样把任务、试次、评分器和最终状态分开评测？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav>
+<nav class="polish-library-guide" aria-label="带着问题阅读"><p><strong>本页先解决：</strong>怎样把任务、试次、评分器和最终状态分开评测？</p><p><a href="#_1">查看机制与案例</a> · <a href="#ckpt">用检查点回顾</a></p></nav><header class="mg-cover g06-body-cover"><div class="mg-cover-copy"><p class="mg-kicker">Claude 博客资料库 · 智能体评测</p><p class="mg-question">怎样把任务、试次、评分器和最终状态分开评测？</p><p class="mg-dek">先分清任务、一次尝试、执行记录与最终状态，再决定评分器读取什么证据。</p><p class="mg-outcome">读完可以：分清任务、试次、轨迹、评分器与最终状态，选择适合问题的一致性指标。</p><nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_1">从这个问题开始</a><a href="#mg-claude-library-reading-start">直接进入完整解释</a></nav></div><figure class="mg-visual g06-body-figure" id="mg-claude-library-mechanism"><p class="g06-figure-heading">一次尝试产生两类可查证对象</p><ul class="g06-body-flow"><li><b>Task → Trial</b><span>任务定义输入与成功标准；试次是一次尝试</span></li><li><b>轨迹</b><span>记录输出、工具调用与交互过程</span></li><li><b>最终状态</b><span>检查环境中实际留下了什么结果</span></li><li><b>评分器</b><span>按任务标准读取相应记录和状态，必要时人工校准</span></li></ul><p class="g06-body-note">“过程看起来正确”与“最终状态正确”不能互相替代；指标还要区分至少一次成功与全部成功。</p><figcaption>术语关系的概念示意，轨迹与最终状态由同一试次产生，并非依次覆盖。pass@k/pass^k 的假设及原例子完整保留，未执行任何真实评测。</figcaption></figure></header>
 <div class="srcbox"><span class="tag">📄 来自 Claude 官方博客</span><dl><dt>原文标题</dt><dd>Demystifying Evals for AI Agents（揭开 AI Agent 评测的面纱）</dd><dt>原文链接</dt><dd><a href="https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents" target="_blank" rel="noopener">https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents</a></dd><dt>作者</dt><dd>Mikaela Grace、Jeremy Hadfield、Rodrigo Olivares、Jiri De Jonghe 等（Anthropic）</dd><dt>发布日期</dt><dd>2026-01-09</dd></dl><div class="warn">⚠️ 本页是原文的<b>中文结构化整理笔记</b>（保留架构、数据、案例、结论），并非逐字翻译。版本、参数与案例数字属于原文所示条件，不是本资料库的实测结果；产品状态与接口以实施时官方文档为准。</div></div>
 <details class="toc-box"><summary>📑 本页目录</summary><div class="toc">
 <ul>
@@ -211,10 +213,10 @@ th,td{min-width:5.2em}
 <li><a href="#recap">🛑 可以停在这里</a></li>
 </ul>
 </div>
-</details>
+</details><span id="mg-claude-library-reading-start" class="g06-body-start" aria-hidden="true"></span>
 <p>评测（evals）是有信心发布 AI Agent 的前提。Agent 的自主性、智能性和灵活性让评测变难，但组合多种评分器类型的系统化测试方法可以度量各类 Agent 的表现。靠手动测试起步的团队终会在规模化时崩盘——尽早投入评测的价值会复利：问题可见、防止回归、明确质量标准、更快升级模型。</p>
-<h2 id="_1">基础术语</h2>
-<div class="tw"><table>
+<p class="g06-body-lead">先分清任务、一次尝试、执行记录与最终状态，再决定评分器读取什么证据。</p><h2 id="_1" class="g06-body-chapter" data-mg-stop>基础术语</h2>
+<div class="tw mg-scroll-region" tabindex="0" role="region" aria-label="原文对照表1，可横向滚动"><table>
 <thead>
 <tr>
 <th>术语</th>
@@ -249,14 +251,14 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <p>一个警示性例子：Opus 4.5 在 τ2-bench 订机票题上找到了政策漏洞——按写死的评测算「失败」，但实际给了用户更优的解——<strong>前沿模型的创造性会超出静态评测的假设</strong>。</p>
-<h2 id="vs">没有评测 vs 有评测</h2>
+<h2 id="vs" class="g06-body-chapter" data-mg-stop>没有评测 vs 有评测</h2>
 <ul>
 <li>没有：等投诉 → 手动复现 → 修 bug → 祈祷别的地方没退化</li>
 <li>有：发布前自动测试数百个场景</li>
 <li>长期价值：评测成为产品团队与研究团队之间<strong>带宽最高的沟通渠道</strong></li>
 </ul>
 <p>案例：Descript 从手动评分演进到人工校准的 LLM 评分器；Claude Code 针对「简洁性、文件编辑、过度工程」建立定向评测；Bolt 在大规模采用后三个月内建成静态分析+浏览器测试+LLM 评审的综合体系。</p>
-<h2 id="_2">三类评分器</h2>
+<h2 id="_2" class="g06-body-chapter" data-mg-stop>三类评分器</h2>
 <h3 id="_3">代码评分器</h3>
 <p>字符串匹配、二元测试（fail-to-pass）、静态分析、结果校验、工具调用校验、转录分析。
 <strong>优点：</strong> 快、便宜、客观、可复现。<strong>缺点：</strong> 对合理变体脆弱、缺乏细腻度。</p>
@@ -266,25 +268,25 @@ th,td{min-width:5.2em}
 <h3 id="_4">人工评分器</h3>
 <p>专家审查、众包、抽检、A/B 测试。
 <strong>优点：</strong> 金标准，用于校准模型评分器。<strong>缺点：</strong> 贵、慢。</p>
-<h2 id="_5">两类评测与生命周期</h2>
+<p class="g06-body-lead">能力、回归和一致性指标回答不同问题；尤其不要把至少一次成功与每次都成功混为一谈。</p><h2 id="_5" class="g06-body-chapter" data-mg-stop>两类评测与生命周期</h2>
 <ul>
 <li><strong>能力评测（Capability）：</strong> 「Agent 能做好什么？」起始通过率低，作为改进目标</li>
 <li><strong>回归评测（Regression）：</strong> 「以前会的还会吗？」维持接近 100% 通过率</li>
 <li>能力评测饱和后「毕业」转入回归套件持续运行</li>
 </ul>
-<h2 id="agent">按 Agent 类型的评测策略</h2>
+<h2 id="agent" class="g06-body-chapter" data-mg-stop>按 Agent 类型的评测策略</h2>
 <ul>
 <li><strong>编码 Agent：</strong> 天然适合确定性评分（测试通过与否）。SWE-bench Verified 一年内从 40% 提到 80%+；实践中多用「单元测试管正确性 + LLM rubric 管质量」的组合</li>
 <li><strong>对话 Agent：</strong> 交互质量本身就是评测对象；常需要第二个 LLM 模拟用户（τ-Bench 模式）；多维成功标准——工单解决（状态检查）+ 轮次效率（转录约束）+ 语气（LLM rubric）</li>
 <li><strong>研究 Agent：</strong> 专家意见不一、真相持续变动、长输出错误面大。组合评分：论断有据（groundedness）、要点覆盖、来源质量、客观题精确匹配；LLM rubric 必须频繁对照专家校准</li>
 <li><strong>计算机使用 Agent：</strong> 通过界面交互（截图/点击/键盘）；WebArena、OSWorld 用 URL/页面状态/文件系统检查评分；DOM 交互快但耗 token，截图交互慢但省 token</li>
 </ul>
-<h2 id="passk-passk">一致性度量：pass@k 与 pass^k</h2>
+<h2 id="passk-passk" class="g06-body-chapter" data-mg-stop>一致性度量：pass@k 与 pass^k</h2>
 <ul>
 <li><strong>pass@k：</strong> k 次尝试至少一次成功的概率——随 k 上升（适合「一次成功就够」的工具）</li>
 <li><strong>pass^k：</strong> k 次全部成功的概率——随 k 下降（适合要求稳定一致的面向客户 Agent；若各试次独立且成功率均为 75%，则 pass^3 ≈ 42%；实际评测应检查试次相关性）</li>
 </ul>
-<h2 id="_6">从零到可信评测的八步路线图</h2>
+<p class="g06-body-lead">八步路线帮助建立评测，但评测仍是整体质量体系的一部分，任务数量不是全覆盖证明。</p><h2 id="_6" class="g06-body-chapter" data-mg-stop>从零到可信评测的八步路线图</h2>
 <ol>
 <li><strong>尽早开始：</strong> 从真实失败中取 20-50 个简单任务即可，不必等几百个。「评测越晚建越难建——早期产品需求能自然转化为测试用例」</li>
 <li><strong>把手动测试自动化：</strong> 从每次发布前人工核对的行为和常见用户任务入手；bug 单和客服队列是任务来源</li>
@@ -295,8 +297,8 @@ th,td{min-width:5.2em}
 <li><strong>读转录：</strong> 「不读大量试验的转录和评分，你不会知道评分器是否真的在工作」——投资转录查看工具</li>
 <li><strong>监控饱和与长期维护：</strong> 评测饱和后失去改进信号（SWE-bench Verified 年初 30% → 前沿模型 80%+）；专职团队管基础设施、领域专家和产品团队贡献任务；可实践「评测驱动开发」——先建低通过率的能力评测再驱动改进</li>
 </ol>
-<h2 id="_7">评测在整体质量体系中的位置（瑞士奶酪模型）</h2>
-<div class="tw"><table>
+<h2 id="_7" class="g06-body-chapter" data-mg-stop>评测在整体质量体系中的位置（瑞士奶酪模型）</h2>
+<div class="tw mg-scroll-region" tabindex="0" role="region" aria-label="原文对照表2，可横向滚动"><table>
 <thead>
 <tr>
 <th>方法</th>
@@ -338,11 +340,11 @@ th,td{min-width:5.2em}
 </tbody>
 </table></div>
 <p>没有单层能拦住所有问题；多层组合互补。</p>
-<h2 id="_8">结论</h2>
+<h2 id="_8" class="g06-body-chapter" data-mg-stop>结论</h2>
 <p>评测要当作核心组件而非事后补丁：从小而真实的任务集开始、持续读转录、像迭代产品一样迭代评测质量。「AI Agent 评测仍是一个新兴的快速演化领域」——任务更长、多 Agent 协作、更主观的工作都将要求技术持续适应。</p>
 <p>（附录还调研了 Harbor、Braintrust、LangSmith、Langfuse、Arize Phoenix 等评测框架——框架加速进度，但代替不了高质量的任务和评分器。）</p>
 <hr />
-<div class="ckpt"><h2 id="ckpt">✅ 检查点</h2>
+<div class="ckpt"><h2 id="ckpt" class="g06-body-chapter" data-mg-stop>✅ 检查点</h2>
 <ol>
 <li>评测最核心的作用是什么？</li>
 <li>从零开始该怎么建评测集？</li>
@@ -357,7 +359,7 @@ th,td{min-width:5.2em}
 </ol>
 </details>
 </div>
-<div class="recap"><h2 id="recap">🛑 可以停在这里</h2>
+<div class="recap"><h2 id="recap" class="g06-body-chapter" data-mg-stop>🛑 可以停在这里</h2>
 <section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>评测让每次改动有可比较的结果，而不是只得到一个漂亮分数。</li><li>从真实失败建立小而可信的用例集，覆盖不同失败模式。</li><li>每条用例明确期望行为，持续检查标注质量与代表性。</li></ul></section></div>
 <nav class="pagenav"><a href="index.html"><div class="dir">← 返回</div>📚 资料库目录</a>
 <a class="next" href="../智能体工程教程/index.html"><div class="dir">系统学习 →</div>🎓 智能体工程教程</a></nav>
@@ -374,4 +376,5 @@ th,td{min-width:5.2em}
     m=h.scrollHeight-h.clientHeight;bar.style.width=(m>0?(h.scrollTop/m*100):0)+'%';},{passive:true});
 })();</script><link rel="stylesheet" href="../assets/code-reader.css"><script src="../assets/code-reader.js"></script><script src="../assets/reader-assist.js"></script><script src="../assets/visual-blocks.js"></script><script src="../assets/glossary.js"></script><link rel="stylesheet" href="../assets/reading-tasks.css"><script defer src="../assets/reading-tasks.js"></script>
 <link rel="stylesheet" href="../assets/polish-claude-library-reader.css">
+<script defer src="../assets/magazine-reading-v1.js"></script>
 </body></html>
