@@ -282,6 +282,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/magazine-reading-v1.css">
 <link rel="stylesheet" href="../assets/magazine-rollout/ai-infra/remaining.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/ai-infra/gpu-insights-systems.css">
 </head><body class="polish-ai-infra-reading" data-magazine-reading="v1" data-magazine-module="ai-infra" data-magazine-kind="engineering">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
@@ -325,7 +326,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="22">22 · 数据管线与存储</h1>
-<p>⏱ <strong>24 分钟</strong> ｜ 🎁 <strong>最容易被忽略的瓶颈</strong></p>
+<p>⏱ <strong>主线约 31 分钟（不含选读，估计）</strong> ｜ 🎁 <strong>最容易被忽略的瓶颈</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>你花了几个月优化模型和并行策略，结果 GPU 有 30% 的时间在等数据。</strong>
@@ -362,7 +363,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     <span class="n">dataset</span><span class="p">,</span>
     <span class="n">batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
     <span class="n">num_workers</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>          <span class="c1"># ⭐ 通常设为 CPU 核数 / GPU 数</span>
-    <span class="n">pin_memory</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>        <span class="c1"># ⭐ 锁页内存，让 H2D 拷贝能异步</span>
+    <span class="n">pin_memory</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>        <span class="c1"># ⭐ 准备锁页批次，供跨流 H2D 重叠</span>
     <span class="n">prefetch_factor</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>      <span class="c1"># 每个 worker 预取几个 batch</span>
     <span class="n">persistent_workers</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span><span class="c1"># ⭐ 别每个 epoch 重建 worker（重建很贵）</span>
     <span class="n">drop_last</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>         <span class="c1"># 避免最后一个不完整 batch（分布式下尤其重要）</span>
@@ -387,7 +388,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><code>pin_memory=False</code></td>
-<td>H2D 拷贝无法异步重叠</td>
+<td>不满足下述 pinned 源的 H2D／计算重叠模式；不等于 non_blocking 完全无效</td>
 </tr>
 <tr>
 <td><code>persistent_workers=False</code></td>
@@ -396,31 +397,77 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <h3 id="h2d">⭐ 让 H2D 拷贝也重叠起来</h3>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：`batch` 来自你自己的代码，这一段只看写法</span>
-<span class="c1"># ❌ 同步拷贝，GPU 干等</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-<span class="n">batch</span> <span class="o">=</span> <span class="n">batch</span><span class="o">.</span><span class="n">cuda</span><span class="p">()</span>
 
-<span class="c1"># ✅ 异步 + 预取下一个 batch</span>
-<span class="n">batch</span> <span class="o">=</span> <span class="n">batch</span><span class="o">.</span><span class="n">cuda</span><span class="p">(</span><span class="n">non_blocking</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>      <span class="c1"># ⭐ 需要 pin_memory=True</span>
+<section class="mg-infra-gpu-systems" id="mg-infra-gpu-h2d" aria-labelledby="mg-infra-gpu-h2d-title">
+<p class="mg-sys-kicker">先看交接，再按需读预取代码</p>
+<h4 id="mg-infra-gpu-h2d-title">返回了、复制完了、用完了：是三个时点</h4>
+<p><strong><code>non_blocking=True</code> 尝试让转换相对 CPU 异步返回；不等于 GPU 已拿到数据，也不保证复制与计算重叠。</strong>官方 <code>Tensor.to</code> 说明此行为可涉及 pinned 和 pageable 内存，不能写成“没有 pin 就完全不生效”。</p>
+<figure aria-labelledby="mg-infra-gpu-h2d-caption">
+<ol class="mg-sys-phases">
+<li><strong>提交／CPU 返回</strong><p>复制流开始 H2D，或仍在等待执行。</p><p><b>CPU 源：</b>保留内容及存储，不改写、不回收给下一批覆盖；只读且无并发写入可继续。</p><p><b>GPU 目标：</b>其他流还不能直接消费。</p></li>
+<li><strong>复制完成</strong><p>在复制之后记录的 event 已完成。</p><p><b>CPU 源：</b>本次复制不再读取它；无其他使用时才可改写／释放／复用。</p><p><b>GPU 目标：</b>消费流先等待复制，随后可读；消费期间不能覆盖。</p></li>
+<li><strong>消费结束</strong><p>最后使用目标张量的 GPU 工作完成。</p><p><b>GPU 目标：</b>确认所有使用结束，才能手动覆盖／复用。</p><p><b>分配器：</b>跨流使用需 <code>record_stream</code> 或显式管理寿命，避免释放后过早再分配。</p></li>
+</ol>
+<figcaption id="mg-infra-gpu-h2d-caption">箭头关系是“提交 → 复制完成 → 消费结束”，不按实际耗时比例绘制。CPU 源和 GPU 目标是两份存储；返回一个张量对象，不代表复制或消费已结束。</figcaption>
+</figure>
+<div class="mg-sys-example"><p><strong>交接小题：</strong>复制流记下 <code>copied</code> event，消费流已经 <code>wait_stream(copy_stream)</code>。CPU 此时能把 pinned 源张量清零吗？</p><details><summary>核对：CPU 等待与 GPU 流等待不同</summary><p>不能仅凭 <code>wait_stream</code> 返回就清零：它安排消费流后续工作等待，不阻塞 CPU 直到复制完成。CPU 应先确认复制之后的 <code>copied.query()</code> 为真，或 <code>copied.synchronize()</code> 返回。该 event 只证明它捕获的复制已完成；不证明之后的 GPU 消费结束。</p></details></div>
+<details><summary>可选：重叠、顺序与寿命分别由谁保证？</summary><p>本章的 CUDA H2D 重叠模式需要 pinned 源内存、独立复制流和可用的 DMA 引擎，还要有可并行的工作与足够缓冲；同一流里的复制和计算仍按顺序执行。DataLoader 的 <code>pin_memory=True</code> 可准备 pinned 批次；不要每批临时调用 <code>pin_memory()</code> 就承诺更快。</p><p><code>wait_stream</code> 解决 GPU 工作的先后依赖；<code>record_stream</code> 告诉缓存分配器目标张量在哪个流使用，防止存储过早再分配。它不等待复制，也不阻止你手动 <code>copy_</code> 覆盖仍被消费的数据。若改用额外消费流，必须为它另行安排等待与寿命。</p><p>H2D 的经验不能直接套到 D2H：异步复制回 CPU 后，CPU 读取目标也要先确认复制完成。本图只解释 PyTorch／CUDA 交接，不把 Linux 驱动映射 API 当作 PyTorch 接口。</p></details>
+<p class="mg-sys-source">依据：PyTorch 2.14 <a href="https://docs.pytorch.org/docs/2.14/generated/torch.Tensor.to.html">Tensor.to</a>、<a href="https://docs.pytorch.org/docs/2.14/notes/cuda.html#cuda-streams">CUDA streams</a>、<a href="https://docs.pytorch.org/docs/2.14/generated/torch.Tensor.record_stream.html">record_stream</a>、<a href="https://docs.pytorch.org/docs/2.14/generated/torch.cuda.Event.html">Event</a>与<a href="https://docs.pytorch.org/tutorials/intermediate/pinmem_nonblock.html">pinned／non_blocking 教程</a>（2026-10-25 核对；教程页面更新于 2026-04-01）。本页为机制说明及教学骨架，未执行 CUDA／训练实测。</p>
+</section>
+<p><strong>下面只演示单 GPU、同一消费流、字典内全为 CPU pinned 张量的交接。</strong>loader 不得在交还批次后自行覆盖源存储；调用方在当前流提交训练，不转交额外流。为便于看清寿命，代码在交接时用 event 等待本批复制，保留源直到这时，再预取下一批；这会阻塞 CPU，不是无等待的最高吞吐实现。提前退出须调用 <code>close()</code>，所以示例用 <code>with</code> 收尾。</p>
+<details class="mg-infra-gpu-systems" id="mg-infra-gpu-prefetch-code"><summary>可选：保守的预取交接骨架（未执行 CUDA）</summary><p>完整读代码与核对交接需要额外时间；也可以先继续下一节。这个骨架不处理嵌套批次或额外消费流。</p>
+<div class="codehilite" data-code-language="python"><pre><code># 🧩 教学骨架：loader、train_step 来自你的代码；未实跑 CUDA
+import torch
 
-<span class="c1"># ⭐ 更进一步：手动双缓冲预取</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">Prefetcher</span><span class="p">:</span>
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">loader</span><span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">it</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">stream</span> <span class="o">=</span> <span class="nb">iter</span><span class="p">(</span><span class="n">loader</span><span class="p">),</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">Stream</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_preload</span><span class="p">()</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">_preload</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">try</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">next</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">it</span><span class="p">)</span>
-        <span class="k">except</span> <span class="ne">StopIteration</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">next</span> <span class="o">=</span> <span class="kc">None</span><span class="p">;</span> <span class="k">return</span>
-        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">stream</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">stream</span><span class="p">):</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">next</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span><span class="o">.</span><span class="n">cuda</span><span class="p">(</span><span class="n">non_blocking</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">next</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
-    <span class="k">def</span><span class="w"> </span><span class="fm">__next__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">current_stream</span><span class="p">()</span><span class="o">.</span><span class="n">wait_stream</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">stream</span><span class="p">)</span>
-        <span class="n">batch</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">next</span>
-        <span class="k">if</span> <span class="n">batch</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span> <span class="k">raise</span> <span class="ne">StopIteration</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_preload</span><span class="p">()</span>                     <span class="c1"># ⭐ 立刻开始加载下一个</span>
-        <span class="k">return</span> <span class="n">batch</span>
+class Prefetcher:
+    def __init__(self, loader):
+        self.it, self.stream = iter(loader), torch.cuda.Stream()
+        self.host = self.next = self.copied = None
+        self._preload()
+
+    def _preload(self):
+        try:
+            self.host = next(self.it)  # 保留 CPU 源，不能被生产者覆盖
+        except StopIteration:
+            self.host = self.next = None
+            return
+        with torch.cuda.stream(self.stream):
+            self.next = {k: v.cuda(non_blocking=True)
+                         for k, v in self.host.items()}
+            self.copied = self.stream.record_event()  # 在本批复制之后
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.next is None:
+            raise StopIteration
+        consumer = torch.cuda.current_stream()
+        consumer.wait_stream(self.stream)  # 只安排 GPU 依赖，CPU 不等
+        batch = self.next
+        for v in batch.values():
+            v.record_stream(consumer)  # 目标存储在消费流上的寿命
+        self.copied.synchronize()  # CPU 确认复制完成，才可释放源
+        self.host = None
+        self._preload()  # 下一批复制可与返回后本批的计算重叠
+        return batch
+
+    def close(self):
+        self.stream.synchronize()  # 提前退出也等在途复制，才放开源
+        self.host = self.next = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+with Prefetcher(loader) as batches:
+    for batch in batches:
+        train_step(batch)  # 在当前消费流提交；不手动覆盖在用张量
 </code></pre></div>
+</details>
+<p class="mg-infra-gpu-systems"><strong>🛑 可以先停在这里。</strong>只要能分清提交、复制与消费三个时点，就已完成本次搬运交接主线；骨架可稍后再读。继续时从下一节存储格式接上。</p>
 
 <hr />
 <h2 id="_3">📦 三、存储格式：小文件是灾难</h2>
@@ -549,8 +596,8 @@ FlashAttention 支持 <code>cu_seqlens</code>（变长序列），
 <ol>
 <li>①<strong>把 dataloader 换成固定随机张量</strong>看 MFU 是否上升 ②只跑 dataloader 不训练测吞吐。判据：数据管线吞吐必须 ≥ 训练吞吐的 1.2 倍。</li>
 <li><strong>GPU 时间轴上有规律的空隙，且空隙出现在每个 step 的开头</strong>。</li>
-<li><code>num_workers=0</code>（主进程加载必然阻塞）、<code>num_workers</code> 太大（内存爆+CPU 争抢）、<code>pin_memory=False</code>（H2D 无法异步）、<code>persistent_workers=False</code>（<strong>每个 epoch 重建 worker</strong>）。</li>
-<li><strong><code>non_blocking=True</code> 需要 <code>pin_memory=True</code> 才生效</strong>——只有锁页内存才能做异步 DMA 拷贝。</li>
+<li><code>num_workers=0</code>（主进程加载必然阻塞）、<code>num_workers</code> 太大（内存爆+CPU 争抢）、<code>pin_memory=False</code>（不满足本章 pinned 源跨流重叠模式）、<code>persistent_workers=False</code>（<strong>每个 epoch 重建 worker</strong>）。</li>
+<li><code>non_blocking=True</code> 尝试相对 CPU 异步返回，并不限于 pinned 内存；本章要让 H2D 与独立计算重叠，还需 pinned 源、不同流和可用 DMA 引擎。跨流用 wait_stream 管顺序、record_stream 或显式保留管寿命；CPU 改写源前须确认复制完成。</li>
 <li>因为<strong>大量 worker 同时读取小文件可能使元数据服务成为瓶颈</strong>，其他节点也可能受影响；要比较元数据、内容传输和解码耗时，不能仅凭文件数定因。</li>
 <li><strong>提前 tokenize 成一个巨大的 uint16/uint32 数组，用 <code>np.memmap</code> 读</strong>。这可减少重复解析，但仍要测首次访存/缺页、随机 I/O、转换与搬运成本。</li>
 <li>①<strong>不重不漏</strong>（DistributedSampler）②每轮重新洗牌（set_epoch）③各 rank 步数一致（drop_last=True，否则 AllReduce 挂死）。</li>
@@ -564,14 +611,14 @@ FlashAttention 支持 <code>cu_seqlens</code>（变长序列），
 <blockquote>
 <p>⭐ <strong>最容易被忽略的瓶颈，也最容易被误诊成「模型慢」。</strong></p>
 <p>⭐⭐ <strong>五分钟确诊两步</strong>：把数据加载换成固定的随机张量，看利用率是不是上去了；再单独跑数据管线测吞吐。⭐ <strong>判据：数据管线的吞吐必须明显高于训练吞吐</strong>；profiler 上的信号是<strong>每个 step 开头都有一段有规律的空隙</strong>。</p>
-<p>加载器参数里最容易漏的两个：⭐ <strong>异步拷贝只有配上锁页内存才真的生效</strong>；⭐ <strong>不开持久化 worker，每个 epoch 都要重建一次。</strong></p>
+<p>加载器参数里最容易漏的两个：⭐ <strong>non_blocking 返回不代表复制完成；H2D／计算重叠需 pinned 源、独立流与硬件条件，源和目标还要各管寿命</strong>；⭐ <strong>不开持久化 worker，每个 epoch 都要重建一次。</strong></p>
 <p><strong>存储格式</strong>：⚠️⭐ <strong>小文件是灾难</strong>——大量 worker 同读小文件可能压满元数据服务，需测量确认；✅ 打包成整块。⭐ <strong>可选预处理路线是提前切词，按正确 dtype 存数组后用内存映射读</strong>——<strong>切片不等于零 I/O；冷/暖缓存、读取形状与转换搬运都影响成本。</strong></p>
 <p>分布式三件事：不重不漏、每轮重设种子、⭐ <strong>各个 rank 的步数必须一致</strong>——⚠️ <strong>否则同步操作会直接挂死。</strong> 流式数据要用足够大的缓冲区洗牌，⚠️ <strong>缓冲区太小的话相邻样本仍然相关。</strong></p>
 <p>⭐⭐ <strong>序列打包是最常被忽略的大优化</strong>：变长文本补齐到固定长度时，<strong>有效 token 可能只占四成——也就是说大半算力在算填充</strong>；打包之后接近全满，<strong>等于训练速度翻倍</strong>。⚠️ <strong>但必须正确隔离边界，否则后一个样本会看到前一个样本的内容，模型学到错误关联。</strong></p>
 <p>⭐ 存储层次的实用技巧：<strong>后台预取下一轮分片到本地盘；核对供给速率、缓冲和尾延迟，才知道隐藏了多少等待。</strong></p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="23-可观测性与成本.html">23-可观测性与成本.md</a></p>
-<details class="g05-content-note"><summary>条件与依据</summary><p>预处理 token 的 dtype 必须覆盖词表最大 ID：uint16 仅容纳 0–65535，较大词表需 uint32 等。DistributedSampler 为各 rank 补齐时可能重复样本、drop_last 可能丢弃；要记录所选语义。CUDA 预取骨架还需在消费流对张量 record_stream 或保留其生命周期，避免分配器提前复用；不能把 wait_stream 等同内存生命周期管理。</p><p><a href="https://docs.pytorch.org/docs/stable/notes/cuda.html">官方文档</a>；<a href="https://docs.pytorch.org/docs/stable/data.html">官方文档</a></p></details>
+<details class="g05-content-note"><summary>条件与依据</summary><p>预处理 token 的 dtype 必须覆盖词表最大 ID：uint16 仅容纳 0–65535，较大词表需 uint32 等。DistributedSampler 为各 rank 补齐时可能重复样本、drop_last 可能丢弃；要记录所选语义。上面的 CUDA 预取骨架用 wait_stream 安排顺序、record_stream 登记目标张量在消费流上的使用，并保留 CPU 源直到复制 event 完成；这些不能代替手动覆盖缓冲前的完成确认。</p><p><a href="https://docs.pytorch.org/docs/stable/notes/cuda.html">官方文档</a>；<a href="https://docs.pytorch.org/docs/stable/data.html">官方文档</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="21-训练稳定性与故障恢复.html"><div class="dir">← 上一节</div>⭐ 稳定性与容错</a><a class="next" href="23-可观测性与成本.html"><div class="dir">下一节 →</div>⭐ 可观测性与成本</a></nav>

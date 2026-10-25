@@ -282,6 +282,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/magazine-reading-v1.css">
 <link rel="stylesheet" href="../assets/magazine-rollout/ai-infra/remaining.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/ai-infra/gpu-insights-systems.css">
 </head><body class="polish-ai-infra-reading" data-magazine-reading="v1" data-magazine-module="ai-infra" data-magazine-kind="engineering">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
@@ -326,7 +327,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="05">05 · 互联与集群拓扑</h1>
-<p>⏱ <strong>24 分钟</strong> ｜ ⭐ <strong>它决定了你能用哪种并行策略</strong></p>
+<p>⏱ <strong>主线约 29 分钟（不含选读，估计）</strong> ｜ ⭐ <strong>它决定了你能用哪种并行策略</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>卡和卡之间怎么连，直接决定了后面五章的并行策略能不能用。</strong>
@@ -340,6 +341,23 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 这条断层把并行策略分成了两类：
 <strong>"通常优先放在高速互联域内"的（张量并行）和"可以跨机"的（数据/流水线并行）。</strong></p>
 </blockquote>
+
+<section class="mg-infra-gpu-systems" id="mg-infra-gpu-pcie" aria-labelledby="mg-infra-gpu-pcie-title">
+<p class="mg-sys-kicker">读拓扑前，先看实际路径 · 一张图，一个小例</p>
+<h4 id="mg-infra-gpu-pcie-title">插得进 x16，不等于跑在 x16</h4>
+<p><strong>机械长度、电气 lane 数、实际协商代际／宽度、共享上行，是四条不同记录。</strong>先沿平台手册查走线与共享条件，再读运行时链路状态；卡和插槽的最大能力不能替代本次协商结果。</p>
+<figure aria-labelledby="mg-infra-gpu-pcie-caption">
+<div class="mg-sys-node mg-sys-root">CPU／系统内存 · 根复合体</div>
+<div class="mg-sys-paths">
+<div><p class="mg-sys-arrow">↓ CPU 根端口 · 独立分支</p><div class="mg-sys-node"><strong>设备 C：CPU 直连</strong><small>不经过右侧共享上行；仍须核对本链路宽度、代际与并发约束。</small></div></div>
+<div><p class="mg-sys-arrow">↓ 另一根端口</p><div class="mg-sys-node mg-sys-shared"><strong>共同上行：假设 Gen3 x4</strong><small>两设备向主机同方向搬运，合计争用这一段。</small></div><p class="mg-sys-arrow">↕ PCIe 交换机</p><div class="mg-sys-leaves"><div class="mg-sys-node"><strong>设备 A</strong><small>下行 Gen3 x4</small></div><div class="mg-sys-node"><strong>设备 B</strong><small>下行 Gen3 x4</small></div></div></div>
+</div>
+<figcaption id="mg-infra-gpu-pcie-caption">示意图只比较路径，不代表某台服务器。芯片组下的设备也可能共享回 CPU 的上行；其协议与容量应查具体平台。交换机不会凭空增加上行容量；A↔B 若能在交换机内 P2P 转发，则不一定经过图中的共同上行。</figcaption>
+</figure>
+<div class="mg-sys-example" id="mg-infra-gpu-pcie-worked"><p><strong>小例：只算单方向、十进制 GB/s。</strong>在 Gen3 的 8 GT/s、128b/130b 编码与 x4 条件下：8 × 128/130 × 4 ÷ 8 ≈ <strong>3.938 GB/s</strong>。Gen4 x8 对照为 16 × 128/130 × 8 ÷ 8 ≈ <strong>15.754 GB/s</strong>，编码后上限为前者 4 倍。</p><p>图中 A、B 若都想以 3 GB/s 向主机发送，需求合计 6 GB/s，已超过共同上行的 3.938 GB/s；两条下行不能相加成主机可用的 7.877 GB/s。如何分配不保证各一半。</p><p><strong>这里尚未扣包头、管理、重传与软件开销，不是 NCCL 或应用实测。</strong>此 128/130 算式仅用于本例 Gen3／Gen4，不外推 Gen6 的调制、FLIT 与纠错规则。</p></div>
+<details><summary>可选：把四条记录接回并行策略</summary><p>机械 x16 槽可以只接电气 x4；实际协商也可能低于双方最大能力。记录 CPU 直连／芯片组／交换机路径，以及共享上行后，再用下文拓扑表和 NCCL 测量确认通信代价。</p><p><strong>PCIe 不等于 TP 不可用。</strong>NCCL 支持 PCIe。TP 的层内同步成本随模型实现、batch／消息量、有效带宽与路径延迟变化；PP 常减少层内集合通信，但还需比较切分平衡与流水线气泡。vLLM 在无 NVLink 的推理配置中建议优先考虑 PP，这是该引擎的策略，不能外推所有训练。两者也可跨机，最终比较相同模型和负载下的吞吐与延迟。</p><p><a href="#_6">回到本章：拓扑与 NCCL 实测步骤 →</a></p></details>
+<p class="mg-sys-source">依据（2026-10-25 核对）：<a href="https://download.msi.com/archive/mnu_exe/mb/B550-APRO_EN.pdf#page=29">MSI B550-A PRO 手册 pp.17、29：插槽来源与电气宽度示例</a>；<a href="https://pcisig.com/faq?field_category_value%5B%5D=pci_express_3.0">PCI-SIG Gen3 FAQ：编码、方向与共同能力</a>；<a href="https://pcisig.com/sites/default/files/files/PCIe_Specification_Webinar_Rev%206_FINAL_0.pdf#page=4">PCI-SIG 2024 规格演进 p.4：Gen4 16 GT/s、128b/130b</a>；<a href="https://developer.nvidia.com/nccl">NCCL 支持的互联</a>；<a href="https://docs.vllm.ai/en/latest/serving/parallelism_scaling/">vLLM 并行策略</a>。数字与图均为教学假设，未运行 GPU／多卡测试。</p>
+</section>
 <h3 id="_3">💡 为什么延迟也重要</h3>
 <section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">带宽决定&quot;搬 1GB 要多久&quot;</span></div><div class="vb-flow-row"><span class="vb-flow-step">延迟决定&quot;搬 1KB 要多久&quot;</span></div><div class="vb-flow-row"><span class="vb-flow-step">NVLink 延迟 ~1-2 微秒</span></div><div class="vb-flow-row"><span class="vb-flow-step">InfiniBand 延迟 ~1-3 微秒（RDMA）</span></div><div class="vb-flow-row"><span class="vb-flow-step">以太网 TCP 延迟 ~20-100 微秒 ⭐ 差一个数量级</span></div><div class="vb-flow-row"><span class="vb-flow-step">小消息频繁通信时，【延迟比带宽更致命】</span></div><div class="vb-flow-row"><span class="vb-flow-step">这就是为什么大规模训练必须用 RDMA 而不是普通 TCP</span></div></div></section>
 <hr />
@@ -390,7 +408,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⚠️ <strong>一个必须自己确认的事</strong>：
 <strong>不是所有"8 卡机器"都有 NVSwitch。</strong>
 很多云厂商的便宜实例是 <strong>8 卡挂在 PCIe 上</strong>，
-跑张量并行会慢到不可用。<strong>开机第一件事是查拓扑。</strong></p>
+TP 的层内通信可能成为瓶颈，但不能只凭 PCIe 就判定不可用；需按模型实现、负载、batch／消息量及路径延迟比较 TP 与 PP。<strong>开机第一件事是查拓扑。</strong></p>
 </blockquote>
 <div class="codehilite" data-code-language="bash"><pre><span></span><code>nvidia-smi<span class="w"> </span>topo<span class="w"> </span>-m
 </code></pre></div>
@@ -493,7 +511,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
    数据并行 → 最外层
 </code></pre></div>
 
-<p><strong>不是经验，是带宽算出来的。</strong></p>
+<p><strong>这是按通信频率与带宽得到的起点；仍需按模型实现、batch／消息量、路径延迟与流水线气泡实测比较。</strong></p>
 </blockquote>
 <hr />
 <h2 id="_6">🧪 六、上手先做的三件事</h2>
@@ -536,7 +554,7 @@ NVLink 还是 PCIe、走的哪张网卡。</p>
 </tr>
 <tr>
 <td><a href="02-GPU到底是什么.html">第 2 章</a> 4090 只有 PCIe</td>
-<td><strong>所以不适合张量并行</strong> ⭐</td>
+<td><strong>需按 PCIe 路径与负载比较 TP／PP</strong> ⭐</td>
 </tr>
 <tr>
 <td><a href="10-数据并行与AllReduce.html">第 10 章</a></td>
@@ -574,7 +592,7 @@ NVLink 还是 PCIe、走的哪张网卡。</p>
 <ol>
 <li>HBM ~2000-3350 GB/s、<strong>NVLink ~450-900</strong>、PCIe ~32-64、InfiniBand ~25-50、以太网 ~1-12 GB/s。最重要的断层在 NVLink 和 PCIe 之间，差 15 倍以上。</li>
 <li>带宽决定"搬 1GB 要多久"，延迟决定"搬 1KB 要多久"。<strong>小消息频繁通信时延迟更致命</strong>——以太网 TCP 延迟 20-100μs 比 RDMA 的 1-3μs 差一个数量级，所以大规模训练必须用 RDMA。</li>
-<li>解决早期 NVLink 点对点连接下<strong>有些卡对之间要绕路</strong>的问题，让任意两卡全带宽直连。不能假设是因为很多云厂商的便宜实例是 8 卡挂 PCIe，跑张量并行会慢到不可用。</li>
+<li>解决早期 NVLink 点对点连接下<strong>有些卡对之间要绕路</strong>的问题，让任意两卡全带宽直连。不能假设是因为八卡也可能仅通过 PCIe 连接；TP 效率需结合模型实现、batch／消息量和路径带宽／延迟测量，不能直接判成不可用。</li>
 <li><code>nvidia-smi topo -m</code>。<strong>NV8/NV12 = NVLink 直连（最好）</strong>，SYS = 跨 NUMA/跨 CPU socket（最慢）。</li>
 <li>RDMA <strong>绕过 CPU 和内核协议栈，零拷贝</strong>，延迟低得多。GPUDirect RDMA 是 GPU 显存直接和网卡对接，连 CPU 内存都不经过。</li>
 <li><strong>AllReduce = ReduceScatter + AllGather</strong>。解释了为什么 ZeRO-2 的通信量和普通数据并行一样——它只是把一次 AllReduce 拆成两半，中间插入参数分片。</li>

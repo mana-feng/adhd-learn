@@ -1,22 +1,23 @@
-/* 站点访问统计（StatCounter）
- *
- * ⭐ 全站的统计配置只存在这一个文件里 —— 改这里，392 个页面一起变，不需要重新构建。
- *   页面那边只有一行 <script src="../assets/analytics.js" async></script>。
- *
- * ⚠️ 这个文件只在【部署分支 html】里被引用，源码分支不带统计（见 _src/publish.py）。
- * ⚠️ sc_invisible=1 表示不显示计数徽章，不占版面、不影响布局。
- * ⚠️ 本地 file:// 双击打开时，counter.js 拉不到是正常的，不影响页面阅读。
+/* 站点访问统计：供应商配置仅在此处维护，由共享 glossary.js 独立引入。
+ * 仅生产域 HTTPS 页面启动；本地文件、预览和其他域不加载供应商脚本。
+ * 每份文档最多尝试一次；统计失败不影响阅读，不显示计数徽章。
  */
 (function () {
-  window.sc_project = 13342066;
-  window.sc_invisible = 1;
-  window.sc_security = "59a4ca9d";
+  try {
+    if (window.location.protocol !== "https:" ||
+        window.location.hostname !== "adhd-learn.manafeng.com" ||
+        window.__siteAnalyticsStarted) return;
+    window.__siteAnalyticsStarted = true;
 
-  var s = document.createElement("script");
-  s.type = "text/javascript";
-  s.async = true;
-  s.src = "https://www.statcounter.com/counter/counter.js";
-  // 统计失败绝不能影响页面本身，所以静默吞掉
-  s.onerror = function () {};
-  (document.head || document.documentElement).appendChild(s);
+    window.sc_project = 13342066;
+    window.sc_invisible = 1;
+    window.sc_security = "59a4ca9d";
+
+    var script = document.createElement("script");
+    script.type = "text/javascript";
+    script.async = true;
+    script.src = "https://www.statcounter.com/counter/counter.js";
+    script.onerror = function () {};
+    (document.head || document.documentElement).appendChild(script);
+  } catch (_) { /* Analytics must never interrupt the page. */ }
 })();

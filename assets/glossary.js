@@ -1,3 +1,17 @@
+/* Shared analytics entry is independent of glossary data and DOM processing. */
+(function () {
+  try {
+    var source = document.currentScript && document.currentScript.src;
+    if (!source || window.__siteAnalyticsRequested) return;
+    window.__siteAnalyticsRequested = true;
+    var script = document.createElement("script");
+    script.async = true;
+    script.src = new URL("analytics.js", source).href;
+    script.onerror = function () {};
+    (document.head || document.documentElement).appendChild(script);
+  } catch (_) { /* Analytics must never interrupt the glossary. */ }
+})();
+
 /* 全站术语速查：正文中的常见术语首次出现时可点击查看。 */
 (function () {
   "use strict";

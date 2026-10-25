@@ -282,6 +282,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <script defer src="../assets/vendor/katex/contrib/auto-render.min.js"
  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script><link rel="stylesheet" href="../assets/magazine-reading-v1.css">
 <link rel="stylesheet" href="../assets/magazine-rollout/ai-infra/remaining.css">
+<link rel="stylesheet" href="../assets/magazine-rollout/ai-infra/gpu-insights-performance.css">
 </head><body class="polish-ai-infra-reading" data-magazine-reading="v1" data-magazine-module="ai-infra" data-magazine-kind="math-code">
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
@@ -326,7 +327,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="03">03 · 显存与带宽墙</h1>
-<p>⏱ <strong>30 分钟</strong> ｜ ⭐ <strong>理解这一章，后面十几章都会变简单</strong></p>
+<p>⏱ <strong>主线约 30 分钟</strong>（不含折叠选读） ｜ ⭐ <strong>理解这一章，后面十几章都会变简单</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>有些 GPU 工作负载受数据搬运限制，有些受计算、启动或同步限制。</strong>
@@ -396,20 +397,39 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p class="dia-note">⬇︎ 越往下：<b>容量越大，速度越慢</b>（差好几个数量级）。</p>
+<p class="dia-note">⬇︎ 这张表和上图是跨设备、跨层级的量级地图；片上聚合、单向与双向带宽不能直接相除，当作应用实测速度。</p>
+<p><strong>容量和带宽分两笔账：</strong>更多存储位回答“能装多少”；更多独立数据位或更高每引脚数据率，才提高接口的标称搬运上限。</p>
+<figure class="mg-infra-gpu-perf" id="mg-infra-gpu-perf-capacity" aria-labelledby="mg-infra-gpu-perf-capacity-title">
+<p class="mg-infra-gpu-perf-title" id="mg-infra-gpu-perf-capacity-title">同样 8 颗显存，分别算“装多少”和“搬多快”</p>
+<div class="mg-infra-gpu-perf-lanes">
+<div class="mg-infra-gpu-perf-lane"><b>容量账</b><div><span>每颗密度 × 颗数 ÷ 8</span><strong>8 × 2³⁰ bit × 8 ÷ 8 = 8 GiB</strong><small>假设每颗全容量可寻址；bit → byte 要除 8。</small></div></div>
+<div class="mg-infra-gpu-perf-lane"><b>带宽账</b><div><span>每引脚数据率 × 独立总位宽 ÷ 8</span><strong>16 Gbit/s × 256 bit ÷ 8 = 512 GB/s</strong><small>假设 8 组 x32 数据位互不重叠，256 = 8 × 32。</small></div></div>
+</div>
+<figcaption>作者重绘的接口教学模型。容量中的“8 Gb”明确指每颗 8 × 2³⁰ bit，即 1 GiB；数据率中的 G 按 10⁹，GB/s 按 10⁹ byte/s。Gb 是位数，GB 是字节数，两者不能混写。</figcaption>
+</figure>
+<p><strong>只把每颗密度翻倍：</strong>在全容量可用、仍为 256 bit 与 16 Gbit/s 的假设下，总容量变成 16 GiB，标称带宽仍为 512 GB/s。</p>
+<details class="mg-infra-gpu-perf-more"><summary>再深入一点：为什么不再乘 DDR 或通道数？</summary><p>这里的 16 Gbit/s 已是每数据引脚的数据率，不能再因“双倍数据率”乘 2。若 x32 内部分成两个 x16 通道，32 已包含 16 + 16，再乘 2 会重复计算。同一组数据线被多颗器件轮流使用，也不能把容量数量直接当独立位宽。HBM 的宽接口同样要按确切封装与控制器连接核算，不能照搬本例颗数。</p><p>512 GB/s 是接口标称上限，尚未扣除刷新、方向切换、排队等影响；程序的有效带宽还取决于访问、缓存和计时边界。它不是这次测得的 GPU 吞吐。</p></details>
 
 <blockquote>
-<p>🔑 <strong>记住这三个比值就够了</strong>：
-- <strong>Shared Memory 比 HBM 快约 5 倍</strong>（FlashAttention 的全部依据）
-- <strong>HBM 比 PCIe 快约 40 倍</strong>（不要随便 <code>.cpu()</code>）
-- <strong>NVLink 比网络快约 20 倍</strong>（并行策略选择的依据）</p>
+<p>🔑 <strong>用层级判断优化方向：</strong>片上复用有机会减少 HBM 流量；减少 <code>.cpu()</code> 往返有机会节省设备与主机之间的传输；并行策略需要检查真实互联路径。上图表的比值只提醒量级差异，不能据此承诺 FlashAttention、拷贝或通信的加速比。</p>
 </blockquote>
 <hr />
 <h2 id="_3">⚖️ 二、算术强度：判断计算与搬运上限的起点</h2>
 <p>$$\text{算术强度} = \frac{\text{计算量（FLOP）}}{\text{数据搬运量（字节）}}$$</p>
 <p>💡 <strong>人话</strong>：<em>每从显存搬一个字节，能顺带做多少次运算。</em></p>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>A100 的&quot;平衡点&quot;：</p><p>312 TFLOPS ÷ 2.0 TB/s ≈ 156 FLOP/字节</p><p>⭐ 算术强度 &gt; 156 → 【算力瓶颈】compute-bound（好，说明在真干活）</p><p>⭐ 算术强度 &lt; 156 → 【带宽瓶颈】memory-bound（GPU 在等数据）</p></div></section>
-<h3 id="_4">📊 常见操作的算术强度（照着这张表判断）</h3>
+<p><strong>先对齐同一任务、同一层级、同一执行路径。</strong>下面的 Q 和 F 必须属于同一个 kernel；若 Q 数的是 HBM 流量，B 就用 HBM 带宽，P 则匹配该 kernel 的运算精度与指令路径。</p>
+<figure class="mg-infra-gpu-perf" id="mg-infra-gpu-perf-ledger" aria-labelledby="mg-infra-gpu-perf-ledger-title">
+<p class="mg-infra-gpu-perf-title" id="mg-infra-gpu-perf-ledger-title">同一份工作，两种资源下界</p>
+<div class="mg-infra-gpu-perf-ledger">
+<div><b>搬运账</b><strong>Q byte ÷ B byte/s</strong><span>Q：选定层级的读写总量<br>B：该层级带宽上限</span></div>
+<div><b>计算账</b><strong>F FLOP ÷ P FLOP/s</strong><span>F：实际运算量的计数约定<br>P：对应精度、指令路径的峰值</span></div>
+</div>
+<p class="mg-infra-gpu-perf-result"><b>理想时间下界</b><strong>t ≥ max(Q/B, F/P)</strong><span>允许搬运与计算理想重叠；启动、依赖与同步仍可能增加时间。</span></p>
+<figcaption>这是资源上限推导出的时间下界，不是运行时间预测。反过来，理想性能上界为 min(P, (F/Q) × B)；真实观测还需要同一计时范围的测量。</figcaption>
+</figure>
+<p class="mg-infra-gpu-perf-note"><strong>156 只是一个有条件的标定例：</strong>A100 80GB SXM 的稠密 BF16/FP16 <em>Tensor Core 矩阵</em>峰值为 312 TFLOP/s，HBM 标称 2,039 GB/s；课堂将带宽取整为 2.0 TB/s，得 312 ÷ 2.0 ≈ 156 FLOP/B。<strong>这条屋顶不能直接用于普通逐元素加法。</strong>参见 <a href="https://images.nvidia.com/data-center/a100/a100-datasheet.pdf">NVIDIA A100 规格表，第 1 页</a>；稀疏峰值另列。</p>
+<h3 id="_4">📊 常见操作的算术强度（先作排查线索）</h3>
+<p>下表是特定形状、精度与理想读写下的粗估，不是一张通用实测排名；融合、分块和缓存会改变 Q，启动与并行度也可能先限制性能。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -422,48 +442,44 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td><strong>大矩阵乘</strong>（4096³）</td>
 <td>~1365</td>
-<td>✅ <strong>算力瓶颈</strong></td>
+<td>有足够复用时可能接近计算上限</td>
 </tr>
 <tr>
 <td>卷积（大通道数）</td>
 <td>几百</td>
-<td>✅ 算力瓶颈</td>
+<td>可能受计算限制，需核形状与实现</td>
 </tr>
 <tr>
 <td><strong>矩阵乘</strong>（batch=1，即向量×矩阵）</td>
 <td><strong>~1（BF16、权重主导）</strong></td>
-<td>💀 <strong>严重带宽瓶颈</strong> ⭐</td>
+<td>权重完整流经 HBM 时常受带宽限制</td>
 </tr>
 <tr>
 <td><strong>逐元素操作</strong>（ReLU、加法）</td>
-<td><strong>~0.25</strong></td>
-<td>💀 <strong>极度带宽瓶颈</strong></td>
+<td><strong>低；FP16 加法为 1/6</strong></td>
+<td>大工作集常受带宽限制；小任务还可能受启动限制</td>
 </tr>
 <tr>
 <td><strong>LayerNorm / Softmax</strong></td>
 <td>~1</td>
-<td>💀 带宽瓶颈</td>
+<td>可能受带宽限制，须结合实现与流量层级</td>
 </tr>
 <tr>
 <td><strong>Attention</strong>（长序列，朴素实现）</td>
 <td>低</td>
-<td>💀 带宽瓶颈</td>
+<td>可能受带宽限制，须结合实现与流量层级</td>
 </tr>
 </tbody>
 </table></div>
 <details>
-<summary>📐 <b>算一遍逐元素加法为什么这么惨（想看再点）</b></summary>
-<p><code>c = a + b</code>，每个元素 FP16（2 字节）：</p>
-<ul>
-<li><strong>计算</strong>：1 次加法 = 1 FLOP</li>
-<li><strong>搬运</strong>：读 a（2 字节）+ 读 b（2 字节）+ 写 c（2 字节）= <strong>6 字节</strong></li>
-<li><strong>算术强度</strong> = 1 / 6 ≈ <strong>0.17 FLOP/字节</strong></li>
-</ul>
-<p>离 156 的平衡点差了 <strong>900 倍</strong> ——
-<strong>也就是说，做逐元素加法时，A100 的算力有 99.9% 在闲置。</strong> 💀</p>
-<p>⭐ <strong>这就是<a href="07-算子融合与编译.html">算子融合</a>存在的全部理由</strong>：
-把 10 个逐元素操作合成 1 个 kernel，数据只搬一次而不是 10 次。</p>
+<summary>📐 <b>3 分钟手算：FP16 加法的时间下界（想看再点）</b></summary>
+<p><code>c = a + b</code>，每个元素 FP16（2 字节），每元素一次加法记 1 FLOP。假设 n = 1,000,000，无复用，两个输入从 HBM 读、一个输出写回 HBM，忽略额外事务：</p>
+<ul><li><strong>F = n = 1 MFLOP</strong>；<strong>Q = 6n = 6 MB</strong>（2 + 2 + 2 byte）。</li><li><strong>I = F/Q = 1/6 ≈ 0.17 FLOP/B</strong>。若缓存或事务改变实际 HBM 字节数，就要重算 Q。</li></ul>
+<p>另设<strong>纯教学参数</strong>：此层级 B = 100 GB/s，此加法路径 P = 1 TFLOP/s。Q/B = 60 μs，F/P = 1 μs，所以理想下界是 <strong>max(60, 1) = 60 μs</strong>，性能上界约 16.7 GFLOP/s。没有实测运行时间，也不能把这两个假设速率当作 A100 参数。</p>
+<p>普通加法通常不走矩阵 Tensor Core 指令，不能拿 312 TFLOP/s 相除，推断“99.9% 的硬件单元闲置”。低算术强度说明搬运上限可能更紧，实际瓶颈仍要测。</p>
+<p><strong><a href="07-算子融合与编译.html">算子融合</a>的一个动机</strong>是让中间值留在寄存器或片上、少往返 HBM；它也可能减少 kernel 启动。能否减少流量取决于数据依赖、复用与输出是否必须落存储；寄存器压力、并行度和数值语义也可能限制收益，不能保证 N 个操作只搬一次或快 N 倍。</p>
 </details>
+<details class="mg-infra-gpu-perf-more"><summary>再深入一点：命中 80%，片外流量就剩 20% 吗？</summary><p>不一定。自定模型有 100 次、每次 32 byte 的读需求，80 次由缓存满足，其余 20 次各触发独立的 128 byte 下层读，无合并、预取或写回。应用需求是 3,200 byte，片外读是 <strong>20 × 128 = 2,560 byte</strong>，不是 20% × 3,200 = 640 byte。</p><p>32/128 byte 是教学参数，不是 GPU 通用事务大小。真实 Q 要按测量层级、事务、对齐及热/冷缓存条件核对；缓存有效带宽也不能与 HBM 引脚带宽相加。</p></details>
 <blockquote>
 <p>🔑 <strong>注意表里第三行</strong>：<strong>batch=1 的矩阵乘算术强度约 1 FLOP/字节（BF16）。</strong>
 <strong>这就是<a href="15-推理和训练是两回事.html">第 15 章</a>的核心</strong> ——
@@ -589,11 +605,11 @@ $$\text{训练显存(GB)} \approx 16 \times \text{参数量(B)} + \text{激活}$
 </blockquote>
 <hr />
 <h2 id="_7">🚧 五、"带宽墙"这个词的含义</h2>
-<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">历史趋势（大致量级）：</span></div><div class="vb-flow-row"><span class="vb-flow-step">算力 带宽 比值（算力/带宽）</span></div><div class="vb-flow-row"><span class="vb-flow-step">2012 ~4 TFLOPS ~200 GB/s 20</span></div><div class="vb-flow-row"><span class="vb-flow-step">2020 ~312 TFLOPS ~2000 GB/s 156 ⭐ 恶化了 8 倍</span></div><div class="vb-flow-row"><span class="vb-flow-step">2024 ~989 TFLOPS ~3350 GB/s 295 ⭐ 继续恶化</span></div><div class="vb-flow-row"><span class="vb-flow-step">平衡点越来越高</span></div><div class="vb-flow-row"><span class="vb-flow-step">越来越多的操作变成【带宽瓶颈】</span></div><div class="vb-flow-row"><span class="vb-flow-step">这就是&quot;带宽墙&quot;（memory wall）</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">固定同一任务、精度、执行路径与流量层级</span></div><div class="vb-flow-row"><span class="vb-flow-step">若 P 的增长快于 B → 参考拐点 P/B 升高</span></div><div class="vb-flow-row"><span class="vb-flow-step">若任务的 I 不变 → 带宽上界可能变成更紧的约束</span></div><div class="vb-flow-row"><span class="vb-flow-step">不能把不同年代的 FP32 与 Tensor Core 峰值直接比较，推出每种任务都更受带宽限制</span></div><div class="vb-flow-row"><span class="vb-flow-step">这类计算能力与搬运能力不匹配，就是这里讨论的“带宽墙”</span></div></div></section>
 <blockquote>
 <p>🔑 <strong>一个重要的推论</strong>：
-<strong>随着硬件迭代，"少搬数据"的价值只会越来越高。</strong>
-今天勉强算 compute-bound 的操作，下一代卡上就变成 memory-bound 了。</p>
+<strong>在同一任务的计算峰值增长快于带宽时，减少远距离搬运会更值得关注。</strong>
+这并不保证下一代硬件上每个操作都从 compute-bound 变成 memory-bound；要用新的 P、B 和实际 Q 再算一次。</p>
 <p>💡 这也解释了为什么 <strong>FP8、KV Cache 量化、算子融合</strong>这些技术
 <strong>越来越受重视</strong> —— 它们都是在直接对抗带宽墙。</p>
 </blockquote>
@@ -646,8 +662,7 @@ $$\text{训练显存(GB)} \approx 16 \times \text{参数量(B)} + \text{激活}$
 </tbody>
 </table></div>
 <blockquote>
-<p>⭐ <strong>看这张表</strong>：<strong>七个技术，六个是在对抗带宽和显存，只有一个和算力有关。</strong>
-这就是为什么说这一章是钥匙。</p>
+<p>⭐ <strong>看这张表</strong>：这些技术分别改变容量、流量、计算量或调度，也可能同时改变多项。先判断哪笔账最紧，再到对应章节核对收益与代价。</p>
 </blockquote>
 <hr />
 <h2 id="_9">🔗 和站内其他章的关系</h2>
@@ -680,35 +695,35 @@ $$\text{训练显存(GB)} \approx 16 \times \text{参数量(B)} + \text{激活}$
 <hr />
 <h2 id="_10">✅ 检查点</h2>
 <ol>
-<li>内存层次里，哪三个比值最该记住？</li>
-<li>算术强度的定义是什么？A100 的平衡点是多少？</li>
-<li>逐元素加法的算术强度是多少？离平衡点差多远？这推出了什么技术？</li>
+<li>密度翻倍但独立位宽、数据率不变，容量和标称带宽分别怎么变？</li>
+<li>算术强度怎么定义？156 FLOP/B 这个参考拐点有哪些条件？</li>
+<li>FP16 加法的 Q、F 与算术强度是多少？怎样求时间下界，融合可能改变哪笔账？</li>
 <li>batch=1 的矩阵乘算术强度是多少？这对推理意味着什么？</li>
 <li>训练显存的四大块是什么？7B 模型各占多少？</li>
 <li>优化器状态为什么是 12 字节/参数？训练显存的经验公式是什么？</li>
 <li>四大块里哪一块和 batch 有关？这修正了什么错误直觉？</li>
-<li>什么是"带宽墙"？它随硬件迭代是变好还是变坏？推论是什么？</li>
+<li>什么是“带宽墙”？在什么条件下，硬件迭代会让带宽约束更突出？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>Shared Memory 比 HBM 快约 5 倍</strong>（FlashAttention 的依据）、HBM 比 PCIe 快约 40 倍（别随便 <code>.cpu()</code>）、NVLink 比网络快约 20 倍（并行策略的依据）。</li>
-<li>计算量(FLOP) ÷ 数据搬运量(字节)，即"每搬一个字节能顺带做多少次运算"。A100 平衡点 <strong>312 TFLOPS ÷ 2.0 TB/s ≈ 156 FLOP/字节</strong>。</li>
-<li><strong>约 0.17</strong>（1 FLOP ÷ 6 字节：读 a、读 b、写 c）。离平衡点差 900 倍，算力 99.9% 闲置。推出了算子融合——把 N 个逐元素操作合成一个 kernel，数据只搬一次。</li>
-<li><strong>约 1 FLOP/字节（BF16、忽略其他读写），可能受带宽限制。</strong>意味着自回归解码（每次生成 1 个 token）天生是带宽瓶颈，和训练完全相反。</li>
+<li>在全容量可用的假设下，容量翻倍；独立位宽与每引脚数据率没变，标称带宽不变。8 颗从每颗 1 GiB 变成 2 GiB 时，总量由 8 变为 16 GiB，仍为 512 GB/s。</li>
+<li>I = F/Q，Q 要注明存储层级；B 与 Q 同层，P 与 F 的精度和执行路径匹配。156 是 A100 稠密 BF16/FP16 Tensor Core 矩阵峰值 312 TFLOP/s ÷ 取整 HBM 带宽 2.0 TB/s 的课堂参考，不适用于所有 kernel。</li>
+<li>理想读写下 Q = 6n byte、F = n FLOP，I = 1/6 ≈ 0.17 FLOP/B；t ≥ max(Q/B, F/P)。本例 n=100 万、B=100 GB/s、加法路径 P=1 TFLOP/s，得 60 μs 理想下界，不能当实测。融合有机会减少中间值流量与启动，收益受依赖、资源和数值条件约束，不能据 Tensor Core 峰值算普通加法的单元闲置率。</li>
+<li><strong>约 1 FLOP/字节（BF16、忽略其他读写），可能受带宽限制。</strong>小批量稠密 decode 在权重完整流经 HBM 时常受带宽限制；批量、缓存、KV 与实现改变后须重新核算。</li>
 <li>参数（14GB）、梯度（14GB）、<strong>优化器状态（84GB，最大）</strong>、激活（几 GB~几十 GB）。</li>
 <li>FP32 主权重副本 4 + Adam 的 m 4 + v 4 = <strong>12</strong>。加上 BF16 参数 2 和梯度 2 共 16。经验公式：训练显存(GB) ≈ 16 × 参数量(B) + 激活。</li>
 <li><strong>激活主要随 batch 增长，临时工作区也可能变化</strong>，其他三块完全无关。修正了"OOM 就调小 batch"——如果 OOM 来自优化器状态，batch 调到 1 也没用，那时需要 ZeRO 或量化。</li>
-<li>算力/带宽的比值不断上升（2012 年 20 → 2020 年 156 → 2024 年 295），<strong>越来越多操作变成带宽瓶颈</strong>。在变坏。推论："少搬数据"的价值只会越来越高，今天勉强 compute-bound 的操作下一代卡上就变 memory-bound。</li>
+<li>在同任务、精度、执行路径与流量层级下，若 P 增长快于 B，P/B 升高，I 不变的任务可能更受带宽限制。不能混用 FP32 与 Tensor Core 峰值推出普遍代际结论；复用、缓存和实现变化后仍须重算。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_11">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
-<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>计算前先问数据在哪：不同存储和互联的容量、带宽差别很大。</li><li>算术强度是计算量与搬运字节数之比，用它判断更接近算力墙还是带宽墙。</li><li>显存分别核算参数、梯度、优化器状态和激活；减小 batch 不能解决所有 OOM。</li></ul></section>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>计算前先问数据在哪：不同存储和互联的容量、带宽差别很大。</li><li>容量与带宽分账；算术强度 F/Q 要对齐流量层级与计算路径，再用 max(Q/B, F/P) 算理想时间下界。</li><li>显存分别核算参数、梯度、优化器状态和激活；减小 batch 不能解决所有 OOM。</li></ul></section>
 
 <p><strong>下一节</strong> 👉 <a href="04-Roofline与MFU.html">04-Roofline与MFU.md</a> ⭐</p>
-<details class="g05-content-note"><summary>条件与依据</summary><p>BF16 小批量稠密矩阵向量乘的权重主导近似是 2P FLOP ÷ 2P 字节 ≈ 1 FLOP/字节。Roofline 还假设有足够并行度；低算术强度不是整个程序的唯一诊断。图表跨不同设备/层级的带宽仅作量级示意，不能将聚合、双向与单向规格直接相除当有效带宽。训练估算器是启发式容量预算，检查点的 √L 形式不适用于所有策略。</p><p><a href="https://docs.nvidia.com/deeplearning/performance/dl-performance-gpu-background/index.html">官方文档</a></p></details>
+<details class="g05-content-note"><summary>条件与依据</summary><p>BF16 小批量稠密矩阵向量乘的权重主导近似是 2P FLOP ÷ 2P 字节 ≈ 1 FLOP/字节。Roofline 还假设有足够并行度；低算术强度不是整个程序的唯一诊断。图表跨不同设备/层级的带宽仅作量级示意，不能将聚合、双向与单向规格直接相除当有效带宽。训练估算器是启发式容量预算，检查点的 √L 形式不适用于所有策略。</p><p>依据：<a href="https://docs.nvidia.com/deeplearning/performance/dl-performance-gpu-background/index.html">NVIDIA GPU 性能背景</a>；<a href="https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html#roofline-charts">Nsight Compute §2.9：Roofline 与执行路径</a>；<a href="https://docs.nvidia.com/cuda/archive/12.6.0/cuda-c-best-practices-guide/index.html#bandwidth">CUDA Best Practices 12.6 §8.2：标称、有效与实际流量</a>。容量、事务与时间小例均为作者教学推导，未执行 GPU 性能实验。</p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="02-GPU到底是什么.html"><div class="dir">← 上一节</div>⭐ GPU 是什么</a><a class="next" href="04-Roofline与MFU.html"><div class="dir">下一节 →</div>⭐⭐ Roofline 与 MFU</a></nav>
