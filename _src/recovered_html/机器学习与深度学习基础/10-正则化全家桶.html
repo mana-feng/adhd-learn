@@ -707,33 +707,160 @@ model.load_state_dict(torch.load("best.pt", weights_only=True))  # 跑满也回�
 </table></div>
 <hr />
 <h2 id="_8" data-mg-stop>✅ 检查点</h2>
-<ol>
-<li>正则化在"堵"什么？三种堵法各对应哪些武器？</li>
-<li>七件武器里性价比最高的是哪个？为什么它特殊？</li>
-<li>数据增强翻车的判断标准是什么？举两个错误增强的例子。</li>
-<li>早停有哪两个必踩的坑？</li>
-<li>为什么耦合L2的Adam通常不等价于AdamW？no-decay分组为什么要核对参数并验证？</li>
-<li>Dropout训练/推理怎样缩放？固定输入两次输出不同，为什么不能只凭这一点诊断忘了 <code>eval()</code>？</li>
-<li>对NCHW和NLC，BN/LN/GN分别沿哪些轴统计？BN的train/eval与track_running_stats如何改变统计来源？</li>
-<li>紧邻按通道BN的卷积为什么常可省bias？哪些结构或已训状态不能直接套用？</li>
-<li>两种ε分配约定有什么不同？概率任务和蒸馏教师怎样比较平滑的收益、代价与校准？</li>
-<li>训练 loss 高但验证 loss 低，该怀疑什么？</li>
+<div class="ml-quiz">
+<p class="ml-quiz-intro">共 11 题：9 道单选、2 道判断。点一个选项，马上显示对错并展开解析；没把握也可以直接展开解析。</p>
+<div class="ml-q" data-answer="c" role="group" aria-labelledby="mlq-1">
+<p class="ml-q-stem" id="mlq-1"><span class="ml-q-tag">单选</span>1. 正则化的三种「堵捷径」办法，下面哪组对应正确？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">三种办法都是加数据</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">让捷径不可靠：权重衰减；让捷径变贵：数据增强；不给记忆时间：Dropout</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">让捷径不可靠：Dropout、增强；让捷径变贵：权重衰减、L1；不给记忆时间：早停</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">让捷径不可靠：早停；让捷径变贵：Dropout；不给记忆时间：L1</span><span class="ml-q-mark"></span></button></li>
 </ol>
-<details>
-<summary>👀 答案</summary>
-<ol>
-<li>堵<strong>捷径</strong>（模型记住训练集特有的东西）。三种：让捷径不可靠（Dropout、增强）、让捷径变贵（权重衰减、L1）、不给记忆时间（早停）。</li>
-<li><strong>加数据</strong>——唯一同时降方差又不抬高偏差的手段；其他所有正则化都是拿偏差换方差。</li>
-<li>标准：<strong>增强后一个人类专家会不会改变答案</strong>。错误例子：手写数字水平翻转（6 变镜像）、医学影像左右翻转（"病灶在左肺"是关键信息）、文本打乱词序、时间序列重排。</li>
-<li>①<strong>忘了回滚</strong>最佳权重（只 break 不 load，保留的是已过拟合的模型）②patience 太小，学习率调度让 loss 暂时上升时被误停。</li>
-<li>耦合L2的惩罚梯度会进入Adam的矩估计与自适应更新；AdamW将衰减<strong>直接作用于参数</strong>，通常不等价。不能只按当前梯度大小比较惩罚。bias/norm免衰减是常见候选配置；维数/名称筛选会漏选或误选，要核对参数清单、系数约定、学习率和矩状态，再按任务验证收益。</li>
-<li>随机掩码可提供共享权重子网络的近似集成直觉，不是独立训练并精确平均2ⁿ个网络。PyTorch训练保留项除以1−p，eval为恒等；eval模式与禁用梯度不同。输出变动须检查子层模式和其他随机/非确定因素，不能仅凭两次不同下结论。</li>
-<li>NCHW的BN2d固定C跨N/H/W；LN按normalized_shape指定的末尾轴，NLC上LN(C)逐token统计；GN在每个样本的通道组及空间内统计。默认BN训练用本批并更新running，eval用running；track_running_stats=False时两种模式均用本批。N=1还要看空间元素数，LN/GN不跨N也只说明本层的统计性质。</li>
-<li>紧邻按通道BN时，训练均值会抵消卷积的通道常数偏移，BN的β提供偏移，建模时常可设bias=False；中间有其他运算/分支或直接修改已训bias和running状态时不能机械删除。</li>
-<li>全类均匀混合为q=(1−ε)one-hot+ε/K；只给非真类则真类为1−ε、其他为ε/(K−1)。概率任务不能一律禁用：对照硬标签基线，同时评估任务质量、NLL/Brier和校准曲线/ECE，必要时独立校准。蒸馏可能损失类别相似信息，应比较具体教师/学生和温度配置的学生效果，不把教师输出当真实分布。</li>
-<li><strong>多半是 bug 或正常的 Dropout/BN 效应</strong>：训练时 Dropout/BN 在加难度，训练 loss 天然偏高（轻微正常）。严重时怀疑验证集太简单或数据泄漏。</li>
-</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：C</strong></p>
+<p>堵<strong>捷径</strong>（模型记住训练集特有的东西）。三种：让捷径不可靠（Dropout、增强）、让捷径变贵（权重衰减、L1）、不给记忆时间（早停）。</p>
 </details>
+</div>
+<div class="ml-q" data-answer="a" role="group" aria-labelledby="mlq-2">
+<p class="ml-q-stem" id="mlq-2"><span class="ml-q-tag">单选</span>2. 七件武器里性价比最高的是哪个？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">加数据：唯一同时降方差又不抬高偏差的手段</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">早停</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">标签平滑</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">Dropout</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：A</strong></p>
+<p><strong>加数据</strong>——唯一同时降方差又不抬高偏差的手段；其他所有正则化都是拿偏差换方差。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="d" role="group" aria-labelledby="mlq-3">
+<p class="ml-q-stem" id="mlq-3"><span class="ml-q-tag">单选</span>3. 下面哪个数据增强是<strong>错误</strong>的？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">自然照片分类做随机裁剪</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">自然照片分类做轻微平移</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">猫狗分类调一点亮度</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">手写数字识别做水平翻转</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：D</strong></p>
+<p>标准：<strong>增强后一个人类专家会不会改变答案</strong>。错误例子：手写数字水平翻转（6 变镜像）、医学影像左右翻转（"病灶在左肺"是关键信息）、文本打乱词序、时间序列重排。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="b" role="group" aria-labelledby="mlq-4">
+<p class="ml-q-stem" id="mlq-4"><span class="ml-q-tag">单选</span>4. 早停有哪两个必踩的坑？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">验证集太大；训练轮数太多</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">忘了回滚最佳权重；patience 太小，被学习率调度带来的暂时上升误停</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">忘了 zero_grad；没设随机种子</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">学习率太大；batch 太小</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：B</strong></p>
+<p>①<strong>忘了回滚</strong>最佳权重（只 break 不 load，保留的是已过拟合的模型）②patience 太小，学习率调度让 loss 暂时上升时被误停。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="f" role="group" aria-labelledby="mlq-5">
+<p class="ml-q-stem" id="mlq-5"><span class="ml-q-tag">判断</span>5. 耦合 L2 的 Adam 和 AdamW 通常等价，只是写法不同。</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="t"><span class="ml-q-key">✓</span><span class="ml-q-text">正确</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="f"><span class="ml-q-key">✗</span><span class="ml-q-text">错误</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：错误</strong></p>
+<p>耦合L2的惩罚梯度会进入Adam的矩估计与自适应更新；AdamW将衰减<strong>直接作用于参数</strong>，通常不等价。不能只按当前梯度大小比较惩罚。bias/norm免衰减是常见候选配置；维数/名称筛选会漏选或误选，要核对参数清单、系数约定、学习率和矩状态，再按任务验证收益。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="a" role="group" aria-labelledby="mlq-6">
+<p class="ml-q-stem" id="mlq-6"><span class="ml-q-tag">单选</span>6. PyTorch 的 Dropout 在训练和推理时怎样缩放？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">训练时保留项除以 1 − p；eval 时是恒等</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">训练时不缩放；eval 时乘 p</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">eval 时也随机丢弃</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">训练和 eval 都乘 1 − p</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：A</strong></p>
+<p>随机掩码可提供共享权重子网络的近似集成直觉，不是独立训练并精确平均2ⁿ个网络。PyTorch训练保留项除以1−p，eval为恒等；eval模式与禁用梯度不同。输出变动须检查子层模式和其他随机/非确定因素，不能仅凭两次不同下结论。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="d" role="group" aria-labelledby="mlq-7">
+<p class="ml-q-stem" id="mlq-7"><span class="ml-q-tag">单选</span>7. 对 NCHW 输入，BatchNorm2d 沿哪些轴统计？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">每个样本单独，跨 C、H、W 统计</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">只跨 N 统计</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">跨全部四个轴统计一个数</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">固定通道 C，跨 N、H、W 统计</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：D</strong></p>
+<p>NCHW的BN2d固定C跨N/H/W；LN按normalized_shape指定的末尾轴，NLC上LN(C)逐token统计；GN在每个样本的通道组及空间内统计。默认BN训练用本批并更新running，eval用running；track_running_stats=False时两种模式均用本批。N=1还要看空间元素数，LN/GN不跨N也只说明本层的统计性质。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="c" role="group" aria-labelledby="mlq-8">
+<p class="ml-q-stem" id="mlq-8"><span class="ml-q-tag">单选</span>8. BN 设 <code>track_running_stats=False</code> 时，统计来源是？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">不再做归一化</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">两种模式都用 running 统计</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">训练和 eval 两种模式都用本批统计</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">训练用本批，eval 用 running 统计</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：C</strong></p>
+<p>NCHW的BN2d固定C跨N/H/W；LN按normalized_shape指定的末尾轴，NLC上LN(C)逐token统计；GN在每个样本的通道组及空间内统计。默认BN训练用本批并更新running，eval用running；track_running_stats=False时两种模式均用本批。N=1还要看空间元素数，LN/GN不跨N也只说明本层的统计性质。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="t" role="group" aria-labelledby="mlq-9">
+<p class="ml-q-stem" id="mlq-9"><span class="ml-q-tag">判断</span>9. 卷积后紧跟按通道 BN 时常可设 bias=False；但中间有其他运算或分支、或要改已训好的模型时，不能机械删除。</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="t"><span class="ml-q-key">✓</span><span class="ml-q-text">正确</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="f"><span class="ml-q-key">✗</span><span class="ml-q-text">错误</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：正确</strong></p>
+<p>紧邻按通道BN时，训练均值会抵消卷积的通道常数偏移，BN的β提供偏移，建模时常可设bias=False；中间有其他运算/分支或直接修改已训bias和running状态时不能机械删除。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="a" role="group" aria-labelledby="mlq-10">
+<p class="ml-q-stem" id="mlq-10"><span class="ml-q-tag">单选</span>10. 标签平滑「全类均匀混合」约定下，目标分布是？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">q = (1 − ε)·one-hot + ε/K</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">真类为 1，其他类为 ε</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">q = ε·one-hot</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">真类为 ε，其他类为 (1 − ε)/K</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：A</strong></p>
+<p>全类均匀混合为q=(1−ε)one-hot+ε/K；只给非真类则真类为1−ε、其他为ε/(K−1)。概率任务不能一律禁用：对照硬标签基线，同时评估任务质量、NLL/Brier和校准曲线/ECE，必要时独立校准。蒸馏可能损失类别相似信息，应比较具体教师/学生和温度配置的学生效果，不把教师输出当真实分布。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="b" role="group" aria-labelledby="mlq-11">
+<p class="ml-q-stem" id="mlq-11"><span class="ml-q-tag">单选</span>11. 训练 loss 高但验证 loss 低，该怀疑什么？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">学习率太小</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">多半是 Dropout/BN 训练时加难度的正常效应；差得严重时怀疑验证集太简单或数据泄漏</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">模型太小</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">一定是过拟合</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：B</strong></p>
+<p><strong>多半是 bug 或正常的 Dropout/BN 效应</strong>：训练时 Dropout/BN 在加难度，训练 loss 天然偏高（轻微正常）。严重时怀疑验证集太简单或数据泄漏。</p>
+</details>
+</div>
+<div class="ml-quiz-footer"><p class="ml-quiz-score" role="status"></p><button type="button" class="ml-quiz-reset" hidden>重做这组题</button></div>
+</div>
 <hr />
 <h2 id="_9" data-mg-stop>🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>

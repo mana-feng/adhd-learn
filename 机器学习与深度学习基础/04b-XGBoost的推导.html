@@ -552,27 +552,122 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </table></div>
 <hr />
 <h2 id="_11" data-mg-stop>✅ 检查点</h2>
-<ol>
-<li>XGBoost 为什么要做<strong>二阶</strong>泰勒展开？只用一阶（GBDT）差在哪？</li>
-<li>二阶展开之后，目标函数里还剩下什么？这件事带来了哪个直接的工程好处？</li>
-<li>写出最优叶子权重和分裂增益，并说出 $\gamma$ 和 $\lambda$ 各在管什么。</li>
-<li>用 MSE 损失时 XGBoost 的叶子权重退化成什么？这说明了什么？</li>
-<li>XGBoost 怎么处理缺失值？</li>
-<li>LightGBM 凭什么快（说出三样）？leaf-wise 的代价是什么、拿什么刹车？</li>
-<li>CatBoost 的「有序目标编码」在防什么？对称树带来哪两个好处？</li>
+<div class="ml-quiz">
+<p class="ml-quiz-intro">共 8 题：8 道单选。点一个选项，马上显示对错并展开解析；没把握也可以直接展开解析。</p>
+<div class="ml-q" data-answer="a" role="group" aria-labelledby="mlq-1">
+<p class="ml-q-stem" id="mlq-1"><span class="ml-q-tag">单选</span>1. XGBoost 为什么要做<strong>二阶</strong>泰勒展开？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">一阶导只给方向，二阶导给步长；分裂判据和叶子值出自同一个闭式解</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">一阶展开在 MSE 损失下不成立</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">二阶展开是为了处理缺失值</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">二阶展开让每棵树训练得更快</span><span class="ml-q-mark"></span></button></li>
 </ol>
-<details>
-<summary>👀 答案</summary>
-<ol>
-<li><strong>一阶导只给方向，二阶导给步长</strong>（梯度下降 vs 牛顿法）。GBDT 是拿负梯度当伪残差、再用<strong>平方误差代理准则</strong>长一棵树去拟合，叶子值靠事后一维线搜索补上——<strong>判据和叶子值不是同一个东西</strong>；XGBoost 直接对真实目标（含正则）二阶展开，<strong>分裂判据和叶子值出自同一个闭式解</strong>。</li>
-<li><strong>只剩 $g_i$ 和 $h_i$，损失函数 $l$ 消失了</strong>。好处：<strong>对满足可加、光滑、凸性等支持条件的损失，可以复用局部二阶形式；提供 g/h 之外仍需满足约束，闭式最小值要求 H+λ&gt;0。</strong><code></code>（另一个好处是按叶子归并后每个叶子是抛物线，<strong>有闭式最优解</strong>。）</li>
-<li>$w_j^*=-\dfrac{G_j}{H_j+\lambda}$；$\text{Gain}=\frac12\Big[\frac{G_L^2}{H_L+\lambda}+\frac{G_R^2}{H_R+\lambda}-\frac{(G_L+G_R)^2}{H_L+H_R+\lambda}\Big]-\gamma$。<strong>$\gamma$ 是每多一个叶子的入场费</strong>，所以 <strong>Gain 为负就不分裂 = 预剪枝写进了判据</strong>（不是长完再剪）；<strong>$\lambda$ 在分母</strong>，叶子样本少（$H$ 小）时把权重往 0 拽，是天然的收缩。</li>
-<li>$g_i=\hat y_i-y_i$、$h_i=1$，$w_j^*$ 退化成<strong>这个叶子里残差的平均值</strong>（$\lambda=0$ 时）——<strong>正是 GBDT 在做的事</strong>。说明 <strong>MSE 下两者等价，二阶展开的价值全在别的损失函数上</strong>（logloss、pairwise 排序、Poisson、自定义）。</li>
-<li><strong>不填</strong>。每个候选分裂点上把缺失样本全扔左边算一次 Gain、全扔右边再算一次，<strong>哪边 Gain 大就把默认方向定成哪边</strong>——缺失是被当成信息<strong>学</strong>出来的，顺带让稀疏 one-hot 也跑得快。</li>
-<li><strong>直方图</strong>把建表与候选扫描分开：建表仍遍历样本，扫描随箱数变化；<strong>做差</strong>减少重复构建。<strong>GOSS可选</strong>，大梯度保留、小梯度抽样并加权；<strong>EFB</strong>利用稀疏互斥结构。leaf-wise可能形成深而不平衡的树，需联合控制 <code>num_leaves</code>、<code>max_depth</code>、<code>min_data_in_leaf</code>并检查验证结果，不保证整次训练固定提速。</li>
-<li>有序目标统计按排列只用先前样本计算带标签的类别统计，避免直接使用自身标签；可选Ordered boosting针对预测偏移，不能与CTR或默认Plain混同。默认对称树同层共用条件，有利于紧凑叶子索引并限制结构自由度；更改生长策略后结构不同，不能据此保证速度、精度或所有外部泄漏均已解决。</li>
-</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：A</strong></p>
+<p><strong>一阶导只给方向，二阶导给步长</strong>（梯度下降 vs 牛顿法）。GBDT 是拿负梯度当伪残差、再用<strong>平方误差代理准则</strong>长一棵树去拟合，叶子值靠事后一维线搜索补上——<strong>判据和叶子值不是同一个东西</strong>；XGBoost 直接对真实目标（含正则）二阶展开，<strong>分裂判据和叶子值出自同一个闭式解</strong>。</p>
 </details>
+</div>
+<div class="ml-q" data-answer="c" role="group" aria-labelledby="mlq-2">
+<p class="ml-q-stem" id="mlq-2"><span class="ml-q-tag">单选</span>2. 二阶展开之后，目标函数里每个样本只通过什么出现？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">原始标签 $y_i$</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">上一轮的预测 $\hat y_i$</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">$g_i$ 和 $h_i$，损失函数 $l$ 本身消失了</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">原始特征 $x_i$</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：C</strong></p>
+<p><strong>只剩 $g_i$ 和 $h_i$，损失函数 $l$ 消失了</strong>。好处：<strong>对满足可加、光滑、凸性等支持条件的损失，可以复用局部二阶形式；提供 g/h 之外仍需满足约束，闭式最小值要求 H+λ&gt;0。</strong><code></code>（另一个好处是按叶子归并后每个叶子是抛物线，<strong>有闭式最优解</strong>。）</p>
+</details>
+</div>
+<div class="ml-q" data-answer="b" role="group" aria-labelledby="mlq-3">
+<p class="ml-q-stem" id="mlq-3"><span class="ml-q-tag">单选</span>3. 最优叶子权重是哪一个？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">$w_j^*=-\dfrac{G_j+\lambda}{H_j}$</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">$w_j^*=-\dfrac{G_j}{H_j+\lambda}$</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">$w_j^*=-\dfrac{H_j}{G_j+\lambda}$</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">$w_j^*=\dfrac{G_j^2}{H_j+\lambda}$</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：B</strong></p>
+<p>$w_j^*=-\dfrac{G_j}{H_j+\lambda}$；$\text{Gain}=\frac12\Big[\frac{G_L^2}{H_L+\lambda}+\frac{G_R^2}{H_R+\lambda}-\frac{(G_L+G_R)^2}{H_L+H_R+\lambda}\Big]-\gamma$。<strong>$\gamma$ 是每多一个叶子的入场费</strong>，所以 <strong>Gain 为负就不分裂 = 预剪枝写进了判据</strong>（不是长完再剪）；<strong>$\lambda$ 在分母</strong>，叶子样本少（$H$ 小）时把权重往 0 拽，是天然的收缩。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="a" role="group" aria-labelledby="mlq-4">
+<p class="ml-q-stem" id="mlq-4"><span class="ml-q-tag">单选</span>4. 分裂增益里的 $\gamma$ 和 $\lambda$ 各在管什么？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">$\gamma$ 是每多一个叶子的入场费，Gain 为负就不分裂；$\lambda$ 在分母，把样本少的叶子权重往 0 拽</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">两者都只在树长完之后用来剪枝</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">$\gamma$ 是学习率，$\lambda$ 是树的最大深度</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">$\gamma$ 控制行采样比例，$\lambda$ 控制列采样比例</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：A</strong></p>
+<p>$w_j^*=-\dfrac{G_j}{H_j+\lambda}$；$\text{Gain}=\frac12\Big[\frac{G_L^2}{H_L+\lambda}+\frac{G_R^2}{H_R+\lambda}-\frac{(G_L+G_R)^2}{H_L+H_R+\lambda}\Big]-\gamma$。<strong>$\gamma$ 是每多一个叶子的入场费</strong>，所以 <strong>Gain 为负就不分裂 = 预剪枝写进了判据</strong>（不是长完再剪）；<strong>$\lambda$ 在分母</strong>，叶子样本少（$H$ 小）时把权重往 0 拽，是天然的收缩。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="d" role="group" aria-labelledby="mlq-5">
+<p class="ml-q-stem" id="mlq-5"><span class="ml-q-tag">单选</span>5. 用 MSE 损失、$\lambda=0$ 时，XGBoost 的叶子权重退化成什么？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">这个叶子里梯度的平方和</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">恒为 0</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">这个叶子里标签的中位数</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">这个叶子里残差的平均值——正是 GBDT 在做的事</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：D</strong></p>
+<p>$g_i=\hat y_i-y_i$、$h_i=1$，$w_j^*$ 退化成<strong>这个叶子里残差的平均值</strong>（$\lambda=0$ 时）——<strong>正是 GBDT 在做的事</strong>。说明 <strong>MSE 下两者等价，二阶展开的价值全在别的损失函数上</strong>（logloss、pairwise 排序、Poisson、自定义）。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="c" role="group" aria-labelledby="mlq-6">
+<p class="ml-q-stem" id="mlq-6"><span class="ml-q-tag">单选</span>6. XGBoost 怎么处理缺失值？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">删除含缺失的样本</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">一律当作 0</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">不填：每个候选分裂点把缺失样本分别全放左、全放右各算一次 Gain，取大的作为默认方向</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">先用该列均值填补</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：C</strong></p>
+<p><strong>不填</strong>。每个候选分裂点上把缺失样本全扔左边算一次 Gain、全扔右边再算一次，<strong>哪边 Gain 大就把默认方向定成哪边</strong>——缺失是被当成信息<strong>学</strong>出来的，顺带让稀疏 one-hot 也跑得快。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="d" role="group" aria-labelledby="mlq-7">
+<p class="ml-q-stem" id="mlq-7"><span class="ml-q-tag">单选</span>7. 关于 LightGBM，下面哪一条是对的？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">GOSS 默认开启，保证固定提速</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">只要换成 LightGBM，整次训练一定固定变快</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">直方图让建表也不必遍历样本</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">leaf-wise 可能长出深而不平衡的树，要联合控制 <code>num_leaves</code>、<code>max_depth</code>、<code>min_data_in_leaf</code> 并看验证结果</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：D</strong></p>
+<p><strong>直方图</strong>把建表与候选扫描分开：建表仍遍历样本，扫描随箱数变化；<strong>做差</strong>减少重复构建。<strong>GOSS可选</strong>，大梯度保留、小梯度抽样并加权；<strong>EFB</strong>利用稀疏互斥结构。leaf-wise可能形成深而不平衡的树，需联合控制 <code>num_leaves</code>、<code>max_depth</code>、<code>min_data_in_leaf</code>并检查验证结果，不保证整次训练固定提速。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="a" role="group" aria-labelledby="mlq-8">
+<p class="ml-q-stem" id="mlq-8"><span class="ml-q-tag">单选</span>8. CatBoost 的有序目标统计在防什么？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">计算带标签的类别统计时只用排在前面的样本，避免直接用到自身标签</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">防止树长得太深</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">防止 GPU 显存不够</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">防止缺失值破坏分裂</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：A</strong></p>
+<p>有序目标统计按排列只用先前样本计算带标签的类别统计，避免直接使用自身标签；可选Ordered boosting针对预测偏移，不能与CTR或默认Plain混同。默认对称树同层共用条件，有利于紧凑叶子索引并限制结构自由度；更改生长策略后结构不同，不能据此保证速度、精度或所有外部泄漏均已解决。</p>
+</details>
+</div>
+<div class="ml-quiz-footer"><p class="ml-quiz-score" role="status"></p><button type="button" class="ml-quiz-reset" hidden>重做这组题</button></div>
+</div>
 <hr />
 <h2 id="_12" data-mg-stop>🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>

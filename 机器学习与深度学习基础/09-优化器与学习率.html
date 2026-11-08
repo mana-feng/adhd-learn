@@ -735,31 +735,172 @@ optimizer.zero_grad()
 </blockquote>
 <hr />
 <h2 id="_8" data-mg-stop>✅ 检查点</h2>
-<ol>
-<li>mini-batch 相比全批量和单样本的优势？batch size 和 lr 什么关系？</li>
-<li>为什么小 batch 的"噪声"反而对泛化有益？</li>
-<li>Adam 结合了哪两个想法？偏差修正为什么必要？AdamW 改进了什么？</li>
-<li>loss 变 NaN 该怎么办？loss 下降极慢呢？<strong>loss 完全不动</strong>呢？</li>
-<li>微调预训练模型该用多大学习率？不注意会怎样？</li>
-<li>Warmup在什么条件下可能有用？如何对照验证，为什么不能把它当NaN的通用修复？</li>
-<li><code>zero_grad()</code> 忘了会怎样？</li>
-<li><code>scheduler.step()</code> 放错位置有什么症状？怎么快速发现？</li>
-<li>显存不够的三个招是什么？梯度累积最常见的 bug 是什么？</li>
+<div class="ml-quiz">
+<p class="ml-quiz-intro">共 12 题：9 道单选、3 道判断。点一个选项，马上显示对错并展开解析；没把握也可以直接展开解析。</p>
+<div class="ml-q" data-answer="d" role="group" aria-labelledby="mlq-1">
+<p class="ml-q-stem" id="mlq-1"><span class="ml-q-tag">单选</span>1. mini-batch 相比全批量和单样本，好在哪里？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">保证收敛到全局最优</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">梯度最精确</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">不再需要学习率</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">在梯度估计、内存和并行效率之间折中</span><span class="ml-q-mark"></span></button></li>
 </ol>
-<details>
-<summary>👀 答案</summary>
-<ol>
-<li>小批量在梯度估计、内存和并行效率之间折中。线性缩放是部分 SGD 场景的实验起点，不是通用法则；没有统一的 8k 失效线，Warmup 也不能保证无限扩大批量。</li>
-<li>小 batch 的梯度带噪声 → 更新方向随机抖动 → <strong>抖得出尖锐极小值，抖不出平坦极小值</strong> → 最终停在平坦极小值里，而平坦极小值泛化更好。这就是"SGD 的隐式正则化"。</li>
-<li>Momentum（一阶动量，方向惯性）+ RMSProp（二阶动量，每参数自适应步长）。<strong>偏差修正</strong>是因为 m、v 初始为 0，前几步被严重低估，除以 (1−βᵗ) 修正。AdamW 把权重衰减解耦出来，使权重衰减与自适应梯度缩放分开；它与加入L2损失是不同更新规则。</li>
-<li>NaN先查输入/标签、损失计算、混合精度与梯度；若有效步长过大，再调整lr并比较预热。下降极慢时先核对实际梯度与lr，再试步长。<strong>完全不动时检查冻结、梯度、step与实际参数增量；极小学习率或显示精度也可能掩盖更新。</strong><code></code></li>
-<li><strong>1e-5 ~ 5e-5，比从零训练小 100 倍</strong>。用从零训练的 lr 去微调会直接把预训练权重冲垮，效果还不如冻结主干。</li>
-<li>从零训练的随机权重与预训练微调要分开；新优化器统计可能仍需积累，预热可限制初期更新。固定数据、初始化、优化器/峰值lr和总步数对照曲线，并检查恢复的状态。最终lr过大或数据/数值错误不靠预热自动修复；过长预热也可能浪费短预算，不能仅凭模型大或batch大宣布必需。</li>
-<li>梯度会累加到上一步的梯度上，等于用了错误的（放大且混合的）梯度更新，训练直接废掉。</li>
-<li>症状：<strong>学习率衰减快几百倍，loss 降一点就完全不动</strong>，看起来像模型不行。发现方法：训练时打印 <code>optimizer.param_groups[0]["lr"]</code>。</li>
-<li><strong>梯度累积</strong>（慢 N 倍）、混合精度 AMP（显存减半还更快，几乎白赚）、梯度检查点（慢 30% 换显存）。梯度累积最常见的 bug 是忘了把 loss 除以 accum——等效于学习率放大 N 倍。</li>
-</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：D</strong></p>
+<p>小批量在梯度估计、内存和并行效率之间折中。线性缩放是部分 SGD 场景的实验起点，不是通用法则；没有统一的 8k 失效线，Warmup 也不能保证无限扩大批量。</p>
 </details>
+</div>
+<div class="ml-q" data-answer="f" role="group" aria-labelledby="mlq-2">
+<p class="ml-q-stem" id="mlq-2"><span class="ml-q-tag">判断</span>2. 「batch 扩大 k 倍，学习率也乘 k」是通用法则；配上 Warmup，批量可以无限扩大。</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="t"><span class="ml-q-key">✓</span><span class="ml-q-text">正确</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="f"><span class="ml-q-key">✗</span><span class="ml-q-text">错误</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：错误</strong></p>
+<p>小批量在梯度估计、内存和并行效率之间折中。线性缩放是部分 SGD 场景的实验起点，不是通用法则；没有统一的 8k 失效线，Warmup 也不能保证无限扩大批量。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="a" role="group" aria-labelledby="mlq-3">
+<p class="ml-q-stem" id="mlq-3"><span class="ml-q-tag">单选</span>3. 本页怎么解释小 batch 的「噪声」对泛化有益？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">更新方向随机抖动，抖得出尖锐极小值、抖不出平坦极小值，最终停在泛化更好的平坦极小值</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">噪声让训练更快</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">噪声让模型参数变少</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">噪声能修正标签错误</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：A</strong></p>
+<p>小 batch 的梯度带噪声 → 更新方向随机抖动 → <strong>抖得出尖锐极小值，抖不出平坦极小值</strong> → 最终停在平坦极小值里，而平坦极小值泛化更好。这就是"SGD 的隐式正则化"。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="d" role="group" aria-labelledby="mlq-4">
+<p class="ml-q-stem" id="mlq-4"><span class="ml-q-tag">单选</span>4. Adam 结合了哪两个想法？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">Dropout + BatchNorm</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">L1 + L2 正则</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">Warmup + 余弦退火</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">Momentum（方向惯性）+ RMSProp（每参数自适应步长）</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：D</strong></p>
+<p>Momentum（一阶动量，方向惯性）+ RMSProp（二阶动量，每参数自适应步长）。<strong>偏差修正</strong>是因为 m、v 初始为 0，前几步被严重低估，除以 (1−βᵗ) 修正。AdamW 把权重衰减解耦出来，使权重衰减与自适应梯度缩放分开；它与加入L2损失是不同更新规则。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="d" role="group" aria-labelledby="mlq-5">
+<p class="ml-q-stem" id="mlq-5"><span class="ml-q-tag">单选</span>5. Adam 为什么需要偏差修正？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">防止学习率过大</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">把权重衰减解耦出去</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">修正标签噪声</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">m、v 初始为 0，前几步被严重低估，除以 (1 − βᵗ) 修正</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：D</strong></p>
+<p>Momentum（一阶动量，方向惯性）+ RMSProp（二阶动量，每参数自适应步长）。<strong>偏差修正</strong>是因为 m、v 初始为 0，前几步被严重低估，除以 (1−βᵗ) 修正。AdamW 把权重衰减解耦出来，使权重衰减与自适应梯度缩放分开；它与加入L2损失是不同更新规则。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="t" role="group" aria-labelledby="mlq-6">
+<p class="ml-q-stem" id="mlq-6"><span class="ml-q-tag">判断</span>6. AdamW 把权重衰减和自适应梯度缩放分开，它和「在损失里加 L2 再用 Adam」是不同的更新规则。</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="t"><span class="ml-q-key">✓</span><span class="ml-q-text">正确</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="f"><span class="ml-q-key">✗</span><span class="ml-q-text">错误</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：正确</strong></p>
+<p>Momentum（一阶动量，方向惯性）+ RMSProp（二阶动量，每参数自适应步长）。<strong>偏差修正</strong>是因为 m、v 初始为 0，前几步被严重低估，除以 (1−βᵗ) 修正。AdamW 把权重衰减解耦出来，使权重衰减与自适应梯度缩放分开；它与加入L2损失是不同更新规则。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="b" role="group" aria-labelledby="mlq-7">
+<p class="ml-q-stem" id="mlq-7"><span class="ml-q-tag">单选</span>7. loss 变成 NaN，先查什么？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">换一个优化器</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">先查输入/标签、损失计算、混合精度与梯度；若有效步长过大，再调整 lr 并比较预热</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">加上 Warmup 就行</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">直接把学习率降到 1e-8</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：B</strong></p>
+<p>NaN先查输入/标签、损失计算、混合精度与梯度；若有效步长过大，再调整lr并比较预热。下降极慢时先核对实际梯度与lr，再试步长。<strong>完全不动时检查冻结、梯度、step与实际参数增量；极小学习率或显示精度也可能掩盖更新。</strong><code></code></p>
+</details>
+</div>
+<div class="ml-q" data-answer="b" role="group" aria-labelledby="mlq-8">
+<p class="ml-q-stem" id="mlq-8"><span class="ml-q-tag">单选</span>8. 微调预训练模型，该用多大学习率？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">固定用 0.1</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">1e-5 ~ 5e-5，比从零训练小 100 倍；否则会把预训练权重冲垮</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">比从零训练大 10 倍</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">与从零训练一样</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：B</strong></p>
+<p><strong>1e-5 ~ 5e-5，比从零训练小 100 倍</strong>。用从零训练的 lr 去微调会直接把预训练权重冲垮，效果还不如冻结主干。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="f" role="group" aria-labelledby="mlq-9">
+<p class="ml-q-stem" id="mlq-9"><span class="ml-q-tag">判断</span>9. 训练出现 NaN 时，加上 Warmup 是通用修复。</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="t"><span class="ml-q-key">✓</span><span class="ml-q-text">正确</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="f"><span class="ml-q-key">✗</span><span class="ml-q-text">错误</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：错误</strong></p>
+<p>从零训练的随机权重与预训练微调要分开；新优化器统计可能仍需积累，预热可限制初期更新。固定数据、初始化、优化器/峰值lr和总步数对照曲线，并检查恢复的状态。最终lr过大或数据/数值错误不靠预热自动修复；过长预热也可能浪费短预算，不能仅凭模型大或batch大宣布必需。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="b" role="group" aria-labelledby="mlq-10">
+<p class="ml-q-stem" id="mlq-10"><span class="ml-q-tag">单选</span>10. 忘了 <code>zero_grad()</code> 会怎样？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">只会让训练变慢</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">梯度累加到上一步的梯度上，用错误（放大且混合）的梯度更新，训练废掉</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">没有影响</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">参数会被清零</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：B</strong></p>
+<p>梯度会累加到上一步的梯度上，等于用了错误的（放大且混合的）梯度更新，训练直接废掉。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="d" role="group" aria-labelledby="mlq-11">
+<p class="ml-q-stem" id="mlq-11"><span class="ml-q-tag">单选</span>11. <code>scheduler.step()</code> 放错位置（比如每个 batch 都调）的症状和发现方法是？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">loss 立刻变 NaN；看损失曲线</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">训练变快；看计时</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">显存溢出；看 nvidia-smi</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">学习率衰减快几百倍，loss 降一点就完全不动；训练时打印 <code>optimizer.param_groups[0]["lr"]</code></span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：D</strong></p>
+<p>症状：<strong>学习率衰减快几百倍，loss 降一点就完全不动</strong>，看起来像模型不行。发现方法：训练时打印 <code>optimizer.param_groups[0]["lr"]</code>。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="a" role="group" aria-labelledby="mlq-12">
+<p class="ml-q-stem" id="mlq-12"><span class="ml-q-tag">单选</span>12. 梯度累积最常见的 bug 是什么？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">忘了把 loss 除以 accum，等效于学习率放大 N 倍</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">同时用了梯度检查点</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">batch 设得太小</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">忘了开混合精度</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案：A</strong></p>
+<p><strong>梯度累积</strong>（慢 N 倍）、混合精度 AMP（显存减半还更快，几乎白赚）、梯度检查点（慢 30% 换显存）。梯度累积最常见的 bug 是忘了把 loss 除以 accum——等效于学习率放大 N 倍。</p>
+</details>
+</div>
+<div class="ml-quiz-footer"><p class="ml-quiz-score" role="status"></p><button type="button" class="ml-quiz-reset" hidden>重做这组题</button></div>
+</div>
 <hr />
 <h2 id="_9" data-mg-stop>🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
