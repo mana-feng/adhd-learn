@@ -2,7 +2,7 @@
 
 **一套为「没有基础 + 注意力容易跑掉」的人重新组织过的中文 AI / 机器学习教程库。**
 
-23 个板块 · 529 个板块内阅读单元 · 纯静态 HTML，**下载下来双击就能离线看**。
+23 个板块 · 533 个板块内阅读单元 · 纯静态 HTML，**下载下来双击就能离线看**。
 
 🌐 **在线版 → [adhd-learn.manafeng.com](https://adhd-learn.manafeng.com)**
 
@@ -61,7 +61,7 @@
 
 | 板块 | 阅读单元数 | 时长参考（历史估计，未重算） | 讲什么 |
 |---|---|---|---|
-| [机器学习与深度学习基础](https://adhd-learn.manafeng.com/机器学习与深度学习基础/index.html) | 26 | 9.3 h | ⭐ **承重墙**，其余板块都建在它上面 |
+| [机器学习与深度学习基础](https://adhd-learn.manafeng.com/机器学习与深度学习基础/index.html) | 30 | 9.3 h | ⭐ **承重墙**，其余板块都建在它上面 |
 | [机器学习的数学原理](https://adhd-learn.manafeng.com/机器学习的数学原理/index.html) | 19 | 8.1 h | 上一层的「为什么能 work」 |
 | [大模型全景导论](https://adhd-learn.manafeng.com/大模型全景导论/index.html) | 35 | 13.5 h | 索引式，只求「知道有这么回事」，帮你选方向 |
 
