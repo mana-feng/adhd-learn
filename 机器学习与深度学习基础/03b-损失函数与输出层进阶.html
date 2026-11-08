@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>03b · 损失函数与输出层进阶 · 机器学习与深度学习基础</title>
+<title>03b · 回归损失函数：模型如何衡量错误 · 机器学习与深度学习基础</title>
 <script>(function(){try{var t=localStorage.getItem('recsys-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script><style>
 @font-face{font-family:"CodeCJK";
  src:url("../assets/code-cjk-mono.woff2") format("woff2");
@@ -291,220 +291,394 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <div id="scrollbar"></div>
 <header class="site"><div class="inner">
   <a href="../index.html">🏠 总目录</a><a href="index.html">📚 本教程</a>
-  <span class="title">03b · 损失与输出层</span>
-  <span class="prevnext"><a href="03a-逻辑回归与分类.html">←</a>
-  <a href="04-决策树与集成学习.html">→</a></span>
+  <span class="title">03b · 回归损失函数：模型如何衡量错误</span>
+  <span class="prevnext"><a href="03a-逻辑回归与分类.html" aria-label="🚦 03a · 逻辑回归与分类">←</a> <a href="03c-回归输出层.html" aria-label="🎚️ 03c · 回归输出层">→</a> </span>
   <button class="js-done-btn">☐ 打卡</button>
   <button id="themeToggle" type="button" aria-label="切换深浅色" title="切换深浅色">🌗</button>
 </div></header>
-<main id="ml-main" tabindex="-1" class="mg-main"><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
-<ul>
-<li><a href="#_1">🎯 一句话</a></li>
-<li><a href="#regression-loss-robustness">📏 一、同一个残差：MSE、MAE 与 Huber 怎么罚</a></li>
-<li><a href="#regression-output-support">🎚️ 二、回归输出层：先看目标允许什么值</a></li>
-<li><a href="#_8">✅ 检查点</a></li>
-<li><a href="#_9">🛑 可以停在这里</a></li>
-</ul>
-</div>
-</details>
-<div class="lesson-layout" data-lesson="linear-loss">
-<div class="lesson-content"><section class="lesson-hero mg-cover" id="lesson-start" data-route="先知道这页解决什么">
-<div class="mg-cover-copy"><p class="lesson-eyebrow">03B / 线性模型 · 进阶（可跳过）</p><h1>大误差罚多重，<br>输出能落在哪。</h1>
-<p class="mg-question">MSE 一定是回归的最好选择吗？</p><p class="lesson-lead">损失决定大误差被罚多重；输出层决定预测能取哪些值。两者都要跟着任务的目标来选。</p>
-<p class="mg-outcome">比较 MSE、MAE、Huber 对大残差的梯度，按目标范围选择输出映射，知道 clip 放在哪里会改变训练。</p>
-<nav class="mg-actions" aria-label="本页问题与完整正文"><a class="mg-primary" href="#regression-loss-robustness">先比较三种损失</a><a href="#mg-ml-foundations-03b-reading-start">直接进入完整正文</a></nav></div>
+<main id="ml-main" tabindex="-1" class="mg-main">
+<div class="lesson-layout" data-lesson="regression-loss">
+<div class="lesson-content">
+<section class="lesson-hero mg-cover" data-route="先看模型错在哪里" id="lesson-start">
+<h1 id="03b">03b · 回归损失函数：模型如何衡量错误</h1>
+<p class="reading-time">⏱ <strong>阅读约 34 分钟</strong> · 动手实践另计</p>
+<p class="mg-question">模型预测错了，究竟应该如何衡量错误？</p>
+<p>前面我们已经让直线给出预测。现在要把“错在哪里”变成一个可以计算、可以求方向、还可以指导参数更新的数。本章只围绕一个问题前进：<strong>一次预测怎样变成下一次更好的预测？</strong></p>
+<p class="mg-outcome">学完后，你能独立计算残差、MSE、MAE 与 Huber，读懂它们的梯度，并手算一次从损失到权重、偏置更新的完整训练闭环。</p>
 </section>
-<div class="lesson-overview-grid">
-<section class="lesson-card lesson-pause lesson-wide" id="first-pause" data-route="可以停在这里"><h2>可以停在这里</h2><p>记住一句：MSE 对大误差越推越猛，MAE、Huber 的梯度封顶。</p><a href="#full-lesson">继续看图解和完整正文 →</a></section>
-</div>
-
-<span class="mg-reading-start" id="mg-ml-foundations-03b-reading-start" aria-hidden="true"></span>
-<section class="lesson-full mg-article" id="full-lesson" aria-label="完整正文">
-
-<h2 id="03b" class="lesson-original-title">03b · 损失函数与输出层进阶</h2>
-<!-- guided-lesson: linear -->
-<script type="application/json" class="lesson-glossary">
-{
-  "residual": {
-    "title": "残差",
-    "group": "回归",
-    "meaning": "真实值减预测值：r = y − ŷ。正数表示预测偏小，负数表示预测偏大。",
-    "role": "MSE、MAE、Huber 都按残差的大小来罚。它和神经网络里的“残差连接”是两回事。",
-    "example": "实际 20 分钟、预测 17 分钟时 r = 3；MSE 对预测的梯度是 −2r = −6。"
-  }
-}
-</script>
-
-<p>⏱ <strong>13 分钟</strong> ｜ 🔬 <strong>进阶 · 可跳过</strong> ｜ 📐 有公式</p>
-<hr />
-<h2 id="_1">🎯 一句话</h2>
-<p>损失决定<strong>大误差被罚多重</strong>，输出层决定<strong>预测能落在哪些值</strong>；两者都要跟着任务的目标来选。</p>
-<p>前置：<a href="02a-手动训练一个模型.html">02a</a> 的“挪一点看损失怎么变”和 <a href="03-线性模型.html">03</a>。03 用 MSE 和恒等输出预测送达时间；这里回答两个追问：大误差一定要重罚吗？输出层能不能加激活？<strong>跳过本页不影响后面任何一章。</strong></p>
-<hr />
-<h2 id="regression-loss-robustness" data-mg-stop>📏 一、同一个残差：MSE、MAE 与 Huber 怎么罚</h2>
-<p>先认识两个词：</p>
-<ul>
-<li><strong>残差 r</strong>：真实减预测。正数表示预测偏小，负数表示预测偏大。实际 20 分钟，预测 17 分钟，r = 20 − 17 = 3；预测 23 分钟，r = −3。</li>
-<li><strong>梯度</strong>：这个样本对“下一步怎么改模型”的推力。数值越大，这个样本越能左右模型往哪改。</li>
-</ul>
-<p>三种损失都是“残差越大罚得越多”，区别在于<strong>罚得有多狠</strong>：MSE 罚残差的平方，MAE 罚残差的绝对值，Huber 在小残差时像 MSE、大残差时像 MAE。</p>
-<p>符号：<strong>残差 $r=y-\hat y$</strong>；下面都是单个元素、尚未求和平均的损失 $\ell(r)$，梯度对 $\hat y$ 求导。</p>
+<blockquote>
+<p><strong>前置连接</strong>：在 <a href="02a-手动训练一个模型.html">02a</a> 里，我们用“往两边挪一点”观察损失变化；在 <a href="03-线性模型.html">03</a> 里，模型写成 <code>ŷ = wx + b</code>。这里不假设你学过微积分，会从“变化有多快”开始。读完本章再去 03c；03d 是选读。</p>
+</blockquote>
+<section aria-label="完整正文" class="lesson-full mg-article" id="full-lesson">
+<h2 data-mg-stop data-route="先看四份订单" id="delivery-case">1. 先看四份外卖订单</h2>
+<p>一家外卖平台想预测送达时间，单位都是<strong>分钟</strong>。历史订单已经送达，所以实际时间 <code>y</code> 已知；模型在送达前给出的预测记作 <code>ŷ</code>（读作“y 帽”）。</p>
 <div class="tw"><table>
-<caption>损失形状决定大残差对一次更新的影响</caption>
-<thead><tr><th>损失</th><th>单元素值</th><th>$\partial\ell/\partial\hat y$</th></tr></thead>
+<thead>
+<tr>
+<th>订单</th>
+<th style="text-align: right;">实际时间 <code>y</code></th>
+<th style="text-align: right;">预测时间 <code>ŷ</code></th>
+<th>先用自然语言观察</th>
+</tr>
+</thead>
 <tbody>
-<tr><td>MSE / 平方损失</td><td>$r^2$</td><td>$-2r$</td></tr>
-<tr><td>MAE / 绝对损失</td><td>$|r|$</td><td>$r\ne0$时为 $-\operatorname{sgn}(r)$；$r=0$不可导，可选次梯度 $[-1,1]$ 中的值</td></tr>
-<tr><td>Huber，$\delta&gt;0$</td><td>$|r|\le\delta$：$r^2/2$；否则 $\delta(|r|-\delta/2)$</td><td>$|r|\le\delta$：$-r$；否则 $-\delta\operatorname{sgn}(r)$</td></tr>
-</tbody></table></div>
-<figure class="dia" id="regression-residual-example" data-fig="ml03-loss-shapes" data-ml-diagram="wide" tabindex="0" style="--ml-diagram-width:760px" aria-label="教学图，可在图内左右滚动或使用放大按钮"><p class="ml-diagram-hint">图内可左右滑动；需要时可放大阅读。</p><svg viewBox="0 0 760 346" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="MSE、MAE、Huber 三种损失及其梯度随残差变化的曲线，标出残差 0.5 与 3 两处的数值"><title>同一个残差下三种损失与梯度</title><text x="380" y="26" font-size="15" text-anchor="middle" fill="var(--fg)" font-weight="700">同一个残差 r，三种损失怎么罚（δ = 1，只画 r ≥ 0）</text><line x1="190" y1="52" x2="220" y2="52" stroke="var(--accent)" stroke-width="3.5" stroke-linecap="round"/><text x="228" y="57" font-size="13" text-anchor="start" fill="var(--fg)">MSE：r²</text><line x1="330" y1="52" x2="360" y2="52" stroke="var(--done)" stroke-width="5" stroke-linecap="round"/><text x="368" y="57" font-size="13" text-anchor="start" fill="var(--fg)">Huber</text><line x1="450" y1="52" x2="480" y2="52" stroke="var(--link)" stroke-width="2.5" stroke-dasharray="7 5" stroke-linecap="round"/><text x="488" y="57" font-size="13" text-anchor="start" fill="var(--fg)">MAE：|r|</text><text x="70" y="84" font-size="13" text-anchor="start" fill="var(--muted)">损失 ℓ(r)</text><text x="430" y="84" font-size="13" text-anchor="start" fill="var(--muted)">对预测的梯度大小 |∂ℓ/∂ŷ|</text><line x1="70" y1="276" x2="350" y2="276" stroke="var(--fg)" stroke-width="2"/><line x1="70" y1="276" x2="70" y2="96" stroke="var(--fg)" stroke-width="2"/><text x="62" y="280" font-size="12" text-anchor="end" fill="var(--muted)">0</text><text x="62" y="190" font-size="12" text-anchor="end" fill="var(--muted)">5</text><text x="62" y="100" font-size="12" text-anchor="end" fill="var(--muted)">10</text><text x="70" y="294" font-size="12" text-anchor="middle" fill="var(--muted)">0</text><text x="110" y="294" font-size="12" text-anchor="middle" fill="var(--muted)">0.5</text><text x="150" y="294" font-size="12" text-anchor="middle" fill="var(--muted)">1</text><text x="230" y="294" font-size="12" text-anchor="middle" fill="var(--muted)">2</text><text x="310" y="294" font-size="12" text-anchor="middle" fill="var(--muted)">3</text><line x1="110" y1="276" x2="110" y2="102" stroke="var(--border)" stroke-width="1.2" stroke-dasharray="4 4"/><line x1="310" y1="276" x2="310" y2="102" stroke="var(--border)" stroke-width="1.2" stroke-dasharray="4 4"/><text x="210" y="314" font-size="13" text-anchor="middle" fill="var(--muted)">残差 r</text><line x1="430" y1="276" x2="710" y2="276" stroke="var(--fg)" stroke-width="2"/><line x1="430" y1="276" x2="430" y2="96" stroke="var(--fg)" stroke-width="2"/><text x="422" y="280" font-size="12" text-anchor="end" fill="var(--muted)">0</text><text x="422" y="254.286" font-size="12" text-anchor="end" fill="var(--muted)">1</text><text x="422" y="125.714" font-size="12" text-anchor="end" fill="var(--muted)">6</text><text x="430" y="294" font-size="12" text-anchor="middle" fill="var(--muted)">0</text><text x="470" y="294" font-size="12" text-anchor="middle" fill="var(--muted)">0.5</text><text x="510" y="294" font-size="12" text-anchor="middle" fill="var(--muted)">1</text><text x="590" y="294" font-size="12" text-anchor="middle" fill="var(--muted)">2</text><text x="670" y="294" font-size="12" text-anchor="middle" fill="var(--muted)">3</text><line x1="470" y1="276" x2="470" y2="102" stroke="var(--border)" stroke-width="1.2" stroke-dasharray="4 4"/><line x1="670" y1="276" x2="670" y2="102" stroke="var(--border)" stroke-width="1.2" stroke-dasharray="4 4"/><text x="570" y="314" font-size="13" text-anchor="middle" fill="var(--muted)">残差 r</text><path d="M70.0 276.0 L74.0 276.0 L78.0 275.9 L82.0 275.8 L86.0 275.6 L90.0 275.4 L94.0 275.2 L98.0 274.9 L102.0 274.6 L106.0 274.2 L110.0 273.8 L114.0 273.3 L118.0 272.8 L122.0 272.2 L126.0 271.6 L130.0 270.9 L134.0 270.2 L138.0 269.5 L142.0 268.7 L146.0 267.9 L150.0 267.0 L154.0 266.1 L158.0 265.2 L162.0 264.3 L166.0 263.4 L170.0 262.5 L174.0 261.6 L178.0 260.7 L182.0 259.8 L186.0 258.9 L190.0 258.0 L194.0 257.1 L198.0 256.2 L202.0 255.3 L206.0 254.4 L210.0 253.5 L214.0 252.6 L218.0 251.7 L222.0 250.8 L226.0 249.9 L230.0 249.0 L234.0 248.1 L238.0 247.2 L242.0 246.3 L246.0 245.4 L250.0 244.5 L254.0 243.6 L258.0 242.7 L262.0 241.8 L266.0 240.9 L270.0 240.0 L274.0 239.1 L278.0 238.2 L282.0 237.3 L286.0 236.4 L290.0 235.5 L294.0 234.6 L298.0 233.7 L302.0 232.8 L306.0 231.9 L310.0 231.0 L314.0 230.1 L318.0 229.2 L322.0 228.3 L326.0 227.4 L330.0 226.5 L334.0 225.6 L338.0 224.7 L342.0 223.8 L346.0 222.9 L350.0 222.0" fill="none" stroke="var(--done)" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/><path d="M70.0 276.0 L210.0 244.5 L350.0 213.0" fill="none" stroke="var(--link)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="7 5"/><path d="M70.0 276.0 L74.2 275.9 L78.4 275.8 L82.6 275.6 L86.9 275.2 L91.1 274.8 L95.3 274.2 L99.5 273.6 L103.7 272.8 L107.9 271.9 L112.2 271.0 L116.4 269.9 L120.6 268.8 L124.8 267.6 L129.0 266.2 L133.2 264.8 L137.5 263.2 L141.7 261.6 L145.9 259.8 L150.1 257.9 L154.3 256.0 L158.5 253.9 L162.8 251.8 L167.0 249.5 L171.2 247.2 L175.4 244.8 L179.6 242.2 L183.8 239.6 L188.1 236.8 L192.3 233.9 L196.5 231.0 L200.7 227.9 L204.9 224.8 L209.1 221.6 L213.4 218.2 L217.6 214.8 L221.8 211.2 L226.0 207.6 L230.2 203.8 L234.4 199.9 L238.7 196.0 L242.9 192.0 L247.1 187.8 L251.3 183.5 L255.5 179.2 L259.7 174.8 L264.0 170.2 L268.2 165.5 L272.4 160.8 L276.6 155.9 L280.8 151.0 L285.0 145.9 L289.3 140.8 L293.5 135.5 L297.7 130.2 L301.9 124.8 L306.1 119.2 L310.3 113.5 L314.5 107.8 L318.8 101.9 L323.0 96.0" fill="none" stroke="var(--accent)" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/><circle cx="110.0" cy="271.5" r="4.5" fill="var(--accent)"/><circle cx="110.0" cy="267.0" r="4.5" fill="var(--link)"/><circle cx="110.0" cy="273.8" r="4.5" fill="var(--done)"/><circle cx="310.0" cy="114.0" r="4.5" fill="var(--accent)"/><circle cx="310.0" cy="222.0" r="4.5" fill="var(--link)"/><circle cx="310.0" cy="231.0" r="4.5" fill="var(--done)"/><rect x="80" y="102" width="182" height="66" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.2"/><text x="90" y="124" font-size="12.5" text-anchor="start" fill="var(--fg)">r = 3 → 9 / 3 / 2.5</text><text x="90" y="143" font-size="12.5" text-anchor="start" fill="var(--fg)">r = 0.5 → 0.25 / 0.5 / 0.125</text><text x="90" y="161" font-size="12" text-anchor="start" fill="var(--muted)">顺序：MSE / MAE / Huber</text><path d="M430.0 276.0 L434.0 274.7 L438.0 273.4 L442.0 272.1 L446.0 270.9 L450.0 269.6 L454.0 268.3 L458.0 267.0 L462.0 265.7 L466.0 264.4 L470.0 263.1 L474.0 261.9 L478.0 260.6 L482.0 259.3 L486.0 258.0 L490.0 256.7 L494.0 255.4 L498.0 254.1 L502.0 252.9 L506.0 251.6 L510.0 250.3 L514.0 250.3 L518.0 250.3 L522.0 250.3 L526.0 250.3 L530.0 250.3 L534.0 250.3 L538.0 250.3 L542.0 250.3 L546.0 250.3 L550.0 250.3 L554.0 250.3 L558.0 250.3 L562.0 250.3 L566.0 250.3 L570.0 250.3 L574.0 250.3 L578.0 250.3 L582.0 250.3 L586.0 250.3 L590.0 250.3 L594.0 250.3 L598.0 250.3 L602.0 250.3 L606.0 250.3 L610.0 250.3 L614.0 250.3 L618.0 250.3 L622.0 250.3 L626.0 250.3 L630.0 250.3 L634.0 250.3 L638.0 250.3 L642.0 250.3 L646.0 250.3 L650.0 250.3 L654.0 250.3 L658.0 250.3 L662.0 250.3 L666.0 250.3 L670.0 250.3 L674.0 250.3 L678.0 250.3 L682.0 250.3 L686.0 250.3 L690.0 250.3 L694.0 250.3 L698.0 250.3 L702.0 250.3 L706.0 250.3 L710.0 250.3" fill="none" stroke="var(--done)" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/><path d="M431.6 250.3 L710.0 250.3" fill="none" stroke="var(--link)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="7 5"/><path d="M430.0 276.0 L710.0 96.0" fill="none" stroke="var(--accent)" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/><circle cx="470.0" cy="250.3" r="4.5" fill="var(--accent)"/><circle cx="470.0" cy="250.3" r="4.5" fill="var(--link)"/><circle cx="470.0" cy="263.1" r="4.5" fill="var(--done)"/><circle cx="670.0" cy="121.7" r="4.5" fill="var(--accent)"/><circle cx="670.0" cy="250.3" r="4.5" fill="var(--link)"/><circle cx="670.0" cy="250.3" r="4.5" fill="var(--done)"/><rect x="440" y="102" width="160" height="66" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.2"/><text x="450" y="124" font-size="12.5" text-anchor="start" fill="var(--fg)">r = 3 → 6 / 1 / 1</text><text x="450" y="143" font-size="12.5" text-anchor="start" fill="var(--fg)">r = 0.5 → 1 / 1 / 0.5</text><text x="450" y="161" font-size="12" text-anchor="start" fill="var(--muted)">顺序：MSE / MAE / Huber</text><text x="704" y="240" font-size="12.5" text-anchor="end" fill="var(--fg)">MAE、Huber 封顶在 1</text><text x="380" y="334" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">残差变大：MSE 的梯度跟着线性变大；MAE、Huber 的梯度封顶 —— 大误差不再无限加力</text></svg><figcaption>δ = 1，单个元素、尚未做 reduction。右图画的是梯度大小：r 为正（预测偏小）时梯度为负，下一步把预测调大；负残差左右对称。这些是公式核算，不是训练效果或速度测试。</figcaption></figure>
-<h3 id="loss-outlier">一个录错的订单，能把模型拖多远</h3>
-<p>5 单里有 4 单误差正常，第 5 单的用时多录了 30 分钟。下一步更新时，谁在推模型？</p>
-<figure class="dia" data-fig="ml03b-outlier-pull" data-ml-diagram="wide" tabindex="0" style="--ml-diagram-width:760px" aria-label="教学图，可在图内左右滚动或使用放大按钮"><p class="ml-diagram-hint">图内可左右滑动；需要时可放大阅读。</p><svg viewBox="0 0 760 258" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="残差为 1、负 1、2、负 2、30 的五个样本在 MSE、Huber、MAE 下各自占总梯度的比例，标错样本分别占 83%、25%、20%"><title>标错样本在三种损失下的推力占比</title><text x="380" y="26" font-size="15" text-anchor="middle" fill="var(--fg)" font-weight="700">一个录错的订单，能把模型拖多远</text><text x="395" y="52" font-size="12.5" text-anchor="middle" fill="var(--muted)">每条 = 5 个样本这一步的总推力（按梯度大小分份）；橘色是标错的样本 5</text><text x="158" y="89" font-size="13.5" text-anchor="end" fill="var(--fg)" font-weight="700">MSE</text><rect x="170.0" y="70" width="12.5" height="28" fill="var(--quote-bg)" stroke="var(--card)" stroke-width="1.5"/><rect x="182.5" y="70" width="12.5" height="28" fill="var(--quote-bg)" stroke="var(--card)" stroke-width="1.5"/><rect x="195.0" y="70" width="25.0" height="28" fill="var(--quote-bg)" stroke="var(--card)" stroke-width="1.5"/><rect x="220.0" y="70" width="25.0" height="28" fill="var(--quote-bg)" stroke="var(--card)" stroke-width="1.5"/><rect x="245.0" y="70" width="375.0" height="28" fill="var(--accent)" stroke="var(--card)" stroke-width="1.5"/><text x="634" y="89" font-size="13" text-anchor="start" fill="var(--fg)" font-weight="700">标错样本占 83%</text><text x="158" y="147" font-size="13.5" text-anchor="end" fill="var(--fg)" font-weight="700">Huber（δ = 2）</text><rect x="170.0" y="128" width="56.2" height="28" fill="var(--quote-bg)" stroke="var(--card)" stroke-width="1.5"/><rect x="226.2" y="128" width="56.2" height="28" fill="var(--quote-bg)" stroke="var(--card)" stroke-width="1.5"/><rect x="282.5" y="128" width="112.5" height="28" fill="var(--quote-bg)" stroke="var(--card)" stroke-width="1.5"/><rect x="395.0" y="128" width="112.5" height="28" fill="var(--quote-bg)" stroke="var(--card)" stroke-width="1.5"/><rect x="507.5" y="128" width="112.5" height="28" fill="var(--accent)" stroke="var(--card)" stroke-width="1.5"/><text x="634" y="147" font-size="13" text-anchor="start" fill="var(--fg)" font-weight="700">标错样本占 25%</text><text x="158" y="205" font-size="13.5" text-anchor="end" fill="var(--fg)" font-weight="700">MAE</text><rect x="170.0" y="186" width="90.0" height="28" fill="var(--quote-bg)" stroke="var(--card)" stroke-width="1.5"/><rect x="260.0" y="186" width="90.0" height="28" fill="var(--quote-bg)" stroke="var(--card)" stroke-width="1.5"/><rect x="350.0" y="186" width="90.0" height="28" fill="var(--quote-bg)" stroke="var(--card)" stroke-width="1.5"/><rect x="440.0" y="186" width="90.0" height="28" fill="var(--quote-bg)" stroke="var(--card)" stroke-width="1.5"/><rect x="530.0" y="186" width="90.0" height="28" fill="var(--accent)" stroke="var(--card)" stroke-width="1.5"/><text x="634" y="205" font-size="13" text-anchor="start" fill="var(--fg)" font-weight="700">标错样本占 20%</text><text x="395" y="246" font-size="12.5" text-anchor="middle" fill="var(--muted)">残差：样本 1～4 是 1、−1、2、−2（正常误差），样本 5 是 30（用时多录了 30 分钟）</text></svg><figcaption>梯度大小：MSE 是 2|r|，Huber 在 |r| ≤ δ 时是 |r|、超过后封顶为 δ，MAE 恒为 1。MSE 下，一个标错的样本独占八成多推力。</figcaption></figure>
-<p>MSE 下，模型这一步几乎只在迁就那个错样本；Huber 和 MAE 把它的推力限制住，其余 4 个正常样本仍然说得上话。</p>
-<h3 id="loss-mean-median">只能猜一个数时：MSE 选平均数，MAE 选中位数</h3>
-<p>极端一点：模型对所有订单只能给同一个预测。5 单用时是 14、15、16、17、60 分钟（60 是录错的）：</p>
+<tr>
+<td>A</td>
+<td style="text-align: right;">20</td>
+<td style="text-align: right;">18</td>
+<td>早猜了 2 分钟</td>
+</tr>
+<tr>
+<td>B</td>
+<td style="text-align: right;">30</td>
+<td style="text-align: right;">32</td>
+<td>晚猜了 2 分钟</td>
+</tr>
+<tr>
+<td>C</td>
+<td style="text-align: right;">25</td>
+<td style="text-align: right;">20</td>
+<td>早猜了 5 分钟</td>
+</tr>
+<tr>
+<td>D</td>
+<td style="text-align: right;">40</td>
+<td style="text-align: right;">38</td>
+<td>早猜了 2 分钟</td>
+</tr>
+</tbody>
+</table></div>
+<p>如果只看 A，我们会说模型差 2 分钟；但模型要服务很多订单，不能只挑一个样本看。还会遇到另一个难题：<strong>差 5 分钟是否应该只算差 2 分钟的 2.5 倍，还是应该罚得更重？</strong> 损失函数就是把一批“差多少”合成一个训练目标的规则。</p>
+<h2 data-mg-stop data-route="理解残差方向" id="residual">2. 残差先保留方向</h2>
+<p>我们先不急着求损失，而是把每个订单的差写下来：</p>
+<p>$$r = y - \hat y$$</p>
+<ul>
+<li><code>r</code> 是残差，单位仍是分钟；</li>
+<li><code>y</code> 是实际送达时间，来自已经发生的订单；</li>
+<li><code>ŷ</code> 是模型预测时间；</li>
+<li>约定“实际减预测”，是为了让正负号直接表达模型猜早还是猜晚。别的资料可能用相反约定，只要推导始终一致也可以。</li>
+</ul>
+<p>三个完整例子：</p>
+<ol>
+<li><strong>正残差</strong>：实际 20，预测 18，<code>r = 20 - 18 = 2</code>。模型猜少了 2 分钟。</li>
+<li><strong>负残差</strong>：实际 30，预测 32，<code>r = 30 - 32 = -2</code>。模型猜多了 2 分钟。</li>
+<li><strong>零残差</strong>：实际 25，预测 25，<code>r = 25 - 25 = 0</code>。这一单恰好猜中。</li>
+</ol>
+<p>残差保留方向，因此它<strong>不是</strong>绝对误差 <code>|r|</code>，也<strong>不是</strong>损失函数。如果直接把四个残差相加，正负可能抵消：本例残差是 <code>[2,-2,5,2]</code>，总和为 7，但这不能说明每单只错了 1.75 分钟。</p>
+<h2 data-mg-stop data-route="从平方到平均" id="mse">3. 从平方误差走到 MSE</h2>
+<p>训练目标通常要满足“猜中时为 0，偏离越多越大”。为避免正负抵消，可以先把残差变成非负数。平方是一个选择：正负残差平方后相同，而且大残差会被更快放大。</p>
 <div class="tw"><table>
-<thead><tr><th>损失</th><th>让损失最小的那个数</th><th>结果</th></tr></thead>
+<thead>
+<tr>
+<th style="text-align: right;">残差大小</th>
+<th style="text-align: right;">原始误差大小</th>
+<th style="text-align: right;">平方误差</th>
+</tr>
+</thead>
 <tbody>
-<tr><td>MSE</td><td>平均数</td><td>(14 + 15 + 16 + 17 + 60) / 5 = <strong>24.4</strong>，被 60 拉跑了</td></tr>
-<tr><td>MAE</td><td>中位数</td><td><strong>16</strong>，几乎不受 60 影响</td></tr>
-</tbody></table></div>
-<p>反过来，如果 60 分钟是真的，比如暴雨天，而且猜错它的代价很高，你可能正需要 MSE 去照顾它。<strong>损失没有绝对好坏，只看大误差在你的任务里算不算数。</strong></p>
-<p><strong>怎么选：</strong>先按下面选一个起点，再用验证集确认。</p>
+<tr>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">1</td>
+</tr>
+<tr>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">4</td>
+</tr>
+<tr>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">9</td>
+</tr>
+<tr>
+<td style="text-align: right;">5</td>
+<td style="text-align: right;">5</td>
+<td style="text-align: right;">25</td>
+</tr>
+<tr>
+<td style="text-align: right;">10</td>
+<td style="text-align: right;">10</td>
+<td style="text-align: right;">100</td>
+</tr>
+</tbody>
+</table></div>
+<p>先看<strong>一个样本</strong>。平方误差写作：</p>
+<p>$$L=(y-\hat y)^2=r^2$$</p>
+<p>这里 <code>L</code> 是这个样本的损失，单位是“分钟²”。A 单代入：<code>L = (20 - 18)² = 2² = 4</code>。</p>
+<p>再看 <code>n</code> 个样本。把每个平方误差相加，才不会遗漏任何订单；再除以元素个数 <code>n</code>，不同批次大小的数值才更容易比较：</p>
+<p>$$\operatorname{MSE}=\frac{1}{n}\sum_{i=1}^{n}(y_i-\hat y_i)^2$$</p>
 <ul>
-<li>数据干净，大误差的代价确实很高 → <strong>MSE</strong>（默认起点）。</li>
-<li>怀疑有标错或极端值，又想保留小误差时的平滑 → <strong>Huber</strong>，δ 取“正常误差”的量级。</li>
-<li>只关心中位数附近的典型情况，要对极端值很稳 → <strong>MAE</strong>。</li>
+<li><code>i</code> 是样本编号；<code>n</code> 是参与平均的元素数；</li>
+<li><code>Σ</code> 表示把 <code>i=1</code> 到 <code>n</code> 的值相加；</li>
+<li>本例 <code>n=4</code>，MSE <code>=(2²+(-2)²+5²+2²)/4=(4+4+25+4)/4=9.25</code> 分钟²。</li>
 </ul>
-
-<p><strong>鲁棒性有边界：</strong>$\delta$ 与目标同量纲，目标缩放后要用验证集重选；MAE/Huber 也挡不住极大的输入 $x$。</p>
-<details id="regression-loss-details"><summary>🔎 细节：衔接点、reduction 与适用边界</summary>
+<p><strong>不要混叫</strong>：<code>(y-ŷ)²</code> 是一个元素的平方误差；MSE 是多个元素平方误差的平均。</p>
+<p><code>reduction=sum</code> 只求和，本例得到 37；<code>reduction=mean</code> 再除以元素数，本例得到 9.25。它们的最优点相同，但梯度整体相差一个缩放倍数，学习率不能机械照搬。多输出张量中，“mean”通常平均<strong>所有参与损失的元素</strong>，不一定只除以批次人数；例如 4 个样本、每个 3 个输出，常见默认会除以 12。必须查所用 API 的定义。</p>
+<h2 data-mg-stop data-route="比较绝对误差" id="mae">4. 为什么还要 MAE</h2>
+<p>平方会让大错误迅速占据损失。如果 C 单不是正常的 5 分钟误差，而是把 25 误录成 250，一个录入错误就可能支配训练。另一种做法是只看距离，不再平方：</p>
+<p>$$\operatorname{MAE}=\frac{1}{n}\sum_{i=1}^{n}|y_i-\hat y_i|$$</p>
+<p>绝对值 <code>|r|</code> 把正负残差都变成非负距离，但保持线性增长：残差从 5 变成 10，MAE 项从 5 变 10；平方误差却从 25 变 100。</p>
+<p>本例完整代入：</p>
+<p>$$\operatorname{MAE}=\frac{|2|+|-2|+|5|+|2|}{4}=\frac{11}{4}=2.75\text{ 分钟}$$</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>比较</th>
+<th>MSE</th>
+<th>MAE</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>大误差的增长</td>
+<td>平方增长，越来越重</td>
+<td>线性增长</td>
+</tr>
+<tr>
+<td>对异常值</td>
+<td>更敏感</td>
+<td>相对稳健</td>
+</tr>
+<tr>
+<td>接近 0 的曲线</td>
+<td>光滑</td>
+<td>0 处有尖角</td>
+</tr>
+<tr>
+<td>常见起点</td>
+<td>高斯型、较干净噪声；大错确实更贵</td>
+<td>标签可能有异常；每分钟误差代价近似相同</td>
+</tr>
+</tbody>
+</table></div>
+<p>这不是“MAE 永远更好”。如果晚 30 分钟确实比晚 3 分钟严重得多，MSE 的重罚可能正是业务需要的。</p>
+<h2 data-mg-stop data-route="理解 Huber 分段" id="huber">5. Huber：小误差平滑，大误差限力</h2>
+<p>MSE 在零点附近光滑，但异常值推力很大；MAE 抗异常值，却在零点有尖角。能否把两者拼在一起？Huber loss 用阈值 <code>δ</code> 决定在哪里切换：</p>
+<p>$$
+L_\delta(r)=
+\begin{cases}
+\frac12r^2, &amp; |r|\le\delta\
+\delta\left(|r|-\frac12\delta\right), &amp; |r|&gt;\delta
+\end{cases}
+$$</p>
+<p><code>δ&gt;0</code> 与残差单位相同，本例也是分钟。<code>|r|≤δ</code> 时用半个平方，保留平滑曲线；超过阈值后线性增长，把大误差的推力封顶。</p>
+<p>为什么第二段不是简单写成 <code>δ|r|</code>？在边界 <code>|r|=δ</code>：第一段是 <code>0.5δ²</code>；第二段是 <code>δ(δ-0.5δ)=0.5δ²</code>，两边接上了，曲线不会突然跳一下。</p>
+<p>取 <code>δ=2</code>，逐项代入：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th style="text-align: right;"><code>r</code></th>
+<th style="text-align: right;">MSE 项 <code>r²</code></th>
+<th style="text-align: right;">MAE 项 <code>|r|</code></th>
+<th style="text-align: right;">Huber 项</th>
+<th>Huber 计算</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0.5</td>
+<td><code>0.5×1²</code></td>
+</tr>
+<tr>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">2</td>
+<td><code>0.5×2²</code>，恰在边界</td>
+</tr>
+<tr>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">4</td>
+<td><code>2×(3-1)</code></td>
+</tr>
+<tr>
+<td style="text-align: right;">10</td>
+<td style="text-align: right;">100</td>
+<td style="text-align: right;">10</td>
+<td style="text-align: right;">18</td>
+<td><code>2×(10-1)</code></td>
+</tr>
+</tbody>
+</table></div>
+<p><code>δ</code> 没有脱离任务的万能值。先按“多大的误差开始像异常”给候选，再用验证集比较。如果把目标从分钟改成秒，残差扩大 60 倍，原来的 <code>δ=2</code> 分钟应对应 120 秒；目标标准化后也要重新解释和选择 <code>δ</code>。</p>
+<h2 data-mg-stop data-route="从斜率到梯度" id="gradient">6. 梯度到底是什么</h2>
+<p>先不看符号。把预测从 18 改成 18.1，损失会增加还是减少？<strong>函数变化</strong>就是输入挪动后输出怎样变；<strong>斜率</strong>描述“横向挪 1 单位，纵向大约变多少”；当横向步长缩得非常小，极限斜率叫<strong>导数</strong>。</p>
+<p>模型有很多可调数时，我们只让其中一个变化、其余先固定，得到<strong>偏导数</strong>。把所有参数的偏导数组在一起，就是<strong>梯度</strong>。梯度告诉训练程序：每个参数往正方向挪一点，损失上升多快。为了让损失下降，更新时走梯度的反方向。</p>
+<p>以单样本平方误差开始：</p>
+<p>$$L=(y-\hat y)^2$$</p>
+<p>我们对预测 <code>ŷ</code> 求导，因为先要知道“预测变化一点，损失怎样变”。令 <code>u=y-ŷ</code>，则 <code>L=u²</code>：</p>
+<ol>
+<li>外层平方的导数：<code>∂L/∂u = 2u</code>；</li>
+<li>内层 <code>u=y-ŷ</code> 对 <code>ŷ</code> 的导数是 <code>∂u/∂ŷ=-1</code>，负号来自“预测增加时，实际减预测会减少”；</li>
+<li>连起来：<code>∂L/∂ŷ=(∂L/∂u)(∂u/∂ŷ)=2u×(-1)</code>；</li>
+<li>换回残差：</li>
+</ol>
+<p>$$\frac{\partial L}{\partial\hat y}=-2(y-\hat y)=-2r$$</p>
+<p>若 <code>r&gt;0</code>，预测偏小，梯度为负；稍后做 <code>参数 - 学习率×梯度</code>，负梯度会让预测上升。若 <code>r&lt;0</code>，梯度为正，更新会让预测下降。绝对值越大，表示这条支路的局部推力越强。</p>
+<p>MAE 来自 <code>L=|r|</code>：<code>r&gt;0</code> 时 <code>|r|=r</code>，对 <code>ŷ</code> 的导数是 <code>-1</code>；<code>r&lt;0</code> 时 <code>|r|=-r</code>，导数是 <code>+1</code>。所以 <code>r≠0</code> 时 <code>∂L/∂ŷ=-sign(r)</code>。在 <code>r=0</code> 的尖角，左右导数不同，严格说不可导；损失函数的自动微分实现需要约定返回 <code>[-1,1]</code> 中哪个<strong>次梯度</strong>，常见自动微分实现取 0，优化器只接收并使用这个结果。</p>
+<p>Huber 同理分段求导：</p>
+<p>$$
+\frac{\partial L_\delta}{\partial\hat y}=
+\begin{cases}
+-r, &amp; |r|\le\delta\
+-\delta\operatorname{sign}(r), &amp; |r|&gt;\delta
+\end{cases}
+$$</p>
+<p>小误差段 <code>0.5r²</code> 对 <code>r</code> 的导数是 <code>r</code>，再乘 <code>∂r/∂ŷ=-1</code> 得 <code>-r</code>；大误差段对 <code>|r|</code> 的斜率是 <code>δ</code>，再带方向与负号。边界两边的导数大小都等于 <code>δ</code>，因此斜率也连续。</p>
+<h2 data-mg-stop data-route="把梯度传给参数" id="chain-rule">7. 预测不是旋钮：链式法则把梯度送到参数</h2>
+<p>训练时不能直接抓住 <code>ŷ</code> 修改。线性模型真正能调的是权重 <code>w</code> 和偏置 <code>b</code>：</p>
+<p>$$\hat y=wx+b$$</p>
+<p><code>x</code> 是订单特征（例如距离），<code>w</code> 是每单位特征带来的时间，<code>b</code> 是不随该特征变化的基线。<code>w</code> 变化会先改变 <code>ŷ</code>，<code>ŷ</code> 再改变 <code>L</code>。<strong>链式法则</strong>就是把这两段变化率相乘：</p>
+<p>$$\frac{\partial L}{\partial w}=\frac{\partial L}{\partial\hat y}\frac{\partial\hat y}{\partial w},\qquad
+\frac{\partial L}{\partial b}=\frac{\partial L}{\partial\hat y}\frac{\partial\hat y}{\partial b}$$</p>
+<p>因为 <code>ŷ=wx+b</code>，固定其他量时 <code>w</code> 每增加 1，预测增加 <code>x</code>，所以 <code>∂ŷ/∂w=x</code>；<code>b</code> 每增加 1，预测增加 1，所以 <code>∂ŷ/∂b=1</code>。平方误差于是得到：</p>
+<p>$$\frac{\partial L}{\partial w}=-2r\,x,\qquad \frac{\partial L}{\partial b}=-2r$$</p>
+<p>权重梯度多乘一个 <code>x</code>，这正说明输入特征会放大或缩小样本对参数更新的影响；偏置支路不乘 <code>x</code>。</p>
+<h2 data-mg-stop data-route="完成一次训练闭环" id="parameter-update">8. 完整手算一次参数更新</h2>
+<p>现在把整条链走完。给定 <code>x=2</code>、<code>y=10</code>、<code>w=3</code>、<code>b=1</code>，学习率 <code>η=0.01</code>。学习率控制每次沿负梯度走多大一步。</p>
+<ol>
+<li>原始预测：<code>ŷ = wx+b = 3×2+1 = 7</code>。</li>
+<li>残差：<code>r = y-ŷ = 10-7 = 3</code>。</li>
+<li>平方误差：<code>L = r² = 3² = 9</code>。</li>
+<li>预测梯度：<code>∂L/∂ŷ = -2r = -6</code>。</li>
+<li>权重梯度：<code>∂L/∂w = (∂L/∂ŷ)x = -6×2 = -12</code>。</li>
+<li>偏置梯度：<code>∂L/∂b = (∂L/∂ŷ)×1 = -6</code>。</li>
+<li>更新权重：<code>w_new = w - η(∂L/∂w) = 3 - 0.01×(-12) = 3.12</code>。</li>
+<li>更新偏置：<code>b_new = b - η(∂L/∂b) = 1 - 0.01×(-6) = 1.06</code>。</li>
+<li>新预测：<code>ŷ_new = 3.12×2+1.06 = 7.30</code>。</li>
+<li>新损失：<code>L_new = (10-7.30)² = 2.7² = 7.29</code>。</li>
+</ol>
+<p>损失从 9 降到 7.29。这只证明<strong>这一小步</strong>在这个样本上下降，不保证任意大学习率或整批数据都下降。</p>
+<figure aria-label="损失到新损失的训练闭环" class="dia"><svg viewBox="0 0 760 150" role="img"><title>训练闭环</title><rect x="10" y="45" width="125" height="58" rx="10" fill="var(--card)" stroke="var(--border)"/><rect x="165" y="45" width="125" height="58" rx="10" fill="var(--card)" stroke="var(--border)"/><rect x="320" y="45" width="125" height="58" rx="10" fill="var(--card)" stroke="var(--border)"/><rect x="475" y="45" width="125" height="58" rx="10" fill="var(--card)" stroke="var(--border)"/><rect x="630" y="45" width="120" height="58" rx="10" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="72" y="80" text-anchor="middle" fill="var(--fg)">预测 7</text><text x="227" y="80" text-anchor="middle" fill="var(--fg)">损失 9</text><text x="382" y="80" text-anchor="middle" fill="var(--fg)">梯度</text><text x="537" y="80" text-anchor="middle" fill="var(--fg)">更新 w、b</text><text x="690" y="72" text-anchor="middle" fill="var(--fg)">新预测 7.30</text><text x="690" y="91" text-anchor="middle" fill="var(--fg)">新损失 7.29</text><text x="149" y="80" text-anchor="middle" fill="var(--accent)">→</text><text x="304" y="80" text-anchor="middle" fill="var(--accent)">→</text><text x="459" y="80" text-anchor="middle" fill="var(--accent)">→</text><text x="614" y="80" text-anchor="middle" fill="var(--accent)">→</text></svg><figcaption>损失函数 → 梯度 → 参数更新 → 新预测 → 新损失，才是一轮完整训练。</figcaption></figure>
+<h2 data-mg-stop data-route="观察异常值推力" id="outlier-experiment">9. 异常值实验：谁在推模型</h2>
+<p>保留五个残差 <code>[1,-1,2,-2,30]</code>。这次把五个元素先取平均，因此比较的是<strong>批量 mean 损失对每个预测值 <code>ŷ_i</code> 的梯度绝对值</strong>。例如 <code>MSE=(1/5)Σr_i²</code>，所以 <code>|∂MSE/∂ŷ_i|=2|r_i|/5</code>；MAE 与 Huber 也都有相同的 <code>1/5</code> 因子。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>样本残差</th>
+<th style="text-align: right;">1</th>
+<th style="text-align: right;">-1</th>
+<th style="text-align: right;">2</th>
+<th style="text-align: right;">-2</th>
+<th style="text-align: right;">30</th>
+<th style="text-align: right;">绝对值总和</th>
+<th style="text-align: right;">异常样本占比</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MSE：<code>2|r|/5</code></td>
+<td style="text-align: right;">0.4</td>
+<td style="text-align: right;">0.4</td>
+<td style="text-align: right;">0.8</td>
+<td style="text-align: right;">0.8</td>
+<td style="text-align: right;">12</td>
+<td style="text-align: right;">14.4</td>
+<td style="text-align: right;"><code>12/14.4 = 83.33%</code></td>
+</tr>
+<tr>
+<td>MAE：<code>1/5</code></td>
+<td style="text-align: right;">0.2</td>
+<td style="text-align: right;">0.2</td>
+<td style="text-align: right;">0.2</td>
+<td style="text-align: right;">0.2</td>
+<td style="text-align: right;">0.2</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;"><code>0.2/1 = 20%</code></td>
+</tr>
+<tr>
+<td>Huber，<code>δ=2</code>，再除以 5</td>
+<td style="text-align: right;">0.2</td>
+<td style="text-align: right;">0.2</td>
+<td style="text-align: right;">0.4</td>
+<td style="text-align: right;">0.4</td>
+<td style="text-align: right;">0.4</td>
+<td style="text-align: right;">1.6</td>
+<td style="text-align: right;"><code>0.4/1.6 = 25%</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>如果分别看每个样本自己的平方误差 <code>L_i=r_i²</code>，梯度大小才是 <code>2|r_i|</code>；批量 MSE 多出的公共 <code>1/5</code> 会缩小绝对更新量，但约分后不改变表中的占比。这里的占比只回答：“在这些<strong>预测梯度绝对值</strong>中，异常样本占多少？”它不等于模型所有参数梯度的实际贡献比例。对线性权重还有 <code>∂L/∂w=(∂L/∂ŷ)x</code>：若每个订单的 <code>x</code> 不同，输入特征还会再次放大或缩小权重梯度；批量平均、网络层和参数共享也会改变最终结果。</p>
+<h2 data-mg-stop data-route="从候选值观察最优点" id="mean-median">10. 为什么 MSE 找平均数、MAE 找中位数</h2>
+<p>模型现在不能看任何特征，只能给五单 <code>[14,15,16,17,60]</code> 同一个预测。不要先背结论，比较两个候选值：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th style="text-align: right;">固定预测</th>
+<th>MSE 计算</th>
+<th style="text-align: right;">MSE</th>
+<th>MAE 计算</th>
+<th style="text-align: right;">MAE</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">16</td>
+<td><code>(2²+1²+0²+1²+44²)/5</code></td>
+<td style="text-align: right;">388.4</td>
+<td><code>(2+1+0+1+44)/5</code></td>
+<td style="text-align: right;"><strong>9.6</strong></td>
+</tr>
+<tr>
+<td style="text-align: right;">24.4</td>
+<td><code>(10.4²+9.4²+8.4²+7.4²+35.6²)/5</code></td>
+<td style="text-align: right;"><strong>317.84</strong></td>
+<td><code>(10.4+9.4+8.4+7.4+35.6)/5</code></td>
+<td style="text-align: right;">14.24</td>
+</tr>
+</tbody>
+</table></div>
+<p>对平方损失，把固定预测记为 <code>c</code>，求导后得到 <code>2Σ(c-y_i)=0</code>，所以 <code>c=Σy_i/n</code>，即平均数 24.4。极端值 60 会直接拉动总和。</p>
+<p>对绝对损失，<code>c</code> 往右移动一点：左边每个点让总绝对距离增加，右边每个点让它减少。只有当左右样本数平衡时，不再有净收益；这发生在中位数 16 附近。60 再变大也仍只在右边占一个位置，所以中位数相对稳定。</p>
+<h2 data-mg-stop data-route="用计算检查理解" id="checkpoint">11. 总结与检查</h2>
 <ul>
-<li>本页沿用 MSE 的 $r^2$ 约定，没有额外乘 $1/2$。</li>
-<li>Huber 在 $|r|=\delta$ 处两段的值和一阶导数都接得上。</li>
-<li>MAE 在 0 处不可导：数学上是次梯度集合 $[-1,1]$，具体取哪个值看实现。</li>
-<li><code>reduction="mean"</code> 除以参与平均的<strong>元素数</strong>，梯度同样缩放；多输出任务不一定只除以 batch 样本数。</li>
-<li>对线性预测，参数梯度是 $\psi(r)x$：即使 $\psi(r)=\partial\ell/\partial\hat y$ 有界，极大的 $x$ 仍有很大影响。所以 MAE/Huber 不能自动解决高杠杆点、标签错误或分布变化。</li>
-<li>定义见 <a href="https://docs.pytorch.org/docs/2.14/generated/torch.nn.MSELoss.html" target="_blank" rel="noopener">MSELoss</a>、<a href="https://docs.pytorch.org/docs/2.14/generated/torch.nn.L1Loss.html" target="_blank" rel="noopener">L1Loss</a>、<a href="https://docs.pytorch.org/docs/2.14/generated/torch.nn.HuberLoss.html" target="_blank" rel="noopener">HuberLoss</a> 官方说明。</li>
+<li>残差 <code>r=y-ŷ</code> 保存方向；损失把误差变成可优化的非负目标。</li>
+<li>MSE 平方放大大误差；MAE 线性增长；Huber 用 <code>δ</code> 在两种行为间切换。</li>
+<li>梯度是局部变化率；链式法则把预测梯度乘过计算路径，送到 <code>w</code> 和 <code>b</code>。</li>
+<li>更新不是背公式，而是闭环：预测 → 损失 → 梯度 → 参数更新 → 新预测 → 新损失。</li>
 </ul>
-</details>
-<hr />
-<h2 id="regression-output-support" data-mg-stop>🎚️ 二、回归输出层：先看目标允许什么值</h2>
-<p><strong>先说“输出层”是什么。</strong>线性部分先算出一个分数 $z=w^\top x+b$，它可以是任何实数。<strong>输出映射</strong>再把 z 变成最终预测。03 的外卖例直接用 z，叫恒等映射；逻辑回归用 Sigmoid 把 z 压进 0～1，也是一种输出映射。</p>
-<p>问题在于：有些目标天生有范围。等待时长不能是负数，满分 100 的评分不能超过 100。恒等映射却可能给出 −3 分钟或 108 分，这时就该换映射。</p>
-<figure class="dia" data-fig="ml03b-output-maps" data-ml-diagram="wide" tabindex="0" style="--ml-diagram-width:760px" aria-label="教学图，可在图内左右滚动或使用放大按钮"><p class="ml-diagram-hint">图内可左右滑动；需要时可放大阅读。</p><svg viewBox="0 0 760 262" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="同一个分数 z 经过恒等、Softplus、缩放 sigmoid 三种映射后的取值范围对比"><title>三种输出映射</title><text x="380" y="26" font-size="15" text-anchor="middle" fill="var(--fg)" font-weight="700">同一个分数 z，换三种输出映射</text><rect x="30" y="88" width="220" height="140" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.2"/><text x="140" y="62" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">恒等：ŷ = z</text><text x="140" y="80" font-size="12.5" text-anchor="middle" fill="var(--muted)">可正可负，不设限</text><line x1="38" y1="158" x2="242" y2="158" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="5 4"/><path d="M40.0 220.0 L42.5 218.4 L45.0 216.9 L47.5 215.3 L50.0 213.8 L52.5 212.2 L55.0 210.7 L57.5 209.2 L60.0 207.6 L62.5 206.1 L65.0 204.5 L67.5 202.9 L70.0 201.4 L72.5 199.8 L75.0 198.3 L77.5 196.8 L80.0 195.2 L82.5 193.7 L85.0 192.1 L87.5 190.6 L90.0 189.0 L92.5 187.4 L95.0 185.9 L97.5 184.3 L100.0 182.8 L102.5 181.2 L105.0 179.7 L107.5 178.2 L110.0 176.6 L112.5 175.1 L115.0 173.5 L117.5 171.9 L120.0 170.4 L122.5 168.8 L125.0 167.3 L127.5 165.8 L130.0 164.2 L132.5 162.7 L135.0 161.1 L137.5 159.6 L140.0 158.0 L142.5 156.5 L145.0 154.9 L147.5 153.3 L150.0 151.8 L152.5 150.2 L155.0 148.7 L157.5 147.2 L160.0 145.6 L162.5 144.0 L165.0 142.5 L167.5 141.0 L170.0 139.4 L172.5 137.8 L175.0 136.3 L177.5 134.8 L180.0 133.2 L182.5 131.7 L185.0 130.1 L187.5 128.5 L190.0 127.0 L192.5 125.5 L195.0 123.9 L197.5 122.3 L200.0 120.8 L202.5 119.2 L205.0 117.7 L207.5 116.2 L210.0 114.6 L212.5 113.0 L215.0 111.5 L217.5 110.0 L220.0 108.4 L222.5 106.8 L225.0 105.3 L227.5 103.8 L230.0 102.2 L232.5 100.7 L235.0 99.1 L237.5 97.5 L240.0 96.0" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><circle cx="90.0" cy="189.0" r="4.5" fill="var(--link)"/><circle cx="140.0" cy="158.0" r="4.5" fill="var(--link)"/><circle cx="215.0" cy="111.5" r="4.5" fill="var(--link)"/><text x="140" y="250" font-size="12.5" text-anchor="middle" fill="var(--fg)">z = −2、0、3 → −2、0、3</text><rect x="280" y="88" width="220" height="140" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.2"/><text x="390" y="62" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">Softplus：ŷ &gt; 0</text><text x="390" y="80" font-size="12.5" text-anchor="middle" fill="var(--muted)">永远为正</text><line x1="288" y1="220" x2="492" y2="220" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="5 4"/><text x="490" y="215" font-size="12" text-anchor="end" fill="var(--muted)">0</text><path d="M290.0 219.5 L292.5 219.4 L295.0 219.3 L297.5 219.3 L300.0 219.2 L302.5 219.1 L305.0 219.0 L307.5 218.9 L310.0 218.8 L312.5 218.7 L315.0 218.6 L317.5 218.4 L320.0 218.3 L322.5 218.1 L325.0 217.9 L327.5 217.7 L330.0 217.4 L332.5 217.2 L335.0 216.9 L337.5 216.6 L340.0 216.3 L342.5 215.9 L345.0 215.5 L347.5 215.1 L350.0 214.6 L352.5 214.1 L355.0 213.5 L357.5 212.9 L360.0 212.2 L362.5 211.5 L365.0 210.8 L367.5 209.9 L370.0 209.1 L372.5 208.1 L375.0 207.1 L377.5 206.0 L380.0 204.9 L382.5 203.6 L385.0 202.4 L387.5 201.0 L390.0 199.6 L392.5 198.0 L395.0 196.5 L397.5 194.8 L400.0 193.1 L402.5 191.3 L405.0 189.4 L407.5 187.5 L410.0 185.5 L412.5 183.4 L415.0 181.3 L417.5 179.1 L420.0 176.8 L422.5 174.5 L425.0 172.2 L427.5 169.8 L430.0 167.4 L432.5 164.9 L435.0 162.4 L437.5 159.8 L440.0 157.3 L442.5 154.6 L445.0 152.0 L447.5 149.3 L450.0 146.6 L452.5 143.9 L455.0 141.2 L457.5 138.4 L460.0 135.7 L462.5 132.9 L465.0 130.1 L467.5 127.3 L470.0 124.4 L472.5 121.6 L475.0 118.7 L477.5 115.9 L480.0 113.0 L482.5 110.1 L485.0 107.2 L487.5 104.4 L490.0 101.5" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><circle cx="340.0" cy="216.3" r="4.5" fill="var(--link)"/><circle cx="390.0" cy="199.6" r="4.5" fill="var(--link)"/><circle cx="465.0" cy="130.1" r="4.5" fill="var(--link)"/><text x="390" y="250" font-size="12.5" text-anchor="middle" fill="var(--fg)">→ 0.13、0.69、3.05</text><rect x="530" y="88" width="220" height="140" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1.2"/><text x="640" y="62" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">缩放 sigmoid：0 &lt; ŷ &lt; 100</text><text x="640" y="80" font-size="12.5" text-anchor="middle" fill="var(--muted)">永远落在 0～100 之间</text><line x1="538" y1="214" x2="742" y2="214" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="5 4"/><text x="740" y="209" font-size="12" text-anchor="end" fill="var(--muted)">0</text><line x1="538" y1="102" x2="742" y2="102" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="5 4"/><text x="542" y="97" font-size="12" text-anchor="start" fill="var(--muted)">100</text><path d="M540.0 212.0 L542.5 211.8 L545.0 211.5 L547.5 211.3 L550.0 211.0 L552.5 210.7 L555.0 210.4 L557.5 210.0 L560.0 209.6 L562.5 209.2 L565.0 208.7 L567.5 208.2 L570.0 207.6 L572.5 206.9 L575.0 206.3 L577.5 205.5 L580.0 204.7 L582.5 203.8 L585.0 202.8 L587.5 201.8 L590.0 200.6 L592.5 199.4 L595.0 198.1 L597.5 196.7 L600.0 195.2 L602.5 193.6 L605.0 191.8 L607.5 190.0 L610.0 188.1 L612.5 186.0 L615.0 183.9 L617.5 181.6 L620.0 179.3 L622.5 176.8 L625.0 174.3 L627.5 171.7 L630.0 169.1 L632.5 166.3 L635.0 163.6 L637.5 160.8 L640.0 158.0 L642.5 155.2 L645.0 152.4 L647.5 149.7 L650.0 146.9 L652.5 144.3 L655.0 141.7 L657.5 139.2 L660.0 136.7 L662.5 134.4 L665.0 132.1 L667.5 130.0 L670.0 127.9 L672.5 126.0 L675.0 124.2 L677.5 122.4 L680.0 120.8 L682.5 119.3 L685.0 117.9 L687.5 116.6 L690.0 115.4 L692.5 114.2 L695.0 113.2 L697.5 112.2 L700.0 111.3 L702.5 110.5 L705.0 109.7 L707.5 109.1 L710.0 108.4 L712.5 107.8 L715.0 107.3 L717.5 106.8 L720.0 106.4 L722.5 106.0 L725.0 105.6 L727.5 105.3 L730.0 105.0 L732.5 104.7 L735.0 104.5 L737.5 104.2 L740.0 104.0" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><circle cx="590.0" cy="200.6" r="4.5" fill="var(--link)"/><circle cx="640.0" cy="158.0" r="4.5" fill="var(--link)"/><circle cx="715.0" cy="107.3" r="4.5" fill="var(--link)"/><text x="640" y="250" font-size="12.5" text-anchor="middle" fill="var(--fg)">→ 11.9、50、95.3</text></svg><figcaption>蓝点是 z 取 −2、0、3 时的输出。Softplus(z) = log(1 + eᶻ)；缩放 sigmoid 是 100 × σ(z)，和逻辑回归用的是同一个 σ。</figcaption></figure>
-<p>03 的外卖例使用恒等映射 $\hat y=z=w^\top x+b$，是无界实数预测的常见起点。<strong>“回归一律不能加激活”并不成立</strong>：输出映射、目标变换和损失要共同符合任务。</p>
-<div class="tw"><table><thead><tr><th>目标或参数</th><th>例子</th><th>可用输出约定</th><th>需要核对</th></tr></thead><tbody>
-<tr><td>任意实数</td><td>温度变化、收益涨跌</td><td>恒等映射 $\hat y=z$，配合MSE/MAE/Huber等</td><td>按误差代价、噪声与验证指标选择；标准化目标时预测要还原单位</td></tr>
-<tr><td>严格正值</td><td>等待时长、房价</td><td>$\operatorname{Softplus}(z)+\epsilon$，$\epsilon&gt;0$；也可考虑 $e^z$</td><td>正值不自动等于Poisson；指数会有溢出风险，$\epsilon$ 引入正下界，须符合尺度</td></tr>
-<tr><td>有限区间 $a&lt;y&lt;b$</td><td>0～100 的评分、百分比</td><td>$a+(b-a)\sigma(z)$，$a&lt;b$</td><td>数学上有限输入只落在开区间；端点质量与饱和梯度要另考虑，浮点可能舍入到端点</td></tr>
-<tr><td>Gaussian分布参数</td><td>同时给出预测值和不确定度</td><td>均值 $\mu$ 用实数输出；方差 $v=\operatorname{Softplus}(s)+\epsilon$</td><td><code>GaussianNLLLoss</code>接收的是<strong>方差，不是标准差</strong>；分布假设及不确定性质量须验证</td></tr>
-<tr><td>非负整数计数的Poisson均值</td><td>每天的订单数</td><td>$\lambda&gt;0$；用log-rate $z=\log\lambda$ 参数化</td><td><code>PoissonNLLLoss(log_input=True)</code>接收 $z$，不要先exp后仍当log输入；预测均值才是 $e^z$。须检查计数/Poisson假设</td></tr>
-</tbody></table></div>
-<p>另一条常见路：<strong>先对目标取 log</strong>（比如 log 用时），照常用恒等输出和 MSE，预测后再 exp 回原单位。这样结果天然为正，但模型学到的是“比例误差”。还原后的预测通常比平均数低，更接近中位数，要在原单位上验证。</p>
-<p>延伸 → 映射定义：<a href="https://docs.pytorch.org/docs/2.14/generated/torch.nn.Softplus.html" target="_blank" rel="noopener">Softplus</a>、<a href="https://docs.pytorch.org/docs/2.14/generated/torch.nn.Sigmoid.html" target="_blank" rel="noopener">Sigmoid</a>；分布损失约定：<a href="https://docs.pytorch.org/docs/2.14/generated/torch.nn.GaussianNLLLoss.html" target="_blank" rel="noopener">GaussianNLLLoss</a>、<a href="https://docs.pytorch.org/docs/2.14/generated/torch.nn.PoissonNLLLoss.html" target="_blank" rel="noopener">PoissonNLLLoss</a>。数值稳定的实现不能替代目标范围和统计假设检查。</p>
-<details id="regression-clip-tradeoffs"><summary>🔎 可选：clip放在预测后，还是训练图里？</summary>
-<p><strong>先问边界从哪来：</strong>物理或业务确知的范围，不等于训练集碰巧出现过的最小/最大值；超出训练范围的预测可能是合理外推，不能自动截掉。</p>
-<ul>
-<li><strong>例子：</strong>允许范围 [0,1]，<code>clip</code> 把 −1、0.25、2 变成 0、0.25、1。</li>
-<li><strong>预测后截断：</strong>只处理最终输出，不改变训练时的梯度。</li>
-<li><strong>训练图里先 clamp 再算损失：</strong>会改变优化路径。区间外对 z 的导数为 0，区间内为 1；端点 0、1 处取什么值，要查所用框架和版本。</li>
-<li><strong>局部梯度例：</strong>y＝0.8、z＝2。用截后的 1 算平方损失，这条支路对 z 的梯度是 0；不截时是 2(2−0.8)＝2.4。越界平台会挡住这条支路的纠错信号，但不等于整个模型无法更新。</li>
-</ul>
-<p><strong>怎么选：</strong></p>
-<ul>
-<li>恒等映射保留实数外推；确有正值或区间结构时，比较上表的 Softplus、缩放 sigmoid 及其饱和/端点限制；分布参数按各自合法域建模。</li>
-<li>已知硬边界也可以预测后 clip，但要用包含后处理的完整流程比较误差和边界堆积。</li>
-<li>输出概率时还要检查校准：截到 [0,1] 不保证校准。训练内 clamp 同样要验证梯度代价。</li>
-</ul>
-<p>定义见 <a href="https://docs.pytorch.org/docs/2.14/generated/torch.clamp.html">torch.clamp 官方说明</a>；本例没有重训，也没有替换原输出或 loss。</p>
-</details>
-<hr />
-<h2 id="_8" data-mg-stop>✅ 检查点</h2>
 <div class="ml-quiz">
-<p class="ml-quiz-intro">共 4 题：3 道单选、1 道判断。点一个选项，马上显示对错并展开解析；没把握也可以直接展开解析。</p>
-<div class="ml-q" data-answer="c" role="group" aria-labelledby="mlq-1">
-<p class="ml-q-stem" id="mlq-1"><span class="ml-q-tag">单选</span>1. δ = 1、残差 r = 3（实际 − 预测）时，MSE、MAE、Huber 对预测的梯度分别是多少？</p>
-<ol class="ml-q-options">
-<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">6、1、1</span><span class="ml-q-mark"></span></button></li>
-<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">−6、−1、−3</span><span class="ml-q-mark"></span></button></li>
-<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">−6、−1、−1</span><span class="ml-q-mark"></span></button></li>
-<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">−9、−3、−3</span><span class="ml-q-mark"></span></button></li>
+<h3 id="_1">综合题</h3>
+<p>某订单 <code>x=3</code>、实际时间 <code>y=20</code>。当前 <code>w=5</code>、<code>b=2</code>，使用单样本平方误差和 <code>η=0.01</code>。</p>
+<ol>
+<li>算 <code>ŷ</code>、<code>r</code>、<code>L</code>；</li>
+<li>算 <code>∂L/∂ŷ</code>、<code>∂L/∂w</code>、<code>∂L/∂b</code>；</li>
+<li>更新 <code>w</code>、<code>b</code>；</li>
+<li>算新预测和新损失，并解释为什么方向合理。</li>
 </ol>
-<p class="ml-q-feedback" role="status"></p>
-<details class="ml-q-explain"><summary>看答案与解析</summary>
-<p><strong>答案：C</strong></p>
-<p>−6、−1、−1：r = 3 表示预测比实际小，梯度为负，下一步把预测调大。大小是 6、1、1：MSE 的梯度大小 2|r| 随残差线性变大；MAE 和 Huber（r 超过 δ 后）都封顶在 1。</p>
+<details>
+<summary>展开完整答案</summary>
+<p><code>ŷ=5×3+2=17</code>；<code>r=20-17=3</code>；<code>L=9</code>。预测梯度 <code>-2r=-6</code>；权重梯度 <code>-6×3=-18</code>；偏置梯度 <code>-6</code>。更新后 <code>w=5-0.01×(-18)=5.18</code>，<code>b=2.06</code>。新预测 <code>5.18×3+2.06=17.60</code>，新损失 <code>(20-17.60)²=5.76</code>。原预测偏小，所以负梯度让参数上升；这一步的损失确实从 9 降到 5.76。</p>
 </details>
-</div>
-<div class="ml-q" data-answer="b" role="group" aria-labelledby="mlq-2">
-<p class="ml-q-stem" id="mlq-2"><span class="ml-q-tag">单选</span>2. 5 单用时 14、15、16、17、60 分钟，模型只能猜一个数。用 MSE 和 MAE 各会猜多少？</p>
-<ol class="ml-q-options">
-<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">MSE 猜 60，MAE 猜 14</span><span class="ml-q-mark"></span></button></li>
-<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">MSE 猜 24.4，MAE 猜 16</span><span class="ml-q-mark"></span></button></li>
-<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">MSE 猜 16，MAE 猜 24.4</span><span class="ml-q-mark"></span></button></li>
-<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">两者都猜 16</span><span class="ml-q-mark"></span></button></li>
+<h3 id="_2">解释题</h3>
+<ol>
+<li>为什么不能把正负残差直接平均后当作模型误差？</li>
+<li>标签可能偶尔录错，为什么 Huber 常比 MSE 更稳？<code>δ</code> 为什么要跟目标尺度一起调整？</li>
+<li>同一批残差下，异常样本的预测梯度占比为什么不等于它对每个参数的贡献占比？</li>
+<li>若迟到 30 分钟的业务代价真的非常高，你会优先尝试哪类损失，为什么仍要用验证集确认？</li>
 </ol>
-<p class="ml-q-feedback" role="status"></p>
-<details class="ml-q-explain"><summary>看答案与解析</summary>
-<p><strong>答案：B</strong></p>
-<p>MSE 猜平均数 24.4，被 60 拉跑了；MAE 猜中位数 16。</p>
-</details>
 </div>
-<div class="ml-q" data-answer="c" role="group" aria-labelledby="mlq-3">
-<p class="ml-q-stem" id="mlq-3"><span class="ml-q-tag">单选</span>3. 目标一定是正数，输出层可以怎么设？</p>
-<ol class="ml-q-options">
-<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">直接线性输出，训练后自然都是正数</span><span class="ml-q-mark"></span></button></li>
-<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">用 Sigmoid，输出就在 0 到 1 之间</span><span class="ml-q-mark"></span></button></li>
-<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">用 Softplus(z) + ε，或考虑 e^z；注意指数溢出、ε 会引入正下界</span><span class="ml-q-mark"></span></button></li>
-<li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">用 e^z 就等于做了 Poisson 假设，不用再检查</span><span class="ml-q-mark"></span></button></li>
-</ol>
-<p class="ml-q-feedback" role="status"></p>
-<details class="ml-q-explain"><summary>看答案与解析</summary>
-<p><strong>答案：C</strong></p>
-<p>可以用 Softplus(z) + ε，也可以考虑 e^z。指数有溢出风险，ε 会引入正下界；正值也不自动等于 Poisson 假设。</p>
-</details>
+<p><strong>下一节</strong>：<a href="03c-回归输出层.html">03c · 回归输出层：模型应该输出什么</a>。我们会把这里的链式法则接到 <code>ŷ=f(z)</code> 上，看看输出范围怎样改变梯度。</p>
+</section>
 </div>
-<div class="ml-q" data-answer="t" role="group" aria-labelledby="mlq-4">
-<p class="ml-q-stem" id="mlq-4"><span class="ml-q-tag">判断</span>4. 在训练图里先 clamp 再算损失会改变优化路径；预测后再 clip 不改变训练时的梯度。</p>
-<ol class="ml-q-options">
-<li><button type="button" data-choice="t"><span class="ml-q-key">✓</span><span class="ml-q-text">正确</span><span class="ml-q-mark"></span></button></li>
-<li><button type="button" data-choice="f"><span class="ml-q-key">✗</span><span class="ml-q-text">错误</span><span class="ml-q-mark"></span></button></li>
-</ol>
-<p class="ml-q-feedback" role="status"></p>
-<details class="ml-q-explain"><summary>看答案与解析</summary>
-<p><strong>答案：正确</strong></p>
-<p>训练图里 clamp 会改变优化路径，越界处这条支路的梯度为 0；预测后 clip 只处理最终输出，不改变训练时的梯度。</p>
-</details>
-</div>
-<div class="ml-quiz-footer"><p class="ml-quiz-score" role="status"></p><button type="button" class="ml-quiz-reset" hidden>重做这组题</button></div>
-</div>
-<hr />
-<h2 id="_9" data-mg-stop>🛑 可以停在这里</h2>
-<p>⚡ <strong>走神救援</strong></p>
-<ul>
-<li><strong>MSE</strong> 对大残差的梯度越来越大；<strong>MAE、Huber</strong> 的梯度封顶，大误差不再无限加力。</li>
-<li><strong>MSE 猜平均数、MAE 猜中位数</strong>：一个标错的大值就能把 MSE 拉跑。</li>
-<li><strong>δ 跟目标同量纲</strong>：目标缩放后要用验证集重选。</li>
-<li><strong>输出层看目标范围</strong>：任意实数用恒等映射，正值用 Softplus，区间用缩放 sigmoid。</li>
-<li><strong>clip 放在哪</strong>：预测后截断不改训练；训练内 clamp 会挡住越界样本的纠错信号。</li>
-</ul>
-<p><strong>下一节</strong> 👉 <a href="04-决策树与集成学习.html">04 · 决策树与集成学习</a></p>
-</section></div>
-<aside class="lesson-rail" aria-label="本节学习路线">
+<aside aria-label="本节学习路线" class="lesson-rail">
 <button type="button" class="lesson-route-toggle" aria-expanded="true" aria-controls="lesson-route">本节学习路线 <span aria-hidden="true">⌄</span></button>
 <div id="lesson-route">
 <p class="lesson-position">从第一站开始</p>
-<div class="lesson-track" aria-hidden="true"><span></span></div>
-<nav class="lesson-route-links" aria-label="章节跳转"></nav>
-<div class="lesson-rail-note"><strong>一次只读一张卡片</strong><p>蓝色下划线可以点开解释。关掉窗口，接着原来的位置读。</p></div>
-<button type="button" class="lesson-save">记住当前位置</button>
-<p class="lesson-save-status" role="status"></p>
-</div></aside></div>
+<div aria-hidden="true" class="lesson-track"><span></span></div>
+<nav aria-label="章节跳转" class="lesson-route-links"></nav>
+<div class="lesson-rail-note"><strong>先算，再看答案</strong><p>每遇到一张计算表，先遮住结果自己代入一遍。</p></div><button type="button" class="lesson-save">记住当前位置</button><p class="lesson-save-status" role="status"></p></div>
+</aside>
+</div>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
-<nav class="pagenav"><a href="03a-逻辑回归与分类.html"><div class="dir">← 上一节</div>🚦 03a · 逻辑回归与分类</a><a class="next" href="04-决策树与集成学习.html"><div class="dir">下一节 →</div>🌲 04 · 决策树：怎么切一刀</a></nav>
+<nav class="pagenav"><a href="03a-逻辑回归与分类.html"><div class="dir">← 上一节</div>🚦 03a · 逻辑回归与分类</a><a class="next" href="03c-回归输出层.html"><div class="dir">下一节 →</div>🎚️ 03c · 回归输出层</a></nav>
 </main>
 <script>(function(){
   var KEY="mlbase-progress", FILE="03b-\u635f\u5931\u51fd\u6570\u4e0e\u8f93\u51fa\u5c42\u8fdb\u9636.md";

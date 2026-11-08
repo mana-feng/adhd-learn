@@ -50,10 +50,22 @@ def render_lesson(root, entry):
     estimated = minutes(body)
     badge = '<p class="reading-time">⏱ <strong>阅读约 ' + str(estimated) + ' 分钟</strong> · 动手实践另计</p>'
     body = re.sub(r'(</h1>)', lambda m: m[1] + '\n' + badge, body, count=1)
-    prefix = template.split('<main>', 1)[0]
+    if entry.get('guided_main'):
+        main_match = re.search(r'<main\b[^>]*>', template)
+        if not main_match:
+            raise ValueError('Template has no main element: ' + entry['template'])
+        prefix = template[:main_match.start()]
+        main_open = '<main id="ml-main" tabindex="-1" class="mg-main">'
+    else:
+        prefix = template.split('<main>', 1)[0]
+        main_open = '<main>'
     board_title = entry.get('board_title', Path(entry['output']).parts[0])
     prefix = re.sub(r'<title>.*?</title>', '<title>' + escape(entry['title']) + ' · ' + escape(board_title) + '</title>', prefix, count=1)
     prefix = re.sub(r'(<span class="title">).*?(</span>)', lambda m: m[1] + escape(entry['title']) + m[2], prefix, count=1)
+    if entry.get('magazine_page'):
+        prefix, page_count = re.subn(r'data-magazine-page="[^"]*"', 'data-magazine-page="' + escape(entry['magazine_page'], quote=True) + '"', prefix, count=1)
+        if page_count != 1:
+            raise ValueError('Template has no unambiguous magazine page identity: ' + entry['template'])
     top_nav = '<span class="prevnext">'
     for kind, arrow in [('previous', '←'), ('next', '→')]:
         link = entry[kind]
@@ -71,13 +83,14 @@ def render_lesson(root, entry):
         nav += '<a' + css + ' href="' + escape(link['href'], quote=True) + '"><div class="dir">' + direction + '</div>' + escape(link['title']) + '</a>'
     nav += '</nav>'
     suffix = re.sub(r'<nav class="pagenav">.*?</nav>', lambda _: nav, suffix, count=1, flags=re.S)
-    suffix, progress_count = re.subn(r'(var KEY="[^"]+",\s*FILE=).*?;', lambda m: m[1] + json.dumps(Path(entry['source']).name, ensure_ascii=True) + ';', suffix, count=1)
+    progress_key = entry.get('progress_key', Path(entry['source']).name)
+    suffix, progress_count = re.subn(r'(var KEY="[^"]+",\s*FILE=).*?;', lambda m: m[1] + json.dumps(progress_key, ensure_ascii=True) + ';', suffix, count=1)
     if progress_count != 1:
         raise ValueError('Template has no unambiguous lesson progress key: ' + entry['template'])
     if 'id="interview-search"' in body:
         prefix = prefix.replace('</head>', '<link rel="stylesheet" href="../assets/interview-cards.css"></head>')
         suffix = suffix.replace('</body>', '<script defer src="../assets/interview-cards.js"></script></body>')
-    return prefix + '<main>\n' + body + '\n' + suffix
+    return prefix + main_open + '\n' + body + '\n' + suffix
 
 
 def build(root, entries):

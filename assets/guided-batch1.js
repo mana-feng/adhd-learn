@@ -35,10 +35,11 @@
     pytorch: profile([]),
     reference: profile([], true)
   };
-  // 03a / 03b 由 03 拆出，公式记号与 03 相同；各自独立的 data-lesson 让“记住当前位置”不串页。
+  // 03a / 03b 由 03 拆出、05b 沿用线性模型记号，公式记号与 03 相同；各自独立的 data-lesson 让“记住当前位置”不串页。
   window.guidedLessonProfiles["linear-regularization"] = window.guidedLessonProfiles.linear;
   window.guidedLessonProfiles["linear-loss"] = window.guidedLessonProfiles.linear;
   window.guidedLessonProfiles["linear-classification"] = window.guidedLessonProfiles.linear;
+  window.guidedLessonProfiles["linear-svm"] = window.guidedLessonProfiles.linear;
   document.addEventListener("DOMContentLoaded", () => {
     const full = document.querySelector(".lesson-full");
     if (!full) return;
