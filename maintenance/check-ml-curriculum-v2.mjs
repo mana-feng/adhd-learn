@@ -15,6 +15,8 @@ const fixtureNames = [
   'B03-梯度下降与参数更新.html',
   'B05-多分类与Softmax.html',
   'C01-回归与分类评估指标.html',
+  'C02-过拟合与偏差方差.html',
+  'C04-交叉验证与数据泄漏.html',
   'C05-不泄漏的预处理Pipeline.html',
   'D01-KNN与距离度量.html',
   'D02-朴素贝叶斯与概率分类.html',
@@ -51,7 +53,7 @@ const index = text(rel(moduleDir, 'index.html'));
 assert.equal(index, text(rel('_src', 'recovered_html', moduleDir, 'index.html')));
 const cards = [...index.matchAll(/<a class="card" href="([^"]+)" data-md="([^"]+)"/g)]
   .map(m => ({ href: m[1], key: m[2] }));
-assert.equal(cards.length, 42, 'Expected 42 published reading cards (including appendices)');
+assert.equal(cards.length, 44, 'Expected 44 published reading cards (including appendices)');
 assert.equal(new Set(cards.map(c => c.href)).size, cards.length, 'Duplicate card href');
 assert.equal(new Set(cards.map(c => c.key)).size, cards.length, 'Duplicate progress keys');
 const progress = index.match(/var KEY="mlbase-progress",FILES=(\[[^\]]+\]),F2H=(\{[\s\S]*?\});/);
@@ -72,7 +74,9 @@ const coreOrder = [
   '03-线性模型.html', '03b-损失函数与输出层进阶.html',
   'B03-梯度下降与参数更新.html', '03a-逻辑回归与分类.html',
   'B05-多分类与Softmax.html',
-  'C01-回归与分类评估指标.html', '05-评估与过拟合.html',
+  'C01-回归与分类评估指标.html',
+  'C02-过拟合与偏差方差.html', 'C04-交叉验证与数据泄漏.html',
+  '05-评估与过拟合.html',
   '05a-正则化与调参实验.html', '16-特征工程基础.html',
   'C05-不泄漏的预处理Pipeline.html', 'D01-KNN与距离度量.html',
   'D02-朴素贝叶斯与概率分类.html', '04-决策树与集成学习.html',
@@ -106,7 +110,9 @@ const checkLinkNav = [
   ['B03-梯度下降与参数更新.html', '03a-逻辑回归与分类.html'],
   ['03a-逻辑回归与分类.html', 'B05-多分类与Softmax.html'],
   ['B05-多分类与Softmax.html', 'C01-回归与分类评估指标.html'],
-  ['C01-回归与分类评估指标.html', '05-评估与过拟合.html'],
+  ['C01-回归与分类评估指标.html', 'C02-过拟合与偏差方差.html'],
+  ['C02-过拟合与偏差方差.html', 'C04-交叉验证与数据泄漏.html'],
+  ['C04-交叉验证与数据泄漏.html', '05-评估与过拟合.html'],
   ['05-评估与过拟合.html', '05a-正则化与调参实验.html'],
   ['05a-正则化与调参实验.html', '16-特征工程基础.html'],
   ['16-特征工程基础.html', 'C05-不泄漏的预处理Pipeline.html'],
@@ -269,8 +275,56 @@ close(neighborScore(.3), .1);
 close(neighborScore(9.3), .1);
 close(((1.0 + 1.2) / 2) / .2, 5.5);
 
+// C02: training fit versus genuinely unseen validation points.
+const c02Y = [0, 2, 0];
+function c02Simple(x) { return 2 / 3; }
+function c02Curved(x) { return -2 * x * x + 4 * x; }
+function c02Mse(xs, ys, predictor) {
+  return xs.reduce((sum, x, i) => sum + (predictor(x) - ys[i]) ** 2, 0) / ys.length;
+}
+close(c02Mse([0, 1, 2], c02Y, c02Simple), 8 / 9);
+close(c02Mse([0, 1, 2], c02Y, c02Curved), 0);
+close(c02Mse([.5, 1.5], [0, 0], c02Simple), 4 / 9);
+close(c02Mse([.5, 1.5], [0, 0], c02Curved), 2.25);
+const c02Repeat = [2, 0, 0], c02Mean = c02Repeat.reduce((a, b) => a + b) / 3;
+close(c02Mean, 2 / 3);
+close(c02Mean ** 2, 4 / 9);
+close(c02Repeat.reduce((a, b) => a + (b - c02Mean) ** 2, 0) / 3, 8 / 9);
+
+// C04: folds, group containment, and forward-chaining time boundaries.
+const c04Iid = [[0, 3, 6, 9], [1, 4, 7, 10], [2, 5, 8, 11]];
+const c04Groups = [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10, 11]];
+const c04Time = [[3, 4, 5], [6, 7, 8], [9, 10, 11]];
+assert.deepEqual(c04Iid.flat().slice().sort((a, b) => a - b), Array.from({length: 12}, (_, i) => i));
+assert.ok(c04Iid.every(fold => fold.filter(i => i % 2 === 1).length === 2));
+for (const valid of c04Groups) {
+  const groupsInValid = new Set(valid.map(i => Math.floor(i / 2)));
+  const train = Array.from({length: 12}, (_, i) => i).filter(i => !valid.includes(i));
+  assert.ok(train.every(i => !groupsInValid.has(Math.floor(i / 2))));
+}
+for (let i = 0; i < 3; i++) {
+  assert.equal(c04Time[i].length, 3);
+  assert.equal(c04Time[i][0], (i + 1) * 3);
+  assert.ok(Array.from({length: (i + 1) * 3}, (_, j) => j).every(j => j < c04Time[i][0]));
+}
+const c04Scores = [.75, .5, 1], c04Mean = c04Scores.reduce((a, b) => a + b) / 3;
+close(c04Mean, .75);
+close(Math.sqrt(c04Scores.reduce((a, b) => a + (b - c04Mean) ** 2, 0) / 3), Math.sqrt(.125 / 3));
+
+// Ensure old bookmarks and completion key survive the move to optional 05 review.
+const oldReview = text(rel(moduleDir, '05-评估与过拟合.html'));
+for (const anchor of ['05', '_2', '_3', '_6', '_7', 'confusion-matrix-example',
+                      'metric-advanced', 'sampling-prior-example', '05_1', '_8', '_9', '_10']) {
+  assert.ok(oldReview.includes('id="' + anchor + '"'), 'Missing legacy 05 bookmark: ' + anchor);
+}
+assert.ok(oldReview.includes('FILE="05-') || oldReview.includes('FILE="05-\\u'), 'Legacy 05 progress key lost');
+for (const [page, inputId] of [['C02-过拟合与偏差方差.html', 'c02Model'],
+                              ['C04-交叉验证与数据泄漏.html', 'c04Mode']]) {
+  assert.ok(text(rel(moduleDir, page)).includes('id="' + inputId + '"'), 'Missing lab control: ' + inputId);
+}
+
 console.log(JSON.stringify({
   status: 'pass', pagesChecked: checkedNames.length,
   cards: cards.length, sourcePagesChecked: fixtureNames.length,
-  numericFixtures: 'B03/B05/C01/C05/D01/D02/E02/E05', scope: 'offline structural + numeric only',
+  numericFixtures: 'B03/B05/C01/C02/C04/C05/D01/D02/E02/E05', scope: 'offline structural + numeric only',
 }, null, 2));
