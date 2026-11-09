@@ -18,6 +18,8 @@ const fixtureNames = [
   'C05-不泄漏的预处理Pipeline.html',
   'D01-KNN与距离度量.html',
   'D02-朴素贝叶斯与概率分类.html',
+  'E02-DBSCAN与层次聚类.html',
+  'E05-异常检测与孤立森林.html',
 ];
 const checkedNames = [
   'index.html', '02a-手动训练一个模型.html', '03-线性模型.html',
@@ -25,6 +27,7 @@ const checkedNames = [
   '03c-回归输出层.html',
   '05-评估与过拟合.html', '05a-正则化与调参实验.html',
   '16-特征工程基础.html', '04-决策树与集成学习.html',
+  '06-无监督-聚类与降维.html', '07-从线性到神经网络.html',
   ...fixtureNames,
 ];
 
@@ -48,7 +51,7 @@ const index = text(rel(moduleDir, 'index.html'));
 assert.equal(index, text(rel('_src', 'recovered_html', moduleDir, 'index.html')));
 const cards = [...index.matchAll(/<a class="card" href="([^"]+)" data-md="([^"]+)"/g)]
   .map(m => ({ href: m[1], key: m[2] }));
-assert.equal(cards.length, 40, 'Expected 40 published reading cards (including appendices)');
+assert.equal(cards.length, 42, 'Expected 42 published reading cards (including appendices)');
 assert.equal(new Set(cards.map(c => c.href)).size, cards.length, 'Duplicate card href');
 assert.equal(new Set(cards.map(c => c.key)).size, cards.length, 'Duplicate progress keys');
 const progress = index.match(/var KEY="mlbase-progress",FILES=(\[[^\]]+\]),F2H=(\{[\s\S]*?\});/);
@@ -73,6 +76,8 @@ const coreOrder = [
   '05a-正则化与调参实验.html', '16-特征工程基础.html',
   'C05-不泄漏的预处理Pipeline.html', 'D01-KNN与距离度量.html',
   'D02-朴素贝叶斯与概率分类.html', '04-决策树与集成学习.html',
+  '06-无监督-聚类与降维.html', 'E02-DBSCAN与层次聚类.html',
+  'E05-异常检测与孤立森林.html', '07-从线性到神经网络.html',
 ];
 for (let i = 1; i < coreOrder.length; i++) {
   assert.ok(cards.findIndex(c => c.href === coreOrder[i - 1])
@@ -108,6 +113,9 @@ const checkLinkNav = [
   ['C05-不泄漏的预处理Pipeline.html', 'D01-KNN与距离度量.html'],
   ['D01-KNN与距离度量.html', 'D02-朴素贝叶斯与概率分类.html'],
   ['D02-朴素贝叶斯与概率分类.html', '04-决策树与集成学习.html'],
+  ['06-无监督-聚类与降维.html', 'E02-DBSCAN与层次聚类.html'],
+  ['E02-DBSCAN与层次聚类.html', 'E05-异常检测与孤立森林.html'],
+  ['E05-异常检测与孤立森林.html', '07-从线性到神经网络.html'],
 ];
 for (const [from, to] of checkLinkNav) {
   const nav = text(rel(moduleDir, from)).match(/<nav class="pagenav">([\s\S]*?)<\/nav>/)?.[1];
@@ -213,8 +221,56 @@ close(bayes1 / (bayes1 + bayes0), .8767123287671234);
 assert.equal(.6 * conditional(0, 6, 1, 0) * conditional(1, 6, 1, 0), 0);
 
 
+// E02: include the query point itself when counting DBSCAN eps-neighborhood.
+const dbscanCoords = [0, 1, 2, 6, 7, 8, 15];
+function densityGroups(eps, minPts) {
+  const ns = dbscanCoords.map(x => dbscanCoords.map((y, j) => Math.abs(x - y) <= eps + 1e-8 ? j : -1).filter(j => j >= 0));
+  const core = ns.map(n => n.length >= minPts);
+  const labels = Array(dbscanCoords.length).fill(-1);
+  let cluster = 0;
+  for (let i = 0; i < core.length; i++) {
+    if (!core[i] || labels[i] >= 0) continue;
+    labels[i] = cluster;
+    const queue = [i], seen = new Set([i]);
+    for (let p = 0; p < queue.length; p++) {
+      for (const j of ns[queue[p]]) {
+        if (labels[j] < 0) labels[j] = cluster;
+        if (core[j] && !seen.has(j)) {
+          queue.push(j);
+          seen.add(j);
+        }
+      }
+    }
+    cluster++;
+  }
+  return {core, labels, cluster};
+}
+const defaultDensity = densityGroups(1.1, 3);
+assert.deepEqual(defaultDensity.core, [false, true, false, false, true, false, false]);
+assert.deepEqual(defaultDensity.labels, [0, 0, 0, 1, 1, 1, -1]);
+assert.deepEqual(densityGroups(.5, 3).labels, [-1, -1, -1, -1, -1, -1, -1]);
+assert.deepEqual(densityGroups(1.1, 4).labels, [-1, -1, -1, -1, -1, -1, -1]);
+assert.deepEqual(densityGroups(4.1, 3).labels, [0, 0, 0, 0, 0, 0, -1]);
+// Agglomerative single/complete/average linkage for {0,1} vs {5,6}.
+const crossDistances = [5, 6, 4, 5];
+assert.equal(Math.min(...crossDistances), 4);
+assert.equal(Math.max(...crossDistances), 6);
+assert.equal(crossDistances.reduce((a, b) => a + b, 0) / 4, 5);
+
+// E05: independent novelty score, not the actual LOF formula.
+const normalX = [0, .2, .4, .6, 9, 9.2, 9.4, 9.6];
+function neighborScore(x, k = 2) {
+  return normalX.map(a => Math.abs(x - a)).sort((a, b) => a - b)
+    .slice(0, k).reduce((a, b) => a + b, 0) / k;
+}
+close(normalX.reduce((a, b) => a + b, 0) / normalX.length, 4.8);
+close(neighborScore(5), 4.1);
+close(neighborScore(.3), .1);
+close(neighborScore(9.3), .1);
+close(((1.0 + 1.2) / 2) / .2, 5.5);
+
 console.log(JSON.stringify({
   status: 'pass', pagesChecked: checkedNames.length,
   cards: cards.length, sourcePagesChecked: fixtureNames.length,
-  numericFixtures: 'B03/B05/C01/C05/D01/D02', scope: 'offline structural + numeric only',
+  numericFixtures: 'B03/B05/C01/C05/D01/D02/E02/E05', scope: 'offline structural + numeric only',
 }, null, 2));
