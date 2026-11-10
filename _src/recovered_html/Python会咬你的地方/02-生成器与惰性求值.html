@@ -391,7 +391,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">刚造出来 : GEN_CREATED</span></div><div class="vb-flow-row"><span class="vb-flow-step">第 1 次 next -&gt; 10 | 冻住的 i = 10 | 状态: GEN_SUSPENDED</span></div><div class="vb-flow-row"><span class="vb-flow-step">第 2 次 next -&gt; 11 | 冻住的 i = 11</span></div><div class="vb-flow-row"><span class="vb-flow-step">第 3 次 next -&gt; 12 | 冻住的 i = 12</span></div><div class="vb-flow-row"><span class="vb-flow-step">第 4 次 next -&gt; StopIteration | 状态: GEN_CLOSED | gi_frame: None</span></div></div></section>
 <p>⭐ <strong>两处最能说明问题的</strong>：</p>
 <ol>
-<li><strong><code>i += 1</code> 的执行时机</strong>。第 1 次 <code>next</code> 之后 <code>i</code> 还是 <code>10</code> —— 那一行还没跑。它要等你再要一个值的时候才执行。<strong>所以「生成器里的代码什么时候跑」的答案永远是：消费方要的时候。</strong></li>
+<li><strong><code>i += 1</code> 的执行时机</strong>。第 1 次 <code>next</code> 之后 <code>i</code> 还是 <code>10</code> —— 那一行还没跑。它要等你再要一个值的时候才执行。<strong>再次取值时，会从暂停处继续执行。</strong>主动关闭也可能触发清理，读大文件的部分会演示这个区别。</li>
 <li><strong>跑完之后 <code>gi_frame</code> 变成 <code>None</code></strong>。栈帧被丢掉了，状态从 <code>GEN_SUSPENDED</code> 变成 <code>GEN_CLOSED</code>。⚠️ <strong>这就是下一节那个坑的机制</strong>——不是「数据被消费光了」，是执行位置永久地停在了终点。</li>
 </ol>
 <h2 id="_3">⚠️ 三、只能走一次，而且第二次「不报错」</h2>
@@ -562,8 +562,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
 <h2 id="for">🚦 六、迭代器协议：<code>for</code> 背后就两个方法</h2>
-<p><code>for x in obj</code> 展开之后只有两步：调 <code>obj.__iter__()</code> 拿到一个迭代器，然后反复调它的 <code>__next__()</code>，直到 <code>StopIteration</code>。</p>
-<p>⭐ <strong>可迭代对象（iterable）和迭代器（iterator）是两个东西</strong>，混淆它们正是第三节那个坑的根源：</p>
+<p><code>for x in obj</code> 先用 <code>iter(obj)</code> 拿到一个迭代器，再反复取下一项。没有提前退出时，循环在遇到 <code>StopIteration</code> 后结束。</p>
+<p>⭐ <strong>可迭代对象（iterable）</strong>可以交给 <code>iter()</code>。<strong>迭代器（iterator）</strong>还负责记住读取位置，<code>iter()</code> 会返回它自己。迭代器也是可迭代对象。下面用列表这一类可重复遍历的对象做对照。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -575,7 +575,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </thead>
 <tbody>
 <tr>
-<td><strong>可迭代对象</strong></td>
+<td><strong>可重复遍历的对象</strong></td>
 <td><code>__iter__</code></td>
 <td>⭐ 每次 <code>for</code> 都能重新走</td>
 <td><code>list</code>、<code>dict</code>、<code>str</code>、<code>range</code></td>
@@ -620,6 +620,36 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>第一次 for: [3, 2, 1]</p><p>第二次 for: []</p><p>可重复遍历: [3, 2, 1] [3, 2, 1]</p></div></section>
 <p>⭐ <strong><code>__iter__</code> 里写 <code>yield</code>，方法本身就变成生成器函数</strong> —— 每次被调用都返回一个全新的生成器，于是这个对象就能反复遍历。这是自定义容器的<strong>默认应该选的那个</strong>写法；<code>return self</code> 只在你真的想造一个一次性流的时候才对。</p>
 <p>⚠️ <strong>文件对象是迭代器</strong>，所以 <code>for line in f</code> 走完之后再 <code>for line in f</code> 什么也读不到（除非 <code>f.seek(0)</code>）。这跟第三节是同一件事。</p>
+<h3 id="shared-iterator-cursor">两个人各取一条，还是共用一个位置？</h3>
+<p>想象预览程序先从标签流取一条，统计程序随后也想从第一条开始。如果两边拿到同一个生成器对象，后一次读取会从上次暂停的地方继续。给它两个名字只会共享引用，就像第 01 章的对象绑定例子。</p>
+<div class="tw"><table>
+<caption>两个名字指向同一个生成器，依次读取甲、乙、丙</caption>
+<thead><tr><th scope="col">操作</th><th scope="col">读到的值</th><th scope="col">共享游标剩下什么</th></tr></thead>
+<tbody>
+<tr><th scope="row"><code>iter(source)</code> 两次</th><td>没有读取</td><td>甲、乙、丙</td></tr>
+<tr><th scope="row"><code>next(preview)</code></th><td>甲</td><td>乙、丙</td></tr>
+<tr><th scope="row"><code>next(report)</code></th><td>乙</td><td>丙</td></tr>
+<tr><th scope="row"><code>list(preview)</code></th><td>丙</td><td>已耗尽</td></tr>
+</tbody></table></div>
+<div class="codehilite" data-code-language="python"><pre><code class="language-python">labels = ["甲", "乙", "丙"]
+source = (label for label in labels)
+preview = iter(source)
+report = iter(source)
+assert preview is source and report is source
+
+assert next(preview) == "甲"
+assert next(report) == "乙"
+assert list(preview) == ["丙"]
+assert list(report) == []
+
+first = iter(labels)
+second = iter(labels)
+assert first is not second
+assert next(first) == next(second) == "甲"
+print("同一个生成器共享进度，列表可以创建两个游标")
+</code></pre></div>
+<p>前半段用 <code>is</code> 检查对象身份，再轮流调用 <code>next()</code>。<code>list(preview)</code> 把剩余的丙也读完。后半段两次对列表调用 <code>iter()</code>，各得到一个新迭代器。它们共享同一份标签数据，各自保存读取位置。</p>
+<p>每个消费者都要看到完整序列时，若来源可重读，可以各自创建新的迭代器。若来源只能走一遍，有限且放得下的数据可以<strong>在任何消费者取值前</strong>先收集成列表。这样要一次性读取全部 <code>n</code> 项并额外保存 O(n) 个列表元素引用。已经被取走的项无法从原迭代器补回。<a href="https://docs.python.org/3.14/glossary.html#term-iterator">Python 迭代器术语</a></p>
 <h2 id="itertoolsislice-chain-groupby">📋 七、<code>itertools</code>：islice / chain / groupby</h2>
 <p>生成器的切片、拼接、分组都不能用列表那套语法，标准库里有对应的工具。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># itertools 三件套：islice / chain / groupby</span>
@@ -728,6 +758,41 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⚠️ <strong>注意第二种写法的伪装性</strong>：<code>sum(len(line) for line in f.readlines())</code> 外面<strong>明明是个生成器表达式</strong>，看起来很惰性 —— 但 <code>f.readlines()</code> 在生成器开跑之前就已经把 50 万行全读进列表了。惰性只能从最里面那层开始，最内层一旦物化，外面套多少层生成器都白搭。</p>
 <p>💀 这是「生成器用法看着对、其实没生效」的头号形态。同族的还有 <code>for x in sorted(gen)</code>、<code>for x in list(gen)</code>、<code>json.load(f)</code> —— 它们都必须先拿到全部数据才能出第一个结果。</p>
 <p>📋 <strong>一条判据</strong>：<strong>看最里层。</strong> 如果最内侧那个调用会返回一个 <code>list</code>/<code>dict</code>/完整字符串，那么外面所有的生成器语法都只是装饰。</p>
+<h3 id="break-and-generator-close">提前退出后，谁负责把资源关掉？</h3>
+<p>预览文件时可能只要第一行，拿到就 <code>break</code>。如果文件是生成器自己打开的，而调用方仍持有生成器对象，此时循环已结束，生成器却仍暂停在 <code>yield</code>，里面的文件可能还开着。下面用 <code>StringIO</code> 模拟文件，全部操作在内存完成。</p>
+<div class="tw"><table>
+<caption>保留生成器引用时，循环状态和资源状态分开变化</caption>
+<thead><tr><th scope="col">操作</th><th scope="col">生成器</th><th scope="col">例中的文件</th></tr></thead>
+<tbody>
+<tr><th scope="row">调用 <code>read_rows(opened)</code></th><td>创建，尚未开始</td><td>还未打开</td></tr>
+<tr><th scope="row">第一次取值，随后 <code>break</code></th><td>暂停在第一行的 <code>yield</code></td><td>打开</td></tr>
+<tr><th scope="row">调用 <code>close()</code></th><td>结束，不能继续取值</td><td>已关闭</td></tr>
+</tbody></table></div>
+<div class="codehilite" data-code-language="python"><pre><code class="language-python">from io import StringIO
+
+def read_rows(opened):
+    with StringIO("甲\n乙\n") as file:
+        opened.append(file)
+        for line in file:
+            yield line.rstrip("\n")
+
+opened = []
+stream = read_rows(opened)
+assert opened == []
+try:
+    for row in stream:
+        assert row == "甲"
+        break
+    assert not opened[0].closed
+finally:
+    stream.close()
+
+assert opened[0].closed
+assert list(stream) == []
+print("提前退出后仍打开，显式关闭后已释放")
+</code></pre></div>
+<p>列表 <code>opened</code> 只用来观察文件的 <code>closed</code> 属性。<code>break</code> 结束外面的循环，保留暂停点，之后本来也可以继续读取乙。<code>close()</code> 则在暂停处触发 <code>GeneratorExit</code>。本例的生成器退出内部 <code>with</code>，文件就在这次调用里关闭。若正常读到迭代结束，也会退出 <code>with</code>。只拿到最后一次 <code>yield</code> 的值时，生成器仍可能停在那里。<a href="https://docs.python.org/3.14/reference/expressions.html#generator-iterator-methods">Python 生成器关闭规则</a></p>
+<p><strong>先明确谁持有资源。</strong>生成器打开的文件由它的 <code>with</code> 负责关。调用方确认不再消费时，用 <code>finally</code> 保证关闭生成器，无需猜测对象何时被回收。若有多个消费者共享它，由负责整个读取过程的一方决定何时关闭。若文件由调用方打开，生成器只是借来迭代，调用方可以把整个消费过程放在自己的 <code>with open(...)</code> 块内。如果生成器只用普通 <code>for</code> 读取且没有主动关闭文件，就由调用方退出 <code>with</code> 时关文件。若改用 <code>yield from</code>，对暂停在委托处的生成器调用 <code>close()</code> 会转发给带 <code>close()</code> 的子迭代器，要把这个动作也算进资源约定。第 03 章会进一步解释 <code>with</code> 怎样保证清理，第 07 章会区分清理动作与改变控制流的写法。</p>
 <h2 id="_5">📋 十、一张排查表</h2>
 <div class="tw"><table>
 <thead>
@@ -846,16 +911,26 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>生成器表达式 <strong>0.0 MB</strong>，列表推导 77.4 MB，两个求和结果一模一样。省的是内存，不是时间 —— 论纯 CPU 列表推导往往还略快。</li>
 <li><strong>不会抛。</strong> 函数体一行都没跑，异常要等第一次 <code>next</code> 才出现。修法是拆成两层：外层普通函数负责立刻校验，内层生成器负责产数据（第五节的 <code>read_rows_ok</code>）。</li>
 <li>因为框架拿到 <code>StreamingResponse</code> 就把 <strong><code>200 OK</code> 和响应头发出去了</strong>，之后才开始 <code>next()</code> 拉数据；这时抛异常，状态码已经在路上了。所以鉴权、参数、配额一律放在返回响应对象之前的普通代码里；进了生成器就只剩「往流里写一个错误帧」。</li>
-<li>可迭代对象只有 <code>__iter__</code>，迭代器还有 <strong><code>__next__</code></strong>（且它的 <code>__iter__</code> 返回自己）。文件对象是迭代器，所以 <code>for line in f</code> 走完再走一遍什么也读不到，除非 <code>f.seek(0)</code>。</li>
+<li>可迭代对象能传给 <code>iter()</code>。迭代器有 <strong><code>__next__</code></strong>，而且它的 <code>__iter__</code> 返回自己。文件对象是迭代器，所以 <code>for line in f</code> 走完再走一遍什么也读不到，除非 <code>f.seek(0)</code>。</li>
 <li>① 它只合并<strong>相邻</strong>的相同键，不先按同一个 <code>key</code> 排序就会把 <code>'a'</code> 切成 <code>[1]</code> 和 <code>[3]</code> 两段；② 分组迭代器和外层共享同一个底层游标。<code>list(...)</code> 先把外层走到底，于是三个组全空 —— 包括最后的 <code>'c'</code>，输出是 <code>[('a', []), ('b', []), ('c', [])]</code>。</li>
 <li><strong>不是。</strong> <code>f.readlines()</code> 在生成器开跑之前就把 50 万行读进了列表，实测峰值 48.7 MB，而 <code>for line in f</code> 是 0.0 MB。判据是「看最里层」：最内侧调用只要返回完整的 <code>list</code>/<code>dict</code>/字符串，外面套多少层生成器语法都只是装饰。</li>
 </ol>
+</details>
+<p>预览先对生成器执行 <code>next(g)</code>，随后统计程序拿到 <code>iter(g)</code>。如果原来会产出甲、乙、丙，它还能统计到哪些？</p>
+<details>
+<summary>👀 看答案</summary>
+<p>只能看到乙、丙。<code>iter(g)</code> 仍是同一个对象，甲已经被预览取走。</p>
+</details>
+<p>把资源实验的 <code>break</code> 保留，删掉显式关闭，并继续持有 <code>stream</code>。离开循环时，<code>opened[0].closed</code> 是什么？</p>
+<details>
+<summary>👀 看答案</summary>
+<p>是 <code>False</code>，因为生成器还停在内部 <code>with</code> 中。可正常继续读到耗尽，或在决定结束消费时显式调用 <code>stream.close()</code>。</p>
 </details>
 <h2 id="_8">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
 <p>⭐ <strong>生成器不是数据，是一个被暂停在半路的函数。</strong> 只要函数体里有 <code>yield</code>，调用它就<strong>一行代码都不执行</strong>。<code>yield</code> 和 <code>return</code> 的分水岭在栈帧：<code>return</code> 销毁它，<strong><code>yield</code> 冻住它</strong>，局部变量和执行位置原样等你回来。</p>
-<p>⚠️ <strong>一号杀手是「只能走一次，而且第二次不报错」</strong>：同一个生成器第一次求和有值，第二次是 <strong>0</strong>，再 <code>list</code> 是空的。⭐ <strong><code>sum</code> 和 <code>list</code> 在空迭代器上都是合法返回</strong>——所以「先 <code>len(list(rows))</code> 打日志、再 <code>for r in rows</code> 处理」这种写法会<strong>静默丢数据，而日志里的数字还是对的</strong>。需要走两次就当场 <code>rows = list(rows)</code>。</p>
+<p>⚠️ <strong>一号杀手是「只能走一次，而且第二次不报错」</strong>：同一个生成器第一次求和有值，第二次是 <strong>0</strong>，再 <code>list</code> 是空的。⭐ <strong><code>sum</code> 和 <code>list</code> 在空迭代器上都是合法返回</strong>——所以「先 <code>len(list(rows))</code> 打日志、再 <code>for r in rows</code> 处理」这种写法会<strong>静默丢数据，而日志里的数字还是对的</strong>。要走两次，可重读时各建一个迭代器。有限且放得下时，也可以在消费前用 <code>rows = list(rows)</code> 保留数据。</p>
 <p>收益那一面：把方括号去掉，峰值内存从几十 MB 降到几乎为零，结果完全一样——⚠️ <strong>它省的是内存不是时间</strong>。</p>
 <p>💀 <strong>惰性还把异常推迟了</strong>：生成器函数开头的 <code>raise</code> 在调用那一刻<strong>不会执行</strong>，要等第一次 <code>next</code>。⭐ 这条推论在流式接口上变成真事故：返回流式响应时函数体还没跑，<strong>框架已经把 <code>200 OK</code> 发出去了</strong>，之后拉数据才炸——<strong>你没有 500 可以返回了</strong>。所以<strong>鉴权和参数校验必须放在返回响应对象之前</strong>。</p>
 <p>修法是拆两层：外层普通函数立刻校验，内层生成器产数据。</p>
