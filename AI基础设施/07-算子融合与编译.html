@@ -298,13 +298,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <div class="mg-cover-copy">
 <p class="mg-kicker">AI基础设施 · 07</p>
 <p class="mg-question">同一段计算，为什么拆成几个 kernel 就多搬了数据？</p>
-<p class="mg-dek">中间张量跨 kernel 的边界会增加读写，启动也有成本。融合、编译与 CUDA Graph 解决的开销各有侧重。</p>
+<p class="mg-dek">中间张量跨 kernel 边界可能增加读写。用同一例子区分融合、编译和 CUDA Graph，并把首次等待与稳定耗时分开记。</p>
 <p class="mg-outcome">读完能判断：沿原中间结果路径区分融合收益、graph break 与启动开销。</p>
 <nav class="mg-actions" aria-label="本页阅读入口">
 <a class="mg-primary" href="#kernel-hbm">一、问题：kernel 边界可能增加显存读写与启动</a>
 <a href="#mg-ai-infra-07-reading-start">直接进入完整正文</a>
 </nav>
-<nav class="mg-reading-map" aria-label="本章其他定位"><a href="#torchcompile">🪄 二、 torch.compile ：先试这个</a><a href="#cuda-graph">🧊 五、CUDA Graph：消灭启动开销</a></nav>
+<nav class="mg-reading-map" aria-label="本章其他定位"><a href="#torchcompile">🪄 二、torch.compile：捕获、编译与复用</a><a href="#cuda-graph">🧊 五、CUDA Graph：减少重复提交</a></nav>
 </div>
 </header>
 <span id="mg-ai-infra-07-reading-start"></span>
@@ -313,10 +313,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#kernel-hbm">🔥 一、问题：kernel 边界可能增加显存读写与启动</a></li>
-<li><a href="#torchcompile">🪄 二、torch.compile：先试这个</a></li>
+<li><a href="#torchcompile">🪄 二、torch.compile：捕获、编译与复用</a></li>
 <li><a href="#triton">✍️ 三、Triton：需要手写时的选择</a></li>
 <li><a href="#_3">📦 四、现成的融合实现（优先用这些）</a></li>
-<li><a href="#cuda-graph">🧊 五、CUDA Graph：消灭启动开销</a></li>
+<li><a href="#cuda-graph">🧊 五、CUDA Graph：减少重复提交</a></li>
 <li><a href="#_4">🔗 和站内其他章的关系</a></li>
 <li><a href="#_5">✅ 检查点</a></li>
 <li><a href="#_6">🛑 可以停在这里</a></li>
@@ -324,32 +324,59 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="07">07 · 算子融合与编译</h1>
-<p>⏱ <strong>24 分钟</strong> ｜ 🎁 <strong>一行代码常常能拿到 20-40%</strong></p>
+<p>⏱ <strong>主线约 30 分钟</strong> ｜ ⭐ <strong>先算中间张量，再验证提速</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>十个逐元素操作，数据往返显存十趟；融合成一个 kernel，只往返一趟。</strong>
-<a href="03-显存与带宽墙.html">第 3 章</a>算过逐元素操作的算术强度只有 0.17 ——
-<strong>融合就是把这个数字乘以 N 的手段。</strong></p>
+<p>先把两个数组对应位置相加，再把负数变为 0。分两次做时，第二次得拿到完整的加法结果。若同一个内核能在算出某个位置的和之后立即取最大值，就可以直接写最终结果。第 6 章改变数字的精度，本章固定精度，接着问中间值必须搬到哪里。</p>
 <hr />
 <h2 id="kernel-hbm">🔥 一、问题：kernel 边界可能增加显存读写与启动</h2>
-<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">y = gelu(x @ W + b) * scale</span></div><div class="vb-flow-row"><span class="vb-flow-step">PyTorch eager 模式下会跑【四个】kernel：</span></div><div class="vb-flow-row"><span class="vb-flow-step">① tmp1 = x @ W</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">写 HBM</span></div><div class="vb-flow-row"><span class="vb-flow-step">② tmp2 = tmp1 + b</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">读 HBM，写 HBM</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ tmp3 = gelu(tmp2)</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">读 HBM，写 HBM</span></div><div class="vb-flow-row"><span class="vb-flow-step">④ y = tmp3 * scale</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">读 HBM，写 HBM</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 中间结果被写出去又读回来【三次】</span></div><div class="vb-flow-row"><span class="vb-flow-step">而每次 kernel 只做一点点计算</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">纯带宽浪费</span></div></div></section>
-<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">融合后：</span></div><div class="vb-flow-row"><span class="vb-flow-step">① 一个 kernel：读 x 和 W</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">在寄存器/Shared Memory 里</span></div><div class="vb-flow-row"><span class="vb-flow-step">完成 matmul、加 bias、gelu、乘 scale</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">写 y</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ HBM 往返从 4 次降到 1 次</span></div></div></section>
-<p><strong>收益估算</strong>：</p>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>一个 [8192, 8192] 的 BF16 张量 = 134 MB</p><p>融合前（4 个 kernel）：约 7 次 HBM 读写 ≈ 940 MB</p><p>融合后（1 个 kernel）：约 2 次 ≈ 270 MB</p><p>→ A100 2TB/s 下，节省约 0.34 毫秒</p><p>→ 一个 32 层的模型每步就是 ~10 毫秒 ⭐</p></div></section>
-<blockquote>
-<p>💡 <strong>还有一个常被忽略的收益：kernel 启动开销。</strong>
-每次 kernel 启动约 3–10 微秒。一个模型一步跑几千个 kernel，
-<strong>光启动开销就能占几十毫秒</strong> —— 小模型上这一项甚至比带宽更致命。</p>
-</blockquote>
+<p>把加法和取最大值分别交给 GPU。每次提交的设备程序叫<strong>内核（Kernel）</strong>。先假设一个算子对应一次内核启动，中间结果没有其他使用者。把可一起完成的算子放到同一个内核，称为<strong>算子融合（Operator Fusion）</strong>。</p>
+<section class="visual-block visual-block-flow" aria-label="加法与 ReLU 的两条数据路径">
+<p class="visual-block-title">同一组输入，观察中间和放在哪里</p>
+<div class="vb-flow">
+<div class="vb-flow-row"><span class="vb-flow-step">分开：读 x、y → 加法写出 tmp → ReLU 读 tmp → 写结果</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step">融合：读 x、y → 片上求和并做 ReLU → 写结果</span></div>
+</div>
+</section>
+<p>令 <var>x</var>、<var>y</var> 是长度同为 <var>n</var> 的数组，<var>i</var> 是从 0 到 <var>n</var> − 1 的元素下标。输出 <var>z</var><sub>i</sub> = max(0, <var>x</var><sub>i</sub> + <var>y</var><sub>i</sub>)。这个取最大值的规则叫<strong>修正线性单元（ReLU）</strong>，负数变 0，非负数保留。取 <var>x</var> = [−3, 2, 4]、<var>y</var> = [1, 3, −7]，对应相加得 [−2, 5, −3]，最终写 [0, 5, 0]。每个位置独立，所以不需要等整个中间数组写完再处理同一位置。</p>
+<div class="tw" id="fusion-byte-ledger"><table style="width:100%;min-width:0;table-layout:fixed;overflow-wrap:anywhere">
+<caption>一百万个 FP32 元素，两种假设执行方式</caption>
+<thead><tr><th scope="col">账目</th><th scope="col">分开</th><th scope="col">融合</th></tr></thead>
+<tbody>
+<tr><th scope="row">读 x、y</th><td>8 MB</td><td>8 MB</td></tr>
+<tr><th scope="row">写、读 tmp</th><td>8 MB</td><td>0 MB</td></tr>
+<tr><th scope="row">写 z</th><td>4 MB</td><td>4 MB</td></tr>
+<tr><th scope="row">逻辑读写</th><td>20 MB</td><td>12 MB</td></tr>
+<tr><th scope="row">内核启动</th><td>2 次</td><td>1 次</td></tr>
+</tbody></table></div>
+<p><strong>复算字节。</strong>设 <var>b</var> 是每个元素的字节数。<var>n</var> = 1,000,000、FP32 的 <var>b</var> = 4 字节，所以一个数组占 <var>n</var> × <var>b</var> = 4,000,000 字节 = 4 MB。分开执行的加法读两份、写一份，记 3 × 4 = 12 MB。ReLU 读一份、写一份，记 2 × 4 = 8 MB，合计 20 MB。融合只读两份并写最终一份，合计 3 × 4 = 12 MB，少搬两份中间数组。</p>
+<p>这笔<strong>逻辑读写</strong>按程序里被读取或写出的数组计。若假设这些字节全部经过显存（HBM），且两版都能用 1 TB/s（10<sup>12</sup> 字节/秒）搬运，按第 3 章的字节数 ÷ 带宽，20 MB ÷ 1 TB/s = 20 μs，12 MB ÷ 1 TB/s = 12 μs（1 μs 是百万分之一秒）。差 8 μs 只是这个假设下的搬运时间差。L2 缓存可能承接中间数据，额外内存事务或寄存器不足引起的溢出也可能增加流量。用第 4 章的 Roofline 分析时，要把实际 HBM 字节配上 HBM 带宽。</p>
+<p>两次启动变成一次，也可能缩短主机提交的等待。实际节省多少要看启动与执行能否重叠、内核效率和依赖关系，不能把两笔假设收益直接相加。若中间和还要交给别的算子，或下一步必须先汇总所有元素，编译器也可能保留写出、分开执行或选择不同融合边界。</p>
+<p>用标准 Python 复算小输入和字节表。先把两种路径各算一次并核对结果。再用 <code>elements * bytes_per_element</code> 算一个数组的大小，分别乘上 5 次和 3 次完整数组访问。小例用整数验证数学等价，字节表按独立的大数组模型计。</p>
+<div class="codehilite" data-code-language="python" id="fusion-reference-code"><pre><code>x = [-3, 2, 4]
+y = [1, 3, -7]
+tmp = [a + b for a, b in zip(x, y)]
+separate = [max(0, value) for value in tmp]
+fused = [max(0, a + b) for a, b in zip(x, y)]
+assert separate == fused == [0, 5, 0]
+
+elements = 1_000_000
+bytes_per_element = 4
+array_bytes = elements * bytes_per_element
+print(fused)
+print(5 * array_bytes, 3 * array_bytes)
+</code></pre></div>
+<p>输出先是 <code>[0, 5, 0]</code>，再是 <code>20000000 12000000</code>（字节）。可改元素个数或字节数重新算账。这段程序不调用 GPU，也没有测量速度。</p>
+<details class="g05-content-note"><summary>选读：把逐元素操作放进矩阵乘的尾部</summary><p>例如 <code>y = gelu(x @ W + b) * scale</code>。矩阵乘先产生一个输出块，随后加偏置、做激活再乘比例。支持这些尾部操作的库可能在写回该块前完成部分处理，这叫尾部融合（epilogue fusion）。是否能合并到同一个内核取决于形状、精度、后端和数值约束。若多个内核仍需交换数据，就按实际边界逐笔记账。</p></details>
 <hr />
-<h2 id="torchcompile">🪄 二、<code>torch.compile</code>：先试这个</h2>
+<h2 id="torchcompile">🪄 二、<code>torch.compile</code>：捕获、编译与复用</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：`model` 来自你自己的代码，这一段只看写法</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="n">model</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>          <span class="c1"># ⭐ 就这一行</span>
 </code></pre></div>
 
-<p>它做的事：</p>
-<section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>TorchDynamo：把 Python 字节码抓成计算图</li><li>AOTAutograd：连反向图一起抓</li><li>Inductor：生成融合后的 Triton kernel</li></ol></section>
+<p>上面的调用把模型交给编译器。第一次运行时，能识别的张量操作会被捕获，然后再决定哪些操作可以放在同一个内核。用本章的加法与 ReLU 来看，计算图里有「加法 → ReLU」这条依赖，捕获它之后，后端才有机会选择融合。</p>
+<section class="visual-block visual-block-steps" aria-label="PyTorch 编译步骤"><p class="visual-block-title">图里看到什么，后端才有机会优化什么</p><ol class="vb-steps"><li><strong>TorchDynamo</strong> 在执行 Python 时捕获可识别的张量操作，生成图并记录形状、类型等适用条件（guards）。</li><li><strong>AOTAutograd</strong> 在常见训练编译链中安排前向和反向图；推理不用生成训练梯度。</li><li><strong>Inductor</strong> 是默认优化后端，按设备和操作选择融合、自生成内核或调用已有库。捕获成一张图仍可能运行多个内核。</li></ol></section>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -360,20 +387,20 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td><code>default</code></td>
-<td>平衡，编译快</td>
+<td>默认在编译成本和运行性能间取平衡</td>
 </tr>
 <tr>
 <td><code>reduce-overhead</code></td>
-<td>用 <strong>CUDA Graph</strong> 消除启动开销，<strong>小模型/推理效果显著</strong> ⭐</td>
+<td>在可捕获的 CUDA 路径用 CUDA Graph 减少重复提交，可能需要额外缓冲</td>
 </tr>
 <tr>
 <td><code>max-autotune</code></td>
-<td>自动搜索最优配置，编译很慢但运行最快</td>
+<td>尝试更多候选内核配置，编译可能更久，运行收益看实测</td>
 </tr>
 </tbody>
 </table></div>
-<p>典型收益：训练 <strong>10–30%</strong>，推理（小 batch）可达 2 倍。</p>
-<h3 id="_2">⚠️ 五个会让它失效的坑</h3>
+<p>模式描述和使用条件见 <a href="https://docs.pytorch.org/docs/stable/generated/torch.compile.html">PyTorch API</a>。是否值得采用，取决于图能否复用、执行瓶颈和任务实际运行多久。</p>
+<h3 id="_2">⚠️ 五个要区分的症状</h3>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -385,28 +412,28 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td><strong>graph break</strong> ⭐</td>
-<td>编译了但几乎没提速</td>
+<td>一段 Python 没被捕获，可捕获的片段仍可能编译</td>
 <td><code>TORCH_LOGS="graph_breaks"</code> 查在哪断的</td>
 </tr>
 <tr>
 <td><strong>动态形状反复重编译</strong></td>
-<td>前几十步极慢</td>
-<td><code>dynamic=True</code>，或把序列长度<strong>分桶补齐</strong> ⭐</td>
+<td>输入不满足已有图的条件，又生成适用的版本</td>
+<td>先看 <code>recompiles</code> 原因，再比较动态形状设置或分桶补齐</td>
 </tr>
 <tr>
 <td><strong>代码里有 <code>.item()</code> / <code>print</code></strong></td>
 <td>可能同步或触发 graph break，依版本与配置而变</td>
-<td>训练循环里删掉</td>
+<td>需要保留的日志移到编译区域外，再确认读标量的同步</td>
 </tr>
 <tr>
 <td><strong>数据依赖的控制流</strong></td>
-<td><code>if x.sum() &gt; 0:</code> 无法编译</td>
-<td>改写成张量运算或接受断点</td>
+<td><code>if x.sum() &gt; 0:</code> 依赖张量数据，常见设置下可能切断捕获</td>
+<td>先确认两分支的数值与副作用，再考虑张量运算或受支持的控制流</td>
 </tr>
 <tr>
 <td><strong>首次编译很慢</strong></td>
-<td>以为卡死了</td>
-<td>正常，几十秒到几分钟；<strong>别在 benchmark 里算进去</strong></td>
+<td>冷启动比稳定执行慢</td>
+<td>另报首次延迟，不把编译等待混入稳定段</td>
 </tr>
 </tbody>
 </table></div>
@@ -414,11 +441,19 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="nv">TORCH_LOGS</span><span class="o">=</span><span class="s2">&quot;graph_breaks,recompiles&quot;</span><span class="w"> </span>python<span class="w"> </span>train.py
 </code></pre></div>
 
-<blockquote>
-<p>🔑 <strong><code>graph break</code> 是最常见的"我编译了但没变快"的原因</strong>：
-一个 break 会把图切成两半，跨边界的融合机会全部丢失。
-<strong>一个训练循环里有几十个 break 是很常见的。</strong></p>
-</blockquote>
+<p><strong>断图和重编译是两件事。</strong>断图（graph break）是捕获走到暂时不能纳入图的操作，默认设置下可能执行那段 Python 后继续捕获。重编译是新调用没有满足已编译图的条件。某一维长度改变不一定断图，已有图也可能支持多种长度。先用上面的日志分清两者，再对照 <a href="https://docs.pytorch.org/docs/stable/user_guide/torch_compiler/torch.compiler_dynamic_shapes.html">PyTorch 动态形状说明</a>。</p>
+<p>用同一段加法与 ReLU 做对照。先固定输入、形状、类型、设备和输出需求，保留 eager 结果作为参考。若测训练，还要对齐前向、梯度与更新范围。浮点计算可以因累加顺序或中间值精度而出现舍入差异，按任务的精度要求选容差。</p>
+<section class="visual-block visual-block-steps" id="fusion-benchmark-steps" aria-label="性能实验的四步对照">
+<p class="visual-block-title">先验证，再分开记录冷启动和稳定运行</p>
+<ol class="vb-steps">
+<li><strong>先验正确。</strong>核对形状、类型和逐元素差异。若参考值是 5.0，绝对容差为 0.0001、相对容差为 0.001，允许差值是 0.0001 + 0.001 × 5.0 = 0.0051。候选 5.001 的差值 0.001 在本例容差内。用 <code>torch.testing.assert_close</code> 时可明确传这两个阈值，换数据类型要重新定。</li>
+<li><strong>单列首次等待。</strong>记录首次调用到完成的端到端时间，标明编译缓存是否已热。不同形状会触发重编译时，把那部分等待也记录下来。</li>
+<li><strong>再测稳定段。</strong>两版都预热到稳定。墙钟计时前后同步被测 CUDA 设备，避免把异步入队当作执行完成。若只测设备区间，可用同一流上的 CUDA 事件并等待结束事件完成。</li>
+<li><strong>多次重复。</strong>在同一计时范围下报告重复次数、中位数和离散程度。看 profiler 中实际内核数和对应阶段，必要时查显存流量。线上还要另看请求时延。</li>
+</ol>
+</section>
+<p>例如假设编译比 eager 多花 30 ms 的一次性开销，之后每次稳定执行从 0.7 ms 降到 0.5 ms。每次省 0.7 − 0.5 = 0.2 ms。若两版后续都稳定且不重编译，30 ÷ 0.2 = 150 次稳定调用后才刚抵平；第 151 次才开始净省。这里把首次额外等待和后续稳定执行分别记账，数字只是示意。</p>
+<p>对照依据：<a href="https://docs.pytorch.org/tutorials/intermediate/torch_compile_tutorial.html">PyTorch 编译与同步计时示例</a>、<a href="https://docs.pytorch.org/docs/stable/testing.html#torch.testing.assert_close">PyTorch 数值校验</a>、<a href="https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/index.html#bandwidth">CUDA 带宽测量</a>。</p>
 <hr />
 <h2 id="triton">✍️ 三、Triton：需要手写时的选择</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">triton</span><span class="o">,</span><span class="w"> </span><span class="nn">triton.language</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">tl</span>
@@ -434,7 +469,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
     <span class="n">tl</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">out_ptr</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>  <span class="c1"># ⭐ 一次写</span>
 </code></pre></div>
 
-<p>Triton vs CUDA：</p>
+<p>上面的 Triton 内核是第一节加法与 ReLU 的设备实现片段。<code>pid</code> 指当前程序实例，<code>BLOCK</code> 是每个实例负责的位置数。<code>offs</code> 算出位置，<code>mask</code> 让不足一整块的尾部避免越界，最后每个有效位置写一次。片段只定义内核，实际运行还需准备设备张量和启动参数。下表比较两种写法对程序员暴露的层次。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -446,8 +481,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td>语言</td>
-<td>Python</td>
-<td>C++</td>
+<td>Python 风格的内核语言</td>
+<td>常用 CUDA C++</td>
 </tr>
 <tr>
 <td>你要管的</td>
@@ -455,19 +490,19 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <td>thread 级别</td>
 </tr>
 <tr>
-<td>自动处理</td>
-<td>内存合并、shared memory、warp 调度 ⭐</td>
-<td>全部手动</td>
+<td>布局与调度</td>
+<td>编译器处理许多底层选择，仍需检查布局与访存</td>
+<td>可显式控制线程组织、共享内存和同步</td>
 </tr>
 <tr>
 <td>性能</td>
-<td>通常能到手写 CUDA 的 <strong>80–95%</strong></td>
-<td>100%</td>
+<td>用同形状、同精度与基线比较</td>
+<td>也受实现和硬件限制</td>
 </tr>
 <tr>
 <td>上手</td>
-<td>几小时</td>
-<td>几周</td>
+<td>先理解数据块与掩码</td>
+<td>再深入线程和内存细节</td>
 </tr>
 </tbody>
 </table></div>
@@ -481,9 +516,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 </blockquote>
+<p>这三条是筛选手写投入的线索。即使理论空间很大，也要考虑可移植性、维护与数值验证成本。</p>
 <hr />
 <h2 id="_3">📦 四、现成的融合实现（优先用这些）</h2>
-<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>⭐ 顺序：现成库 &gt; torch.compile &gt; 手写 Triton &gt; 手写 CUDA</p></div></section>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>先看现成库能否满足目标，再比较编译路径和手写投入。</p></div></section>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -498,7 +534,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><strong><code>F.scaled_dot_product_attention</code></strong></td>
-<td>PyTorch 内置，<strong>自动选 FlashAttention 后端</strong> ⭐</td>
+<td>PyTorch 内置接口，按设备、类型、形状和配置选择适用后端</td>
 </tr>
 <tr>
 <td><strong>Apex / TransformerEngine</strong></td>
@@ -509,8 +545,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <td>各种注意力变体</td>
 </tr>
 <tr>
-<td><strong><code>torch.nn.functional</code> 的融合版</strong></td>
-<td>如 <code>fused</code> 参数的优化器</td>
+<td><strong><code>torch.optim</code> 的融合选项</strong></td>
+<td>例如支持的 <code>AdamW(fused=True)</code> 路径</td>
 </tr>
 </tbody>
 </table></div>
@@ -520,21 +556,19 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="n">opt</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">AdamW</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">3e-4</span><span class="p">,</span> <span class="n">fused</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="c1">#                                                    ↑ 常有 5-10% 提升</span>
 </code></pre></div>
+<p>上例保留了原优化器写法。注释中的内核数量与收益只是示意，实际受设备、类型、参数组织和版本影响。<a href="https://docs.pytorch.org/docs/stable/generated/torch.optim.AdamW.html">PyTorch AdamW</a>、<a href="https://docs.pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html">PyTorch SDPA</a>。</p>
 
 <hr />
-<h2 id="cuda-graph">🧊 五、CUDA Graph：消灭启动开销</h2>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>问题：每个 kernel 启动都有 CPU 开销（3-10 微秒）</p><p>小模型 / 推理时，CPU 可能【喂不饱 GPU】</p><p>CUDA Graph：把一整串 kernel 调用【录制】下来，</p><p>之后一次性提交给 GPU</p><p>⭐ 收益：小 batch 推理可达 20-50%</p><p>⚠️ 限制：形状必须固定，不能有动态控制流</p></div></section>
+<h2 id="cuda-graph">🧊 五、CUDA Graph：减少重复提交</h2>
+<section class="visual-block visual-block-compare" aria-label="算子融合与 CUDA Graph 对照"><p class="visual-block-title">同样两次运算，改变的开销不同</p><div class="vb-compare"><p>融合：把加法和 ReLU 放进一个内核，减少中间数组的写、读，并少一次内核启动。</p><p>CUDA Graph：录下内核和依赖，之后重放整组工作来减少逐项提交。若录下的是两个内核，重放仍可以是两个，中间数组照旧存在。</p></div></section>
+<p>重放时需要保持已捕获工作所依赖的执行结构、内存地址等条件。常见做法是向固定缓冲写入新值，或按输入形状选适用的图。不能捕获的操作需另走路径；是否重放要看实际环境。<a href="https://docs.pytorch.org/docs/stable/notes/cuda.html#cuda-graphs">PyTorch CUDA Graph 说明</a>。</p>
 
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：`model` 来自你自己的代码，这一段只看写法</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="n">model</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;reduce-overhead&quot;</span><span class="p">)</span>   <span class="c1"># ⭐ 自动用 CUDA Graph</span>
 </code></pre></div>
 
-<blockquote>
-<p>💡 <strong>怎么判断你是不是"CPU 喂不饱 GPU"</strong>：
-profiler 的时间轴上，<strong>GPU 行有大量空隙，CPU 行满满当当</strong> —— 就是它。
-这种情况下算力优化毫无意义，<strong>要解决的是启动开销</strong>。</p>
-</blockquote>
+<p><code>reduce-overhead</code> 在满足条件的 CUDA 路径可以使用图重放。看到时间线上 GPU 有空档，先把同一时刻的主机提交、数据准备、同步和通信对齐。确认空档与逐个内核的提交有关后，再做重放对照。单看 CPU 忙或 GPU 空不能确定原因。</p>
 <hr />
 <h2 id="_4">🔗 和站内其他章的关系</h2>
 <div class="tw"><table>
@@ -547,11 +581,11 @@ profiler 的时间轴上，<strong>GPU 行有大量空隙，CPU 行满满当当<
 <tbody>
 <tr>
 <td><a href="03-显存与带宽墙.html">第 3 章</a> 逐元素算术强度 0.17</td>
-<td><strong>融合要解决的就是它</strong> ⭐</td>
+<td>逐元素操作可能受搬运限制；融合可减少中间数据的逻辑读写</td>
 </tr>
 <tr>
 <td><a href="02-GPU到底是什么.html">第 2 章</a> Shared Memory</td>
-<td>融合后中间结果留在这里</td>
+<td>有机会把临时值留在寄存器或共享内存</td>
 </tr>
 <tr>
 <td><a href="04-Roofline与MFU.html">第 4 章</a> 一堆小 kernel</td>
@@ -559,7 +593,7 @@ profiler 的时间轴上，<strong>GPU 行有大量空隙，CPU 行满满当当<
 </tr>
 <tr>
 <td><a href="08-FlashAttention.html">第 8 章</a> FlashAttention</td>
-<td><strong>融合思想的最成功案例</strong> ⭐</td>
+<td>用分块与在线归一化减少中间注意力矩阵的显存往返</td>
 </tr>
 <tr>
 <td><a href="../机器学习与深度学习基础/15-PyTorch实战手册.html">《机器学习与深度学习基础》15 PyTorch 实战手册</a> 提速三件套</td>
@@ -567,48 +601,40 @@ profiler 的时间轴上，<strong>GPU 行有大量空隙，CPU 行满满当当<
 </tr>
 <tr>
 <td><a href="../机器学习与深度学习基础/11-训练调试手册.html">《机器学习与深度学习基础》11 训练调试手册</a> 训练循环里打印中间值</td>
-<td>调试时随手加的 <code>.item()</code> / <code>print</code>，<strong>在这里会直接把图切断</strong> ⚠️</td>
+<td><code>.item()</code> 或 <code>print</code> 可能影响同步或图捕获，按日志确认</td>
 </tr>
 </tbody>
 </table></div>
 <hr />
 <h2 id="_5">✅ 检查点</h2>
 <ol>
-<li>为什么 kernel 边界可能增加显存读写与启动？这造成什么浪费？</li>
-<li>除了带宽，融合还省了什么开销？什么时候这一项更致命？</li>
-<li><code>torch.compile</code> 的三个阶段是什么？典型收益多少？</li>
-<li><code>reduce-overhead</code> 模式做了什么？适合什么场景？</li>
-<li>"编译了但没变快"最常见的原因是什么？怎么查？</li>
-<li>Triton 相比 CUDA，你不用管什么？性能能到多少？</li>
-<li>什么时候才值得手写 kernel？（三个条件）</li>
-<li>怎么从 profiler 判断"CPU 喂不饱 GPU"？</li>
+<li>第一节每个数组是 4 MB。分开与融合各读写多少逻辑字节？</li>
+<li>若临时数组在 L2 命中，为什么不能仍说 HBM 少了 8 MB？</li>
+<li>捕获到一张图，为什么还可能生成多个内核？</li>
+<li>换形状后日志报重编译，与遇到数据依赖控制流而断图有什么不同？</li>
+<li>首次多花 30 ms，每次稳定调用只省 0.1 ms，多久抵平？</li>
+<li>为什么 GPU 计时要等设备执行完成？比较性能之前还要验什么？</li>
+<li>若把原本两个内核直接录入 CUDA Graph，重放时会自动少一次中间数组读写吗？</li>
+<li>什么时候值得比较手写 Triton？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>因为每个 kernel 的输出必须写回 HBM 供下一个 kernel 读取。造成<strong>中间结果反复往返显存</strong>——一串 4 个 kernel 要 7 次 HBM 读写，而每个 kernel 只做一点点计算，纯带宽浪费。</li>
-<li><strong>kernel 启动开销</strong>（每次 3-10 微秒）。小模型上这一项比带宽更致命——一步跑几千个 kernel，光启动就几十毫秒。</li>
-<li>①TorchDynamo 抓计算图 ②AOTAutograd 连反向一起抓 ③Inductor 生成融合的 Triton kernel。收益：<strong>训练 10-30%，小 batch 推理可达 2 倍</strong>。</li>
-<li>用 <strong>CUDA Graph</strong> 把一串 kernel 调用录制下来一次性提交，消除启动开销。适合小模型/小 batch 推理。</li>
-<li><strong>graph break</strong>——一个 break 把图切成两半，跨边界的融合机会全丢。用 <code>TORCH_LOGS="graph_breaks,recompiles"</code> 查。常见诱因：<code>.item()</code>、<code>print</code>、数据依赖的控制流。</li>
-<li>不用管<strong>内存合并、shared memory、warp 调度</strong>（只管 block 级别）。性能能到手写 CUDA 的 80-95%。</li>
-<li>①torch.compile 试过了，profiler 显示某 kernel 仍是瓶颈 ②这个模式框架里没有 ③<strong>你能算出理论上限且当前实现离它很远</strong>。三条不全满足就别写。</li>
-<li><strong>GPU 行有大量空隙，CPU 行满满当当</strong>。这时算力优化毫无意义，要解决的是启动开销（CUDA Graph）。</li>
+<li>分开读两个输入、写读一份中间数组、写一个输出，5 × 4 = 20 MB。融合剩 3 × 4 = 12 MB。</li>
+<li>逻辑账按数组访问计，L2 命中会降低某些访问的显存流量，实际 HBM 读写要用设备计数验证。</li>
+<li>图表示依赖。不同依赖、形状和后端约束会影响可合并的范围，也可能选已有库。</li>
+<li>重编译是已有图的适用条件不匹配。断图是走到无法继续捕获的操作，后面仍可能继续捕获。</li>
+<li>30 ÷ 0.1 = 300 次稳定调用时抵平，之后才净省；若又重编译，额外等待还要另算。</li>
+<li>设备可能尚未执行完已入队的工作。先核对形状、类型、输出误差，训练还要查梯度和更新，再比较稳定执行与首次耗时。</li>
+<li>不会。重放改变提交方式，录入的内核边界和中间数组仍在；减少中间数组要靠实际发生的融合。</li>
+<li>已有实现和编译路径不能解决实际热点时，结合数据流上限、实现与维护成本，再在同一输入上验证手写方案。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_6">🛑 可以停在这里</h2>
-<p>⚡ <strong>走神救援</strong></p>
-<blockquote>
-<p>⭐ <strong>十个逐元素操作要往返显存十趟，融合成一个 kernel 只往返一趟</strong>——这是「逐元素运算算术强度极低」那条的解药。一串小操作在 eager 下每一步都<strong>把中间结果写出去又读回来</strong>，融合之后往返次数直接降到一次；⚠️ 层数一多，省下的就是几毫秒到几十毫秒的量级。</p>
-<p>💡 还有第二笔账：<strong>kernel 启动开销</strong>。单次只有几微秒，⭐ <strong>但一步几千个 kernel 就是几十毫秒——小模型上这一项比带宽更致命。</strong></p>
-<p>⭐ <strong>先试一行 <code>torch.compile</code></strong>（抓图、抓反向、生成 kernel），训练能拿到一两成、小 batch 推理能到成倍；专门的模式还会用 CUDA Graph 把启动开销也消掉。</p>
-<p>⚠️⭐ <strong>「编译了没变快」最常见的原因是 graph break</strong>：<strong>一个 break 就切断跨越它的融合机会</strong>，而一个训练循环有几十个 break 很常见。⭐ <strong>别猜，开日志看</strong>。常见诱因：把张量取成 Python 标量、打印、数据依赖的控制流、⚠️ <strong>动态形状反复触发重编译</strong>（分桶补齐）。</p>
-<p>⭐ <strong>什么时候才轮到自己写 kernel：三条必须同时成立</strong>——<code>torch.compile</code> 试过了、profiler 显示它仍是瓶颈、<strong>而且你能算出理论上限并确认离得很远</strong>。⭐ 优先级永远是：<strong>现成库 &gt; 编译器 &gt; Triton &gt; 手写 CUDA</strong>。</p>
-<p>⭐ 最后一条判据最省事：<strong>profiler 时间轴上 GPU 那行有空隙、CPU 那行是满的，就说明 CPU 喂不饱 GPU——这时候做任何算力优化都毫无意义。</strong></p>
-</blockquote>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这三件事</p><ul><li>先按数组列读写账，再到实际存储层核对流量；能融合时，中间值可能不必写出去。</li><li>捕获、编译和重放解决的开销各不相同。断图看捕获边界，重编译看适用条件。</li><li>先核对数值，再分开测首次、稳定执行和服务延迟。下一章用注意力中间矩阵看分块怎样减少搬运。</li></ul></section>
 <p><strong>下一节</strong> 👉 <a href="08-FlashAttention.html">08-FlashAttention.md</a> ⭐</p>
-<details class="g05-content-note"><summary>条件与依据</summary><p>示意中的四个 kernel 与读写次数是假定的 eager 分解；库也可能融合 epilogue，L2 缓存可能承接部分读写。torch.compile 不保证把 matmul 和所有后处理合为一个 kernel，需看所用版本的图断点、生成代码与实测。</p><p><a href="https://docs.pytorch.org/docs/stable/compile/programming_model.common_graph_breaks.html">官方文档</a></p></details>
+<details class="g05-content-note"><summary>条件与依据</summary><p>本章两条路径是明确边界下的演示。后端可能融合尾部、拆分执行或保留中间值。应以实际生成的内核和计数器核对。</p><p><a href="https://docs.pytorch.org/docs/stable/compile/programming_model.common_graph_breaks.html">官方文档</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="06-混合精度.html"><div class="dir">← 上一节</div>⭐ 混合精度</a><a class="next" href="08-FlashAttention.html"><div class="dir">下一节 →</div>⭐⭐ FlashAttention</a></nav>
