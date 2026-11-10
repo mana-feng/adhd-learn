@@ -349,8 +349,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>可用原命令 <code>python -c "import importlib.util as u; print(u.find_spec('xxx'))"</code>，再看 <code>sys.path</code>。<code>find_spec()</code> 有结果只说明能找到加载描述，模块体仍可能执行失败。查询 <code>pkg.child</code> 还可能先导入父包。</p>
 <p>发行包名和导入名可能不同，例如 <code>pip install pyyaml</code> → <code>import yaml</code>，还有 <code>scikit-learn</code> → <code>sklearn</code>、<code>opencv-python</code> → <code>cv2</code>、<code>Pillow</code> → <code>PIL</code>。先核对项目依赖和包文档。看<a href="08-环境、依赖和import.html#import-missing-module">08 的入口与内部依赖对照</a>。</p>
 <h3 id="unicodedecodeerror-gbk-codec-cant-decode-byte-0x8c-in-position-14"><code>UnicodeDecodeError: 'gbk' codec can't decode byte 0x8c in position 14</code></h3>
-<p>⭐ <strong>你从头到尾没提过 GBK，是 <code>open()</code> 替你选的。</strong> Windows 上 <code>open()</code> 用的是 <code>locale.getpreferredencoding(False)</code>（本机 <code>cp936</code>），不是 <code>sys.getdefaultencoding()</code>（那个管的是 str/bytes 互转，跟读文件没关系）。
-→ 一律显式写 <code>encoding="utf-8"</code>。详见 <a href="10-编码、路径和文件.html">10 · 编码、路径和文件</a>第一节。</p>
+<p>报错里的 <code>gbk</code> 是本次尝试的解码方式。若是 <code>open()</code> 省略了编码，先核对运行环境。<code>locale.getpreferredencoding(False)</code> 会反映 UTF-8 模式，原 Windows 记录是 <code>cp936</code>。<code>sys.getdefaultencoding()</code> 不决定 <code>open()</code> 的默认编码。
+→ 从导出约定或文件来源确认实际编码，再显式读取。已知是 UTF-8 时用 <code>encoding="utf-8"</code>，确认是 GBK 时用 <code>encoding="gbk"</code>。看 <a href="10-编码、路径和文件.html#utf8-mode-and-file-bytes">10 的同一份字节解码对照</a>。</p>
 <h3 id="unicodeencodeerror-gbk-codec-cant-encode-character-u2705"><code>UnicodeEncodeError: 'gbk' codec can't encode character '\u2705'</code></h3>
 <p><strong>你 print 了一个 emoji，而控制台编码不是 UTF-8。</strong>
 💀 本项目的真实事故：构建最后一步因为打印一个对勾崩了，而外层的 <code>except</code> 打印的是「不影响其他内容」—— <strong>在站点已经坏掉时报了平安</strong>，全站 156 张图当场只剩 75 张。
@@ -558,8 +558,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td>打开文本文件</td>
-<td>一律显式 <code>encoding="utf-8"</code>（<code>read_text</code> / <code>write_text</code> 也要）</td>
-<td>不写不是「最好写」，是「<strong>bug 还没被触发</strong>」</td>
+<td>按已核实的文件编码显式读取。UTF-8 文件用 <code>encoding="utf-8"</code>，GBK 文件用 <code>encoding="gbk"</code>。<code>read_text</code> 同理，<code>write_text</code> 按输出约定指定编码</td>
+<td>选错编码会报错或产生乱码。看 <a href="10-编码、路径和文件.html#utf8-mode-and-file-bytes">10 的文件字节示例</a></td>
 </tr>
 <tr>
 <td>路径</td>
@@ -730,11 +730,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>对比时先固定输入、总工作量和计时范围。加速比受带宽、任务粒度和调度开销等影响，不能单凭接近 1 或接近核数判定是否释放 GIL。</p>
-<p>💀 <strong>「种子固定了、结果还是不一样」的那个洞</strong>：<code>set</code> 的迭代顺序取决于<strong>哈希种子</strong>，而<strong>哈希种子是解释器启动时读一次就定死的</strong>。所以在 <code>set_seed()</code> 里写 <code>os.environ["PYTHONHASHSEED"] = "0"</code> 一点用都没有 —— 实跑里 <code>hash('a')</code> 照样三次三个值，<strong>而且会让你以为已经修好了</strong>。</p>
+<p>💀 <strong>固定训练的随机种子后，字符串集合的顺序仍可能变化。</strong>哈希种子由解释器启动时读取。在 <code>set_seed()</code> 里写 <code>os.environ["PYTHONHASHSEED"] = "0"</code> 不会改变当前进程的 <code>hash('a')</code>，只会影响之后继承该设置的新解释器。</p>
+<p>下表仅用于复现隔离的历史实验。<code>PYTHONHASHSEED=0</code> 会关闭哈希随机化，生产环境保持默认设置。需要稳定输出时，明确排序规则。看 <a href="09-容器、哈希与顺序.html#pythonhashseed">09 的启动时机对照</a>。</p>
 <div class="tw"><table>
 <thead>
 <tr>
-<th>正确设法</th>
+<th>隔离实验的启动方式</th>
 <th>写法</th>
 </tr>
 </thead>
@@ -984,7 +985,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <hr />
-<p>🗓️ <strong>这一页会过期的部分</strong>：Python 3.15 起 <code>open()</code> 默认编码会改成 UTF-8（PEP 686）；GIL 的去留还在变。
+<p>🗓️ <strong>版本相关。</strong>Python 3.15 默认开启 UTF-8 模式，启动时可用 <code>PYTHONUTF8=0</code> 或 <code>-X utf8=0</code> 关闭。该模式会影响省略 <code>encoding</code> 时 <code>open()</code> 的默认编码，磁盘里的字节保持原样。<a href="https://peps.python.org/pep-0686/">PEP 686</a>
 ⭐ <strong>不会过期的部分</strong>：第二节那张症状表、第三节那十条规矩 —— 它们由对象模型和执行顺序决定，比任何一个小版本活得久。</p>
 <p><strong>下一节</strong> 👉 <a href="index.html">回到板块索引</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
