@@ -299,7 +299,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p class="mg-kicker">AI基础设施 · 11</p>
 <p class="mg-question">平时只存一片，为什么 AllGather 时仍可能 OOM？</p>
 <p class="mg-dek">分片描述静止时保存什么；执行时还可能聚合参数、预取后续单元并保存激活。显存峰值要把这些同时在场的内容算上。</p>
-<p class="mg-outcome">读完能判断：区别静态分片量与活跃聚合单元/预取的峰值占用。</p>
+<p class="mg-outcome">读完能做到：手算三个 Stage 的静态状态，画出 FSDP 的通信生命周期，并用“分片 + 活跃单元 + 激活 + 工作区”估算峰值。</p>
 <nav class="mg-actions" aria-label="本页阅读入口">
 <a class="mg-primary" href="#stage">二、三个 Stage</a>
 <a href="#mg-ai-infra-11-reading-start">直接进入完整正文</a>
@@ -316,7 +316,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#stage">📊 二、三个 Stage</a></li>
 <li><a href="#stage-3-fsdp">🔄 三、Stage 3 怎么工作（FSDP 的核心）</a></li>
 <li><a href="#zero-vs">⚖️ 四、ZeRO vs 张量并行：怎么选</a></li>
-<li><a href="#_4">⚠️ 五、四个坑</a></li>
+<li><a href="#_4">⚠️ 五、五个坑</a></li>
 <li><a href="#_5">🔗 和站内其他章的关系</a></li>
 <li><a href="#_6">✅ 检查点</a></li>
 <li><a href="#_7">🛑 可以停在这里</a></li>
@@ -324,23 +324,27 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="11-zero-fsdp">11 · ZeRO 与 FSDP</h1>
-<p>⏱ <strong>28 分钟</strong> ｜ ⭐ <strong>最重要的一个分布式技术</strong></p>
+<p>⏱ <strong>35 分钟</strong> ｜ ⭐ <strong>训练大模型常见的状态分片技术</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p>数据并行的浪费很明显：<strong>N 张卡存着 N 份一模一样的优化器状态。</strong>
-ZeRO 的想法简单到几乎是显然的：<strong>别存 N 份，切开，每卡存 1/N，用的时候再凑。</strong>
-它让"数据并行"从省不了显存变成能训万亿参数。</p>
+<p>上一章的数据并行让每个 rank 都保存完整的参数、梯度和优化器状态。<strong>零冗余优化器（Zero Redundancy Optimizer，ZeRO）</strong>把这些模型状态按数据并行 rank 分片：平时每卡只留自己负责的部分，需要计算或同步时再通过集合通信临时补齐。</p>
+<blockquote><p><strong>先把边界说清：</strong>ZeRO/FSDP 主要减少的是<strong>重复的模型状态</strong>，不是自动消除激活、临时工作区和通信缓冲。分片后的静态账很小，也不等于训练峰值就同样小。</p></blockquote>
 <hr />
 <h2 id="_2">🗑️ 一、被浪费的显存</h2>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>8 卡数据并行训练 7B 模型（第 3 章的账）：</p><p>每张卡：</p><p>参数 14 GB + 梯度 14 GB + 优化器状态 84 GB = 112 GB</p><p>× 8 卡 = 896 GB</p><p>⭐ 但真正需要的信息只有 112 GB —— 剩下 784 GB 全是【完全一样的副本】</p></div></section>
+<p>先只算<strong>模型状态</strong>，暂时不算激活、临时张量、通信缓冲和显存分配器碎片。下面采用一个明确的教学假设：BF16 参数占 2 字节、BF16 梯度占 2 字节；AdamW 为每个参数保存 FP32 主参数、一阶矩和二阶矩，共 12 字节。不同优化器、精度策略和实现会改变这些字节数。</p>
+<section class="visual-block visual-block-calc" aria-label="7B 模型的模型状态账本"><p class="visual-block-title">先把一张卡的 16 字节账算清</p><div class="vb-calc"><p>设参数数量 $P=7\times10^9$，采用十进制 GB（$1\,\text{GB}=10^9$ 字节）：</p><p>参数：$P\times2=14\,\text{GB}$</p><p>梯度：$P\times2=14\,\text{GB}$</p><p>AdamW 状态：$P\times12=84\,\text{GB}$</p><p>每卡静态模型状态：$14+14+84=112\,\text{GB}$</p><p>8 卡普通 DDP 共保存 $8\times112=896\,\text{GB}$。这些副本用于各 rank 的本地计算，但从“全局只需一份模型状态”的角度看，存在 $896-112=784\,\text{GB}$ 的重复存储。</p></div></section>
 <blockquote>
-<p>🔑 <strong>ZeRO 的核心洞察</strong>：
-<strong>这些副本在大部分时间里都是闲置的。</strong>
-优化器状态只在 <code>step()</code> 那一瞬间用到 ——
-<strong>既然如此，为什么每张卡都要一直存着完整的一份？</strong></p>
+<p>🔑 <strong>ZeRO 的核心洞察</strong>：数据并行要求各 rank 得到等价的更新结果，却不要求每个 rank 永久保存全部更新状态。优化器状态可以只由负责该分片的 rank 更新，梯度和参数也能在需要时同步或临时聚合。</p>
 </blockquote>
 <hr />
 <h2 id="stage">📊 二、三个 Stage</h2>
+<p>令 $N$ 表示数据并行 rank 数，$P$ 表示参数数量；$b_p=2$、$b_g=2$、$b_o=12$ 分别是本例每个参数对应的参数、梯度、优化器状态字节数。普通 DDP 的静态模型状态是：</p>
+<p>$$M_{DDP}=P(b_p+b_g+b_o)=16P\ \text{字节}$$</p>
+<p>Stage 1、2、3 依次分片优化器状态、梯度、参数，因此本例每 rank 的静态状态分别是：</p>
+<p>$$M_1=P(b_p+b_g)+\frac{Pb_o}{N}=4P+\frac{12P}{N}$$</p>
+<p>$$M_2=Pb_p+\frac{P(b_g+b_o)}{N}=2P+\frac{14P}{N}$$</p>
+<p>$$M_3=\frac{P(b_p+b_g+b_o)}{N}=\frac{16P}{N}$$</p>
+<p>这些式子只描述<strong>均匀分片后的静态模型状态</strong>。参数不能整除、对齐填充、激活、临时聚合、通信缓冲和工作区都会让实际峰值更高。</p>
 <div class="panels">
 <div class="panel">
 <div class="ph">Stage 0（普通 DDP）</div>
@@ -348,18 +352,35 @@ ZeRO 的想法简单到几乎是显然的：<strong>别存 N 份，切开，每�
 </div>
 <div class="panel">
 <div class="ph">Stage 1：切【优化器状态】</div>
-<ul class="pl"><li>参数[完整] 梯度[完整] 优化器[1/N]       ~38.5 GB/卡</li></ul>
+<ul class="pl"><li>参数[完整] 梯度[完整] 优化器[1/N]：$14+14+84/8=38.5$ GB/卡</li></ul>
 </div>
 <div class="panel">
 <div class="ph">Stage 2：+ 切【梯度】</div>
-<ul class="pl"><li>参数[完整] 梯度[1/N]  优化器[1/N]       ~26.3 GB/卡</li></ul>
+<ul class="pl"><li>参数[完整] 梯度[1/N] 优化器[1/N]：$14+(14+84)/8=26.25$ GB/卡</li></ul>
 </div>
 <div class="panel">
 <div class="ph">Stage 3：+ 切【参数】⭐</div>
-<ul class="pl"><li>参数[1/N]  梯度[1/N]  优化器[1/N]       ~14 GB/卡</li></ul>
+<ul class="pl"><li>参数[1/N] 梯度[1/N] 优化器[1/N]：$(14+14+84)/8=14$ GB/卡</li></ul>
 </div>
 </div>
 <p class="dia-note">（8 卡，7B 模型）</p>
+
+<p><strong>把公式变成可运行的检查器：</strong>下面只计算静态模型状态，输入参数数量和数据并行 rank 数，输出十进制 GB。</p>
+<div class="codehilite" data-code-language="python"><pre><code>def zero_static_gb(param_count: int, ranks: int) -&gt; dict[str, float]:
+    if param_count &lt;= 0 or ranks &lt;= 0:
+        raise ValueError("param_count 和 ranks 必须为正整数")
+    p = float(param_count)
+    n = float(ranks)
+    bytes_per_gb = 1_000_000_000
+    return {
+        "ddp": 16 * p / bytes_per_gb,
+        "stage1": (4 * p + 12 * p / n) / bytes_per_gb,
+        "stage2": (2 * p + 14 * p / n) / bytes_per_gb,
+        "stage3": (16 * p / n) / bytes_per_gb,
+    }
+
+print(zero_static_gb(7_000_000_000, 8))
+# {'ddp': 112.0, 'stage1': 38.5, 'stage2': 26.25, 'stage3': 14.0}</code></pre></div>
 
 <div class="tw"><table>
 <thead>
@@ -374,50 +395,59 @@ ZeRO 的想法简单到几乎是显然的：<strong>别存 N 份，切开，每�
 <tr>
 <td><strong>1</strong></td>
 <td>16P / (4P+12P/N)，N 很大时趋近 4 倍</td>
-<td><strong>1×</strong>（一样）⭐</td>
-<td>几乎白送，<strong>默认就该开</strong></td>
+<td>理论字节量可与 DDP 同阶；调度和时延不同</td>
+<td>优化器状态占比高，且通信/实现验证通过</td>
 </tr>
 <tr>
 <td><strong>2</strong></td>
 <td>16P / (2P+14P/N)，N 很大时趋近 8 倍</td>
-<td><strong>1×</strong>（一样）⭐</td>
-<td><strong>性价比最高</strong> ⭐</td>
+<td>论文消息量模型中可与 DDP 相当</td>
+<td>参数能常驻，但梯度和优化器状态需要分片</td>
 </tr>
 <tr>
 <td><strong>3</strong></td>
-<td>÷N</td>
-<td><strong>1.5×</strong></td>
-<td>模型实在装不下时</td>
+<td>静态模型状态约为 DDP 的 $1/N$</td>
+<td>还需按单元 AllGather 参数；成本依调度而变</td>
+<td>完整参数不能常驻，且能接受更多通信/调度复杂度</td>
 </tr>
 </tbody>
 </table></div>
 <blockquote>
-<p>🔑 <strong>最反直觉也最重要的一点</strong>：
-<strong>Stage 1 和 2 的通信量和普通 DDP 完全一样。</strong></p>
+<p>🔑 <strong>最反直觉也最重要的一点</strong>：在 ZeRO 论文的等字节消息量模型中，Stage 1/2 可以不比普通数据并行传更多总字节；但集合通信次数、消息大小、等待与重叠方式仍可能不同，所以“字节量相当”不等于“耗时免费”。</p>
 <p>为什么？回忆<a href="05-互联与集群拓扑.html">第 5 章</a>那个恒等式：
 <strong>AllReduce = ReduceScatter + AllGather</strong></p>
 <div class="codehilite"><pre><span></span><code>   DDP：     AllReduce(梯度)                    = RS + AG
    ZeRO-2：  ReduceScatter(梯度) → 各自更新自己那份
              → AllGather(参数)
-             = RS + AG   ⭐ 一模一样！
+             = RS + AG   ⭐ 论文消息量模型中总字节相当
 </code></pre></div>
 
-<p><strong>ZeRO-2 只是把一次 AllReduce 拆成两半，在中间插入了"各自更新自己那片"。</strong>
-<strong>所以它是几乎免费的显存节省。</strong></p>
+<p><strong>ZeRO-2 的核心调度是把梯度的 AllReduce 拆成 ReduceScatter 和参数的 AllGather，并在中间由各 rank 更新自己的状态分片。</strong>这解释了为什么理论总字节量可以相当；真实时间还要实测启动延迟、带宽、分桶和重叠。</p>
 </blockquote>
 <hr />
 <h2 id="stage-3-fsdp">🔄 三、Stage 3 怎么工作（FSDP 的核心）</h2>
-<section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>平时：每张卡只存 1/N 的参数</li><li>前向传播到第 L 层时：</li><li>AllGather：临时凑出【第 L 层】的完整参数 ⭐</li><li>算这一层</li><li>立刻【丢掉】刚凑出来的那份 ⭐</li><li>继续下一层</li><li>反向同理，再加一次 ReduceScatter 汇总梯度</li></ol></section>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>⭐ 关键：通常按包裹单元临时聚合参数；预取可能同时保留多个单元在显存里</p><p>→ 峰值需核对分片状态、活跃聚合单元、激活与工作区；预取可叠加占用</p></div></section>
+<p><strong>完全分片数据并行（Fully Sharded Data Parallel，FSDP）</strong>是 PyTorch 对参数、梯度和优化器状态分片的一套实现。把一组参数当作一个<strong>包裹单元（FSDP unit）</strong>后，<code>FULL_SHARD</code> 的一轮训练可以这样读：</p>
+<section class="visual-block visual-block-steps" aria-label="FSDP FULL_SHARD 一轮训练"><p class="visual-block-title">一个包裹单元的生命周期</p><ol class="vb-steps"><li>静态状态：每个 rank 保存该单元约 $1/N$ 的参数分片、梯度分片和优化器状态分片。</li><li>前向前：AllGather 参数分片，临时恢复该单元的完整参数。</li><li>前向：用完整参数计算；按 FULL_SHARD 的重分片策略，前向后释放完整参数。</li><li>反向前：再次 AllGather 该单元的完整参数。</li><li>反向：计算局部梯度；ReduceScatter 在 rank 间归约并留下各自负责的梯度分片。</li><li>更新：每个 rank 只用本地梯度分片更新本地优化器状态和参数分片。</li></ol></section>
+<blockquote><p><strong>不要把所有策略都画成同一条线：</strong><code>SHARD_GRAD_OP</code> 会在前向前恢复参数，并把完整参数保留到反向结束后再重分片；它通常比 <code>FULL_SHARD</code> 多占显存、少一次反向前的参数 AllGather。策略名和具体行为应以目标 PyTorch 版本文档为准。</p></blockquote>
+<h3 id="peak-memory">🧮 静态 14 GB，为什么峰值仍可能 28 GB</h3>
+<p>峰值不是 $M_3=16P/N$ 一项。一个便于排查的教学账本是：</p>
+<p>$$M_{peak}\approx M_{shard}+kM_{unit}+M_{act}+M_{work}+M_{buffer}$$</p>
+<ul>
+<li>$M_{shard}$：本 rank 常驻的分片模型状态。</li>
+<li>$M_{unit}$：一个包裹单元恢复为完整参数后占的显存。</li>
+<li>$k$：同时保持完整参数的单元数；没有预取时常接近 1，当前单元与下一单元重叠时可能接近 2，实际由调度和限流决定。</li>
+<li>$M_{act}$：为反向保留的激活；$M_{work}$：算子临时工作区；$M_{buffer}$：通信、精度转换和分配器等额外占用。</li>
+</ul>
+<section class="visual-block visual-block-calc" aria-label="FSDP 峰值显存示例"><p class="visual-block-title">完整代入一次（演示配置，不是硬件承诺）</p><div class="vb-calc"><p>沿用 8 卡 7B 的静态分片：$M_{shard}=14$ GB。</p><p>假设每个 Transformer 包裹单元完整参数为 $M_{unit}=0.4$ GB，预取让当前与下一单元同时在场，所以 $k=2$。</p><p>再假设激活 $M_{act}=10$ GB、工作区 $M_{work}=2$ GB、通信与其他缓冲 $M_{buffer}=1$ GB。</p><p>$M_{peak}\approx14+2\times0.4+10+2+1=27.8$ GB。</p><p>结论：14 GB 是静态模型状态，不是“14 GB 显卡就能训练”。改序列长度、micro batch、wrap 粒度或预取策略，峰值都会变。</p></div></section>
 <blockquote>
-<p>💡 <strong>这就是为什么它叫 Fully Sharded Data Parallel</strong>：
-从"每卡一份完整模型"变成"每卡一片，用时凑齐"。
-<strong>代价是多了 1.5 倍的通信 —— 但换来的是 N 倍的显存。</strong></p>
+<p>💡 <strong>这就是为什么它叫 Fully Sharded Data Parallel</strong>：从“每卡一份完整模型”变成“静态时每卡一片，按包裹单元临时恢复”。它能把静态模型状态降到约 $1/N$，代价是参数恢复与梯度分片通信；通信字节、轮数和暴露时间随策略、wrap 粒度、拓扑与重叠而变，不能用一个固定倍数概括所有实现。</p>
 </blockquote>
 <h3 id="_3">⭐ 预取：让通信藏起来</h3>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">朴素做法：算第 L 层时才去 AllGather 第 L 层</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">GPU 干等 💀</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 预取（prefetch）：</span></div><div class="vb-flow-row"><span class="vb-flow-step">算第 L 层的【同时】，后台 AllGather 第 L+1 层的参数</span></div><div class="vb-flow-row"><span class="vb-flow-step">通信和计算重叠</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 这是 FSDP 性能好坏的关键。配置没调好，可能比 DDP 还慢。</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">朴素做法：算第 L 层时才去 AllGather 第 L 层</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">计算等待通信</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 预取（prefetch）：</span></div><div class="vb-flow-row"><span class="vb-flow-step">算第 L 层的同时，提前发出第 L+1 层的参数 AllGather</span></div><div class="vb-flow-row"><span class="vb-flow-step">可能隐藏一部分通信等待</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">也可能让两个完整单元同时在场、抬高峰值</span></div></div></section>
+<p>PyTorch 的 <code>limit_all_gathers</code> 等限流机制会约束可提前发出的 AllGather，避免 CPU 线程把过多完整参数同时压进显存。前向预取主要面向执行顺序稳定的静态图；是否提升吞吐必须在目标版本和模型上测量。</p>
 
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：`model` 来自你自己的代码，这一段只看写法</span>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 配置骨架：不是可直接运行的完整程序；model/TransformerBlock 由项目定义</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.fsdp</span><span class="w"> </span><span class="kn">import</span> <span class="n">FullyShardedDataParallel</span> <span class="k">as</span> <span class="n">FSDP</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.fsdp</span><span class="w"> </span><span class="kn">import</span> <span class="n">ShardingStrategy</span><span class="p">,</span> <span class="n">MixedPrecision</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.fsdp.wrap</span><span class="w"> </span><span class="kn">import</span> <span class="n">transformer_auto_wrap_policy</span>
@@ -425,8 +455,8 @@ ZeRO 的想法简单到几乎是显然的：<strong>别存 N 份，切开，每�
 
 <span class="n">model</span> <span class="o">=</span> <span class="n">FSDP</span><span class="p">(</span>
     <span class="n">model</span><span class="p">,</span>
-    <span class="n">sharding_strategy</span><span class="o">=</span><span class="n">ShardingStrategy</span><span class="o">.</span><span class="n">SHARD_GRAD_OP</span><span class="p">,</span>   <span class="c1"># ⭐ = ZeRO-2</span>
-    <span class="c1"># ShardingStrategy.FULL_SHARD                       #   = ZeRO-3</span>
+    <span class="n">sharding_strategy</span><span class="o">=</span><span class="n">ShardingStrategy</span><span class="o">.</span><span class="n">SHARD_GRAD_OP</span><span class="p">,</span>   <span class="c1"># 近似 ZeRO-2 的状态分片</span>
+    <span class="c1"># ShardingStrategy.FULL_SHARD                       # 近似 ZeRO-3</span>
     <span class="c1"># ShardingStrategy.HYBRID_SHARD                     #   机内切、跨机复制 ⭐</span>
     <span class="n">auto_wrap_policy</span><span class="o">=</span><span class="n">functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span>
         <span class="n">transformer_auto_wrap_policy</span><span class="p">,</span>
@@ -434,7 +464,7 @@ ZeRO 的想法简单到几乎是显然的：<strong>别存 N 份，切开，每�
     <span class="p">),</span>
     <span class="n">mixed_precision</span><span class="o">=</span><span class="n">MixedPrecision</span><span class="p">(</span>
         <span class="n">param_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
-        <span class="n">reduce_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>      <span class="c1"># ⭐ 通信也用 BF16，通信量减半</span>
+        <span class="n">reduce_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>      <span class="c1"># 相对 FP32 载荷可减半；先验证数值与后端支持</span>
         <span class="n">buffer_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
     <span class="p">),</span>
     <span class="n">device_id</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">current_device</span><span class="p">(),</span>
@@ -442,12 +472,13 @@ ZeRO 的想法简单到几乎是显然的：<strong>别存 N 份，切开，每�
 </code></pre></div>
 
 <blockquote>
-<p>⚠️ <strong><code>auto_wrap_policy</code> 不设置是最常见的错误</strong>：
-不设置的话整个模型被当成一个单元，<strong>AllGather 时要凑出全部参数</strong> ——
-<strong>显存节省几乎为零，而且会 OOM。</strong> 必须按 Transformer 层来包。</p>
+<p>⚠️ <strong>wrap 粒度决定“每次临时恢复多大一块”</strong>：只包根模型时，整个模型可能形成一个大参数组，通信无法与逐层计算重叠，参数恢复的峰值也可能过大；包得过细又会产生大量小集合通信和启动开销。Transformer block 是常见起点，不是所有模型的唯一答案。打印包装后的模型，并用峰值显存和 step time 共同调参。</p>
 </blockquote>
-<h3 id="hybrid_shard">💡 HYBRID_SHARD：大规模的最优解</h3>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">问题：ZeRO-3 跨机 AllGather 参数，而跨机带宽只有 NVLink 的 1/15</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ HYBRID_SHARD：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 【机内】8 卡做 FULL_SHARD（NVLink 快，切得彻底）</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 【机间】做普通数据并行（只 AllReduce 梯度）</span></div><div class="vb-flow-row"><span class="vb-flow-step">显存降到 1/8，而跨机通信量和普通 DDP 一样 ⭐</span></div></div></section>
+<h3 id="hybrid_shard">💡 HYBRID_SHARD：在“切得更多”和“跨机少传”之间折中</h3>
+<section class="visual-block visual-block-flow" aria-label="HYBRID_SHARD 分组"><p class="visual-block-title">以每机 8 卡为例</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">机内 8 卡：组成分片组，执行参数 AllGather 与梯度 ReduceScatter</span></div><div class="vb-flow-row"><span class="vb-flow-step">跨机：同一分片位置形成复制组，同步对应分片的梯度</span></div><div class="vb-flow-row"><span class="vb-flow-step">结果：每卡静态模型状态约降到机内分片度的 $1/8$，而完整参数恢复留在机内</span></div><div class="vb-flow-row"><span class="vb-flow-step">边界：它不是固定最优解；节点数、网卡、拓扑、模型大小和 batch 都会改变结果</span></div></div></section>
+<h3 id="offload-checkpoint">🧳 CPU Offload 与激活重计算：省的不是同一块</h3>
+<div class="tw"><table><thead><tr><th>手段</th><th>主要搬走/减少什么</th><th>换来的代价</th></tr></thead><tbody><tr><td>ZeRO/FSDP 分片</td><td>GPU 间重复的参数、梯度、优化器状态</td><td>集合通信与调度复杂度</td></tr><tr><td>CPU offload</td><td>把部分参数、梯度或优化器状态放到主存</td><td>PCIe/互联传输、CPU 内存与 step 延迟；部分梯度累积方式受实现限制</td></tr><tr><td>激活检查点（activation checkpointing）</td><td>少保存前向激活，反向时重算</td><td>额外前向计算；需与包裹单元和目标 API 正确组合</td></tr></tbody></table></div>
+<p>它们可以组合，但不是“全开就最好”。先用显存快照确认瓶颈属于模型状态还是激活，再比较峰值显存、吞吐和数值正确性。若激活才是大头，仅提高 ZeRO stage 可能收效有限。</p>
 <hr />
 <h2 id="zero-vs">⚖️ 四、ZeRO vs 张量并行：怎么选</h2>
 <div class="tw"><table>
@@ -461,17 +492,17 @@ ZeRO 的想法简单到几乎是显然的：<strong>别存 N 份，切开，每�
 <tbody>
 <tr>
 <td><strong>改代码</strong></td>
-<td>✅ 几乎不用</td>
-<td>⚠️ 要改模型结构</td>
+<td>通常不改层内数学，但要接入包装、状态保存和分布式启动</td>
+<td>要让层内算子理解分片布局，通常由框架实现</td>
 </tr>
 <tr>
 <td><strong>通信频率</strong></td>
-<td>每层一次 AllGather</td>
-<td><strong>每层两次 AllReduce</strong>（更频繁）</td>
+<td>按包裹单元恢复参数并分片梯度；次数由策略和粒度决定</td>
+<td>经典 Transformer 每层多次集合通信，具体取决于分解</td>
 </tr>
 <tr>
 <td><strong>能跨机吗</strong></td>
-<td>✅ 可以（HYBRID 更好）</td>
+<td>可以；FULL/HYBRID 要按拓扑实测</td>
 <td>可跨机，需评估通信效率（第 5 章）<strong></strong><a href="05-互联与集群拓扑.html"></a></td>
 </tr>
 <tr>
@@ -481,23 +512,23 @@ ZeRO 的想法简单到几乎是显然的：<strong>别存 N 份，切开，每�
 </tr>
 <tr>
 <td><strong>适合</strong></td>
-<td><strong>大多数场景</strong> ⭐</td>
-<td>单层特别大 / 超大模型</td>
+<td>模型状态重复是主要瓶颈，且单个恢复单元装得下</td>
+<td>单层工作集需要跨卡分摊，且高速互联足以支撑层内通信</td>
 </tr>
 </tbody>
 </table></div>
 <blockquote>
-<p>⭐ <strong>实用建议的顺序</strong>：</p>
-<div class="codehilite"><pre><span></span><code>   ① 先上 ZeRO-2（几乎免费）
-   ② 不够 → ZeRO-3 / FSDP FULL_SHARD
-   ③ 多机 → HYBRID_SHARD
-   ④ 单层工作集装不下 → 评估 TP（第 12 章）；适用线性层也可评估 ZeRO-3 + TiledLinear
-   ⑤ 还不够 → 加流水线并行（第 13 章）
+<p>⭐ <strong>实用的排查顺序</strong>：</p>
+<div class="codehilite"><pre><span></span><code>   ① 先测：模型状态、激活、临时工作区，究竟谁占峰值
+   ② 模型状态为主且参数能常驻 → 评估 ZeRO-1/2
+   ③ 完整参数不能常驻 → 评估 FULL_SHARD，并调 wrap 粒度与预取
+   ④ 跨节点慢 → 对比 FULL_SHARD 与 HYBRID_SHARD 的真实 step time
+   ⑤ 单个恢复单元仍装不下 → 评估 TP、流水线或适用算子的顺序分块
 </code></pre></div>
 
 </blockquote>
 <hr />
-<h2 id="_4">⚠️ 五、四个坑</h2>
+<h2 id="_4">⚠️ 五、五个坑</h2>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -508,9 +539,9 @@ ZeRO 的想法简单到几乎是显然的：<strong>别存 N 份，切开，每�
 </thead>
 <tbody>
 <tr>
-<td><strong>没设 <code>auto_wrap_policy</code></strong></td>
-<td>显存没省，还 OOM</td>
-<td>按 Transformer 层包 ⭐</td>
+<td><strong>wrap 太粗或太细</strong></td>
+<td>峰值过大，或大量小通信拖慢训练</td>
+<td>以 Transformer block 为起点，同时测峰值与 step time</td>
 </tr>
 <tr>
 <td><strong>预取没配好</strong></td>
@@ -525,8 +556,9 @@ ZeRO 的想法简单到几乎是显然的：<strong>别存 N 份，切开，每�
 <tr>
 <td><strong>和梯度检查点叠加顺序错</strong></td>
 <td>报错或不生效</td>
-<td><strong>先 checkpoint_wrapper，再 FSDP</strong></td>
+<td>按目标 PyTorch API 的组合方式包装，并核对实际重算与峰值</td>
 </tr>
+<tr><td><strong>CPU offload 全开</strong></td><td>GPU 显存下降但 step 变慢，或梯度累积语义不符</td><td>检查版本限制、PCIe 流量和主存容量；用正确性测试与 profiler 验证</td></tr>
 </tbody>
 </table></div>
 <div class="codehilite" data-code-language="python"><pre><code># 配置骨架：所有 rank 参与；model/opt 已构建，需匹配所用 PyTorch 版本
@@ -539,9 +571,7 @@ dcp.save({&quot;model&quot;: model_state, &quot;optim&quot;: optim_state},
 </code></pre></div>
 
 <blockquote>
-<p>💥 <strong>"保存 checkpoint 时 OOM" 是一个非常常见的翻车点</strong>：
-训练跑得好好的，一到保存就炸 —— 因为默认的 <code>FULL_STATE_DICT</code>
-会把所有分片汇总到 rank 0。<strong>大模型必须用分片保存。</strong></p>
+<p>💥 <strong>“保存 checkpoint 时 OOM”是常见翻车点</strong>：如果配置要求恢复完整状态，保存阶段可能临时聚合参数并抬高 CPU/GPU 峰值。大模型通常应采用分片状态保存，并实际执行一次保存和恢复；仅看到目录生成不代表可恢复。</p>
 </blockquote>
 <hr />
 <h2 id="_5">🔗 和站内其他章的关系</h2>
@@ -559,7 +589,7 @@ dcp.save({&quot;model&quot;: model_state, &quot;optim&quot;: optim_state},
 </tr>
 <tr>
 <td><a href="05-互联与集群拓扑.html">第 5 章</a> AllReduce=RS+AG</td>
-<td><strong>ZeRO-2 免费的原因</strong> ⭐</td>
+<td>解释 ZeRO-2 为何能在论文等字节模型下保持相当通信量；不代表耗时免费</td>
 </tr>
 <tr>
 <td><a href="10-数据并行与AllReduce.html">第 10 章</a> DDP 一块显存都没省</td>
@@ -579,58 +609,61 @@ dcp.save({&quot;model&quot;: model_state, &quot;optim&quot;: optim_state},
 </tr>
 <tr>
 <td><a href="../强化学习基础/12-RLHF全流程.html">《强化学习基础》12 RLHF 全流程</a> PPO 同时装四个模型</td>
-<td><strong>显存是 SFT 的 4 倍以上</strong>，是 Stage 3 + CPU offload 最典型的用武之地 ⭐</td>
+<td>同时存在多个模型会增加模型状态与推理工作集；是否采用 Stage 3 / offload 要按各模型是否训练、精度和激活实测</td>
 </tr>
 <tr>
 <td><a href="../Kaggle竞赛方法论/05_预训练模型详解.html">《Kaggle竞赛方法论》05 预训练模型详解</a> LoRA / PEFT</td>
-<td><strong>另一条路</strong>：LoRA 让优化器状态少两个数量级；<strong>小规模微调先试它，别急着上 ZeRO</strong></td>
+<td><strong>另一条路</strong>：LoRA 只训练少量适配参数，可显著减少可训练参数对应的梯度和优化器状态；具体比例由 rank、目标层和实现决定</td>
 </tr>
 </tbody>
 </table></div>
 <hr />
 <h2 id="_6">✅ 检查点</h2>
 <ol>
-<li>ZeRO 的核心洞察是什么？8 卡训 7B 浪费了多少显存？</li>
-<li>三个 Stage 各切什么？显存各降多少？</li>
-<li>为什么 ZeRO-1 和 2 的通信量和 DDP 完全一样？（说出那个恒等式）</li>
-<li>Stage 3 前向传播时怎么工作？峰值显存是多少？</li>
-<li>什么是预取？为什么它是 FSDP 性能的关键？</li>
-<li><code>auto_wrap_policy</code> 不设置会怎样？</li>
-<li>HYBRID_SHARD 解决什么问题？</li>
-<li>ZeRO-3 和张量并行的关键区别？单层工作集装不下时还有哪些候选？</li>
-<li>"保存 checkpoint 时 OOM"是怎么回事？</li>
+<li>本章 7B + BF16 梯度 + AdamW 的 16 字节/参数账由哪三部分组成？它没有包括什么？</li>
+<li>写出 $M_1$、$M_2$、$M_3$，并手算 $P=7\times10^9$、$N=8$ 的结果。</li>
+<li>为什么只能说 Stage 1/2 的理论通信字节量“可与 DDP 相当”，不能说耗时免费？</li>
+<li><code>FULL_SHARD</code> 的一个包裹单元在前向、反向和更新时经历哪些通信？</li>
+<li>静态分片状态是 14 GB，为什么示例峰值仍是 27.8 GB？</li>
+<li>wrap 太粗和太细分别会造成什么问题？</li>
+<li>预取为什么既可能提速，也可能抬高峰值？</li>
+<li><code>SHARD_GRAD_OP</code> 与 <code>FULL_SHARD</code> 的参数重分片时机有什么关键差别？</li>
+<li>HYBRID_SHARD 在机内和机间分别做什么？为什么它不是固定最优解？</li>
+<li>ZeRO/FSDP、CPU offload、激活检查点分别减少哪一类占用？</li>
+<li>ZeRO-3 和张量并行的关键边界是什么？</li>
+<li>为什么 checkpoint 必须做一次真实恢复测试？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>洞察：<strong>这些副本大部分时间都闲置</strong>（优化器状态只在 step() 那一瞬间用到），既然如此为什么每卡都要一直存完整的一份。8 卡训 7B 共占 896GB，真正需要的只有 112GB，784GB 是完全一样的副本。</li>
-<li>Stage 1 切<strong>优化器状态</strong>（÷4）、Stage 2 再切梯度（÷8）、Stage 3 再切参数（÷N）。</li>
-<li>因为 <strong>AllReduce = ReduceScatter + AllGather</strong>。DDP 做一次 AllReduce(梯度)；ZeRO-2 做 ReduceScatter(梯度) → 各自更新自己那份 → AllGather(参数)，总量一模一样——它只是把一次 AllReduce 拆成两半，中间插入"各自更新自己那片"。</li>
-<li>通常按聚合单元临时收集参数，释放时机受调度与预取影响。峰值还包括分片状态、激活与工作区；原单元装不下时可评估 TP，适用线性层也可用 ZeRO-3 配合 TiledLinear 顺序分块，仍须核对分块后的峰值与吞吐。<strong></strong></li>
-<li>算第 L 层的<strong>同时后台 AllGather 第 L+1 层</strong>，让通信和计算重叠。关键是因为不预取的话 GPU 会干等 AllGather，配置没调好可能比 DDP 还慢。</li>
-<li>整个模型被当成一个单元，<strong>AllGather 时要凑出全部参数 → 显存节省几乎为零而且会 OOM</strong>。必须按 Transformer 层包。</li>
-<li>解决<strong>ZeRO-3 跨机 AllGather 参数而跨机带宽只有 NVLink 1/15</strong> 的问题。做法：机内 FULL_SHARD、机间普通数据并行 → 显存降到 1/8，跨机通信量和普通 DDP 一样。</li>
-<li>ZeRO-3 <strong>几乎不用改代码、能跨机</strong>；张量并行要改模型结构、也能跨机，但层内通信频繁，通常优先使用高速互联，单层工作集装不下时，TP 是候选；适用线性层也可评估 ZeRO-3 + TiledLinear 顺序分块，需核对分块后的峰值、算子兼容性与吞吐。</li>
-<li>默认的 <code>FULL_STATE_DICT</code> 会<strong>把所有分片汇总到 rank 0</strong>，保存瞬间要凑齐全部参数。解法：用 <code>SHARDED_STATE_DICT</code> / <code>dcp.save</code> 分片保存。</li>
+<li>参数 2 字节、梯度 2 字节、FP32 主参数与 Adam 一/二阶矩共 12 字节，所以是 16 字节/参数。它不含激活、工作区、通信缓冲、分配器碎片等运行时占用。</li>
+<li>$M_1=4P+12P/N=38.5$ GB，$M_2=2P+14P/N=26.25$ GB，$M_3=16P/N=14$ GB。这里使用十进制 GB，并假设均匀分片。</li>
+<li>AllReduce 可分解为 ReduceScatter + AllGather，所以论文消息量模型下总字节可相当；但集合通信次数、消息大小、启动延迟、等待和重叠不同，真实 step time 仍可能变差。</li>
+<li>前向前 AllGather 参数，按 FULL_SHARD 策略前向后重分片；反向前再次 AllGather，反向后 ReduceScatter 梯度；最后各 rank 只更新本地参数与优化器状态分片。</li>
+<li>峰值还包括同时完整存在的包裹单元、激活、工作区和缓冲。示例为 $14+2\times0.4+10+2+1=27.8$ GB。</li>
+<li>太粗会恢复过大的参数组且难以重叠通信；太细会产生大量小集合通信和启动开销。Transformer block 只是常见起点，需同时测峰值与 step time。</li>
+<li>提前 AllGather 下一单元可能把通信藏在当前计算后面；同时也可能令两个完整单元并存。限流、执行顺序和显存压力共同决定结果。</li>
+<li><code>FULL_SHARD</code> 前向后重分片、反向前再恢复；<code>SHARD_GRAD_OP</code> 通常把完整参数保留到反向结束后再重分片，以更多显存换少一次恢复。</li>
+<li>机内分片组执行 AllGather/ReduceScatter，跨机复制组同步同一分片。它减少昂贵的跨机参数恢复，但静态分片度、跨机同步和吞吐取决于节点与网络，必须实测。</li>
+<li>ZeRO/FSDP 减少 GPU 间重复模型状态；CPU offload 把部分状态移到主存；激活检查点少存激活并在反向重算。三者代价分别偏向通信、主机传输和额外计算。</li>
+<li>ZeRO-3 按包裹单元恢复完整参数；如果单个恢复单元仍装不下，需评估 TP、流水线或适用算子的顺序分块。TP 在层内分摊工作集，但产生频繁层内通信。</li>
+<li>保存目录存在只证明写出了一些文件；格式、分片、优化器状态或 world size 变化都可能让恢复失败。应在独立进程中加载并继续至少一步训练，核对参数、优化器和 step。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_7">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>⭐ <strong>核心洞察：N 张卡存着 N 份一模一样的优化器状态，而它们只在参数更新那一瞬间用得到。</strong> 绝大部分显存是副本。</p>
-<p>三个 Stage 逐级切：先切优化器状态、再切梯度、最后切参数。</p>
-<p>⭐⭐ <strong>最重要也最反直觉的一条：前两级的通信量和普通数据并行完全一样。</strong> 因为 <strong>AllReduce 本来就等于 ReduceScatter 加 AllGather</strong>——它只是把一次 AllReduce 拆成两半、中间插进「各自更新自己那一片」。⭐ <strong>于是显存节省几乎是免费的，默认就该开。</strong></p>
-<p>第三级平时每卡只存一片，用到某一层时临时凑出完整参数、算完立刻丢——⭐ <strong>峰值降到「分片参数加最大的那一层」</strong>，代价是通信量涨一半。</p>
-<p>⭐ <strong>预取是性能关键</strong>：算这一层的时候后台去取下一层，⚠️ <strong>不预取 GPU 就干等，配置没调好可能比不切还慢</strong>。
-⚠️⭐ <strong>最常见的错误是没设包装策略</strong>——整个模型被当成一个单元，<strong>显存几乎没省下来还会 OOM</strong>；必须<strong>按 Transformer 层包</strong>。</p>
-<p>⭐ <strong>多机的最优解是混合切分</strong>：机内全切（走高速互联）、机间用普通数据并行——<strong>显存降下来了，而跨机通信量和不切时一样。</strong></p>
-<p>⭐ 和张量并行的分工：这条路<strong>几乎不用改代码、能跨机</strong>；张量并行<strong>要改结构、也能跨机，但层内通信频繁，通常优先使用高速互联</strong>，⭐ <strong>单层工作集装不下时可评估 TP；适用线性层也可配合 ZeRO-3 做 TiledLinear 顺序分块。分块后仍需装下活跃工作集，且可能牺牲吞吐。</strong></p>
-<p>⭐ 上手顺序：先开第二级 → 第三级 → 混合 → 再叠张量并行 → 最后流水线并行。
-💥⚠️ <strong>一个常见翻车点：保存 checkpoint 时 OOM</strong>——默认会把所有分片汇总到一张卡上，<strong>大模型必须用分片保存。</strong></p>
+<p>⭐ <strong>先分清两张账：</strong>本例普通 DDP 的静态模型状态是 $16P$ 字节；Stage 1/2/3 依次分片优化器状态、梯度和参数，8 卡 7B 的静态值是 38.5、26.25、14 GB。</p>
+<p>⭐ <strong>静态值不是峰值。</strong>峰值还要加完整恢复的包裹单元、激活、工作区和缓冲；预取可能提速，也可能让两个单元同时在场。</p>
+<p>⭐ <strong>“理论通信字节相当”不是“耗时免费”。</strong>消息大小、集合通信次数、启动延迟、拓扑、分桶与重叠都会改变 step time。</p>
+<p>⭐ <strong>wrap 要两头防：</strong>太粗会恢复太大的参数组，太细会产生大量小通信。Transformer block 是起点，不是固定答案。</p>
+<p>⭐ <strong>HYBRID_SHARD 是拓扑折中，不是多机默认最优。</strong>机内做完整分片，跨机同步同一分片的复制组；必须与 FULL_SHARD 在真实集群上比较。</p>
+<p>⭐ <strong>省不同显存要用不同工具：</strong>ZeRO/FSDP 管重复模型状态，activation checkpointing 管激活，CPU offload 用主存和传输换 GPU 空间。</p>
+<p>💥 checkpoint 要按分片方式保存，并做真实恢复与续训测试；“文件写出来了”不等于可恢复。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="12-张量并行.html">12-张量并行.md</a></p>
-<details class="g05-content-note"><summary>条件与依据</summary><p>本例 N=8 时，静态模型状态从 112 GB 分别降为 38.5、26.25、14 GB，约为 2.91、4.27、8 倍；最后一项尚未计临时聚合、预取、激活与缓冲。通信 1×/1.5× 是等字节、经典调度下的模型，不是耗时保证。FULL_STATE_DICT 是否只在 rank 0 输出取决于配置；DCP 应传状态字典或实现 Stateful 的封装，不能把任意 nn.Module 当作会自动序列化的字典值。</p><p><a href="https://www.deepspeed.ai/tutorials/zero/">官方文档</a>；<a href="https://docs.pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html">官方文档</a></p></details>
+<details class="g05-content-note"><summary>条件与依据</summary><p>本页 16 字节/参数采用 BF16 参数与梯度、FP32 主参数和 AdamW 两个 FP32 动量的教学假设；换优化器或精度策略要重算。FSDP 生命周期、wrap、限流、CPU offload 和状态字典行为具有版本差异，应以目标版本文档为准。消息量结论来自 ZeRO 的理论模型，不是耗时承诺；所有容量算例均未计分配器碎片和未列出的框架缓冲。</p><p><a href="https://arxiv.org/abs/1910.02054">ZeRO 原论文</a>；<a href="https://docs.pytorch.org/docs/stable/fsdp.html">PyTorch FSDP 官方文档</a>；<a href="https://docs.pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html">PyTorch Distributed Checkpoint 官方教程</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="10-数据并行与AllReduce.html"><div class="dir">← 上一节</div>⭐ 数据并行</a><a class="next" href="12-张量并行.html"><div class="dir">下一节 →</div>⭐ 张量并行</a></nav>
