@@ -313,10 +313,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>118 分钟</strong> ｜ ⭐ <strong>「我这能跑，你那不能跑」不是玄学 —— 它有确定的几个来源，每一个都能用一行命令查出来</strong></p>
 <h2 id="_1">🎯 一句话</h2>
-<p><strong><code>import X</code> 不是「加载库 X」，是「按一个有序列表挨个找名字叫 X 的东西，找到第一个就用，然后把它缓存起来」。</strong>
-虚拟环境、<code>pip install</code>、<code>-m</code>、<code>__pycache__</code> —— 这一章的每一个坑，都是这句话里某一个词在起作用。</p>
+<p><code>import X</code> 先查当前解释器里的模块缓存。缓存没命中时，Python 查找模块，再加载并初始化。虚拟环境、启动方式和缓存会影响这个过程的不同步骤。</p>
 <h2 id="import-x" data-mg-stop="">🧩 一、<code>import X</code> 到底做了哪三步</h2>
-<p>按顺序，缺一不可：</p>
+<p>以普通的顶层 <code>.py</code> 模块为例。命中缓存时可以直接复用模块。下面的 <code>sys.path</code> 顺序只适用于按路径查找的情况，内置模块等可以由其他查找器处理。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -328,7 +327,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td>①</td>
-<td>查 <code>sys.modules</code>（<strong>本次进程已经导入过的缓存</strong>）</td>
+<td>查 <code>sys.modules</code>（当前解释器的模块缓存）</td>
 <td>改了源码但行为没变 —— 因为根本没重新读</td>
 </tr>
 <tr>
@@ -338,12 +337,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td>③</td>
-<td><strong>执行模块体</strong>，把结果塞进 <code>sys.modules</code></td>
-<td>循环 import、模块级副作用</td>
+<td>创建模块对象，先登记到 <code>sys.modules</code>，再执行模块体</td>
+<td>循环 import 可能看到尚未初始化完的模块。模块体也可能因为缺依赖而报错。</td>
 </tr>
 </tbody>
 </table></div>
-<p>⚠️ <strong><code>ModuleNotFoundError</code> 只告诉你「没找到」，从不告诉你「在哪找过」。</strong> 自己打出来：</p>
+<p>首次加载失败时，普通导入流程只移除失败模块的缓存项。此前已经成功导入的模块仍留在缓存里。<a href="https://docs.python.org/3.14/reference/import.html#loading">Python 语言参考 · 加载</a></p>
+<p><code>ModuleNotFoundError</code> 通常会给出缺少的模块名。下面的诊断示例打印能找到的加载描述和当前的 <code>sys.path</code> 配置，方便核对候选位置。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># whereis.py —— import 失败时，把「解释器到底在哪找过」打出来</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">importlib.util</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
@@ -367,6 +367,77 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
    <code>pip install opencv-python</code> → <code>import cv2</code>；<code>pip install Pillow</code> → <code>import PIL</code>。
    ⚠️ 「我明明装了啊」十次里有一次就是这个，<strong>去包的 PyPI 页面上抄那行 import，别猜</strong>。</li>
 </ol>
+<h3 id="import-missing-module">同样是找不到模块，先看缺的是谁</h3>
+<p>导入一份记分模块时，报错可能出现在两个位置。Python 可能还没找到入口文件，也可能已经执行入口的顶层代码，却找不到它依赖的配置模块。两种情况都会出现 <code>ModuleNotFoundError</code>。</p>
+<div class="flowchain" aria-label="从定位入口到执行模块体">
+<div class="fstep"><b>定位记分模块</b><span>找不到入口时，失败发生在这一步。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep"><b>执行入口的模块体</b><span>入口第一行还要导入配置。这里也可能找不到模块。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep"><b>完成导入</b><span>配置里的 7 加 1，模块最后提供数值 8。</span></div>
+</div>
+<p>沿用 <a href="07-异常traceback和调试.html#traceback">07 章的 traceback 读法</a>。<code>exc.name</code> 给出这次没找到的模块名，最内层代码帧指出是从哪里发起这次导入的。结合两条线索判断失败位置。</p>
+<p>下面是完整示例。三次分别用 <code>sys.executable</code> 启动新的 Python 子进程，避免复用同一份模块缓存。<code>-I</code> 忽略 <code>PYTHON*</code> 环境变量，也不会把当前目录自动加入搜索路径。<code>-S</code> 跳过 <code>site</code> 初始化。子进程只额外加入这次创建的临时目录，示例结束后清理临时文件。</p>
+<div class="codehilite" data-code-language="python" data-code-title="同一个入口的三次导入"><pre id="import-missing-probe"><code>import sys
+from pathlib import Path
+from subprocess import run
+from tempfile import TemporaryDirectory
+
+
+probe = """
+import sys
+import traceback
+from importlib.util import find_spec
+from pathlib import Path
+
+sys.path.insert(0, str(Path.cwd()))
+print("可定位:", find_spec("lesson_scorecard_demo") is not None)
+
+try:
+    import lesson_scorecard_demo
+except ModuleNotFoundError as exc:
+    print("缺少模块:", exc.name)
+    frame = traceback.extract_tb(exc.__traceback__)[-1]
+    print("失败文件:", Path(frame.filename).name)
+    if frame.line:
+        print("失败行:", frame.line)
+else:
+    print("导入结果:", lesson_scorecard_demo.VALUE)
+"""
+
+
+def show(label, folder):
+    result = run(
+        [sys.executable, "-I", "-S", "-B", "-X", "utf8", "-c", probe],
+        cwd=folder, capture_output=True, encoding="utf-8", check=True, timeout=10,
+    )
+    print(label)
+    print(result.stdout, end="")
+
+
+with TemporaryDirectory() as folder:
+    root = Path(folder)
+    show("A 入口文件不存在", root)
+
+    (root / "lesson_scorecard_demo.py").write_text(
+        "from lesson_settings_demo import POINTS\nVALUE = POINTS + 1\n",
+        encoding="utf-8",
+    )
+    show("B 入口存在，依赖文件不存在", root)
+
+    (root / "lesson_settings_demo.py").write_text("POINTS = 7\n", encoding="utf-8")
+    show("C 入口与依赖都存在", root)
+</code></pre></div>
+<div class="panels" aria-label="三次导入结果">
+<div class="panel"><div class="ph">A · 连入口都没找到</div>
+<p>「可定位」为 <code>False</code>，<code>exc.name</code> 是 <code>lesson_scorecard_demo</code>。最内层在发起导入的 <code>&lt;string&gt;</code>，没有入口文件里的执行记录。</p></div>
+<div class="panel"><div class="ph">B · 入口找到了，模块体里的导入失败</div>
+<p>「可定位」为 <code>True</code>，<code>exc.name</code> 却是 <code>lesson_settings_demo</code>。最内层在 <code>lesson_scorecard_demo.py</code>，失败行是 <code>from lesson_settings_demo import POINTS</code>。</p></div>
+<div class="panel"><div class="ph">C · 两个文件都存在</div>
+<p>「可定位」仍为 <code>True</code>。这次模块体执行完，读到 <code>VALUE</code> 是 8。</p></div>
+</div>
+<p><code>find_spec()</code> 找的是模块的加载描述，B 和 C 都能找到。加载描述无法验证模块体及其依赖是否能成功执行。查询未缓存的 <code>pkg.child</code> 时，<code>find_spec()</code> 会先导入父包，父包执行本身可能失败。<a href="https://docs.python.org/3.14/library/importlib.html#importlib.util.find_spec">Python 文档 · find_spec</a></p>
+<p>实际排查时，先确认报错进程使用的解释器，再读 <code>exc.name</code> 与调用栈。入口没找到时，核对导入名与搜索位置。入口已执行时，去失败行确认缺的是项目内的模块，还是声明过的外部依赖。导入名和发行包名可能不同，先核对依赖声明再决定下一步。<a href="https://docs.python.org/3.14/library/exceptions.html#ImportError">Python 文档 · 导入异常</a></p>
 <h3 id="syspath">🚦 <code>sys.path</code> 是怎么来的</h3>
 <div class="tw"><table>
 <thead>
@@ -399,7 +470,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<h3 id="1">🚦 第 ① 步的缓存：模块体一个进程里只跑一次</h3>
+<h3 id="1">🚦 第 ① 步的缓存：重复导入通常复用已有模块</h3>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># modcache.py —— import 两次，模块体只跑一次</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">subprocess</span>
@@ -425,12 +496,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>实跑输出：</p>
 <section class="visual-block visual-block-flow" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">第一次 import：</span></div><div class="vb-flow-row"><span class="vb-flow-step">[heavy.py 的模块体在跑]</span></div><div class="vb-flow-row"><span class="vb-flow-step">第二次 import：</span></div><div class="vb-flow-row"><span class="vb-flow-step">heavy in sys.modules -&gt; True</span></div><div class="vb-flow-row"><span class="vb-flow-step">reload：</span></div><div class="vb-flow-row"><span class="vb-flow-step">[heavy.py 的模块体在跑]</span></div></div></section>
-<p>⭐ <strong>第二次 <code>import heavy</code> 什么都没打</strong> —— 它只是从 <code>sys.modules</code> 取了个引用出来。
+<p>在同一解释器中，以同一名字成功导入并保留缓存后，普通的重复导入会复用模块对象。<strong>第二次 <code>import heavy</code> 没有打印</strong>，是因为没有再执行模块体。
 这就是为什么在 Jupyter / IPython 里改了 <code>.py</code> 再 <code>import</code> 一点变化都没有，
 而重启内核就好了。⚠️ <code>importlib.reload()</code> 能重跑模块体，<strong>但已经 <code>from heavy import X</code> 绑出去的名字不会跟着变</strong>
 （那是<a href="01-名字、对象和绑定.html">第 01 章</a>讲的「名字绑到对象」）—— 所以 reload 只能救一半，能重启就重启。</p>
-<p>💡 反过来说：<strong>模块顶层的代码是「被 import 就会跑」的</strong>。在模块顶层连数据库、读大文件、
-<code>print</code> 一堆东西，任何人 import 你都得付这个代价。⭐ <strong>顶层只放定义，副作用放进函数。</strong></p>
+<p>加载并初始化普通 Python 模块时，才会执行模块顶层代码。连接数据库、读取大文件等操作可以放进函数，由真正需要它们的调用者触发。</p>
 <h2 id="0-randompy">🧯 二、<code>[0]</code> 排在标准库前面：你自己写的 <code>random.py</code> 会顶掉标准库</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># shadow.py —— 自己写的 random.py 会顶掉标准库</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
@@ -641,7 +711,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ 「pip 装完 import 时报 <code>DLL load failed</code> / <code>libXXX.so: cannot open shared object file</code>」
 <strong>已经不是 Python 层的问题了</strong> —— 那是二进制兼容，
 另一半在 <a href="../框架底下是C++/04-ABI与二进制兼容.html">框架底下是 C++ · 04 · ABI 与二进制兼容</a>。</p>
-<p>本章只负责到「Python 找不找得到这个包」为止。</p>
+<p>本章排查 Python 的搜索和模块初始化。已经找到扩展文件却装载失败时，再查上面的二进制兼容问题。</p>
 <hr />
 <!--MIDSTOP-->
 <blockquote>
@@ -913,7 +983,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⚠️ 这条和 IDE 的关系：<strong>大多数编辑器的「运行」按钮默认把 cwd 设成项目根，而终端里 cwd 是你 <code>cd</code> 到的地方</strong> ——
 所以 cwd 相关的 bug <strong>在编辑器里几乎永远不会复现</strong>。</p>
 <h2 id="_4" data-mg-stop="">📋 八、「我这能跑，你那不能跑」的排查顺序</h2>
-<p>⭐ <strong>照这个顺序问，五步之内能定位到具体是哪一类</strong>：</p>
+<p>先在实际报错的程序、IDE 或 Notebook 内运行 <code>import sys; print(sys.executable)</code>，和能正常运行的一侧对比解释器路径。另开终端查到的 <code>python</code> 可能是另一个程序。即使路径相同，也要继续核对工作目录和模块搜索配置。<a href="https://docs.python.org/3.14/library/sys.html#sys.executable">Python 文档 · sys.executable</a></p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -926,7 +996,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td>①</td>
 <td><code>python -c "import sys; print(sys.executable)"</code></td>
-<td>⭐ <strong>两边是不是同一个解释器</strong>。八成的问题在这一步就结束了</td>
+<td>比较实际启动的解释器路径。</td>
 </tr>
 <tr>
 <td>②</td>
@@ -936,7 +1006,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td>③</td>
 <td><code>python -c "import 那个包 as m; print(m.__file__)"</code></td>
-<td>是没装，还是装了但<strong>导到了另一个同名的东西</strong></td>
+<td>导入成功后看文件来源。若导入本身失败，先用<a href="#import-missing-module">模块名与失败帧</a>区分入口和依赖。</td>
 </tr>
 <tr>
 <td>④</td>
@@ -967,7 +1037,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td><a href="07-异常traceback和调试.html">07 · 异常、traceback 和调试</a></td>
-<td>那一章讲怎么读 traceback。<code>ModuleNotFoundError</code> 是特例：traceback 只说「找不到」，<strong>不说在哪找过</strong> —— 本章第一节补上这一半</td>
+<td>那一章讲怎么读 traceback。本章结合异常中的缺失模块名与最内层帧，区分入口没找到和模块体里的依赖没找到。</td>
 </tr>
 <tr>
 <td><a href="01-名字、对象和绑定.html">01 · 名字、对象和绑定</a></td>
@@ -975,7 +1045,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><a href="../框架底下是C++/04-ABI与二进制兼容.html">框架底下是 C++ · 04 · ABI 与二进制兼容</a></td>
-<td>⭐ <strong>同一个问题的另一半</strong>。本章负责到「Python 找不找得到这个包」为止；<code>DLL load failed</code> / <code>undefined symbol</code> / <code>GLIBC</code> / manylinux 归那一章</td>
+<td>⭐ <strong>同一个问题的另一半</strong>。本章讲 Python 的模块搜索和初始化过程。<code>DLL load failed</code> / <code>undefined symbol</code> / <code>GLIBC</code> / manylinux 归那一章</td>
 </tr>
 <tr>
 <td><a href="../模型上线之后/17-版本回溯与可复现.html">模型上线之后 · 17 · 版本回溯与可复现</a></td>
@@ -1013,7 +1083,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>① 查 <code>sys.modules</code> 缓存 → ② 沿 <code>sys.path</code> 从前往后找，<strong>用第一个匹配的</strong> → ③ 执行模块体。「改了源码但行为没变」卡在第 ①（进程内已经缓存了，压根没重读）—— 实跑里第二次 <code>import heavy</code> 一个字都没打。</li>
+<li>① 查 <code>sys.modules</code> 缓存。② 未命中时查找模块，普通路径查找会按路径顺序进行。③ 加载普通 Python 模块时先登记对象，再执行模块体。源码已改但普通重复导入没变，先检查当前解释器是否仍复用缓存。</li>
 <li><code>python x.py</code> → <strong>脚本所在目录</strong>；<code>python -m pkg.x</code> → 当前工作目录；<code>python -c</code> / 交互式 → <code>''</code>（当前目录），实跑打出来就是空串。</li>
 <li>因为 <code>sys.path[0]</code> 不同：前者是 <code>&lt;root&gt;/pkg</code>，<strong>项目根不在路径上</strong>，所以 <code>from pkg.conf import NAME</code> 找不到 <code>pkg</code>；后者是 <code>&lt;root&gt;</code>，能看见自己的包。同一个文件同一个解释器，一个崩一个不崩。</li>
 <li>它会<strong>顶掉标准库的 <code>random</code></strong>，因为 <code>sys.path[0]</code> 排在标准库前面。实跑报的是 <code>AttributeError: module 'random' has no attribute 'randint'</code>，3.11 后还附带 <code>consider renaming ...</code> 的提示。⚠️ 真正难查的是属性没缺的情况（你的 <code>json.py</code> 里恰好也有 <code>loads</code>）—— 那时不报错，只是结果不对。一行确认：<code>python -c "import 名字 as m; print(m.__file__)"</code>。</li>
@@ -1027,10 +1097,15 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>第一条：<code>python -c "import sys; print(sys.executable)"</code> —— 先确认两边是不是同一个解释器。⚠️ 不该在这一章找答案的：<code>ImportError: DLL load failed</code>、<code>GLIBC_2.32 not found</code>、<code>undefined symbol: _ZN3c10...</code>、<code>ldd</code> 找不到库 —— 那些是二进制层，归 <a href="../框架底下是C++/04-ABI与二进制兼容.html">框架底下是 C++ 04</a>。分界线：报错里出现<strong>文件路径</strong>是本章，出现符号名 / 版本号 / <code>.so</code> / <code>.dll</code> 是那一章。</li>
 </ol>
 </details>
+<p id="import-traceback-check"><strong>先判断。</strong> <code>find_spec("lesson_scorecard_demo")</code> 有结果，但 traceback 最里面是入口文件的配置导入行，<code>exc.name</code> 是 <code>lesson_settings_demo</code>。接下来先查什么？</p>
+<details>
+<summary>👀 看失败位置</summary>
+<p>先查入口第一行的配置依赖。解释器已经开始执行入口文件，所以应核对这个依赖在项目里的实际名字、位置或依赖声明。<code>find_spec</code> 找到了入口的加载描述，无法替代这次真实导入。</p>
+</details>
 <h2 id="_7">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>⭐ <strong><code>import X</code> 不是「加载库 X」，是「按 <code>sys.path</code> 挨个找，用第一个匹配的，然后缓存」</strong>——三步：查缓存、沿路径找、执行模块体。</p>
+<p><code>import X</code> 先查缓存，未命中才查找。加载普通 Python 模块时先登记，再执行模块体。报 <code>ModuleNotFoundError</code> 时，结合缺失模块名和最内层帧判断是哪一次导入失败。</p>
 <p>第一步解释了「<strong>改了源码行为没变</strong>」：<code>reload</code> 能重跑模块体，但 <code>from m import X</code> 绑出去的名字不跟着变——⭐ <strong>能重启就重启。</strong></p>
 <p>第二步是本章大半个坑的来源：⭐ <strong><code>sys.path[0]</code> 排在标准库前面</strong>，所以目录里放一个自己的 <code>random.py</code> 就会顶掉标准库。💀 <strong>真正难查的是属性没缺那种：不报错，只是结果不对。</strong> ⭐ 一行确认：<code>python -c "import 名字 as m; print(m.__file__)"</code>。</p>
 <p>⚠️ 另一个高频：<strong>装的名字和 import 的名字是两套</strong>（装 <code>pyyaml</code>、import <code>yaml</code>）。</p>
