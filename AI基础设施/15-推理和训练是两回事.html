@@ -301,216 +301,97 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p class="mg-dek">一次请求先处理输入前缀，再逐步生成。首字等待、每 token 时间与吞吐要分开观察，不能用同一个平均值代替。</p>
 <p class="mg-outcome">读完能判断：用 Prefill/Decode 工作形状区分 TTFT、TPOT 与并发瓶颈。</p>
 <nav class="mg-actions" aria-label="本页阅读入口">
-<a class="mg-primary" href="#_2">一、一次推理请求分成两个完全不同的阶段</a>
+<a class="mg-primary" href="#_2">一、先把训练、Prefill 与 Decode 分开</a>
 <a href="#mg-ai-infra-15-reading-start">直接进入完整正文</a>
 </nav>
-<nav class="mg-reading-map" aria-label="本章其他定位"><a href="#decode">💀 二、Decode 为什么这么惨</a><a href="#_3">📊 四、推理的四个核心指标</a></nav>
+<nav class="mg-reading-map" aria-label="本章其他定位"><a href="#decode">🧮 二、带条件的 Decode 搬运账</a><a href="#_3">📊 四、训练指标和推理指标不能混用</a></nav>
 </div>
 </header>
 <span id="mg-ai-infra-15-reading-start"></span>
 <!-- End G05 remaining entry. -->
-<details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
-<ul>
-<li><a href="#_1">🎯 一句话</a></li>
-<li><a href="#_2">🔀 一、一次推理请求分成两个完全不同的阶段</a></li>
-<li><a href="#decode">💀 二、Decode 为什么这么惨</a></li>
-<li><a href="#decode_1">⭐ 三、批处理：Decode 唯一的救命稻草</a></li>
-<li><a href="#_3">📊 四、推理的四个核心指标</a></li>
-<li><a href="#_4">🔄 五、训练直觉到推理的翻译表</a></li>
-<li><a href="#_5">🧭 六、推理优化的正确顺序</a></li>
+<details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc"><ul>
+<li><a href="#_1">🎯 先看现象：同一张卡，为什么训练快不代表上线快</a></li>
+<li><a href="#_2">🔀 一、先把三种工作形状分开</a></li>
+<li><a href="#decode">🧮 二、带条件的 Decode 搬运账</a></li>
+<li><a href="#decode_1">📦 三、批处理为什么有用，又为什么不能无限加</a></li>
+<li><a href="#_3">📊 四、训练指标和推理指标不能混用</a></li>
+<li><a href="#_4">🧠 五、显存与并行：两边保存的东西不同</a></li>
+<li><a href="#_5">🧭 六、先量测，再选择优化手段</a></li>
 <li><a href="#_6">🔗 和站内其他章的关系</a></li>
 <li><a href="#_7">✅ 检查点</a></li>
 <li><a href="#_8">🛑 可以停在这里</a></li>
-</ul>
-</div>
-</details>
+</ul></div></details>
 <h1 id="15">15 · 推理和训练是两回事</h1>
-<p>⏱ <strong>28 分钟</strong> ｜ ⭐ <strong>把训练经验套到推理上是最贵的错误</strong></p>
+<p>⏱ <strong>35 分钟</strong> ｜ 🧭 目标：能把训练 step、Prefill 和 Decode 放进三张不同的账本，不再拿一个利用率解释所有问题。</p>
 <hr />
-<h2 id="_1">🎯 一句话</h2>
-<p><strong>训练与 prefill 常有较高算术强度，小批量 decode 常受权重或 KV 搬运限制；通信、形状和并发会改变瓶颈。</strong>
-这意味着<strong>几乎所有训练侧的优化直觉，到推理侧都要反过来想。</strong></p>
+<h2 id="_1">🎯 先看现象：同一张卡，为什么训练快不代表上线快</h2>
+<p>一张 GPU 训练时每秒能处理很多 token，上线后却可能“第一句话等很久”或“已经出字，但后面一个字一个字地慢”。这不是同一个故障：</p>
+<div class="gapmap"><div class="gaprow"><div class="who">训练 step 慢</div><div class="has">前向 + 反向 + 参数更新</div><div class="miss">训练吞吐、step time、MFU</div></div><div class="gaprow"><div class="who">第一字慢</div><div class="has">排队 + Prefill + 第一次采样</div><div class="miss">TTFT</div></div><div class="gaprow"><div class="who">后续字慢</div><div class="has">逐 token Decode + 调度</div><div class="miss">TPOT / ITL</div></div></div>
+<blockquote><p>⭐ <strong>本章不教一句“训练看算力、推理看带宽”的口号。</strong>它只在某些形状下成立。正确做法是：先确认工作形状和指标，再用算力、带宽、容量与通信四本账判断瓶颈。</p></blockquote>
 <hr />
-<h2 id="_2">🔀 一、一次推理请求分成两个完全不同的阶段</h2>
-<p class="dia-lead">用户输入 "请解释一下量子纠缠"（假设 <b>10 个 token</b>），模型输出 <b>500 个 token</b> —— 这一次请求会被拆成两个性质完全不同的阶段：</p>
-
-<div class="flowchain">
-<div class="fstep"><b>Prefill（预填充）</b><span>一次性处理全部 10 个输入 token<br>并行度高 ✅<br>【算力瓶颈】<br>占时间 ~10%</span></div>
-<div class="farrow">→</div>
-<div class="fstep"><b>Decode（解码）</b><span>一个一个地生成 500 个 token，每次只处理 1 个<br>并行度 = 1 ⚠️<br>【带宽瓶颈】⭐<br>占时间 ~90% ⭐</span></div>
-</div>
-
-<div class="tw"><table>
-<thead>
-<tr>
-<th></th>
-<th><strong>Prefill</strong></th>
-<th><strong>Decode</strong></th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>每步处理的 token</td>
-<td>全部输入（几百~几万）</td>
-<td><strong>1 个</strong></td>
-</tr>
-<tr>
-<td>矩阵乘的形状</td>
-<td>矩阵 × 矩阵</td>
-<td><strong>向量 × 矩阵</strong> ⭐</td>
-</tr>
-<tr>
-<td><strong>算术强度</strong></td>
-<td>高（几百）</td>
-<td><strong>~1（BF16、batch=1）</strong></td>
-</tr>
-<tr>
-<td>瓶颈</td>
-<td><strong>算力</strong></td>
-<td><strong>显存带宽</strong> ⭐</td>
-</tr>
-<tr>
-<td>决定的指标</td>
-<td><strong>TTFT</strong>（首字延迟）</td>
-<td><strong>TPOT</strong>（每字延迟）</td>
-</tr>
-<tr>
-<td>优化方向</td>
-<td>更强的算力、并行</td>
-<td><strong>减少数据搬运</strong></td>
-</tr>
-</tbody>
-</table></div>
-<blockquote>
-<p>🔑 <strong>这张表是这一章的全部</strong>。
-<strong>Prefill 和 Decode 是两个性质完全不同的工作负载，跑在同一个模型上。</strong>
-很多推理系统的设计（甚至硬件选型）都源于这个分裂。</p>
-</blockquote>
+<h2 id="_2">🔀 一、先把三种工作形状分开</h2>
+<p>假设一个请求有 10 个输入 token，要生成 9 个输出 token。训练、Prefill（预填充）和 Decode（逐 token 解码）虽然使用同一组模型参数，执行目标却不同：</p>
+<div class="flowchain"><div class="fstep"><b>训练 step</b><span>处理一批序列<br>前向 → 反向 → 更新<br>保存梯度和优化器状态</span></div><div class="farrow">→</div><div class="fstep"><b>Prefill</b><span>并行处理 10 个输入 token<br>建立 KV Cache<br>准备第一个输出</span></div><div class="farrow">→</div><div class="fstep"><b>Decode</b><span>重复 8 次后续解码<br>每轮为每个活跃请求新增 1 token<br>读取历史 KV</span></div></div>
+<div class="tw"><table><thead><tr><th>比较项</th><th>训练</th><th>Prefill</th><th>Decode</th></tr></thead><tbody>
+<tr><td>目标</td><td>降低损失并更新参数</td><td>处理输入上下文</td><td>生成下一个 token</td></tr>
+<tr><td>主要计算</td><td>前向 + 反向 + 更新</td><td>多 token 的前向</td><td>每轮新增 1 token 的前向</td></tr>
+<tr><td>常见矩阵形状</td><td>矩阵 × 矩阵</td><td>矩阵 × 矩阵</td><td>低 batch 时接近矩阵 × 向量；并发增加后形状会变</td></tr>
+<tr><td>长期保存</td><td>参数、梯度、优化器状态；反向所需激活</td><td colspan="2">参数、KV Cache；另有临时工作区</td></tr>
+<tr><td>可能瓶颈</td><td>计算、通信、数据供给或显存</td><td>计算、注意力、排队或调度</td><td>权重/KV 搬运、计算、通信或调度</td></tr>
+</tbody></table></div>
+<p>⚠️ <strong>“Prefill 一定算力受限、Decode 一定带宽受限”不是定理。</strong>模型结构、batch、上下文长度、量化方式、内核、并行和硬件都会改变结论。低 batch、权重搬运占主导的稠密模型 Decode，才是下面心算式最适合的场景。</p>
 <hr />
-<h2 id="decode">💀 二、Decode 为什么这么惨</h2>
-<section class="visual-block visual-block-flow" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">生成 1 个 token 要做什么：</span></div><div class="vb-flow-row"><span class="vb-flow-step">① 把【全部模型权重】从 HBM 读进来</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 和一个【长度为 1】的向量相乘</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 丢掉</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 读了 14GB 的权重（7B BF16），只做了很少的计算</span></div><div class="vb-flow-row"><span class="vb-flow-step">BF16 权重主导算术强度 ≈ 1 FLOP/字节</span></div><div class="vb-flow-row"><span class="vb-flow-step">离 A100 的平衡点 156 差了【156 倍】💀</span></div></div></section>
-<p><strong>理论上限</strong>（<a href="04-Roofline与MFU.html">第 4 章</a>那个心算公式）：</p>
-<p>$$\text{最快解码速度} = \frac{\text{显存带宽}}{\text{模型大小}}$$</p>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>7B BF16（14GB）在 A100（2TB/s）：</p><p>2000 / 14 ≈ 143 tokens/秒 ← 单请求的物理上限 ⭐</p><p>⚠️ 注意：这个上限和 GPU 的算力【完全无关】</p><p>换 H100（989 TFLOPS，是 A100 的 3 倍算力）</p><p>→ 但带宽只有 3.35TB/s（1.7 倍）</p><p>→ 解码速度也只提升 1.7 倍，不是 3 倍</p></div></section>
-<blockquote>
-<p>🔑 <strong>这解释了一个常见的困惑</strong>：
-<strong>"为什么我换了更强的卡，生成速度没快多少？"</strong>
-因为你买的是算力，而你的瓶颈是带宽。</p>
-</blockquote>
+<h2 id="decode">🧮 二、带条件的 Decode 搬运账</h2>
+<p>先只研究一个简化案例：稠密 7B 模型使用 BF16 权重，权重大小记为 <code>W=14 GB</code>；设备可持续显存带宽记为 <code>β=2 TB/s=2000 GB/s</code>；batch 记为 <code>B</code>。假设每轮 Decode 都要从 HBM 流过一次主要权重，而且权重搬运是主导成本。</p>
+<p>权重搬运给出的时间下界和吞吐上界是：</p>
+<p>$$t_{weight}\ge \frac{W}{\beta},\qquad R_{token}\le \frac{\beta B}{W}$$</p>
+<ul><li><code>t_weight</code>：一轮权重搬运至少需要的秒数。</li><li><code>R_token</code>：只考虑权重带宽时，所有并发请求合计的 token/s 上界。</li><li><code>W</code> 与 <code>β</code> 必须使用相同的十进制 GB 单位；若用 GiB，也要两边一起换。</li></ul>
+<section class="visual-block visual-block-calc" aria-label="权重搬运下界计算"><p class="visual-block-title">完整代入：这个结果不是实测速度</p><div class="vb-calc"><p>batch=1：t_weight ≥ 14 GB ÷ 2000 GB/s = 0.007 s = 7 ms</p><p>所以 R_token ≤ 1 ÷ 0.007 ≈ 142.9 token/s</p><p>batch=8 的理想上界：R_token ≤ 2000×8÷14 ≈ 1142.9 token/s</p><p>⚠️ 1142.9 不是性能承诺。KV 读写、算子计算、采样、通信和调度都会让实际值更低；权重留在缓存或被分片时，模型也不再符合这本单卡简账。</p></div></section>
+<p>为什么低 batch 时常显得“算力没吃满”？算术强度 <code>I</code> 定义为计算量 <code>F</code> 除以从慢存储搬运的字节数 <code>M</code>：</p>
+<p>$$I=\frac{F}{M}\quad (\mathrm{FLOP/byte})$$</p>
+<p>如果一次 token 的主要线性层约对 7B 个权重各做一次乘加，按一次乘加约 2 FLOP 计，则 <code>F≈14×10⁹ FLOP</code>；BF16 权重约 <code>M≈14×10⁹ byte</code>，所以 <code>I≈1 FLOP/byte</code>。这只是<strong>权重主导、batch=1 的近似</strong>，不是所有 Decode 的固定数值。</p>
 <hr />
-<h2 id="decode_1">⭐ 三、批处理：Decode 唯一的救命稻草</h2>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>⭐ 关键洞察：读一遍权重，可以【同时服务多个请求】</p><p>batch=1： 读 14GB → 生成 1 个 token → 效率 1/14GB</p><p>batch=32： 读 14GB → 生成 32 个 token → 效率 32/14GB ⭐ 32 倍！</p><p>→ 权重的读取成本被【摊薄】了</p></div></section>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">吞吐 vs batch size（7B 模型，A100）示意：</span></div><div class="vb-flow-row"><span class="vb-flow-step">batch=1</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">~140 tok/s （单请求也是 140）</span></div><div class="vb-flow-row"><span class="vb-flow-step">batch=8</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">~1000 tok/s （单请求 ~125，略降）</span></div><div class="vb-flow-row"><span class="vb-flow-step">batch=32</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">~3500 tok/s （单请求 ~110）</span></div><div class="vb-flow-row"><span class="vb-flow-step">batch=128</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">~8000 tok/s （单请求 ~62，明显降）⚠️</span></div><div class="vb-flow-row"><span class="vb-flow-step">batch</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">∞</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">受算力限制，不再增长</span></div></div></section>
-<blockquote>
-<p>🔑 <strong>两个关键结论</strong>：
-① <strong>批处理可摊薄权重读成本，但会增加计算、KV 与调度开销</strong> —— 这是推理优化的第一原则
-② <strong>但单请求延迟会随 batch 增大而变差</strong> —— 吞吐和延迟的经典权衡</p>
-<p>🔗 <a href="17-连续批处理与PagedAttention.html">第 17 章</a>讲怎么在<strong>动态到达</strong>的请求上做批处理，
-那才是真正的难点。</p>
-</blockquote>
-<h3 id="kv-cache">⚠️ 但批处理有个天花板：KV Cache</h3>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>batch 越大，KV Cache 占的显存越多</p><p>7B 模型，seq=2048，batch=32：</p><p>KV Cache ≈ 2 × 32层 × 2048 × 4096 × 2字节 × 32 = 34 GB ⭐</p><p>→ 显存装不下 → batch 上不去 → 吞吐上不去</p><p>⭐ 所以【KV Cache 管理才是推理吞吐的真正瓶颈】（第 16、17 章）</p></div></section>
+<h2 id="decode_1">📦 三、批处理为什么有用，又为什么不能无限加</h2>
+<p>当 <code>B</code> 个活跃请求一起 Decode 时，一轮权重读取可服务多个 token，权重搬运成本被摊薄。但它不是“batch=8 就必然快 8 倍”：计算量、KV 读写、调度开销和尾部空槽也同时增加。</p>
+<h3 id="kv-cache">KV Cache 的容量账</h3>
+<p>对使用 KV 头的 Transformer，缓存容量可写成：</p>
+<p>$$M_{KV}=2\,L\,B\,T\,H_{kv}\,d_{head}\,s$$</p>
+<ul><li><code>2</code>：K 和 V 两份缓存。</li><li><code>L</code>：层数；<code>B</code>：并发请求数；<code>T</code>：这里为每个请求采用的相同缓存长度。</li><li><code>H_kv</code>：KV 头数；<code>d_head</code>：每个头的维度；<code>s</code>：每个元素的字节数。</li><li>混合长度请求不能直接用一个最大 <code>T</code> 代替实际长度总和；<a href="16-KV-Cache.html">第 16 章</a>会给出精确公式。</li></ul>
+<section class="visual-block visual-block-calc" aria-label="KV Cache 容量计算"><p class="visual-block-title">完整代入：GQA 配置</p><div class="vb-calc"><p>L=32，B=8，T=2048，H_kv=8，d_head=128，BF16 所以 s=2 byte</p><p>M_KV=2×32×8×2048×8×128×2</p><p>=2,147,483,648 byte = 2 GiB</p><p>若其余条件不变、H_kv 从 8 变成 32，容量变为 8 GiB。这里比较的是指定配置，不代表所有 7B 模型。</p></div></section>
+<blockquote><p>⭐ <strong>批处理的上限不只由 KV Cache 决定。</strong>可用显存、延迟 SLO、请求长度分布、调度公平性、计算能力与通信都会限制 batch。连续批处理和 PagedAttention 的任务，是减少空槽与碎片，不是让容量约束消失。</p></blockquote>
 <hr />
-<h2 id="_3">📊 四、推理的四个核心指标</h2>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>指标</th>
-<th>含义</th>
-<th>由什么决定</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>TTFT</strong></td>
-<td>Time To First Token（首字延迟）</td>
-<td><strong>Prefill</strong> 速度 + 排队时间</td>
-</tr>
-<tr>
-<td><strong>TPOT</strong></td>
-<td>Time Per Output Token（每字延迟）</td>
-<td><strong>Decode</strong> 速度（带宽）⭐</td>
-</tr>
-<tr>
-<td><strong>吞吐</strong></td>
-<td>总 tokens/秒</td>
-<td>batch size（受 KV Cache 限制）</td>
-</tr>
-<tr>
-<td><strong>成本</strong></td>
-<td>每百万 token 的钱</td>
-<td>GPU 小时成本 ÷ 有效 token 吞吐（统一时间单位）</td>
-</tr>
-</tbody>
-</table></div>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>输出 N≥2 时：端到端延迟 ≈ TTFT + TPOT × (N−1)</p><p>例：TTFT=200ms, TPOT=25ms, 输出 500 token</p><p>→ 200 + 25×499 = 12.675 秒</p><p>⭐ 注意：TPOT 占了 98% —— 优化 TTFT 意义不大</p></div></section>
-<blockquote>
-<p>⭐ <strong>不同产品对这两个指标的要求完全不同</strong>：
-- <strong>聊天/流式输出</strong> → TTFT 要低（用户要立刻看到字），TPOT 要跟得上阅读速度（~50ms 够）
-- <strong>批量处理/离线</strong> → 只关心吞吐，两个延迟都无所谓
-- <strong>代码补全</strong> → <strong>TTFT 极度敏感</strong>（超过 200ms 用户就放弃了）
-- <strong>Agent / 长思考</strong> → 输出很长，<strong>TPOT 是决定性的</strong></p>
-</blockquote>
+<h2 id="_3">📊 四、训练指标和推理指标不能混用</h2>
+<div class="tw"><table><thead><tr><th>指标</th><th>严格含义</th><th>不能替代什么</th></tr></thead><tbody>
+<tr><td><strong>训练 step time</strong></td><td>一个训练 step 从开始到完成的时间</td><td>不能说明用户首字等待</td></tr>
+<tr><td><strong>训练吞吐</strong></td><td>每 step 训练 token 数 ÷ step time</td><td>不能与在线输出 token/s 直接比较</td></tr>
+<tr><td><strong>MFU</strong></td><td>训练窗口内估算的有效模型 FLOP ÷ 峰值 FLOP</td><td>不是推理请求体验指标</td></tr>
+<tr><td><strong>TTFT</strong></td><td>请求到达至第一个输出 token 可见；含排队、Prefill、首次采样和传输</td><td>不能表示后续生成节奏</td></tr>
+<tr><td><strong>TPOT / ITL</strong></td><td>首 token 之后，相邻输出 token 的平均间隔；只有一个输出 token 时不定义</td><td>不能表示排队和 Prefill</td></tr>
+<tr><td><strong>输出吞吐</strong></td><td>所有完成请求在观测窗口内生成的输出 token ÷ 窗口秒数</td><td>不能代替请求/s、输入吞吐或单请求 TPOT</td></tr>
+</tbody></table></div>
+<section class="visual-block visual-block-calc" aria-label="推理延迟计算"><p class="visual-block-title">完整代入：TTFT 与 TPOT</p><div class="vb-calc"><p>输出 token 数 N=9，TTFT=180 ms，首 token 之后平均 TPOT=35 ms</p><p>E2E≈TTFT+(N−1)×TPOT</p><p>=180+8×35=460 ms</p><p>TTFT 占 180÷460≈39.1%；后续间隔占约 60.9%。换成长输出或短输出，占比都会改变。</p></div></section>
+<section class="visual-block visual-block-calc" aria-label="训练吞吐计算"><p class="visual-block-title">完整代入：训练 token/s</p><div class="vb-calc"><p>全局 batch=32 条序列，每条 2048 token，step time=2.0 s</p><p>每 step token 数=32×2048=65,536</p><p>训练吞吐=65,536÷2.0=32,768 token/s</p><p>这个数包含训练序列中的 token，并对应前向、反向与更新；不能拿它和在线服务“输出 token/s”判断谁更快。</p></div></section>
+<p>⚠️ 平均值也不够。线上至少要按相同输入/输出长度分桶，观察 TTFT、TPOT、端到端延迟和达标率的分位数；否则少量长请求会被一个“平均 200 ms”藏起来。</p>
 <hr />
-<h2 id="_4">🔄 五、训练直觉到推理的翻译表</h2>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>训练侧的直觉</th>
-<th>推理侧的实际情况</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>"换算力更强的卡"</td>
-<td>⚠️ <strong>看带宽，不是算力</strong> ⭐</td>
-</tr>
-<tr>
-<td>"MFU 45% 算不错"</td>
-<td>⚠️ Decode 阶段 MFU <strong>通常只有 1-5%，这是正常的</strong> ⭐</td>
-</tr>
-<tr>
-<td>"梯度检查点省显存"</td>
-<td>❌ 推理没有反向，<strong>不适用</strong></td>
-</tr>
-<tr>
-<td>"ZeRO 切优化器状态"</td>
-<td>❌ 推理没有优化器状态，<strong>只有权重和 KV Cache</strong></td>
-</tr>
-<tr>
-<td>"大 batch 影响收敛"</td>
-<td>✅ 推理<strong>没有收敛问题，batch 需同时满足显存和延迟目标</strong>（受显存限）</td>
-</tr>
-<tr>
-<td>"量化会掉精度"</td>
-<td>✅ 但推理侧<strong>收益大得多</strong>（直接提速），值得权衡 ⭐</td>
-</tr>
-<tr>
-<td>"FlashAttention 省显存"</td>
-<td>✅ 仍然有用，但推理的大头是 <strong>KV Cache</strong></td>
-</tr>
-</tbody>
-</table></div>
-<blockquote>
-<p>💥 <strong>"Decode 的 MFU 只有 1-5%"这一条经常引起恐慌</strong>：
-有人看到推理时 GPU 算力利用率极低，就以为配置错了，拼命调优。
-<strong>实际上这是物理决定的</strong> —— 带宽瓶颈下算力本来就用不满。
-<strong>推理该看的指标是"带宽利用率"和"吞吐"，不是 MFU。</strong></p>
-</blockquote>
+<h2 id="_4">🧠 五、显存与并行：两边保存的东西不同</h2>
+<div class="tw"><table><thead><tr><th>资源</th><th>训练为什么需要</th><th>推理为什么需要</th></tr></thead><tbody>
+<tr><td>参数</td><td>前向、反向和更新</td><td>前向生成</td></tr>
+<tr><td>梯度</td><td>告诉优化器如何更新</td><td>通常没有反向，因此不保存</td></tr>
+<tr><td>优化器状态</td><td>如 Adam 的一阶、二阶动量</td><td>通常没有参数更新，因此不保存</td></tr>
+<tr><td>激活</td><td>反向传播需要，可能做重计算</td><td>Prefill/Decode 有临时激活，但不为反向长期保存</td></tr>
+<tr><td>KV Cache</td><td>普通训练不作为跨 step 的服务状态保存</td><td>自回归生成需要复用历史 K/V</td></tr>
+</tbody></table></div>
+<p>因此优化手段不能按名字搬运：</p>
+<ul><li><strong>梯度检查点</strong>节省训练激活，代价是反向时重算；没有反向的普通推理不靠它解决 KV 容量。</li><li><strong>ZeRO/FSDP</strong>分片训练模型状态；推理侧也能分片权重，但目标、通信时机和调度约束不同。</li><li><strong>张量并行</strong>可让单卡放不下的模型运行，也可能降低某些计算时间；跨卡通信会增加，是否降低 TTFT/TPOT 必须实测。</li><li><strong>量化</strong>可能减少权重或 KV 的字节数，但速度、精度和内核支持都不是自动保证。</li></ul>
 <hr />
-<h2 id="_5">🧭 六、推理优化的正确顺序</h2>
-<section class="visual-block visual-block-flow" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">① 用专门的推理引擎（vLLM / SGLang / TensorRT-LLM）</span></div><div class="vb-flow-row"><span class="vb-flow-step">别用 HuggingFace 的 generate() 上生产 ⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">光这一步常常就是 5-10 倍</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 开【连续批处理】（第 17 章）</span></div><div class="vb-flow-row"><span class="vb-flow-step">吞吐再翻几倍</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 量化权重（第 18 章）</span></div><div class="vb-flow-row"><span class="vb-flow-step">权重搬运量减半，实际速度需实测</span><span class="vb-flow-arrow"></span><span class="vb-flow-step"> + 能开更大 batch</span></div><div class="vb-flow-row"><span class="vb-flow-step">④ 量化 KV Cache</span></div><div class="vb-flow-row"><span class="vb-flow-step">能开更大 batch</span></div><div class="vb-flow-row"><span class="vb-flow-step">⑤ 张量并行（如果单卡装不下，或要降 TPOT）</span></div><div class="vb-flow-row"><span class="vb-flow-step">⑥ 投机解码（第 19 章）—— 低延迟场景</span></div><div class="vb-flow-row"><span class="vb-flow-step">⑦ 前缀缓存（相同的系统提示词只算一次）⭐</span></div></div></section>
-<blockquote>
-<p>⭐ <strong>第 ⑦ 条常常被忽略但收益巨大</strong>：
-如果你的所有请求都带着同一个 2000 token 的系统提示词，
-<strong>前缀缓存能把 Prefill 的成本降到接近零。</strong>
-vLLM 的 <code>enable_prefix_caching=True</code>。</p>
-<p>🚧 <strong>第 ① 条留了个尾巴</strong>：这里说了「换个专门的引擎常常 5–10 倍」，却没说<strong>该换成哪个</strong>。
-三个名字并排放着，你并不知道自己的场景该选谁。
-👉 <a href="20-推理服务化.html">第 20 章 · 推理服务化</a>开头有一张七个引擎的横评和一棵四问决策树
-（单机还是集群？要不要动态加载多个 LoRA？跑在自己机器上还是 GPU 集群？延迟敏感还是吞吐优先？）。
-<strong>在你按上面这个顺序动手之前，先去那里把 ① 定下来</strong>——顺序里后面六步都建立在引擎选型之上。</p>
-</blockquote>
+<h2 id="_5">🧭 六、先量测，再选择优化手段</h2>
+<section class="visual-block visual-block-flow" aria-label="推理优化流程"><p class="visual-block-title">不要背固定顺序，走完这六步</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">① 写工作负载</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">输入/输出长度、并发、到达方式</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 写 SLO</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">TTFT、TPOT、E2E、达标率与成本</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 固定基线</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">模型、引擎、精度、硬件、版本</span></div><div class="vb-flow-row"><span class="vb-flow-step">④ 定位约束</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">计算 / 带宽 / 容量 / 通信 / 调度</span></div><div class="vb-flow-row"><span class="vb-flow-step">⑤ 一次改一个变量</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">批处理、量化、缓存、并行或引擎</span></div><div class="vb-flow-row"><span class="vb-flow-step">⑥ 用同一负载复测</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">收益、退化与失败边界一起记录</span></div></div></section>
+<div class="tw"><table><thead><tr><th>看到的现象</th><th>先验证</th><th>不要直接下的结论</th></tr></thead><tbody>
+<tr><td>TTFT 高</td><td>排队、输入长度、Prefill 内核、首次加载与网络</td><td>“一定要换更强 GPU”</td></tr>
+<tr><td>TPOT 高</td><td>活跃 batch、权重/KV 带宽、通信、调度和采样</td><td>“一定是带宽，而且只看利用率”</td></tr>
+<tr><td>吞吐低</td><td>请求到达是否足够、batch、空槽、容量与 SLO</td><td>“把 batch 调到最大就好”</td></tr>
+<tr><td>前缀缓存命中</td><td>命中长度、剩余 Prefill、查找/复制开销与版本支持</td><td>“Prefill 成本接近零”</td></tr>
+</tbody></table></div>
 <hr />
 <h2 id="_6">🔗 和站内其他章的关系</h2>
 <div class="tw"><table>
@@ -523,15 +404,15 @@ vLLM 的 <code>enable_prefix_caching=True</code>。</p>
 <tbody>
 <tr>
 <td><a href="03-显存与带宽墙.html">第 3 章</a> batch=1 矩阵乘算术强度 ~1（BF16、权重主导）</td>
-<td><strong>Decode 的全部困境</strong> ⭐</td>
+<td>低 batch、权重搬运占主导时的简化账</td>
 </tr>
 <tr>
 <td><a href="04-Roofline与MFU.html">第 4 章</a> 带宽 ÷ 模型大小</td>
-<td>解码速度的物理上限</td>
+<td>用 Roofline 判断计算或带宽上界，不能把心算式当实测</td>
 </tr>
 <tr>
 <td><a href="16-KV-Cache.html">第 16 章</a> KV Cache</td>
-<td>批处理的天花板</td>
+<td>精确的 KV 容量公式、混合长度与部署边界</td>
 </tr>
 <tr>
 <td><a href="17-连续批处理与PagedAttention.html">第 17 章</a> 连续批处理</td>
@@ -539,64 +420,35 @@ vLLM 的 <code>enable_prefix_caching=True</code>。</p>
 </tr>
 <tr>
 <td><a href="18-量化.html">第 18 章</a> 量化</td>
-<td>推理侧收益远大于训练侧</td>
+<td>权重/KV 量化的公式、误差与内核边界</td>
 </tr>
 <tr>
 <td><a href="../大模型全景导论/06-推理优化.html">《大模型全景导论》06 推理优化</a> 先理解瓶颈在哪：两个阶段</td>
-<td>同一件事的一页纸版；<strong>本章补上"Decode 算力闲置 95%"背后的那个数字</strong> ⭐</td>
+<td>同一件事的一页纸版；本章补上带条件的权重搬运、KV 与指标账</td>
 </tr>
 <tr>
 <td><a href="../模型上线之后/18-成本与容量.html">《模型上线之后》18 成本与容量</a> LLM 服务的成本结构</td>
-<td><strong>Prefill/Decode 的拆分，就是那边"输入便宜、输出贵"的物理原因</strong> ⭐</td>
+<td>Prefill/Decode 拆分解释成本差异，但价格还受缓存、批处理和供应商策略影响</td>
 </tr>
 <tr>
 <td><a href="../智能体工程教程/16-企业落地与生产化.html">《智能体工程教程》16 企业落地与生产化</a> 算账的三条口诀</td>
-<td>Agent 输出长、还要循环多轮 —— <strong>它的账几乎全压在 Decode 这一侧</strong></td>
+<td>Agent 多轮调用需分别累计输入、输出、工具等待和失败重试，不能只记 Decode</td>
 </tr>
 </tbody>
 </table></div>
 <hr />
 <h2 id="_7">✅ 检查点</h2>
-<ol>
-<li>一次推理请求分成哪两个阶段？各自的瓶颈是什么？</li>
-<li>Decode 阶段的算术强度是多少？为什么这么低？</li>
-<li>单请求解码速度的物理上限公式是什么？7B 在 A100 上是多少？</li>
-<li>为什么"换更强的卡"对解码速度提升有限？</li>
-<li>批处理为什么能提高吞吐？它的天花板是什么？</li>
-<li>TTFT 和 TPOT 分别由什么决定？端到端延迟里哪个占主导？</li>
-<li>四种产品形态对延迟指标的要求有什么不同？</li>
-<li>为什么 Decode 阶段 MFU 只有 1-5% 是正常的？该看什么指标？</li>
-<li>推理优化的第一步是什么？为什么第 ⑦ 条常被忽略？</li>
-</ol>
+<ol><li>训练 step、Prefill、Decode 的目标和长期保存状态分别是什么？</li><li>为什么不能说 Prefill 必然算力受限、Decode 必然带宽受限？</li><li>在权重搬运主导的简化模型中，<code>W/β</code> 和 <code>βB/W</code> 分别是什么？</li><li>7B BF16、2 TB/s、batch=1 的权重搬运时间下界和吞吐上界是多少？为什么不是实测承诺？</li><li>写出 KV Cache 容量公式，并解释每个变量。</li><li>N=9、TTFT=180 ms、TPOT=35 ms 时，端到端延迟是多少？</li><li>训练吞吐和推理输出吞吐为什么不能直接比较？</li><li>DDP/ZeRO、梯度检查点和张量并行在训练与推理侧分别解决什么问题？</li><li>看到 TTFT 高、TPOT 高时，第一批排查项为什么不同？</li><li>为什么前缀缓存命中也不能声称 Prefill 成本归零？</li></ol>
 <details>
 <summary>👀 答案</summary>
-<ol>
-<li><strong>Prefill</strong>（一次性处理全部输入，算力瓶颈，占时间 ~10%）和 Decode（一个一个生成，带宽瓶颈，占时间 ~90%）。</li>
-<li><strong>约 1 FLOP/字节（BF16、权重主导）</strong>。因为生成 1 个 token 要把全部模型权重从 HBM 读进来，却只和一个长度为 1 的向量相乘——读了 14GB 只做了很少计算，离平衡点 156 差 156 倍。</li>
-<li><strong>显存带宽 ÷ 模型大小</strong>。7B BF16（14GB）在 A100（2TB/s）≈ 143 tokens/秒。</li>
-<li>因为<strong>上限只和带宽有关，和算力无关</strong>。H100 算力是 A100 的 3 倍但带宽只有 1.7 倍，解码速度也只快 1.7 倍。</li>
-<li>因为<strong>读一遍权重可以同时服务多个请求</strong>，权重读取成本被摊薄。天花板是 KV Cache 显存——batch 越大 KV Cache 越多（7B/seq2048/batch32 就要 34GB），装不下就上不去。</li>
-<li>TTFT 由 <strong>Prefill 速度 + 排队时间</strong>决定，TPOT 由 Decode 速度（带宽）决定。端到端 = TTFT + TPOT×输出长度，TPOT 占主导（例子里占 98%）。</li>
-<li>聊天/流式：TTFT 要低、TPOT 跟上阅读速度即可；批量离线：只关心吞吐；<strong>代码补全：TTFT 极度敏感</strong>（&gt;200ms 就放弃）；Agent/长思考：TPOT 是决定性的。</li>
-<li>因为<strong>带宽瓶颈下算力本来就用不满</strong>，这是物理决定的不是配置错误。该看带宽利用率和吞吐，不是 MFU。</li>
-<li>第一步：<strong>用专门的推理引擎</strong>（vLLM/SGLang/TensorRT-LLM），别用 HF 的 <code>generate()</code> 上生产——光这一步常常 5-10 倍。第 ⑦ 条前缀缓存常被忽略是因为它看起来简单，但如果所有请求都带同一个长系统提示词，它能把 Prefill 成本降到接近零。</li>
-</ol>
+<ol><li>训练要更新参数，保存梯度、优化器状态与反向所需激活；Prefill 并行处理输入并建立 KV；Decode 每轮为活跃请求新增 token 并复用历史 KV。</li><li>因为瓶颈还取决于模型结构、batch、长度、量化、内核、并行、硬件与调度。两句话只是常见形状，不是定理。</li><li><code>W/β</code> 是一轮权重搬运的时间下界；<code>βB/W</code> 是只考虑权重带宽时的合计 token/s 上界。W 与 β 要使用一致单位。</li><li><code>14÷2000=0.007 s=7 ms</code>，上界约 <code>142.9 token/s</code>。它忽略 KV、计算、采样、通信和调度，因此不是实测承诺。</li><li><code>M_KV=2LBTH_kv d_head s</code>；2 是 K/V，L 层数，B 并发，T 缓存长度，H_kv 为 KV 头数，d_head 为头维度，s 为元素字节数。</li><li><code>180+(9−1)×35=460 ms</code>。其中 TTFT 占约 39.1%，换负载后占比会改变。</li><li>训练吞吐对应前向、反向、更新中的训练 token；推理输出吞吐只计服务生成的输出 token，工作量、分母和业务含义都不同。</li><li>DDP/ZeRO 分片或同步训练状态；梯度检查点用重算换训练激活；推理张量并行分片权重/计算，但会引入通信。名称相同也要重算目标和代价。</li><li>TTFT 要先查排队、输入长度、Prefill、冷启动和网络；TPOT 要查活跃 batch、权重/KV 搬运、通信、调度与采样。</li><li>缓存只省命中的前缀计算；仍有查找/复制、未命中后缀、Decode 和调度开销，还受引擎版本与缓存策略限制。</li></ol>
 </details>
 <hr />
 <h2 id="_8">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
-<blockquote>
-<p>⭐⭐ <strong>训练是算力瓶颈，而解码是带宽瓶颈——完全相反。</strong></p>
-<p>一次请求分两段：<strong>Prefill</strong> 一次处理全部输入、是矩阵乘矩阵、算力瓶颈、<strong>决定首字延迟</strong>；<strong>Decode</strong> 一次只出一个 token、是向量乘矩阵、<strong>算术强度极低</strong>、带宽瓶颈、<strong>占掉绝大部分时间</strong>。</p>
-<p>💀 <strong>Decode 惨在哪</strong>：⭐ <strong>生成一个 token 要把全部权重从显存读一遍，却只和一个长度为 1 的向量相乘。</strong>
-⭐⭐ <strong>于是物理上限就是「显存带宽除以模型大小」，和算力完全无关</strong>——⚠️ <strong>换一张算力翻几倍但带宽只涨一点的卡，解码就只快那一点。这解释了「换了更强的卡为什么没快多少」。</strong></p>
-<p>⭐ <strong>批处理是唯一的救命稻草</strong>：<strong>读一遍权重同时服务多个请求，权重成本被摊薄</strong>。⚠️ 但单请求延迟会变差，⭐ <strong>而天花板是 KV Cache 的显存——所以 KV Cache 管理才是推理吞吐真正的瓶颈。</strong></p>
-<p>⭐ 四个指标里 <strong>TPOT 通常占端到端时间的绝大部分</strong>——⚠️ <strong>所以优化首字延迟意义不大</strong>，除非是代码补全那种对它极度敏感的场景。</p>
-<p>⭐ <strong>训练直觉需要翻译的几条</strong>：看带宽不看算力；⭐⭐ <strong>解码的算力利用率只有个位数百分比是正常的——那是物理决定的，别恐慌，该看的是带宽利用率和吞吐</strong>；训练那套省显存的手段这里都不适用；<strong>推理没有收敛问题，所以 batch 需同时满足显存和延迟目标</strong>；量化在这一侧收益大得多。</p>
-<p>⭐ 优化顺序的第一条最值钱：<strong>先换专门的推理引擎，别拿训练框架的生成接口上生产</strong>——<strong>光这一步常常就是几倍。</strong> 最后一条是<strong>前缀缓存</strong>：同一个长系统提示词只算一次，<strong>能把 Prefill 成本压到接近零。</strong></p>
-</blockquote>
+<blockquote><p>⭐⭐ <strong>先分三张账：</strong>训练 step；Prefill/TTFT；Decode/TPOT。它们的工作量、保存状态和验收指标不同。</p><p>⭐ <strong>权重搬运心算式有前提：</strong>只有在低 batch、稠密模型、权重流量占主导时，<code>W/β</code> 和 <code>βB/W</code> 才是有用的下界/上界；不是实测性能，也不是“算力完全无关”。</p><p>⭐ <strong>批处理会摊薄权重读取，但不会免费：</strong>KV、计算、调度、通信和单请求延迟一起增长。KV 公式必须带上 L、B、T、H_kv、d_head 和 dtype。</p><p>⭐ <strong>指标不要串台：</strong>训练 token/s 与推理输出 token/s 不同；TTFT 不含后续节奏，TPOT 不含排队和 Prefill；端到端占比随输出长度改变。</p><p>⭐ <strong>不要背固定优化顺序：</strong>先固定负载与 SLO，再定位计算、带宽、容量、通信或调度约束，一次改一个变量并用同一负载复测。</p></blockquote>
 <p><strong>下一节</strong> 👉 <a href="16-KV-Cache.html">16-KV-Cache.md</a> ⭐</p>
-<details class="g05-content-note"><summary>条件与依据</summary><p>10%/90% 时间与吞吐表只说明一种长输出负载，不能套用所有请求。TTFT 含排队、prefill 和首 token；平均 TPOT 用首尾 token 间隔除以 N−1，N=1 时无此均值。量化、连续批处理或前缀缓存的收益均需同负载比较，缓存只能省去命中的前缀计算。</p><p><a href="https://docs.nvidia.com/deeplearning/performance/dl-performance-gpu-background/index.html">官方文档</a></p></details>
+<details class="g05-content-note"><summary>条件与依据</summary><p>本章所有数值都是带条件的教学账本。TTFT 含排队、Prefill、首次采样和传输；平均 TPOT 用首尾 token 间隔除以 N−1，N=1 时不定义。权重带宽上界假设主要权重每轮从 HBM 流过且权重搬运占主导；量化、批处理、并行或缓存收益必须在同一模型、引擎版本、硬件和请求分布下复测。</p><p><a href="https://docs.nvidia.com/deeplearning/performance/dl-performance-gpu-background/index.html">NVIDIA GPU 性能背景（官方文档）</a> ｜ <a href="04-Roofline与MFU.html">站内 Roofline 与 MFU</a> ｜ <a href="16-KV-Cache.html">站内 KV Cache</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="14-并行策略怎么组合.html"><div class="dir">← 上一节</div>⭐⭐ 并行策略组合</a><a class="next" href="16-KV-Cache.html"><div class="dir">下一节 →</div>⭐⭐ KV Cache</a></nav>
