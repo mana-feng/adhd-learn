@@ -327,53 +327,72 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⏱ <strong>26 分钟</strong> ｜ ⭐ <strong>千卡训练时，硬件故障是常态不是意外</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>在 1000 张 GPU 上跑一个月，"什么都不坏"的概率接近零。</strong>
-大规模训练的工程重点不是"避免故障"，而是"故障后能快速、正确地恢复" ——
-<strong>而最可怕的不是崩溃，是那些不崩溃的错误。</strong></p>
+<p><strong>大规模训练必须同时回答两个问题：故障后能不能继续，以及继续的是否还是原来那条训练轨迹。</strong>
+只加载模型权重通常只能让程序重新启动，不能证明优化器、学习率、随机数和数据位置已经接上。
+而比崩溃更难发现的，是程序仍在运行、结果却已经悄悄偏离的静默错误。</p>
 <hr />
 <h2 id="_2">📉 一、先接受一个数字</h2>
-<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">假设单张 GPU 的平均无故障时间（MTBF）是 10000 小时</span></div><div class="vb-flow-row"><span class="vb-flow-step">1000 张卡同时跑：</span></div><div class="vb-flow-row"><span class="vb-flow-step">集群的 MTBF ≈ 10000 / 1000 = 10 小时 ⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">也就是说：【平均每 10 小时就会坏一次】</span></div><div class="vb-flow-row"><span class="vb-flow-step">一个月的训练会遇到几十次故障</span></div></div></section>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>⭐ 结论：checkpoint 和自动恢复不是&quot;锦上添花&quot;，</p><p>它决定了你的训练【能不能完成】</p></div></section>
+<p>先做一个<strong>教学估算</strong>。设单卡平均无故障时间为 $M_{card}$，同时使用的卡数为 $N$。只有在各卡故障近似独立、故障率近似稳定时，才可以把故障率相加：</p>
+<p>$$\lambda_{cluster}=\frac{N}{M_{card}},\qquad M_{cluster}=\frac{1}{\lambda_{cluster}}=\frac{M_{card}}{N}$$</p>
+<ul>
+<li>$\lambda_{cluster}$：集群每小时的平均故障次数；</li>
+<li>$M_{cluster}$：集群两次故障之间的平均时间；</li>
+<li>两种 MTBF 必须使用同一时间单位。这里还假设<strong>任意一张卡故障都会成为作业的有效故障</strong>，没有副本、冗余或故障屏蔽把它吸收掉。</li>
+<li>相关掉电、交换机故障和批次性硬件缺陷会破坏“独立”假设；有冗余屏蔽时也不能直接套用这个除法。</li>
+</ul>
+<section class="visual-block visual-block-flow" aria-label="MTBF 数字代入"><p class="visual-block-title">完整代入</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">教学假设：单卡 MTBF $M_{card}=10000$ 小时，卡数 $N=1000$</span></div><div class="vb-flow-row"><span class="vb-flow-step">集群平均故障间隔：$M_{cluster}=10000/1000=10$ 小时</span></div><div class="vb-flow-row"><span class="vb-flow-step">30 天共有 $30\times24=720$ 小时，期望故障次数约为 $720/10=72$ 次</span></div><div class="vb-flow-row"><span class="vb-flow-step">这不是“每 10 小时准时坏一次”，而是长期平均值；真实集群要用自己的故障记录重估</span></div></div></section>
+<section class="visual-block visual-block-compare" aria-label="恢复目标对照"><p class="visual-block-title">先分清目标</p><div class="vb-compare"><p><strong>可启动：</strong>权重能加载，程序能继续执行</p><p><strong>可恢复训练：</strong>模型、优化器、调度器、精度状态、随机数和数据位置一致，恢复后通过校验</p></div></section>
 <p><strong>常见故障类型</strong>：</p>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>故障</th>
-<th>频率</th>
-<th>特点</th>
+<th>可见信号</th>
+<th>恢复前要确认</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><strong>GPU 掉卡 / ECC 错误</strong></td>
-<td>高</td>
-<td>会报错，好处理</td>
+<td>进程退出、设备错误或 ECC 计数变化</td>
+<td>故障节点是否隔离；快照是否在故障前完整发布</td>
 </tr>
 <tr>
 <td><strong>网络抖动 / NCCL 超时</strong></td>
-<td>高</td>
-<td>常常是<strong>挂死</strong>而不是报错 ⚠️</td>
+<td>collective 长时间无进展、超时或通信错误</td>
+<td>各 rank 的 collective 次序、节点状态和网络证据；不能只看 GPU 利用率</td>
 </tr>
 <tr>
 <td><strong>节点 OOM / 被抢占</strong></td>
-<td>中</td>
-<td>云上竞价实例常见</td>
+<td>OOM、调度器回收或实例终止通知</td>
+<td>新成员数是否改变；数据分片和随机种子是否需要重新定义</td>
 </tr>
 <tr>
 <td><strong>磁盘满 / 慢</strong></td>
-<td>中</td>
-<td>checkpoint 写不进去</td>
+<td>写入失败、延迟上升或校验失败</td>
+<td>不能把半成品目录登记为“最新”；先验证所有分片和 manifest</td>
 </tr>
 <tr>
 <td><strong>⭐ 静默数据损坏</strong></td>
-<td>低但致命</td>
-<td><strong>不报错，训练照跑，结果是错的</strong> 💀</td>
+<td>可能只有 checksum、数据抽样或训练指标异常</td>
+<td>原始数据、预处理产物和快照是否有可核对的版本与校验值</td>
 </tr>
 </tbody>
 </table></div>
 <hr />
 <h2 id="checkpoint">💾 二、Checkpoint 策略</h2>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>⭐ 频率的权衡：</p><p>太频繁 → 写 checkpoint 的时间占比高（70B 模型一次要几分钟）</p><p>太稀疏 → 一次故障损失几小时的算力</p><p>⭐ 经验公式：</p><p>最优间隔 ≈ √(2 × 单次checkpoint耗时 × MTBF)</p><p>例：checkpoint 耗时 5 分钟，MTBF 10 小时</p><p>→ √(2 × 5 × 600) ≈ 77 分钟 → 每小时存一次差不多</p></div></section>
+<p>保存太密，训练时间被写盘占用；保存太疏，一次故障会丢掉更多已经计算的进度。在“故障近似独立、发生率稳定、保存耗时远小于 MTBF、故障在间隔内近似均匀、失败后回到最近一次完整快照，且暂不计恢复和诊断耗时”的一阶模型下，可以先写出<strong>单位有效训练时间的额外浪费比例</strong>：</p>
+<p>$$W(T)\approx\frac{C}{T}+\frac{T}{2M}$$</p>
+<ul>
+<li>$T$：两次成功 checkpoint 之间的候选间隔；</li>
+<li>$C$：一次 checkpoint 对训练造成的有效保存开销；</li>
+<li>$M$：当前训练作业的平均故障间隔；三者必须使用同一时间单位；</li>
+<li>$C/T$：每隔 $T$ 时间保存一次带来的写盘浪费；$T/(2M)$：故障率约为 $1/M$，每次故障平均重算约 $T/2$，两者相乘得到回滚重算浪费。</li>
+</ul>
+<p>要让这两个方向相反的代价之和最小，对 $T$ 求导：$W'(T)=-C/T^2+1/(2M)$。令 $W'(T)=0$，得到 $T^2=2CM$，所以：</p>
+<p>$$T\approx\sqrt{2CM}$$</p>
+<p>这是 Young 一阶近似的推导起点，不是对相关故障、长时间保存或带冗余集群的通用最优解。权威出处：John W. Young, <a href="https://doi.org/10.1145/361147.361115"><em>A First Order Approximation to the Optimum Checkpoint Interval</em></a>, Communications of the ACM, 1974。</p>
+<section class="visual-block visual-block-calc" aria-label="checkpoint 间隔完整计算"><p class="visual-block-title">完整代入</p><div class="vb-calc"><p>教学输入：$C=5$ 分钟，$M=10$ 小时 $=600$ 分钟</p><p>$T=\sqrt{2\times5\times600}=\sqrt{6000}\approx77.46$ 分钟</p><p>保存开销占比约为 $C/T=5/77.46\approx6.5\%$</p><p>若故障在区间内近似均匀发生，单次故障平均丢失约 $T/2\approx38.73$ 分钟进度</p><p>所以可先试 75–80 分钟，再用真实保存耗时、故障记录和吞吐复测；不是机械地“每小时一次”</p></div></section>
 <p><strong>四个必须做对的点</strong>：</p>
 <div class="tw"><table>
 <thead>
@@ -385,7 +404,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td><strong>异步保存</strong> ⭐</td>
-<td>先快速拷到 CPU 内存，后台再写盘 → 阻塞时间从几分钟降到几秒</td>
+<td>先得到一致的 staging 快照，再后台写盘。它可能减少前台暂停，但会增加主机内存和并发 I/O；不能承诺固定提速</td>
 </tr>
 <tr>
 <td><strong>分片保存</strong> ⭐</td>
@@ -393,28 +412,58 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><strong>原子写入</strong></td>
-<td>先写 <code>.tmp</code> 再 rename —— <strong>防止写一半崩溃留下损坏文件</strong> ⭐</td>
+<td>所有分片写入临时版本并校验完成后，最后发布 manifest 或“current”指针。单文件同文件系统 rename 常可原子替换；对象存储和跨文件系统需要各自的提交协议</td>
 </tr>
 <tr>
 <td><strong>保留多份</strong></td>
-<td>至少留最近 3 个，防止最新的那个正好是坏的</td>
+<td>保留多个<strong>已验证可恢复</strong>的代次，并把保留数写成策略；“3 份”可以是起点，不是通用安全下限</td>
 </tr>
 </tbody>
 </table></div>
-<div class="codehilite" data-code-language="python"><pre><code># 配置骨架：所有 rank 参与，外部状态须由训练器收集与恢复
+<div class="codehilite" data-code-language="python"><pre><code># 配置骨架：所有 rank 参与；这里只展示状态收集和等待，不是完整发布协议
 import torch.distributed.checkpoint as dcp
+import torch.distributed as dist
 from torch.distributed.checkpoint.state_dict import get_state_dict
 model_state, optim_state = get_state_dict(model, opt)
+local_resume = {&quot;rank&quot;: dist.get_rank(),
+                &quot;rng&quot;: get_rng_state(),
+                &quot;data_cursor&quot;: data_cursor}
+all_resume = [None] * dist.get_world_size()
+dist.all_gather_object(all_resume, local_resume)
+resume_state_by_rank = {item[&quot;rank&quot;]: item for item in all_resume}
 state = {&quot;model&quot;: model_state, &quot;optim&quot;: optim_state,
-         &quot;step&quot;: step, &quot;rng&quot;: get_rng_state()}
+         &quot;scheduler&quot;: scheduler.state_dict(),
+         &quot;scaler&quot;: scaler.state_dict(),
+         &quot;optimizer_update&quot;: optimizer_update,
+         &quot;world_size&quot;: dist.get_world_size(),
+         &quot;resume_state_by_rank&quot;: resume_state_by_rank}
 fut = dcp.async_save(state, checkpoint_id=f&quot;ckpt/step-{step}&quot;)
 # staging 仍可能阻塞；下一次保存或退出前等待上次完成
 fut.result()
-# 调度器、数据位置、scaler 等状态按实际训练器一并保存和恢复
+# 生产系统还要校验所有分片，再原子发布 manifest/current 指针
+# load 完成后：world size 必须先匹配，再取回当前 rank 的本地状态
+if state[&quot;world_size&quot;] != dist.get_world_size():
+    raise RuntimeError(&quot;world size changed; cannot mechanically map rank state&quot;)
+mine = state[&quot;resume_state_by_rank&quot;][dist.get_rank()]
+set_rng_state(mine[&quot;rng&quot;])
+data_cursor = restore_data_cursor(mine[&quot;data_cursor&quot;])
 </code></pre></div>
+<p>上面用 <code>{rank: state}</code> 明确表达“每个 rank 各有一份 RNG 和数据游标”；恢复时先核对保存的 <code>world_size</code>，再让当前 rank 取回自己的条目并调用对应的 RNG/数据游标恢复函数。示例中的 <code>all_gather_object</code> 只适合解释小型元数据；生产系统应按框架能力把张量化状态放进分片 checkpoint。<strong>world size 改变后，旧 rank 与新 rank 没有天然一一对应关系</strong>，shuffle、数据分片和随机流都可能改变，不能机械按 rank 号映射并声称同轨迹恢复。</p>
 
 <h3 id="checkpoint_1">⭐ checkpoint 里必须存什么</h3>
-<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">□ 模型权重</span></div><div class="vb-flow-row"><span class="vb-flow-step">□ 优化器状态（m、v）</span></div><div class="vb-flow-row"><span class="vb-flow-step">□ 学习率调度器状态 ← 常被漏 ⚠️</span></div><div class="vb-flow-row"><span class="vb-flow-step">□ 当前 step / epoch</span></div><div class="vb-flow-row"><span class="vb-flow-step">□ 【数据加载器的位置】 ← 最常被漏 ⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">□ 随机数状态（torch/numpy/python）</span></div><div class="vb-flow-row"><span class="vb-flow-step">□ 混合精度的 scaler 状态</span></div><div class="vb-flow-row"><span class="vb-flow-step">💥 漏了数据位置的后果：恢复后【重新从头读数据】</span></div><div class="vb-flow-row"><span class="vb-flow-step">某些样本被训练多次，某些完全没见过</span></div><div class="vb-flow-row"><span class="vb-flow-step">而这【不会报错】，你可能永远不知道</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="可恢复训练状态"><p class="visual-block-title">一条可恢复训练链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">模型参数 + 优化器状态（含 step、动量与二阶矩）</span></div><div class="vb-flow-row"><span class="vb-flow-step">学习率调度器 + AMP GradScaler + 已完成的 optimizer update 数</span></div><div class="vb-flow-row"><span class="vb-flow-step">每个 rank 的 Python / NumPy / CPU / CUDA 随机数状态</span></div><div class="vb-flow-row"><span class="vb-flow-step">数据版本 + sampler/loader 的 epoch、分片、游标和 shuffle 状态</span></div><div class="vb-flow-row"><span class="vb-flow-step">代码提交、超参数、拓扑、精度与库版本等运行配置</span></div><div class="vb-flow-row"><span class="vb-flow-step">所有分片 checksum + manifest + 已完成发布标记</span></div></div></section>
+<p><strong>安全边界：</strong>尽量在一次 optimizer update 完成、没有未提交累计梯度时保存。若必须保存 micro-step 中间态，还要保存已累计梯度、当前 micro-step 和对应数据游标；否则“恢复”会少算或重复一部分梯度。固定种子也不保证跨硬件、驱动和非确定性算子逐位一致。</p>
+<h3 id="resume-example">🧮 一次完整恢复到底接上什么</h3>
+<p>教学设定：每个 rank 每个 micro-step 的样本数 $B_{micro}=4$，world size $N=8$，梯度累积步数 $K=8$。在<strong>每个 rank 的批次等长、没有尾批、world size 不变、每组 $K$ 次累积都真正完成一次 optimizer update，并且没有 AMP overflow 导致跳步</strong>时，每次成功更新消耗的全局样本数为：</p>
+<p>$$B_{global}=B_{micro}\times N\times K=4\times8\times8=256$$</p>
+<p>在上述限定下，第 300 次<strong>成功完成</strong>的参数更新后保存，累计消费 $300\times256=76800$ 个全局样本。训练在第 307 次成功更新后崩溃，回到第 300 次快照会重算 $7\times256=1792$ 个样本。若存在尾批、动态 batch、world size 变化、梯度溢出跳步或按 token 组批，就不能用 update 数机械反推消费量，必须持久化<strong>实际已消费的样本数/token 数</strong>以及每 rank 数据游标。要让这 7 次更新按原顺序重放，还必须同时恢复：</p>
+<div class="tw"><table><thead><tr><th>状态</th><th>只恢复权重会怎样</th><th>正确核对</th></tr></thead><tbody>
+<tr><td>优化器与 update=300</td><td>Adam 动量丢失，下一步参数变化不同</td><td>核对状态张量、步数与参数组</td></tr>
+<tr><td>scheduler 与 scaler</td><td>学习率或跳步判断错位</td><td>恢复后第一步记录真实 lr、scale 与是否更新</td></tr>
+<tr><td>数据游标与 sampler</td><td>样本重复、跳过或顺序改变</td><td>核对下一批样本 ID 与数据版本</td></tr>
+<tr><td>每 rank RNG</td><td>dropout、增强或采样分支改变</td><td>在允许确定性的范围内比较恢复前后探针</td></tr>
+</tbody></table></div>
+<p>恢复验收至少包括：manifest 完整、checksum 通过、状态字段齐全、下一批样本 ID 正确、第一轮 lr/scale/update 计数正确，以及短窗口 loss/梯度没有不合理跳变。<strong>“load_state_dict 没报错”不等于恢复验收通过。</strong></p>
 <hr />
 <h2 id="_3">🔍 三、最可怕的：不崩溃的错误</h2>
 <section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>⚠️ 崩溃是【好】故障——它会告诉你出事了</p><p>真正危险的是【静默失败】：训练照跑，loss 也在降，但结果是错的</p></div></section>
@@ -429,19 +478,19 @@ fut.result()
 </thead>
 <tbody>
 <tr>
-<td><strong>某张卡的梯度是坏的</strong></td>
-<td>loss 缓慢变差或停滞</td>
-<td><strong>定期校验各 rank 的梯度范数是否一致</strong> ⭐</td>
+<td><strong>rank 进度或 collective 次序分叉</strong></td>
+<td>可能等待、超时，也可能在错误位置继续记录指标</td>
+<td>核对每个 rank 的 epoch、micro-step、optimizer update 与 collective 序列</td>
 </tr>
 <tr>
 <td><strong>数据管线错位</strong></td>
 <td>学到的东西不对</td>
-<td>定期抽样打印实际喂进去的数据 ⭐</td>
+<td>记录样本 ID、标签摘要、预处理版本和 batch checksum，定期抽样回放 ⭐</td>
 </tr>
 <tr>
 <td><strong>恢复后数据重复</strong></td>
 <td>过拟合特定样本</td>
-<td>checkpoint 存数据位置</td>
+<td>checkpoint 保存数据游标、sampler 状态，并核对恢复后的下一批样本 ID</td>
 </tr>
 <tr>
 <td><strong>ECC 未纠正的位翻转</strong></td>
@@ -450,22 +499,29 @@ fut.result()
 </tr>
 </tbody>
 </table></div>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># ⭐ 一个便宜的静默错误探测器：定期检查各 rank 是否一致</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">sanity_check_across_ranks</span><span class="p">(</span><span class="n">loss</span><span class="p">,</span> <span class="n">grad_norm</span><span class="p">,</span> <span class="n">step</span><span class="p">):</span>
-    <span class="n">t</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="n">loss</span><span class="p">,</span> <span class="n">grad_norm</span><span class="p">],</span> <span class="n">device</span><span class="o">=</span><span class="s1">&#39;cuda&#39;</span><span class="p">)</span>
-    <span class="n">gathered</span> <span class="o">=</span> <span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">dist</span><span class="o">.</span><span class="n">get_world_size</span><span class="p">())]</span>
-    <span class="n">dist</span><span class="o">.</span><span class="n">all_gather</span><span class="p">(</span><span class="n">gathered</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">dist</span><span class="o">.</span><span class="n">get_rank</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-        <span class="n">vals</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">stack</span><span class="p">(</span><span class="n">gathered</span><span class="p">)</span>
-        <span class="n">spread</span> <span class="o">=</span> <span class="p">(</span><span class="n">vals</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">values</span> <span class="o">-</span> <span class="n">vals</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">values</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">vals</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span> <span class="o">+</span> <span class="mf">1e-9</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">spread</span><span class="o">.</span><span class="n">max</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mf">0.5</span><span class="p">:</span>          <span class="c1"># ⭐ 各卡差异过大 = 有问题</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;⚠️ step </span><span class="si">{</span><span class="n">step</span><span class="si">}</span><span class="s2"> rank 间差异异常: </span><span class="si">{</span><span class="n">vals</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<div class="codehilite" data-code-language="python"><pre><code># 可直接运行的离线探针：先比较“进度是否一致”，不自动宣布根因
+def probe_rank_records(records):
+    keys = ("epoch", "micro_step", "optimizer_update", "collective_seq")
+    mismatched = {
+        key: sorted({record[key] for record in records})
+        for key in keys
+        if len({record[key] for record in records}) != 1
+    }
+    return {"needs_investigation": bool(mismatched), "mismatched": mismatched}
+
+records = [
+    {"rank": 0, "epoch": 2, "micro_step": 2408,
+     "optimizer_update": 301, "collective_seq": 781},
+    {"rank": 1, "epoch": 2, "micro_step": 2408,
+     "optimizer_update": 301, "collective_seq": 780},
+]
+print(probe_rank_records(records))
+# {'needs_investigation': True, 'mismatched': {'collective_seq': [780, 781]}}
 </code></pre></div>
 
 <blockquote>
-<p>🔑 <strong>数据并行下各卡的 loss 应该不同（数据不同），但梯度范数在 AllReduce 后应该一致。</strong>
-如果 AllReduce 之后各卡的梯度范数不一样 —— <strong>通信出问题了。</strong></p>
+<p>🔑 <strong>探针只能缩小范围，不能从一个数字直接宣布根因。</strong>
+纯 DDP 中，如果各 rank 在同一次同步完成后对<strong>相同的完整梯度</strong>计算范数，结果应在约定容差内一致；不一致说明测量时点、执行进度、数值状态或通信路径至少有一项需要排查，不能只凭它断言“网络坏了”。FSDP、张量并行等分片模式下，本地范数本来就可能不同。</p>
 </blockquote>
 <hr />
 <h2 id="loss">🩹 四、训练不稳定：loss 尖峰</h2>
@@ -542,8 +598,16 @@ print(gradient_flag(30.0, [1.0, 2.0, 3.0]))  # inspect_outlier
 <p>依据：<a href="https://docs.pytorch.org/docs/2.14/notes/amp_examples.html#gradient-clipping">PyTorch AMP 检查与裁剪</a>、<a href="https://docs.pytorch.org/docs/2.14/optim.html#how-to-adjust-learning-rate">调度调用语义</a>、<a href="https://docs.pytorch.org/tutorials/beginner/saving_loading_models.html#saving-loading-a-general-checkpoint-for-inference-and-or-resuming-training">恢复训练状态</a>、<a href="https://docs.pytorch.org/docs/2.14/notes/randomness.html">可复现性边界</a>。上面的排序是组织诊断的建议，不是任何单条日志都能确定根因的定理。</p>
 <hr />
 <h2 id="_4">🔁 五、弹性训练与快速恢复</h2>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>⭐ 目标：故障后【自动】恢复，不需要人半夜爬起来</p><p>torchrun --nnodes=8 --nproc-per-node=8 \</p><p>--max-restarts=10 \ # ⭐ 自动重启</p><p>--rdzv-backend=c10d \</p><p>--rdzv-endpoint=$MASTER:29500 \</p><p>train.py</p></div></section>
-<p><strong>加快恢复的三个手段</strong>：</p>
+<section class="visual-block visual-block-flow" aria-label="弹性恢复闸门"><p class="visual-block-title">恢复不是“无限重启”</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">① 发现无进展、进程退出、非有限值或存储错误</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 停止并隔离失败 worker group，保留故障证据</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 只选择状态为 COMPLETE 且 checksum 通过的 checkpoint</span></div><div class="vb-flow-row"><span class="vb-flow-step">④ 恢复模型 + 优化器 + 调度器 + scaler + RNG + 数据游标</span></div><div class="vb-flow-row"><span class="vb-flow-step">⑤ 通过下一批样本、update/lr/scale 和短窗口训练探针后再继续</span></div></div></section>
+<div class="codehilite" data-code-language="bash"><pre><code># 配置示例：允许 worker group 最多重启 10 次；它不会替你保存或验证训练状态
+torchrun --nnodes=8 --nproc-per-node=8 \
+  --max-restarts=10 \
+  --rdzv-backend=c10d \
+  --rdzv-endpoint="$MASTER:29500" \
+  train.py
+</code></pre></div>
+<p><code>--max-restarts=10</code> 是重试预算，不是“必然恢复 10 次”的承诺。确定性坏数据、错误代码或损坏快照会反复在同一点失败；达到预算后必须停止、保留证据并交给人处理。成员数变化还可能改变数据分片和随机数映射，若不能保持原全局样本计划，就要把它标成新的训练分支，而不是声称同轨迹续训。</p>
+<p><strong>缩短恢复时间的三个候选手段</strong>：</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -553,31 +617,28 @@ print(gradient_flag(30.0, [1.0, 2.0, 3.0]))  # inspect_outlier
 </thead>
 <tbody>
 <tr>
-<td><strong>checkpoint 放本地 NVMe</strong></td>
-<td>加载从几分钟降到几十秒 ⭐</td>
+<td><strong>本地 NVMe 缓存完整快照</strong></td>
+<td>可能缩短读取路径，但节点损坏会一起丢失；仍需把已验证版本发布到独立耐久存储，并实测缓存命中与加载时间</td>
 </tr>
 <tr>
 <td><strong>热备节点</strong></td>
-<td>坏了立刻顶上，不用等调度</td>
+<td>只有调度器、镜像、数据和 rendezvous 都准备好时才会缩短等待；热备本身也有成本</td>
 </tr>
 <tr>
 <td><strong>NCCL 超时设置合理</strong></td>
-<td>别让它挂死几十分钟才报错 ⭐</td>
+<td>太长会浪费资源，太短会误杀慢操作；应结合最长合法 collective、网络抖动和故障响应目标设置</td>
 </tr>
 </tbody>
 </table></div>
-<div class="codehilite" data-code-language="bash"><pre><code># Python：创建进程组时配置超时，不存在通用 NCCL_TIMEOUT 环境变量
+<div class="codehilite" data-code-language="python"><pre><code># Python：创建进程组时配置超时；30 分钟只是示例，不是推荐常数
 from datetime import timedelta
 import torch.distributed as dist
 dist.init_process_group(&quot;nccl&quot;, timeout=timedelta(minutes=30))
-# 其他 NCCL/PyTorch 错误处理开关需按实际版本与故障模型配置
+# TORCH_NCCL_BLOCKING_WAIT 等行为需核对当前 PyTorch 版本并配合进程组 timeout
 </code></pre></div>
 
 <blockquote>
-<p>💥 <strong>不设 <code>BLOCKING_WAIT</code> 的后果</strong>：
-一张卡挂了，其他 999 张卡会<strong>永远等下去</strong> ——
-GPU 利用率显示 100%（在空转），但一步都没往前走。
-<strong>你可能几小时后才发现。</strong>（<a href="10-数据并行与AllReduce.html">第 10 章</a>提过这个坑）</p>
+<p>💥 <strong>通信无进展不是单一配置问题</strong>：rank 异常、collective 次序不一致、DataLoader 停滞、网络或 NCCL 故障都可能表现为训练步数不再前进。<code>TORCH_NCCL_BLOCKING_WAIT=1</code> 需配合进程组 <code>timeout</code> 才能让等待按配置暴露超时；不同版本的错误传播与清理行为可能不同。GPU 利用率也不能单独证明“正在计算”或“永远挂死”。排查流程见<a href="10-数据并行与AllReduce.html">第 10 章</a>。</p>
 </blockquote>
 <hr />
 <h2 id="_5">🔗 和站内其他章的关系</h2>
@@ -595,7 +656,7 @@ GPU 利用率显示 100%（在空转），但一步都没往前走。
 </tr>
 <tr>
 <td><a href="10-数据并行与AllReduce.html">第 10 章</a> AllReduce 挂死</td>
-<td>本章给出完整解法</td>
+<td>本章把通信无进展放进故障检测、超时、停止与恢复流程；单一症状不能唯一定位根因</td>
 </tr>
 <tr>
 <td><a href="06-混合精度.html">第 6 章</a> FP16 溢出</td>
@@ -606,8 +667,8 @@ GPU 利用率显示 100%（在空转），但一步都没往前走。
 <td>单机版的训练调试</td>
 </tr>
 <tr>
-<td><a href="../模型上线之后/17-版本回溯与可复现.html">《模型上线之后》17 版本回溯与可复现</a> 可复现的三个层次</td>
-<td><strong>"恢复出来的是不是同一条轨迹"</strong> —— checkpoint 里该存什么，那边有更完整的清单 ⭐</td>
+<td><a href="../模型上线之后/17-版本回溯与可复现.html">《模型上线之后》17 版本回溯与可复现</a> 端到端血缘</td>
+<td><strong>"恢复出来的是不是同一条轨迹"</strong> —— 本章保存运行状态，那一章登记数据、特征、代码配置、环境、产物、评估与部署血缘 ⭐</td>
 </tr>
 <tr>
 <td><a href="../Kaggle竞赛方法论/04_超参数调优与工程实践.html">《Kaggle竞赛方法论》04 超参数调优与工程实践</a> 随机种子与可复现性</td>
@@ -618,44 +679,46 @@ GPU 利用率显示 100%（在空转），但一步都没往前走。
 <hr />
 <h2 id="_6">✅ 检查点</h2>
 <ol>
-<li>1000 张卡的集群 MTBF 大概是多少？这意味着什么？</li>
-<li>checkpoint 间隔的经验公式是什么？</li>
-<li>checkpoint 的四个要点是什么？为什么要原子写入？</li>
-<li>checkpoint 里最常被漏掉的是什么？漏了会怎样？</li>
-<li>为什么说"崩溃是好故障"？</li>
-<li>怎么便宜地探测静默错误？各卡的 loss 和梯度范数应该一致吗？</li>
+<li>什么时候可以用 $M_{cluster}=M_{card}/N$？冗余屏蔽为何会让这个除法失效？“10 小时”为什么不是故障时刻表？</li>
+<li>$W(T)\approx C/T+T/(2M)$ 的两项分别来自哪里？怎样由最小化得到 $T\approx\sqrt{2CM}$，并用 5 分钟与 600 分钟得到 77.46 分钟？</li>
+<li>分片 checkpoint 为什么不能靠“每个文件各自 rename”就宣布原子完成？</li>
+<li>只加载模型权重，缺少哪些状态会让训练轨迹改变？</li>
+<li>示例在 update 300 保存、update 307 崩溃，什么条件下才可以说要重算 1792 个样本？复杂批次为什么要另存实际消费样本/token？</li>
+<li>怎么便宜地探测静默错误？DDP 梯度范数不一致能直接证明网络坏了吗？</li>
 <li>loss 突升先保存哪些证据，按什么顺序排查？缓解后怎样做回归？</li>
 <li>梯度范数突变为何不能直接等于坏 batch？跳更新有哪些边界？</li>
-<li>不设 <code>TORCH_NCCL_BLOCKING_WAIT</code> 会怎样？</li>
+<li><code>--max-restarts=10</code> 为什么不等于一定能恢复十次？</li>
+<li>通信没有进展时，进程组 timeout 与 <code>TORCH_NCCL_BLOCKING_WAIT</code> 分别解决什么，不能证明什么？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>单卡 MTBF 10000 小时的话，1000 卡集群约 <strong>10 小时</strong>。意味着平均每 10 小时坏一次，一个月训练会遇到几十次故障——checkpoint 和自动恢复决定训练能否完成。</li>
-<li><strong>√(2 × 单次checkpoint耗时 × MTBF)</strong>。例：耗时 5 分钟、MTBF 10 小时 → 约 77 分钟。</li>
-<li>①<strong>异步保存</strong>（先拷到 CPU 内存后台写盘）②分片保存（别汇总到 rank 0）③原子写入 ④保留多份。原子写入（先写 .tmp 再 rename）是为了防止写一半崩溃留下损坏文件。</li>
-<li><strong>数据加载器的位置</strong>。漏了会导致恢复后重新从头读数据，某些样本训练多次、某些完全没见过，而且不会报错。</li>
-<li>因为<strong>崩溃会告诉你出事了</strong>。真正危险的是静默失败——训练照跑、loss 也在降，但结果是错的。</li>
-<li><strong>定期 all_gather 各 rank 的 loss 和梯度范数，检查差异</strong>。loss 应该不同（数据不同），但梯度范数在 AllReduce 之后应该一致——不一致说明通信出问题了。</li>
+<li>只有各卡故障近似独立、故障率近似稳定、口径一致，并且任一卡故障都会让作业发生有效故障、没有冗余吸收时，故障率才能相加。有冗余屏蔽或相关故障时要按真实作业故障记录重估。$10000/1000=10$ 小时是长期平均间隔，不表示每逢十小时必然坏一张卡。</li>
+<li>$C/T$ 是周期保存开销，$T/(2M)$ 是故障率 $1/M$ 乘以平均回滚损失 $T/2$。对两项之和求导并令零：$-C/T^2+1/(2M)=0$，所以 $T=\sqrt{2CM}$。代入 $C=5$、$M=600$ 得 $\sqrt{6000}\approx77.46$ 分钟；结论依赖独立稳定故障率、短保存耗时和回滚到最近完整快照等一阶假设。</li>
+<li>多个 rank 可能只写完部分分片。应先写临时版本，等待所有分片完成并核对 checksum，再最后发布 manifest 或 current 指针；对象存储和跨文件系统还要使用其提交协议。</li>
+<li>还需优化器、调度器、GradScaler、optimizer update、数据/sampler 游标、以 <code>{rank: state}</code> 保存的每 rank RNG，以及代码、数据、配置和环境信息。缺任一项都可能改变 lr、动量、样本顺序、dropout 或更新计数；world size 变化后不能机械映射旧 rank 状态。</li>
+<li>仅在 $B_{micro}=4$、$N=8$、$K=8$，等长非尾批、world size 不变且每次 optimizer update 都真实完成、没有 AMP overflow 跳步时，每次更新才固定消费 $256$ 个样本，从 307 回到 300 才是 $7\times256=1792$。复杂批次应保存实际消费样本/token 数与每 rank 游标，不能只靠 update 反推。</li>
+<li>记录每个 rank 的 epoch、micro-step、update、collective 序列、样本摘要和数值探针。纯 DDP 在同一次同步后对相同完整梯度计算的范数应在容差内一致；不一致只说明测量时点、执行进度、数值或通信至少一项异常，不能唯一证明网络坏了。分片模式不能直接比本地范数。</li>
 <li>先保存触发 batch、step/rank、loss 口径和健康快照；按输入标签/预处理→每组实际 lr 与优化器/调度恢复→有限性与 AMP→实现模式定位，再单变量重放。裁剪、BF16、warmup、跳更新或回滚是条件化候选；用触发与正常对照、完整恢复状态及固定验证集检查回归，暂时恢复不等于根因闭合。<strong></strong></li>
 <li>用同一口径的已 unscale、裁剪前范数比较既往历史，先检查 NaN/Inf 与参考窗口；示例仅标记观测，不自动跳步。若按策略跳更新，须保存证据、记录数据偏差并协调各 rank、累积梯度、scaler 与调度计数；10 倍不是通用阈值，no_flag 也不证明训练健康。<strong><code></code></strong></li>
-<li>一张卡挂了，<strong>其他卡会永远等下去</strong>——GPU 利用率显示 100%（空转）但一步都没前进，可能几小时后才发现。</li>
+<li>它只是 worker group 的重启预算。确定性坏数据、代码错误、损坏快照或不兼容成员变化会重复失败；达到预算后应停止、保留证据并处理根因。</li>
+<li>进程组 timeout 定义合法等待上限；阻塞等待选项使等待按该超时暴露错误，具体行为依版本。它们不会自动修复 collective 次序、DataLoader、rank、网络或 NCCL 问题，也不能只凭 GPU 利用率定位根因。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_7">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>⭐ <strong>千卡训练时硬件故障是常态</strong>：单卡平均无故障时间除以卡数，<strong>上千张卡就是几小时坏一次</strong>——⭐ <strong>所以 checkpoint 和自动恢复决定训练能不能完成。</strong> 间隔有个现成的平方根公式，⭐ <strong>它的形状是「保存越贵就存越稀，故障越频就存越密」。</strong></p>
-<p>四个要点：⭐ <strong>异步保存</strong>（先拷到内存再后台写盘，阻塞从几分钟降到几秒）、⭐ <strong>分片保存</strong>（别汇总到一张卡上）、<strong>原子写入</strong>（先写临时文件再改名，防写一半崩溃）、留多份。</p>
-<p>⭐ <strong>checkpoint 里最常漏的是数据加载器的位置</strong>——⚠️ <strong>漏了会重新从头读数据，某些样本训了好几次、某些一次没见过，而且不报错。</strong> 还要存调度器、随机数状态和缩放器。</p>
+<p>⭐ 在独立、稳定故障率，且任一卡故障都会成为作业有效故障、没有冗余屏蔽的教学假设下，$M_{cluster}=M_{card}/N$；它给的是<strong>平均间隔</strong>，不是故障时刻表。Young 一阶浪费模型 $W(T)\approx C/T+T/(2M)$ 平衡保存开销与平均回滚重算；令导数为零才得到 $T\approx\sqrt{2CM}$，最后仍要用本集群数据复测。</p>
+<p>四个要点：得到一致 staging 快照、分片保存、所有分片校验后原子发布 manifest/current、保留多个已验证可恢复的代次。异步、NVMe 和热备都只是有条件的加速手段。</p>
+<p>⭐ <strong>能加载权重不等于恢复训练。</strong> 还要恢复优化器、调度器、scaler、update 计数，以及用 <code>{rank: state}</code> 明确保存的每 rank RNG 和数据/sampler 游标；world size 改变时旧 rank 不能机械映射。恢复后核对下一批样本、实际消费样本/token、lr、scale、update 和短窗口训练探针。</p>
 <p>⭐⭐ <strong>最可怕的不是崩溃，是静默失败</strong>——训练照跑、loss 也在降，<strong>但结果是错的</strong>。⭐ <strong>崩溃是好故障，它至少会告诉你出事了。</strong></p>
-<p>⭐ <strong>有个极便宜的探测器</strong>：定期把各个 rank 的 loss 和梯度范数收上来比一比——⭐⭐ <strong>loss 应该不同（数据不同），但梯度范数在同步之后必须一致；不一致就是通信出了问题。</strong></p>
+<p>⭐ 便宜探针包括 rank 进度、collective 序列、样本摘要、checksum 和数值有限性。纯 DDP 同步后的完整梯度范数应在容差内一致，但差异只说明需要排查，不能唯一证明网络故障；分片模式还要按全局语义聚合。</p>
 <p>loss 突升先取证：对齐 batch 与 loss 口径，再查实际 lr/恢复状态、数值与 AMP、实现模式。梯度突变只提供线索，跳更新或回滚须按策略记录且协调各 rank 与状态；换数据顺序是新分支，缓解后仍要重放和独立验证，不能把暂时恢复当根因修复。<strong></strong><strong></strong><strong></strong></p>
-<p>⚠️⭐ <strong>最后是三个必须设的通信库环境变量</strong>：<strong>不设阻塞等待的那个，一张卡挂了、其余全部会永远等下去</strong>——💀 <strong>GPU 显示满负荷，而一步都没走，几小时后才有人发现。</strong></p>
+<p>⚠️ 自动重启必须有预算和恢复闸门。进程组 timeout 与版本匹配的等待/调试设置用来暴露无进展，不会自动修复坏数据、collective 次序、rank、网络或 NCCL 故障；反复失败就停止并保留证据。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="22-数据管线与存储.html">22-数据管线与存储.md</a></p>
-<details class="g05-content-note"><summary>条件与依据</summary><p>独立同分布指数故障下才有集群 MTBF≈单卡 MTBF/N，相关故障会改变估计。异步 checkpoint 仍有 staging 和一致快照成本，应等待上次 future 完成并核验可恢复后再淘汰旧副本。PyTorch 进程组超时用 dist.init_process_group(..., timeout=timedelta(minutes=30)) 设置；不存在通用 NCCL_TIMEOUT 开关。梯度范数一致性只适用于相同同步后完整梯度，不能直接比较 FSDP/TP 分片范数，也不能仅据各 rank loss 不同判故障。</p><p><a href="https://docs.pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html">官方文档</a>；<a href="https://docs.pytorch.org/docs/stable/distributed.html">官方文档</a></p></details>
+<details class="g05-content-note"><summary>条件与依据</summary><p>独立、稳定故障率，且任一卡故障都导致作业有效故障、没有冗余屏蔽时，才有集群 MTBF≈单卡 MTBF/N；相关故障或屏蔽会改变估计。Young 一阶模型用 $C/T$ 与 $T/(2M)$ 表示保存和回滚浪费，忽略恢复、诊断及高阶成本，只是间隔起点。异步 checkpoint 仍有 staging、一致快照和内存成本；应等待上次 future 完成并做真实恢复演练后再淘汰旧副本。PyTorch 进程组超时用 dist.init_process_group(..., timeout=timedelta(...)) 设置；不存在通用 NCCL_TIMEOUT 开关。梯度范数一致性只适用于同一同步点的完整梯度，不能直接比较 FSDP/TP 分片范数。</p><p><a href="https://doi.org/10.1145/361147.361115">Young 1974 · 最优 checkpoint 间隔一阶近似</a>；<a href="https://docs.pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html">PyTorch Distributed Checkpoint</a>；<a href="https://docs.pytorch.org/docs/stable/elastic/run.html">torchrun Elastic</a>；<a href="https://docs.pytorch.org/docs/stable/distributed.html">PyTorch distributed</a>；<a href="https://docs.pytorch.org/docs/stable/notes/randomness.html">可复现性边界</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="20-推理服务化.html"><div class="dir">← 上一节</div>⭐ 推理服务化</a><a class="next" href="22-数据管线与存储.html"><div class="dir">下一节 →</div> 数据管线</a></nav>
