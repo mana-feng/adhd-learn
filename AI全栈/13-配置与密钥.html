@@ -311,20 +311,20 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="13">13 · 配置与密钥</h1>
-<p>⏱ <strong>46 分钟</strong> ｜ 🔑 <strong>数据库密码泄露，别人还得能连到你的库；API key 泄露，全世界当场就能花你的钱</strong></p>
+<p>⏱ <strong>46 分钟</strong> ｜ 🔑 <strong>摘要服务的启动校验、凭证权限与环境边界</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>配置要能在不改一行代码的前提下换掉，密钥要能在十分钟之内换掉。</strong></p>
-<p>前面十二章写的东西已经能跑了。这一章处理的是「同一份代码怎么在笔记本、预发、生产跑出三种行为」，以及「那串 <code>sk-</code> 开头的东西怎么才不会毁掉你」。</p>
+<p><strong>同一份服务可以换配置部署。凭证要能独立授权、替换和撤销。</strong></p>
+<p>摘要服务已经有了调用层和预算护栏。本章看同一份代码怎样在本地、预发和生产拿到各自的配置，为什么服务要在第一条请求之前查清这些配置。</p>
 <hr />
 <h2 id="_2">🧩 一、配置为什么必须离开代码</h2>
-<p>三个症状：想把模型从便宜的换成贵的，要<strong>改代码 → 提交 → 等 CI → 重新发版</strong>；同事拉下代码跑不起来，因为他的 Postgres 不在 5432；你在 git 历史里搜 <code>sk-</code>，<strong>搜到了东西</strong> 💀。</p>
-<p>三个都是同一个病：<strong>「这台机器的情况」被写进了「所有机器共用的代码」里</strong>。</p>
+<p>三个常见现象：换模型要改代码再发版；同事的数据库端口和你不同；一个只该在服务器使用的值被提交到了代码库。它们都暴露了环境信息和共享代码之间缺少边界。</p>
+
 <blockquote>
 <p>⭐ <strong>分界线</strong>：<strong>换一台机器、换一个环境会变的是配置，不会变的是代码。</strong>
 模型名、超时秒数、数据库地址、密钥、调试开关 → 配置；「重试几次、退避公式怎么算」→ 代码。</p>
 </blockquote>
-<p>配置进来的通道只有一条：<strong>环境变量</strong>。它是唯一一个所有系统、所有语言、所有平台都认的东西 —— 笔记本认它，Docker 认它，PaaS 面板上那个填框写的就是它，K8s 的 Secret 挂进来也是它。</p>
+<p>本章用<strong>环境变量</strong>作为常见交付方式。它是启动时提供给进程的一组名字和值。部署平台也可以通过受限文件或密钥服务提供凭证。无论从哪里取值，都交给同一个配置入口，明确来源、优先级和失败时的处理。</p>
 <hr />
 <h2 id="_3" data-mg-stop>🔑 二、形状：一个类，启动时就炸</h2>
 <p>大多数人第一版是散着写 <code>os.getenv("OPENAI_API_KEY")</code>。这版有四个问题，每个都会在半夜咬你一口：</p>
@@ -354,63 +354,129 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>正确形状：一个 Settings 类，进程启动第一件事就把它加载出来，缺了或类型不对就直接崩掉、不启动。</strong></p>
-<p>这叫 <strong>fail fast</strong>。它值钱的地方是：<strong>起不来是发版时立刻看得见的，带病上线是用户替你发现的。</strong></p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">fields</span>
-
-<span class="n">SECRETY</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;key&quot;</span><span class="p">,</span> <span class="s2">&quot;token&quot;</span><span class="p">,</span> <span class="s2">&quot;secret&quot;</span><span class="p">,</span> <span class="s2">&quot;password&quot;</span><span class="p">,</span> <span class="s2">&quot;url&quot;</span><span class="p">)</span>   <span class="c1"># url 里带密码，也算</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">_get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">cast</span><span class="o">=</span><span class="nb">str</span><span class="p">):</span>
-    <span class="n">raw</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">default</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">raw</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;缺少必填配置 </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>          <span class="c1"># ⭐ 启动时就炸</span>
-    <span class="k">try</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">raw</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="n">cast</span><span class="p">)</span> <span class="k">else</span> <span class="n">cast</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span>
-    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">raw</span><span class="si">!r}</span><span class="s2"> 不是 </span><span class="si">{</span><span class="n">cast</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-
-
-<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>                                   <span class="c1"># ⭐ 只读，跑起来谁也改不了</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">Settings</span><span class="p">:</span>
-    <span class="n">env</span><span class="p">:</span> <span class="nb">str</span>
-    <span class="n">llm_api_key</span><span class="p">:</span> <span class="nb">str</span>
-    <span class="n">llm_timeout_s</span><span class="p">:</span> <span class="nb">float</span>
-    <span class="n">database_url</span><span class="p">:</span> <span class="nb">str</span>
-
-    <span class="nd">@classmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">load</span><span class="p">(</span><span class="bp">cls</span><span class="p">):</span>
-        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">_get</span><span class="p">(</span><span class="s2">&quot;APP_ENV&quot;</span><span class="p">,</span> <span class="s2">&quot;dev&quot;</span><span class="p">),</span> <span class="n">_get</span><span class="p">(</span><span class="s2">&quot;LLM_API_KEY&quot;</span><span class="p">),</span>   <span class="c1"># 无默认值 = 必填</span>
-                   <span class="n">_get</span><span class="p">(</span><span class="s2">&quot;LLM_TIMEOUT_S&quot;</span><span class="p">,</span> <span class="s2">&quot;60&quot;</span><span class="p">,</span> <span class="nb">float</span><span class="p">),</span>
-                   <span class="n">_get</span><span class="p">(</span><span class="s2">&quot;DATABASE_URL&quot;</span><span class="p">,</span> <span class="s2">&quot;sqlite:///./dev.db&quot;</span><span class="p">))</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>     <span class="c1"># ⭐ 你一定会 print(settings)，在类型自己身上堵死</span>
-        <span class="n">d</span> <span class="o">=</span> <span class="p">{</span><span class="n">f</span><span class="o">.</span><span class="n">name</span><span class="p">:</span> <span class="p">(</span><span class="s2">&quot;***&quot;</span> <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">w</span> <span class="ow">in</span> <span class="n">f</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">w</span> <span class="ow">in</span> <span class="n">SECRETY</span><span class="p">)</span> <span class="k">else</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">f</span><span class="o">.</span><span class="n">name</span><span class="p">))</span>
-             <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">fields</span><span class="p">(</span><span class="bp">self</span><span class="p">)}</span>
-        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Settings(</span><span class="si">{</span><span class="n">d</span><span class="si">}</span><span class="s2">)&quot;</span>
+<p>加载配置应发生在服务登记就绪之前。缺少值或值不符合规则时立刻报错，叫<strong>快速失败（Fail Fast）</strong>。因为缺少密钥和连错库都会改变服务的安全边界，所以还要<strong>拒绝带着错误配置接流量（Fail Closed）</strong>，避免悄悄回退到另一套凭证或数据库。</p>
+<h3 id="config-startup-gate">跟一次摘要服务启动，看看哪一步该停</h3>
+<p>同一份摘要服务，本地练习需要开发库，线上实例需要生产库和自己的模型凭证。假设生产发布漏填了模型凭证。如果进程先收请求，第一位用户才会发现问题。如果启动时先检查，发布系统就能把实例挡在流量入口外。第 14 章会继续讲部署和就绪检查。</p>
+<div class="flowchain" role="list" aria-label="摘要服务启动的四步">
+<div class="fstep" role="listitem"><b>① 选来源</b><span>从可信部署入口确定环境。只有 dev 可加载本地 .env。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>② 合并配置</b><span>同名字段使用优先级更高的值。显式空值也要交给校验。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>③ 校验</b><span>检查必填项、数值范围，以及声明环境和数据库目标。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>④ 决定是否就绪</b><span>通过后再初始化依赖。失败只报字段名和原因，拒绝接流量。</span></div>
+</div>
+<p>把代码保存为 <code>config_demo.py</code>，运行 <code>python config_demo.py</code>。<code>expected_env</code> 模拟由部署入口独立确认的环境。<code>local</code> 是已经读出的本地文件数据，<code>injected</code> 是已经注入的字符串。全部值都是合成夹具，示例不读取环境变量或文件，也不连接数据库和供应商。</p>
+<div class="codehilite" data-code-language="python" data-code-title="离线练习 · 摘要服务启动门槛"><pre><code>from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 
-<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
-    <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;LLM_API_KEY&quot;</span><span class="p">,</span> <span class="s2">&quot;sk-demo-0000&quot;</span><span class="p">)</span>   <span class="c1"># 只为让这段能直接跑</span>
-    <span class="nb">print</span><span class="p">(</span><span class="n">Settings</span><span class="o">.</span><span class="n">load</span><span class="p">())</span>
-    <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;LLM_TIMEOUT_S&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;六十&quot;</span>
-    <span class="k">try</span><span class="p">:</span>
-        <span class="n">Settings</span><span class="o">.</span><span class="n">load</span><span class="p">()</span>
-    <span class="k">except</span> <span class="ne">RuntimeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;启动失败：&quot;</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+DATABASE_HOST = {
+    "dev": "dev-db.example.invalid",
+    "staging": "staging-db.example.invalid",
+    "prod": "prod-db.example.invalid",
+}
+TIMEOUT_ERROR = "LLM_TIMEOUT_S 必须是 0 到 120 之间的正数（秒）"
+DATABASE_ERROR = "DATABASE_URL 不在当前环境的允许范围"
+
+
+class ConfigError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class Settings:
+    env: str
+    timeout_s: float
+    api_key: str = field(repr=False)
+    database_url: str = field(repr=False)
+
+
+def load_settings(expected_env, injected, local=None):
+    if expected_env not in DATABASE_HOST:
+        raise ConfigError("部署环境未获认可")
+    if local is not None and expected_env != "dev":
+        raise ConfigError("只有 dev 允许加载本地 .env")
+
+    values = {"LLM_TIMEOUT_S": "60", **(local or {}), **injected}
+    if values.get("APP_ENV") != expected_env:
+        raise ConfigError("APP_ENV 与部署环境不符")
+    key = values.get("LLM_API_KEY", "")
+    if not key.strip():
+        raise ConfigError("LLM_API_KEY 缺失或为空")
+
+    try:
+        timeout = float(values["LLM_TIMEOUT_S"])
+    except ValueError:
+        raise ConfigError(TIMEOUT_ERROR) from None
+    if not 0 &lt; timeout &lt;= 120:
+        raise ConfigError(TIMEOUT_ERROR)
+
+    database_url = values.get("DATABASE_URL", "")
+    try:
+        target = urlsplit(database_url)
+        allowed = (
+            target.scheme == "postgresql"
+            and target.hostname == DATABASE_HOST[expected_env]
+            and target.port in (None, 5432)
+            and target.path == "/summary"
+            and not target.query
+            and not target.fragment
+        )
+    except ValueError:
+        raise ConfigError(DATABASE_ERROR) from None
+    if not allowed:
+        raise ConfigError(DATABASE_ERROR)
+    return Settings(expected_env, timeout, key, database_url)
+
+
+def startup(expected_env, injected, local=None):
+    try:
+        settings = load_settings(expected_env, injected, local)
+    except ConfigError as error:
+        # ConfigError 只携带本章写好的短句，不拼接输入值。
+        return False, f"拒绝启动 {error}"
+    return True, (
+        f"启动通过 APP_ENV={settings.env} "
+        f"LLM_TIMEOUT_S={settings.timeout_s:g}"
+    )
+
+
+if __name__ == "__main__":
+    # 合成夹具，模拟已经读出的字符串，不读取 os.environ 或 .env。
+    dev_url = "postgresql://demo:fake-password@dev-db.example.invalid/summary"
+    prod_url = "postgresql://demo:fake-password@prod-db.example.invalid/summary"
+    dev = {"APP_ENV": "dev", "DATABASE_URL": dev_url,
+           "LLM_API_KEY": "SYNTHETIC_ONLY_DEV", "LLM_TIMEOUT_S": "90"}
+    prod = {"APP_ENV": "prod", "DATABASE_URL": prod_url,
+            "LLM_API_KEY": "SYNTHETIC_ONLY_PROD", "LLM_TIMEOUT_S": "30"}
+    cases = [
+        ("本地覆盖", "dev", {"LLM_TIMEOUT_S": "45"}, dev, True),
+        ("生产配置", "prod", prod, None, True),
+        ("缺少密钥", "prod", {**prod, "LLM_API_KEY": ""}, None, False),
+        ("错误格式", "prod", {**prod, "LLM_TIMEOUT_S": "SYNTHETIC_ONLY"}, None, False),
+        ("非有限数字", "prod", {**prod, "LLM_TIMEOUT_S": "nan"}, None, False),
+        ("生产读本地配置", "prod", prod, dev, False),
+        ("开发连接生产库", "dev", {"DATABASE_URL": prod_url}, dev, False),
+        ("声明环境不符", "prod", {**prod, "APP_ENV": "dev"}, None, False),
+    ]
+    for label, expected_env, injected, local, should_start in cases:
+        ready, summary = startup(expected_env, injected, local)
+        assert ready == should_start, label
+        assert "SYNTHETIC_ONLY" not in summary
+        assert "fake-password" not in summary
+        assert "example.invalid" not in summary
+        print(f"{label} | {summary}")
 </code></pre></div>
-
-<p>实跑输出（第二行就是 fail fast 该有的样子）：</p>
-<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>Settings({&#x27;env&#x27;: &#x27;dev&#x27;, &#x27;llm_api_key&#x27;: &#x27;***&#x27;, &#x27;llm_timeout_s&#x27;: 60.0, &#x27;database_url&#x27;: &#x27;***&#x27;})</p><p>启动失败： LLM_TIMEOUT_S=&#x27;六十&#x27; 不是 float</p></div></section>
-<p>⭐ 三处细节：<strong><code>frozen=True</code></strong>（允许运行中改配置 = 允许「某个函数偷偷改了超时」这种查三天的 bug）；<strong><code>__repr__</code> 把密钥换成 <code>***</code>（在类型身上堵，比指望每个人都记得安全）；⚠️ <code>database_url</code> 也按密钥处理 —— 连接串里带着密码，「URL 不算密钥」是很常见的误判。<code>load()</code> 里还适合放跨字段校验</strong>（<code>env=prod</code> 时不许 <code>DEBUG=1</code>）。</p>
-<p>🗓️ 真实项目更常用 <code>pydantic-settings</code>（Node 用 <code>zod</code>，Go 用 <code>envconfig</code>）。<strong>包名会过期，这个形状不会</strong>：一处声明、启动即校验、类型明确、打印不外露。</p>
+<p>本地文件给了 90 秒，注入值 45 秒覆盖它，所以第一行显示 <code>APP_ENV=dev LLM_TIMEOUT_S=45</code>。生产配置只有注入值，显示 <code>APP_ENV=prod LLM_TIMEOUT_S=30</code>。接下来六种失败都停在就绪之前，终端只显示字段名和固定原因。<code>float("nan")</code> 可以解析，仍然不满足 <code>0 &lt; timeout &lt;= 120</code>。</p>
+<p><code>repr=False</code> 只保护这个对象默认的文本表示。完整序列化、调试器或错误采集仍可能读到字段。启动日志在 <code>startup()</code> 里明确选择环境和超时两项，数据库连接串即使只是地址，也按可能含凭证的数据处理。<a href="https://docs.python.org/3/library/dataclasses.html#dataclasses.field">Python 字段文档</a>说明了 <code>repr</code> 的作用范围。</p>
+<p>这套示例把可连接的 PostgreSQL 主机、端口和库名限制在预先定义的集合内，演示怎样发现误连。<code>urlsplit()</code> 只做拆分。生产仍要由数据库身份、网络和连接驱动落实隔离，并独立确认依赖可用。真实进程遇到失败应以非零状态退出或保持未就绪。这里返回布尔值，便于同一轮离线运行核对所有分支。</p>
 <h3 id="env"><code>.env</code> 只给本地用</h3>
-<p>两条铁律：<strong><code>.env</code> 必须进 <code>.gitignore</code></strong>；<strong><code>.env.example</code> 必须进版本库</strong>，列出所有变量名、值留空 —— 它是「这个项目需要哪些配置」的唯一文档。</p>
-<p>⭐ 加载 <code>.env</code> 要用「<strong>不覆盖已有环境变量</strong>」的方式（Python 里就是 <code>os.environ.setdefault</code>），这定下优先级 <strong>代码默认值 &lt; .env 文件 &lt; 环境变量（平台注入） &lt; 启动参数</strong>。⚠️ 写反了的后果很阴：某天一份 <code>.env</code> 混进了镜像，生产会安静地用上开发的数据库地址，而所有日志看起来都正常。</p>
+<p><code>.env</code> 是本地配置文件。用 <code>.gitignore</code> 防止新文件被误加入版本库，并在构建时排除它。仓库里的 <code>.env.example</code> 可以列出变量名和安全示例值，密钥留空。已跟踪的文件和历史记录需要单独处理。</p>
+<p>在本章的约定里，优先级由低到高是「普通代码默认值 → dev 本地文件 → 运行环境注入」。如果注入端显式给了空值，就让必填校验拒绝启动，不悄悄回退。测试把输入直接交给配置入口，避免依赖测试机器上的值。预发和生产只走部署平台提供的来源。</p>
 <hr />
 <h2 id="_4">🔐 三、密钥管理三档，和升级信号</h2>
-<p><strong>别一上来就上 Vault。</strong></p>
+<p>上一节解决了应用怎样读取值。接下来考虑谁能提供凭证、谁可以替换，以及应用怎样取得最小必要权限。环境变量是交付渠道，密钥服务负责访问授权、审计和生命周期，两者可以配合。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -423,78 +489,48 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td><strong>① 环境变量</strong></td>
 <td>PaaS 面板 / 服务器上直接填</td>
-<td><strong>1 个应用、1–3 人、密钥不超过 5 个</strong> ⭐ 先用它</td>
+<td>调用身份和权限简单，部署端已有独立访问控制与可执行的撤销流程</td>
 </tr>
 <tr>
 <td><strong>② 平台密钥管理</strong></td>
 <td>云厂商 Secrets Manager、K8s Secret、CI Secrets</td>
-<td>多环境多服务，需要<strong>知道谁读过</strong></td>
+<td>多环境多服务，需要分别授权并追踪访问。具体审计能力以平台配置为准</td>
 </tr>
 <tr>
 <td><strong>③ 专用密钥服务</strong></td>
 <td>Vault 那类</td>
-<td>要<strong>动态凭证</strong>（用完即焚）、租户级独立吊销</td>
+<td>需要短时动态凭证、租约到期和独立撤销，且现有平台无法满足</td>
 </tr>
 </tbody>
 </table></div>
 <p>⭐ <strong>升级信号</strong>（出现任意一条就该动）：</p>
 <section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">① 给新同事发密钥，你是【复制粘贴到聊天窗口】的</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">升到 ②</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 轮换一次要改 6 个地方，而且你记不全是哪 6 个</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">升到 ②</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 有人问「这个 key 现在有谁能看到」，你答不上来</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">升到 ②</span></div><div class="vb-flow-row"><span class="vb-flow-step">④ 需要「这把凭证 1 小时后自动失效」</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">升到 ③</span></div><div class="vb-flow-row"><span class="vb-flow-step">⑤ 每个租户一套凭证，且要能单独吊销</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">升到 ③</span></div></div></section>
-<p>⚠️ <strong>这些不是升级信号</strong>：「感觉不够专业」「大厂都用 Vault」。② 到 ③ 之间隔着<strong>一个需要有人值班的新组件</strong>，它自己也会挂。</p>
+<p>先比较现有平台的授权、审计和动态凭证能力。引入新组件也要有人负责维护与故障恢复。生产摘要服务只需要读取自己的凭证并调用获授权的模型。发布或运维身份单独持有创建与撤销权限，开发、预发、生产各用独立身份。记录密钥版本、操作人、操作时间和结果，审计记录中省略密钥值。</p>
 <hr />
 <h2 id="ai">💀 四、AI 应用特有的：泄露 = 别人拿你的钱调模型</h2>
-<p>和数据库密码泄露比，风险结构有三点不同：</p>
-<ul>
-<li><strong>攻击者不需要别的东西</strong> —— 供应商接口在公网，拿到 key 当场就能用；连你的库通常还有内网/白名单挡着。</li>
-<li>⭐ <strong>损失按秒累积，和你发现得多晚成正比</strong> —— 数据被拖走是一次性的，钱不是。</li>
-<li><strong>没有上限</strong>（除非你设了）。而扫公开仓库找 <code>sk-</code> 开头字符串这件事，是<strong>自动化、全天候</strong>在跑的。</li>
-</ul>
-<p><strong>① 绝不放前端 —— 加密也不行。</strong> 因为<strong>解密的代码也在前端</strong>：DevTools 的 Network 面板原样显示发出去的请求头，里面躺着解密后的明文。混淆、拆段拼接、塞进 WASM，全一样。唯一正确的形状是 <code>浏览器 →（你的鉴权）→ 你的后端 →（你的 key）→ 供应商</code>，前端从头到尾不知道 key 存在。</p>
-<p>⭐ <strong>这是「为什么非要写一个后端」最硬的答案</strong> —— 不是架构好看，是<strong>密钥必须待在用户碰不到的地方</strong>。</p>
-<p><strong>② 绝不进日志。</strong> 最常见的泄露不是被黑，是自己写的：<code>print(config)</code>、dump 整个请求头排查问题、异常连同局部变量一起打出来。在<strong>格式化的最后一步</strong>兜一道网：</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">logging</span><span class="o">,</span><span class="w"> </span><span class="nn">re</span><span class="o">,</span><span class="w"> </span><span class="nn">sys</span>
-
-<span class="n">PATS</span> <span class="o">=</span> <span class="p">[(</span><span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;sk-[A-Za-z0-9_\-]{6,}&quot;</span><span class="p">),</span> <span class="s2">&quot;sk-***&quot;</span><span class="p">),</span>
-        <span class="p">(</span><span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;(?i)\b(api[-_]?key|authorization|password|token)\b(\s*[=:]\s*)\S+&quot;</span><span class="p">),</span>
-         <span class="sa">r</span><span class="s2">&quot;\1\2***&quot;</span><span class="p">)]</span>
-
-
-<span class="k">class</span><span class="w"> </span><span class="nc">ScrubFormatter</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">Formatter</span><span class="p">):</span>
-    <span class="c1"># ⭐ 在 Formatter 而不是 Filter 里擦：Filter 擦不到 traceback，而密钥最爱藏在那儿</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">format</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">record</span><span class="p">):</span>
-        <span class="n">t</span> <span class="o">=</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">record</span><span class="p">)</span>
-        <span class="k">for</span> <span class="n">p</span><span class="p">,</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">PATS</span><span class="p">:</span>
-            <span class="n">t</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
-        <span class="k">return</span> <span class="n">t</span>
-
-
-<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
-    <span class="n">h</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">StreamHandler</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="p">)</span>
-    <span class="n">h</span><span class="o">.</span><span class="n">setFormatter</span><span class="p">(</span><span class="n">ScrubFormatter</span><span class="p">(</span><span class="s2">&quot;</span><span class="si">%(levelname)s</span><span class="s2"> </span><span class="si">%(message)s</span><span class="s2">&quot;</span><span class="p">))</span>
-    <span class="n">log</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;demo&quot;</span><span class="p">)</span>
-    <span class="n">log</span><span class="o">.</span><span class="n">addHandler</span><span class="p">(</span><span class="n">h</span><span class="p">),</span> <span class="n">log</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
-    <span class="n">log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;启动配置 </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;sk-abcdef123456&quot;</span><span class="p">})</span>
-    <span class="k">try</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s1">&#39;headers={&quot;authorization&quot;: &quot;Bearer sk-leak987654&quot;}&#39;</span><span class="p">)</span>
-    <span class="k">except</span> <span class="ne">RuntimeError</span><span class="p">:</span>
-        <span class="n">log</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="s2">&quot;上游报错&quot;</span><span class="p">)</span>
-</code></pre></div>
-
-<p>实跑输出里两处都变成了 <code>sk-***</code>，<strong>包括 traceback 里那一行</strong>。⚠️ 但要说清局限：<code>"authorization": "Bearer sk-..."</code> 其实<strong>没被第二条规则命中（引号挡住了冒号），是被第一条 <code>sk-</code> 规则救下来的 —— 两条互为补充，任何一条单独都会漏。</strong></p>
-<blockquote>
-<p>⚠️ <strong>脱敏是最后一道网，不是许可证。</strong> 它兜的是你没想到的那次，<strong>不是让你可以放心地把配置对象打出来</strong>。</p>
-</blockquote>
-<p><strong>③ 绝不进错误上报。</strong> Sentry 那类工具的卖点之一就是「自动抓取出错时的局部变量」—— 而 <code>client = SomeLLM(api_key=...)</code> 这行的局部变量里就是明文 key。⭐ <strong>接入之后的第一件事，是打开敏感字段过滤并亲手触发一次异常，确认它真生效了。</strong></p>
-<p><strong>④ 要能快速轮换。</strong> 标准：<strong>从「发现泄露」到「新 key 生效、旧 key 作废」是分钟级</strong>。做不到说明 key 被硬编码在某个你现在想不起来的地方。关键是两把 key 并存的过渡期：</p>
-<section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>在供应商那边【新建】一把（不要先删旧的）</li><li>新 key 填进配置，滚动发布</li><li>看用量看板确认新 key 有流量、服务正常</li><li>这时才【吊销】旧 key ⭐ 顺序反了就是一次自造的故障</li></ol></section>
-<p>⚠️ <strong>删掉代码里的 key 不等于删掉它</strong> —— 它还在 git 历史、shell history、那条贴过 curl 的 issue、notebook 的输出单元格、你演示时的录屏里。<strong>泄露之后唯一有效的动作是吊销，不是删除。</strong></p>
-<p>⭐ <strong>最后一层兜底</strong>：前四条全靠「你没犯错」，<strong>这一条不靠</strong> —— 在模型供应商后台设每月消费硬上限、用量告警（到 50% / 80% 各提醒一次），以及（如果支持）限定这把 key 只能调哪几个模型。它是成本护栏的最外层（第 12 章讲的应用内配额是里面几层），价值不在正常时候，而在于：所有内层护栏都是你写的代码，而写代码的人正是会犯错的那个。</p>
+<p>摘要服务需要在后端持有模型 API 密钥。用户访问的是本应用的接口，由后端验证用户和预算。供应商在自己的接口验证后端凭证。如果凭证泄露，影响取决于它能执行的动作、可访问的资源和失效时间。费用之外，还要核对数据和账户操作的范围。</p>
+<div class="flowchain" role="list" aria-label="浏览器、后端和供应商的信任边界">
+<div class="fstep" role="listitem"><b>浏览器</b><span>只提交业务请求，凭证留在后端。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>应用后端</b><span>检查本应用授权与预算，再使用本服务的受限凭证。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>模型供应商</b><span>只接收业务调用所需的内容，并按凭证权限处理请求。</span></div>
+</div>
+<p>日志和错误上报也有自己的信任边界。记录字段名、固定错误类别、请求 ID 或允许公开的密钥版本标识。避免采集原始请求头、连接串、局部变量、完整异常和配置对象。验证日志和采集端时用合成值。掩码或正则只能当补充，因为字段格式会变。第 15 章的诊断日志和审计记录也采用明确的字段范围。</p>
+<h3 id="secret-rotation-paths">什么时候先切换，什么时候先撤销</h3>
+<div class="panels">
+<div class="panel"><div class="ph">计划轮换 · 旧凭证仍可信</div><p>如果供应商允许新旧短暂并存，就创建同等必要权限的新版本，由一小部分实例先用新版本。验证实际调用成功，再切换其余实例。确认都已迁移后撤销旧版本，并核对供应商已标记失效。</p></div>
+<div class="panel"><div class="ph">疑似泄露 · 先阻断</div><p>启动事件处置，尽快撤销或限制受影响凭证，并隔离异常调用。必要时先降级摘要服务。再使用受限的新凭证恢复服务，核对使用记录和影响范围。恢复旧应用版本时也要绑定可信的新凭证。</p></div>
+</div>
+<p>如果新版本只分发了一半，先确认失败的是新凭证权限、配置来源，还是部分实例尚未刷新。计划轮换时可在旧凭证仍可信、有效的前提下暂停切换。泄露处置时不应为了恢复流量重新启用旧凭证。删除仓库中的字符串也无法让已经外泄的凭证失效。处置还包括清理可访问的副本，以及根据策略保留审计证据。<a href="https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#27-secret-lifecycle">OWASP 密钥生命周期</a>。</p>
+<p>供应商允许时，再限制项目、模型或用量范围，区分告警和真正阻止消费的硬上限。第 12 章的应用预算控制服务内请求，供应商的凭证权限和配额则限制该凭证能做的事。</p>
 <hr />
 <h2 id="dev-staging-prod" data-mg-stop>🌍 五、多环境：dev / staging / prod</h2>
-<p>⭐ <strong>最重要的一条：三个环境之间只有配置不同，镜像和代码必须完全一样。</strong></p>
-<p>理由很直接 —— <strong>如果 staging 跑的是另一份构建产物，那你在 staging 上测过的事，在 prod 上等于没测过。</strong> 这也是下一章要把应用打成一个不可变镜像的原因：同一个镜像换一组环境变量，就是另一个环境。</p>
-<p>💀 <strong>最经典的重大事故是「开发连到了生产库」</strong>，通常发生在「我本地调一下那个数据问题」的时候，然后跑了个 <code>DELETE</code>。三个防法：</p>
-<section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>启动时打印一行： [启动] env=prod db=prod-a model=xxx</li><li>库名带环境标记，危险脚本开头断言 assert &quot;dev&quot; in settings.database_url</li><li>⭐ 生产库分只读账号和读写账号，日常排查只用只读账号</li><li>—— 这条最硬，因为前两条都依赖【人记得】</li></ol></section>
-<p>⚠️ <strong>AI 特有的多环境坑</strong>：很自然会想「dev 和 staging 用便宜的小模型省钱」。<strong>但那样 staging 就不再是 prod 的预演了</strong> —— 换模型会改变输出格式、失败模式、延迟分布、上下文窗口上限，而这几样恰恰最容易翻车。⭐ 折中：dev 可以便宜，staging 必须和 prod 同款模型，用限量（每天固定调用配额）控成本，而不是用换模型控成本。</p>
+<p>优先用同一个经过验证的构建产物逐级发布。让每个环境分别配置数据库、模型凭证、额度和日志权限。</p>
+<p>这样可以把构建差异与运行配置差异分开排查。下一章介绍怎样打包并发布同一份镜像。</p>
+<p>典型故障是开发实例意外拿到生产库配置。启动校验、网络和账号权限可以分别在不同层拦住它。</p>
+<section class="visual-block visual-block-steps" aria-label="数据库环境隔离"><p class="visual-block-title">三道环境检查</p><ol class="vb-steps"><li>启动时对照独立的部署身份与预期数据库目标，只输出允许公开的状态。</li><li>开发和预发网络及应用身份不具备生产数据库权限。</li><li>生产日常排查使用单独的受限只读角色，写权限按任务授权。</li></ol></section>
+<p>便宜模型适合本地试流程。需要验证生产模型的输出合同、上下文上限或延迟时，预发使用生产将部署的模型版本，并通过独立配额限制样本量。预发的样本和流量结构仍会影响外推范围。</p>
 <blockquote>
 <p>⭐ <strong>prompt 模板算配置还是代码？</strong> 建议<strong>当代码</strong>：跟版本库走、进 code review、能和某次发版对上 ——
 改一句 prompt 就可能改变全部输出，这是<strong>发版级</strong>变更，不该在面板上被人随手改掉。
@@ -538,8 +574,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <td><code>log.Fatal</code></td>
 </tr>
 <tr>
-<td>日志脱敏</td>
-<td>自定义 <code>Formatter</code></td>
+<td>安全诊断日志</td>
+<td>显式构造允许记录的字段</td>
 <td><code>pino</code> 的 <code>redact</code> 选项</td>
 <td><code>slog</code> 的 <code>ReplaceAttr</code></td>
 </tr>
@@ -579,42 +615,37 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="_7">✅ 检查点</h2>
 <ol>
-<li>判断一个东西是配置还是代码，分界线是什么？</li>
-<li>散着写 <code>os.getenv</code> 的四个问题是什么？哪一个会让 <code>"0"</code> 被当成 True？</li>
-<li>什么叫 fail fast？为什么「起不来」比「带病上线」好？</li>
-<li>为什么 <code>database_url</code> 也要按密钥处理？加载 <code>.env</code> 为什么不能覆盖已有环境变量？</li>
-<li>密钥三档分别是什么？哪三种信号该从 ① 升到 ②？哪两种才需要 ③？</li>
-<li>LLM API key 泄露和数据库密码泄露，风险结构上有哪三点不同？「加密后放前端」为什么没用？</li>
-<li>轮换密钥的四步顺序是什么？为什么说「删掉代码里的 key 不等于删掉它」？</li>
-<li>为什么说供应商侧的消费上限是唯一一层不依赖「你没犯错」的护栏？</li>
-<li>三个环境必须保持什么完全一样？防「连错生产库」的三个办法里哪个最硬？</li>
-<li>「staging 用便宜模型省钱」有什么问题？折中方案是什么？</li>
+<li>同一份摘要镜像在 dev 和 prod 运行，哪些配置可以变化？哪些凭证需要分开？</li>
+<li>本地文件写了 90 秒，进程注入 45 秒。结果是多少？如果注入值是空字符串呢？</li>
+<li>生产实例的 <code>APP_ENV</code> 填成了 <code>dev</code>，本地文件能救回来吗？</li>
+<li>为什么要校验数值范围，即使 <code>float()</code> 已经解析成功？</li>
+<li><code>repr=False</code> 有什么作用？启动日志和错误上报该记录哪些字段？</li>
+<li>谁应拥有读凭证权限？谁需要创建或撤销权限？</li>
+<li>切了一半实例后发现旧凭证可能已泄露。计划轮换的重叠期还能继续用吗？</li>
+<li>什么检查能发现开发服务误连生产库？哪层能直接阻止连接？</li>
+<li>预发该在什么时候使用生产将部署的模型版本？如何限制试验费用？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>换机器、换环境会变的是配置，不变的是代码。</strong> 模型名/超时/地址/密钥/开关是配置；重试的退避公式是代码。</li>
-<li>① 拼错的键<strong>静默返回 None</strong>；② 永远是字符串——<code>"0"</code> 非空所以是 True 💀；③ 没有一处列全；④ 运行时才发现，那时已经在接流量。</li>
-<li><strong>启动第一件事就加载并校验全部配置，缺了或类型不对直接崩掉不启动。</strong> 因为起不来是发版时立刻看得见的，带病上线是用户替你发现的。</li>
-<li>连接串里<strong>带着密码</strong>，「URL 不算密钥」是常见误判。不覆盖是为了定下优先级 默认值 &lt; .env &lt; 环境变量 &lt; 启动参数 —— 写反了，一份混进镜像的 <code>.env</code> 会让生产安静地用上开发的数据库地址，而日志看起来全正常。</li>
-<li>①环境变量（1 应用、1–3 人、≤5 个密钥）②平台密钥管理 ③Vault 那类。升 ②：<strong>发 key 靠复制粘贴到聊天窗</strong>、轮换要改 6 个地方还记不全、答不出谁能看到。只有动态凭证和租户级独立吊销才需要 ③。</li>
-<li>① 攻击者<strong>不需要别的东西</strong>（接口在公网，而连库通常有内网挡着）；② 损失按秒累积，和发现得多晚成正比；③ 没有上限（除非你设了）。放前端没用是因为解密代码也在前端，DevTools 里就是明文请求头 —— 正确形状是浏览器 →（你的鉴权）→ 你的后端 →（你的 key）→ 供应商。</li>
-<li>①新建（<strong>别先删旧的</strong>）②滚动发布 ③确认新 key 有流量 ④这时才吊销旧的。删代码没用是因为 key 还在 git 历史、shell history、贴过 curl 的 issue、notebook 输出、演示录屏里 —— 唯一有效的动作是吊销。</li>
-<li>因为其余护栏都是<strong>你写的代码</strong>，而写代码的人正是会犯错的那个。</li>
-<li><strong>镜像和代码完全一样，只有配置不同</strong> —— 否则 staging 测过等于没测。三个办法里只读账号最硬，另外两个都依赖人记得。</li>
-<li>换模型会改变<strong>输出格式、失败模式、延迟分布、上下文窗口上限</strong>，staging 就不再是 prod 的预演。折中：dev 可以便宜，staging 必须同款，用限量而不是换模型控成本。</li>
+<li>模型、超时、数据库、额度和日志设置可以分别提供。各环境使用自己的受限凭证。</li>
+<li>用 45 秒。注入空字符串也会覆盖本地值，随后因无法解析为有效秒数而拒绝启动。</li>
+<li>不会。部署入口预期是 prod，声明为 dev 会失败。生产实例也不加载本地文件。</li>
+<li><code>nan</code> 可以解析成浮点数，但不满足大于 0 且小于等于 120 秒的范围。</li>
+<li>它只隐藏默认对象表示里的字段。日志选择公开状态、字段名、固定失败类别、请求 ID 或允许公开的版本标识。</li>
+<li>应用身份读取本服务的凭证。创建和撤销交给独立的发布或运维身份，并记录审计事件。</li>
+<li>尽快撤销或限制旧凭证，隔离受影响调用。必要时降级，再使用可信新凭证恢复。</li>
+<li>启动时用独立部署身份核对数据库目标。网络和数据库权限能阻止开发实例连接生产库。</li>
+<li>验证与模型版本有关的输出合同、上下文限制或延迟时使用计划部署的版本，再通过独立配额限制样本量。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_8">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>⭐ <strong>配置要能不改代码就换掉，密钥要能十分钟内换掉。</strong> 分界线：<strong>换机器或换环境会变的就是配置</strong>；通道只有一条——环境变量。</p>
-<p>❌ 散着写 <code>os.getenv</code> 有四个问题：<strong>拼错的键静默返回 None</strong>、<strong>值永远是字符串</strong>（于是 <code>"0"</code> 是真）、没有一处列全、运行时才发现。✅ 正确形状是一个配置类，<strong>启动第一件事加载，缺了就崩掉不启动</strong>——⭐ <strong>起不来是发版时看得见的，带病上线是用户替你发现的。</strong></p>
-<p>⚠️ 两个容易漏的：打印配置时<strong>密钥要换成星号</strong>（你一定会打印它），以及<strong>数据库连接串也算密钥</strong>（里面带密码）。</p>
-<p><code>.env</code> 进忽略列表、<code>.env.example</code> 进版本库（<strong>它是配置项的唯一文档</strong>）。⚠️ 加载时<strong>不要覆盖已有环境变量</strong>——写反了会让一份混进镜像的 <code>.env</code> <strong>在生产安静地改回开发配置</strong>。</p>
-<p>💀 <strong>AI 特有的那一条</strong>：key 泄露 = <strong>别人拿你的钱调模型</strong>——攻击者不需要别的东西、<strong>损失按秒累积、没有上限</strong>，而扫公开仓库找 key 是全天候自动化在跑的。四条铁律：<strong>绝不放前端</strong>（加密也没用，解密代码也在前端——⭐ <strong>这正是「为什么要写后端」最硬的答案</strong>）、<strong>绝不进日志</strong>（⚠️ 要在格式化那一层擦，否则擦不到 traceback）、<strong>绝不进错误上报</strong>（它会自动抓局部变量）、<strong>分钟级轮换</strong>。</p>
-<p>⚠️ 最后一条最容易自欺：<strong>删掉代码里的 key 不等于删掉它</strong>——git 历史、shell 历史里都还在。</p>
+<p>先由可信部署入口确定环境，再选配置来源、合并、校验和决定是否接流量。</p>
+<p>缺值、错类型和错环境都要在启动时发现。错误只报字段和原因，诊断日志只选必要字段。</p>
+<p>应用只读自己需要的凭证。计划轮换可短时并存；疑似泄露时优先阻断并换用可信凭证。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="14-容器化与部署.html">14-容器化与部署.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
