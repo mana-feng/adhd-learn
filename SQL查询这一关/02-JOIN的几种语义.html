@@ -298,7 +298,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#sum-150-250">💀 三、扇出：SUM 从 150 变成 250</a></li>
 <li><a href="#_6">📋 四、连接键的基数，决定结果的行数</a></li>
 <li><a href="#_7">🧯 五、自连接：把「同一张表的两行」摆到一行上</a></li>
-<li><a href="#_8">🔎 六、四个安静的语义坑</a></li>
+<li><a href="#semi-anti-join">🪪 六、半连接与反连接：只问「有没有」</a></li>
+<li><a href="#_8">🔎 七、四个安静的语义坑</a></li>
 <li><a href="#_9">🔗 这一章连到哪里</a></li>
 <li><a href="#_10">✅ 检查点</a></li>
 <li><a href="#_11">🛑 可以停在这里</a></li>
@@ -743,7 +744,72 @@ print(&quot;1的互关:&quot;, mutual, &quot;1/2的共同关注:&quot;, common)
 db.close()
 </code></pre></div>
 <p>出边查询沿 (src,dst)，入边查询沿 (dst,src)；是否采用索引仍看实际执行计划与数据分布。若已有脏数据重复边，先清理并建立唯一性约束；临时 DISTINCT 只能去掉输出重复，不能替代写入规则。这里的共同好友明确采用“共同关注目标”定义，其他好友定义须另写条件。小 SQLite 例验证集合语义，<strong>没有证明大规模社交检索的吞吐、分片或热点处理</strong>。依据：<a href="https://www.sqlite.org/lang_select.html#determination_of_input_data_from_clause_processing">SQLite 连接输入规则</a>。</p></details>
-<h2 id="_8">🔎 六、四个安静的语义坑</h2>
+<h2 id="semi-anti-join" data-mg-stop="">🪪 六、半连接与反连接：只问「有没有」</h2>
+<p><strong>先看问题，不急着背名字：</strong>如果只想知道「这个用户有没有订单」，我们并不需要把订单列拿出来，更不希望一个用户因为有三张订单而出现三次。</p>
+<div class="flowchain" role="img" aria-label="普通连接会展开匹配行，半连接和反连接只保留左表行">
+  <div class="fstep"><b>普通 JOIN</b><span>每个匹配对一行；阿呆两张单，就出现两行</span></div>
+  <div class="farrow">→</div>
+  <div class="fstep"><b>半连接 SEMI JOIN</b><span>右边至少有一行就保留左行；阿呆只出现一次</span></div>
+  <div class="farrow">→</div>
+  <div class="fstep"><b>反连接 ANTI JOIN</b><span>右边一行都没有才保留左行；得到没下单的人</span></div>
+</div>
+<p>SQL 标准查询里通常不直接写 <code>SEMI JOIN</code> / <code>ANTI JOIN</code> 关键字。它们是<strong>关系运算的语义名称</strong>：半连接保留「存在匹配」的左表行，反连接保留「不存在匹配」的左表行。最稳妥的表达分别是 <code>EXISTS</code> 与 <code>NOT EXISTS</code>。</p>
+<div class="codehilite" data-code-language="python"><pre><code>import sqlite3
+
+db = sqlite3.connect(":memory:")
+db.executescript("""
+CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+CREATE TABLE orders(id INTEGER PRIMARY KEY, user_id INTEGER);
+INSERT INTO users VALUES (1,'阿呆'),(2,'阿瓜'),(3,'阿花');
+INSERT INTO orders VALUES (10,1),(11,1),(12,2),(13,NULL);
+""")
+
+ordinary = db.execute("""
+    SELECT u.id, u.name
+    FROM users AS u JOIN orders AS o ON o.user_id = u.id
+    ORDER BY u.id, o.id
+""").fetchall()
+
+semi = db.execute("""
+    SELECT u.id, u.name
+    FROM users AS u
+    WHERE EXISTS (SELECT 1 FROM orders AS o WHERE o.user_id = u.id)
+    ORDER BY u.id
+""").fetchall()
+
+anti = db.execute("""
+    SELECT u.id, u.name
+    FROM users AS u
+    WHERE NOT EXISTS (SELECT 1 FROM orders AS o WHERE o.user_id = u.id)
+    ORDER BY u.id
+""").fetchall()
+
+print("ordinary:", ordinary)
+print("semi    :", semi)
+print("anti    :", anti)
+assert ordinary == [(1, "阿呆"), (1, "阿呆"), (2, "阿瓜")]
+assert semi == [(1, "阿呆"), (2, "阿瓜")]
+assert anti == [(3, "阿花")]
+db.close()
+</code></pre></div>
+<p>完整手算：</p>
+<ol>
+<li>阿呆匹配订单 10、11，所以普通 <code>JOIN</code> 产生 <strong>2</strong> 行；半连接只问「至少有一行吗」，答案是真，于是只保留阿呆 <strong>1</strong> 次。</li>
+<li>阿瓜匹配订单 12，普通连接和半连接都各保留 <strong>1</strong> 行。</li>
+<li>阿花没有匹配，半连接不保留；反连接的「不存在匹配」为真，所以保留阿花 <strong>1</strong> 行。</li>
+<li>订单 13 的 <code>user_id</code> 是 <code>NULL</code>，<code>NULL = users.id</code> 判不出真，因此不会匹配任何用户。</li>
+</ol>
+<blockquote><p>⭐ <strong>行数判据：</strong>半连接和反连接的输出都只来自左表，所以每一条左表输入行最多输出一次。普通 <code>JOIN</code> 的输出来自匹配对，右表有几条匹配，左行就可能被展开几次。</p></blockquote>
+<h3 id="anti-join-forms">三种「没有匹配」写法，不要当成无条件等价</h3>
+<div class="tw"><table>
+<thead><tr><th>写法</th><th>什么时候可靠</th><th>边界</th></tr></thead>
+<tbody>
+<tr><td><code>NOT EXISTS</code></td><td>默认首选；直接表达「不存在匹配行」</td><td>相关条件必须写完整，但不会被子查询中的 <code>NULL</code> 毒化</td></tr>
+<tr><td><code>LEFT JOIN … WHERE o.id IS NULL</code></td><td><code>o.id</code> 是右表匹配后绝不为 <code>NULL</code> 的主键或非空列</td><td>若检查的是本来就可空的业务列，会把「匹配到但该列为空」误当成没匹配</td></tr>
+<tr><td><code>NOT IN (subquery)</code></td><td>能证明子查询结果不含 <code>NULL</code></td><td>只要集合里混入一个 <code>NULL</code>，三值逻辑就可能让全部候选都无法判为真；详见 04、05 章</td></tr>
+</tbody></table></div>
+<p>⚠️ <code>JOIN + DISTINCT</code> 有时看起来也能得到「有订单的用户」，但它先制造匹配对，再尝试去重。若选出的左表列不能唯一标识原行，两条真实左行还可能被错误合并；而 <code>EXISTS</code> 从一开始就表达「每条左行只做存在性判断」。至于数据库会把哪种写法改写成哪种物理计划，要看目标数据库和执行计划，本章只下语义结论。</p>
+<h2 id="_8">🔎 七、四个安静的语义坑</h2>
 <p><strong>① <code>USING(col)</code> 是 <code>ON a.col = b.col</code> 的简写，但它会把那一列合并成一列。</strong>
 <code>SELECT *</code> 时 <code>ON</code> 版给你两个 <code>order_id</code>，<code>USING</code> 版只给一个。⭐ 两边列名一样时 <code>USING</code> 更干净。</p>
 <p><strong>② <code>NATURAL JOIN</code> 不要用。</strong> 它按「所有同名列」自动连接 ——
@@ -861,6 +927,8 @@ IS 而不是 = -&gt; [(&#39;x1&#39;, &#39;y1&#39;), (&#39;x-null&#39;, &#39;y-nu
 <li>连之前怎么一行 SQL 判断会不会扇出？实测那个数是多少？为什么还要看最大值？</li>
 <li>两张一对多的表连在同一个主表上，实跑的行数和 <code>SUM</code> 是多少？和真实值差几倍？</li>
 <li>为什么 <code>NATURAL JOIN</code> 不该用？无类型声明列与 <code>INTEGER / TEXT</code> 列比较同一对 <code>1 / '1'</code> 时，SQLite 结果为何不同？MySQL 的字符串列对数字比较限制，具体针对哪个索引用途？</li>
+<li>阿呆两张单、阿瓜一张单、阿花没单的例子里，普通连接、半连接、反连接分别返回哪些用户？为什么半连接不会把阿呆重复两次？</li>
+<li>为什么反连接默认优先 <code>NOT EXISTS</code>？<code>LEFT JOIN … IS NULL</code> 检查哪类列才可靠，<code>NOT IN</code> 又会被什么值毒化？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
@@ -889,6 +957,8 @@ IS 而不是 = -&gt; [(&#39;x1&#39;, &#39;y1&#39;), (&#39;x-null&#39;, &#39;y-nu
 <li><code>NATURAL JOIN</code> 按<strong>所有同名列</strong>自动连接 —— 哪天有人给两张表都加了 <code>updated_at</code>，
     连接条件就悄悄多一条、行数当场不对，而 SQL 一个字没改。
     本例无类型声明列不做数值/文本亲和性转换，<code>'1'</code> 与 <code>1</code> 不匹配，原两行实验只剩 <code>[(2, 2)]</code>。声明 <code>INTEGER / TEXT</code> 后，可转换文本可按比较亲和性配对，新增单值对照为 <code>[(1, '1')]</code>。MySQL 8.4 所述限制针对字符串列与数字比较时该字符串索引的快速值定位；其他方向或访问路径需查实际计划，本轮未运行 MySQL。</li>
+<li>普通连接返回阿呆两次、阿瓜一次，共 <strong>3</strong> 行；半连接返回阿呆、阿瓜，共 <strong>2</strong> 行；反连接只返回阿花，共 <strong>1</strong> 行。半连接的判据是「右边是否至少存在一条匹配」，输出仍是左表行，每条左行最多一次；它不会枚举全部匹配对。</li>
+<li><code>NOT EXISTS</code> 直接表达「不存在匹配」，不会因右表集合里出现 <code>NULL</code> 而整体失效。<code>LEFT JOIN … WHERE o.id IS NULL</code> 只有在 <code>o.id</code> 是匹配后必定非空的主键或非空列时才可靠；检查可空业务列会误判。<code>NOT IN</code> 的子查询只要混入一个 <code>NULL</code>，三值逻辑就可能让所有候选都无法判为真。</li>
 </ol>
 </details>
 <h2 id="_11">🛑 可以停在这里</h2>
@@ -899,6 +969,7 @@ IS 而不是 = -&gt; [(&#39;x1&#39;, &#39;y1&#39;), (&#39;x-null&#39;, &#39;y-nu
 <p>💀💀 <strong>本章的正题是扇出</strong>：顺手连一下标签表，求和就变大了——<strong>因为一行不再代表一张订单，而是一个「订单加标签」的配对</strong>。⚠️ <strong>危险全在「不报错」三个字上</strong>：不抛异常、不返回空值，<strong>只给一个看起来合理、只是偏大的数</strong>；而且<strong>放大倍数不固定，趋势图上只会显示「增长」</strong>。</p>
 <p>三种修法：⭐ <code>EXISTS</code> 只筛不取列（首选）、⭐ 先把右表聚合成一行一键再连、<code>DISTINCT</code> 按主键去重（别当默认）。⚠️ <strong>按值去重是错的</strong>——两张真实订单金额相同会少算一张。事前体检一行 SQL 就够：总行数除以去重主键数，<strong>大于 1 就会扇出</strong>；⚠️ <strong>还要看最大值，长尾那几个键会集中放大</strong>。</p>
 <p>💀 <strong>多路 <code>JOIN</code> 是相乘不是相加</strong>——而「订单加明细加优惠券」正是最常见的报表结构。</p>
+<p>⭐ <strong>只问右边「有没有」时，不要先展开再去重：</strong>有匹配用半连接语义 <code>EXISTS</code>，没匹配用反连接语义 <code>NOT EXISTS</code>。两者都只输出左表行，每条左行最多一次。<code>LEFT JOIN … IS NULL</code> 要检查右表必定非空的键；<code>NOT IN</code> 则必须先证明子查询没有 <code>NULL</code>。</p>
 <p>另外四个安静的坑：<code>USING</code> 会合并同名列；💀 <strong><code>NATURAL JOIN</code> 不要用</strong>（有人加个时间戳字段，连接条件就悄悄多一条）；⚠️ <strong>连接键要同时核存储类型、列亲和性与转换规则：无类型列的失败不能推广到 INTEGER/TEXT；MySQL 字符串列对数字比较的快速索引定位限制，也不是所有路径失效</strong>；<strong>连接键是 NULL 永远配不上对</strong>。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="03-聚合与分组.html">03-聚合与分组.md</a></p>
