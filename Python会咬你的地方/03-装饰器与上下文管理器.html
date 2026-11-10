@@ -592,6 +592,59 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>装饰这一步没报错，ping 现在是: function</p><p>调用才炸: TypeError : retry.&lt;locals&gt;.decorator() missing 1 required positional argument: &#x27;fn&#x27;</p><p>a 裸用 | b 带参数</p></div></section>
 <p>⚠️ <strong>注意那条报错信息的形状</strong>：<code>decorator() missing 1 required positional argument: 'fn'</code>。你在源码里根本没写过 <code>decorator(...)</code> 这个调用，traceback 指着的是你的 <code>ping()</code>。⭐ <strong>判据：错误信息里出现了装饰器内部的函数名（<code>decorator</code> / <code>wrapper</code>），八成是括号写漏了或多了。</strong></p>
 <p>⭐ 想让 <code>@retry2</code> 和 <code>@retry2(times=5)</code> 都能用，就把「第一个位置参数是不是函数」当成分支条件，并<strong>把配置项做成 keyword-only</strong>（<code>*</code> 后面的参数）—— 这样不会有人误传位置参数进来。</p>
+<h3 id="closure-late-binding">包装函数什么时候读外层名字？</h3>
+<p><code>retry(3)</code> 已经返回了，<code>wrapper</code> 调用时仍然能读到那一次调用的 <code>times</code>。沿用 <a href="01-名字、对象和绑定.html#function-name-scope">01 的外层名称查找</a>，这里把引用了外层函数局部名字的内层函数及其保留的绑定一起称为<strong>闭包（closure）</strong>。</p>
+<p>现在要生成两张以后才会打印的提示，第一张写「去北门」，第二张写「去南门」。如果只在同一次函数调用的循环里反复定义提示函数，两个函数会引用同一个 <code>room</code> 绑定。循环结束后，这个绑定最后指向「南门」。等到调用时，两个函数才读它，这就是这里的<strong>晚绑定（late binding）</strong>。</p>
+<div class="tw" tabindex="0" role="region" aria-label="两个提示函数在定义和调用时使用的绑定">
+<table>
+<thead><tr><th scope="col">写法</th><th scope="col">建立函数时</th><th scope="col">循环结束后调用</th></tr></thead>
+<tbody>
+<tr><td>循环里直接定义</td><td>两张提示都引用同一次 <code>build_labels()</code> 的 <code>room</code></td><td>都读到南门</td></tr>
+<tr><td>每轮调用 <code>make_label(room)</code></td><td>每次调用分别绑定自己的形参 <code>room</code></td><td>分别读到北门、南门</td></tr>
+<tr><td>给提示函数写 <code>room=room</code></td><td>每次执行 <code>def</code> 时，右边的 <code>room</code> 被求值，结果存为该函数的默认参数</td><td>省略实参时，左边的形参各自拿到北门、南门</td></tr>
+</tbody>
+</table>
+</div>
+<p>下面整段可以独立运行。<code>make_label</code> 和前面的 <code>retry(times)</code> 用的是同一个办法，每次工厂调用都有自己的形参绑定。</p>
+<div class="codehilite" data-code-language="python"><pre><code>def make_label(room):
+    def label():
+        return f"去{room}"
+    return label
+
+
+def build_labels():
+    late, factory, defaults = [], [], []
+    for room in ("北门", "南门"):
+        def label():
+            return f"去{room}"
+
+        def label_with_default(room=room):
+            return f"去{room}"
+
+        late.append(label)
+        factory.append(make_label(room))
+        defaults.append(label_with_default)
+    return late, factory, defaults
+
+
+for labels in build_labels():
+    print([label() for label in labels])
+
+rooms = ["北门"]
+
+def show(saved=rooms):
+    return saved
+
+rooms.append("南门")
+assert show() is rooms and show() == ["北门", "南门"]
+rooms = ["西门"]
+assert show() is not rooms and show() == ["北门", "南门"]
+</code></pre></div>
+<section class="visual-block visual-block-compare" aria-label="三种提示函数的运行输出">
+<p class="visual-block-title">按表格顺序输出</p>
+<div class="vb-compare"><p>['去南门', '去南门']</p><p>['去北门', '去南门']</p><p>['去北门', '去南门']</p></div>
+</section>
+<p><strong>保存引用和冻结内容是两回事。</strong>按默认参数保存下来的仍是对象引用。比如先让 <code>rooms = ["北门"]</code>，再用 <code>def show(saved=rooms): return saved</code> 保存这个列表。后来执行 <code>rooms.append("南门")</code>，<code>show()</code> 会返回 <code>["北门", "南门"]</code>，因为默认参数仍指向那张被改过的列表。若随后执行 <code>rooms = ["西门"]</code>，<code>show()</code> 仍返回原列表。工厂参数也遵守同样的对象规则。对照 <a href="01-名字、对象和绑定.html#0">01 的可变默认参数</a>和 <a href="https://docs.python.org/3/faq/programming.html#why-do-lambdas-defined-in-a-loop-with-different-values-all-return-the-same-result">Python 关于循环闭包的说明</a>。</p>
 <h2 id="_3">🚦 四、叠几个装饰器：从下往上应用，从上往下执行</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 叠几个装饰器：从下往上【应用】，从上往下【执行】</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">functools</span>
@@ -759,7 +812,7 @@ assert &quot;_Gate__hidden&quot; in vars(Gate)
 </details>
 <!-- final-names END -->
 <h2 id="with" data-mg-stop="">🧩 六、<code>with</code> 背后就两个方法</h2>
-<p><code>with obj as x:</code> 展开之后只有两步：调 <code>obj.__enter__()</code>，把返回值绑给 <code>x</code>；块结束时<strong>无论怎么结束</strong>，调 <code>obj.__exit__(异常类型, 异常对象, traceback)</code>。</p>
+<p>执行 <code>with obj as x:</code> 时会调用 <code>obj.__enter__()</code>。它成功返回后，返回值才绑定给 <code>x</code>，然后执行代码块。离开时调用同一个管理器的 <code>__exit__</code>，传入异常类型、异常对象和 traceback。没有异常时传入三个 <code>None</code>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># with 背后就两个方法：__enter__ 和 __exit__</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Trace</span><span class="p">:</span>
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tag</span><span class="p">):</span>
@@ -798,7 +851,7 @@ assert &quot;_Gate__hidden&quot; in vars(Gate)
 <p>⚠️ <strong><code>as x</code> 绑的是 <code>__enter__</code> 的返回值，不是那个对象本身。</strong> 上面 <code>x</code> 是一个字符串，不是 <code>Trace</code> 实例。</p>
 <p>多数库返回 <code>self</code>（所以你以为它们是一回事），但也有反例：<code>open()</code> 返回文件对象本身，而 <code>contextlib.suppress()</code> 的 <code>__enter__</code> 返回 <code>None</code>。</p>
 <p>⭐ <strong>写自己的上下文管理器时，<code>__enter__</code> 里忘了 <code>return self</code> 会让 <code>as x</code> 拿到 <code>None</code>，而这不报错</strong> —— 直到你用 <code>x.something</code> 才炸出一个 <code>AttributeError: 'NoneType' object has no attribute ...</code>。</p>
-<p>⭐ <strong><code>__exit__</code> 的执行是无条件的</strong>：正常结束、<code>return</code>、<code>break</code>、<code>continue</code>、抛异常，五条路都会走到它。这正是它比手写清理可靠的全部原因。</p>
+<p>⭐ <strong><code>__enter__</code> 成功返回是保证调用 <code>__exit__</code> 的前提。</strong>进入之后，无论是正常结束、<code>return</code>、<code>break</code>、<code>continue</code>，还是块内抛异常，都会调用退出方法。即使 <code>as</code> 目标的赋值出错，例如解包失败，也会调用它。</p>
 <h2 id="with-tryfinally">⭐ 七、<code>with</code> 就是 <code>try/finally</code>，外加它多干的三件事</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># with 就是 try/finally 的封装版；多个资源时 with 比手写可靠</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">ExitStack</span>
@@ -854,16 +907,68 @@ assert &quot;_Gate__hidden&quot; in vars(Gate)
 <td><code>finally</code> 里的清理散落在每个调用点，改一次要改 N 处；<code>__exit__</code> 只有一处</td>
 </tr>
 <tr>
-<td>⭐ <strong>多资源时前面开好的一定会关</strong></td>
-<td><code>with A() as a, B() as b:</code> 里 <code>B</code> 打不开，<code>A</code> 已经开好的那个<strong>照样被关掉</strong>（上面输出里 <code>开 B</code> → <code>关 B</code> → 才抛出来）。手写嵌套 <code>try/finally</code> 很容易漏这条</td>
+<td>⭐ <strong>多资源时会调用已成功进入的资源的退出方法</strong></td>
+<td><code>with A() as a, B() as b:</code> 里 <code>B</code> 打不开，<code>A</code> 已成功进入，仍会调用它的 <code>__exit__</code>（上面输出里 <code>开 B</code> → <code>关 B</code> → 才抛出来）。手写嵌套 <code>try/finally</code> 很容易漏这条</td>
 </tr>
 <tr>
 <td><strong>数量不定时有 <code>ExitStack</code></strong></td>
-<td>要打开 N 个文件（N 运行时才知道）没法写 N 层 <code>with</code>。<code>ExitStack.enter_context</code> 逐个登记，退出时<strong>按相反顺序</strong>全部关掉</td>
+<td>要打开 N 个文件（N 运行时才知道）没法写 N 层 <code>with</code>。<code>ExitStack.enter_context</code> 在每个管理器成功进入后登记其退出方法。栈退出时<strong>按相反顺序</strong>调用它们</td>
 </tr>
 </tbody>
 </table></div>
 <p>📋 <strong>判据</strong>：<strong>一对操作只要「必须成双」（开/关、加锁/解锁、进事务/提交、改全局状态/还原），就写成上下文管理器</strong>，不要靠人记得写 <code>finally</code>。已经是上下文管理器的常见对象：文件、<code>threading.Lock</code>（<a href="04-GIL：为什么多线程救不了你.html">04 章</a> 那些锁都能直接 <code>with</code>）、数据库连接与游标、<code>torch.no_grad()</code>、<code>tempfile.TemporaryDirectory()</code>。</p>
+<h3 id="enter-partial-failure">进入做到一半失败，已经拿到的资源归谁关？</h3>
+<p>上面的 B 已成功进入，所以 C 打不开时仍会调用 B 的 <code>__exit__</code>。再加一步，假设 C 已经拿到草稿缓冲区，却在校验草稿时抛出异常。C 的 <code>__enter__</code> 还没有成功返回，这次 <code>with</code> 不会调用 C 自己的 <code>__exit__</code>，也不会进入正文。拿到的草稿缓冲区要在进入失败的路径上主动关闭。</p>
+<div class="tw" tabindex="0" role="region" aria-label="草稿校验失败时两个资源的清理顺序">
+<table>
+<thead><tr><th scope="col">走到哪一步</th><th scope="col">谁负责关闭</th></tr></thead>
+<tbody>
+<tr><td>设置流进入成功，再进入草稿管理器</td><td>外层 <code>with</code> 已负责设置流的退出</td></tr>
+<tr><td>草稿已打开，校验抛出异常</td><td>草稿的 <code>__enter__</code> 先关草稿，再重新抛出原异常</td></tr>
+<tr><td>异常传到外层，离开 <code>with</code></td><td>调用设置流的退出方法。草稿管理器自己的退出方法未被调用</td></tr>
+</tbody>
+</table>
+</div>
+<p>下面用两个内存文本流对照失败与成功。<code>closed</code> 标记流是否关闭，<code>exited</code> 标记草稿管理器的 <code>__exit__</code> 是否被调用。两者分开记录，才能看出关闭实际发生在哪一步。</p>
+<div class="codehilite" data-code-language="python"><pre><code>from io import StringIO
+
+
+class Draft:
+    def __init__(self, valid):
+        self.valid = valid
+        self.exited = False
+
+    def __enter__(self):
+        self.stream = StringIO("初稿")
+        try:
+            if not self.valid:
+                raise ValueError("草稿校验失败")
+        except BaseException:
+            self.stream.close()
+            raise
+        return self.stream
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.exited = True
+        self.stream.close()
+
+
+for valid in (False, True):
+    settings = StringIO("设置")
+    draft = Draft(valid)
+    try:
+        with settings, draft as text:
+            print("正文", text.read())
+    except ValueError as error:
+        print(error)
+    print("设置关闭、草稿关闭、草稿退出",
+          settings.closed, draft.stream.closed, draft.exited)
+</code></pre></div>
+<section class="visual-block visual-block-compare" aria-label="草稿校验失败和成功的运行输出">
+<p class="visual-block-title">运行输出</p>
+<div class="vb-compare"><p>草稿校验失败</p><p>设置关闭、草稿关闭、草稿退出 True True False</p><p>正文 初稿</p><p>设置关闭、草稿关闭、草稿退出 True True True</p></div>
+</section>
+<p>这里的 <code>except BaseException</code> 只做清理并立即用裸 <code>raise</code> 重新抛出，连中断也不会悄悄吞掉。正常返回后，草稿流改由 <code>__exit__</code> 关闭。清理多个已获得的子资源时，还可以在 <code>__enter__</code> 内用 <code>ExitStack</code> 逐个登记清理。依据可见 <a href="https://docs.python.org/3/reference/compound_stmts.html#the-with-statement">Python 的 with 语句参考</a>和 <a href="https://docs.python.org/3/library/contextlib.html#cleaning-up-in-an-enter-implementation">contextlib 的进入失败清理示例</a>。</p>
 <h2 id="__exit__-true" data-mg-stop="">💀 八、<code>__exit__</code> 返回 True 会把异常吞掉</h2>
 <p>这是本章一号杀手。<code>__exit__</code> 的返回值有一个你可能不知道自己在用的含义：<strong>返回真值 = 「这个异常我处理掉了，别往外抛」</strong>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 💀 __exit__ 返回 True 会把异常吞掉，而且不留任何痕迹</span>
@@ -1292,11 +1397,13 @@ assert &quot;_Gate__hidden&quot; in vars(Gate)
 <li>把 <code>@retry(3)</code> 写成 <code>@retry</code>，报错发生在哪一行、错误信息长什么样？由此得到的判据是什么？</li>
 <li>多个装饰器叠在一起，「应用」和「执行」的顺序分别是什么方向？鉴权和计时该怎么排？</li>
 <li><code>@log</code> 和 <code>@staticmethod</code> 顺序反了会怎样？为什么说 <code>bad_static</code> 比当场报错的 <code>bad_class</code> 更贵？一行代码怎么验证？</li>
-<li><code>with obj as x:</code> 里的 <code>x</code> 是什么？<code>__exit__</code> 在哪几种退出方式下会被执行？</li>
+<li><code>with obj as x:</code> 里的 <code>x</code> 是什么？<code>__exit__</code> 何时保证被调用？如果 <code>__enter__</code> 自己抛错呢？</li>
 <li><code>__exit__</code> 返回 <code>True</code> 会发生什么？为什么它比 <code>except Exception: pass</code> 更隐蔽？真想吞异常该用什么？</li>
 <li><code>@contextmanager</code> 里的 <code>yield</code> 不包在 <code>try/finally</code> 里，什么时候会出问题？为什么这个 bug 测不出来？</li>
 <li><code>@contextmanager</code> 的三个坑分别是什么？为什么「<code>yield</code> 前抛的异常在 <code>with</code> 那一行就炸了」和上一章「生成器调用时一行不执行」不矛盾？</li>
 <li>手工 <code>model.eval()</code> … <code>model.train()</code> 中途抛异常会留下什么状态？为什么这个错误在训练曲线上看起来「更好」？</li>
+<li>北门那一轮生成的第一个提示函数，如果在当轮立即调用，会读到哪扇门？如果一直等到循环结束呢？</li>
+<li>草稿校验失败时，如果删掉 <code>__enter__</code> 中的异常清理，最终三个布尔值会是什么？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
@@ -1308,11 +1415,13 @@ assert &quot;_Gate__hidden&quot; in vars(Gate)
 <li>装饰那一步<strong>不报错</strong>，报错发生在调用 <code>ping()</code> 时，信息是 <code>TypeError: retry.&lt;locals&gt;.decorator() missing 1 required positional argument: 'fn'</code>。判据：错误信息里出现了装饰器内部的函数名（<code>decorator</code> / <code>wrapper</code>），八成是括号写漏了或多了。</li>
 <li><strong>应用</strong>从下往上（最靠近 <code>def</code> 的先贴），执行从上往下（最外层先进、最后出），像洋葱。排序规矩是「谁的语义该最先生效谁写最上面」：鉴权在计时之外（未授权的请求不该被算进耗时），限流在重试之外（重试不该绕开限流）。</li>
 <li>类字典里存的从 <code>staticmethod</code> 变成了普通 <code>function</code>。<code>bad_class</code> 当场抛 <code>'classmethod' object is not callable</code>，<strong>当天就会被修</strong>；而 <code>bad_static</code> 从类上调 <code>C.bad_static(3)</code> 返回 6 一切正常，只有从实例上调 <code>C().bad_static(3)</code> 才抛 <code>takes 1 positional argument but 2 were given</code>（多出来的是 <code>self</code>，错误信息不会告诉你）。验证：<code>type(C.__dict__["bad_static"])</code> 应该是 <code>staticmethod</code>。🗓️ 它能从类上调通是 Python 3.10 之后的行为，3.9 会直接炸 —— 新版本反而更危险。</li>
-<li><code>x</code> 是 <strong><code>__enter__</code> 的返回值</strong>，不一定是那个对象本身（本章例子里是个字符串；<code>contextlib.suppress()</code> 返回 <code>None</code>）。<code>__exit__</code> 在正常结束、<code>return</code>、<code>break</code>、<code>continue</code>、抛异常五条路上都会执行。</li>
+<li><code>x</code> 是 <strong><code>__enter__</code> 的返回值</strong>，不一定是那个对象本身（本章例子里是个字符串；<code>contextlib.suppress()</code> 返回 <code>None</code>）。<code>__enter__</code> 成功返回后，正常结束、<code>return</code>、<code>break</code>、<code>continue</code> 和异常退出都会调用 <code>__exit__</code>。若 <code>__enter__</code> 自己抛错，<code>with</code> 不会替这个管理器调用退出方法。</li>
 <li>异常被吞掉，<code>with</code> 块被当作<strong>正常结束</strong>，代码继续往下跑 —— 实跑里只写进 1 条数据，但外面的 <code>except OSError</code> 什么也没捕获到。比 <code>except: pass</code> 隐蔽，是因为后者在源码里显眼地写着，而 <code>return True</code> 藏在一个看起来只负责收尾的方法里。真想吞用 <code>contextlib.suppress(具体异常类型)</code>：实跑中它吞掉 <code>FileNotFoundError</code>，<code>PermissionError</code> 照样往外走。</li>
 <li><strong>只有出异常那条路会漏掉清理</strong>。实跑：<code>naive</code> 正常路径打印了「退出后」，异常路径从来没打印过。测不出来是因为正常路径的输出完全正确，而出异常恰恰是最需要清理的时候（连接、锁、临时文件、全局状态）。</li>
 <li>① <code>yield</code> 前的异常在 <code>with</code> 那一行就抛（<code>__enter__</code> 内部会 <code>next()</code> 到 <code>yield</code>）；② 只能有一个 <code>yield</code>，第二个会抛 <code>RuntimeError: generator didn't stop</code>；③ 造出来的对象是一次性的，存进变量用第二次会炸（本机 3.13 报 <code>AttributeError</code>，<strong>报什么错取决于版本</strong>）。不矛盾的原因：<code>@contextmanager</code> 替你调了那一次 <code>next</code>，所以函数体确实是在 <code>with</code> 那一行才开始跑的。</li>
 <li>留在 <strong>eval 模式</strong>（实跑：手工版出异常后 <code>model.training = False</code>，<code>with</code> 版是 <code>True</code>）。曲线上看起来更好，是因为 Dropout 被关了、BatchNorm 不再更新 running 统计量，loss 反而下降得更漂亮 —— 于是没人会去怀疑一个「验证时抛过异常并被 <code>except</code> 掉」的地方。</li>
+<li>当轮立即调用得到「去北门」。等循环结束，同一个 <code>room</code> 已指向「南门」，晚绑定的第一张提示也读到南门。工厂版第一次调用保留自己的形参绑定，仍得到「去北门」。</li>
+<li>本例仍持有两个流的引用，会得到 <code>True False False</code>。设置流先进入成功，会被退出。草稿流已创建，却没有人关闭，草稿管理器自己的退出方法也没运行。</li>
 </ol>
 </details>
 <h2 id="_9">🛑 可以停在这里</h2>
@@ -1323,7 +1432,7 @@ assert &quot;_Gate__hidden&quot; in vars(Gate)
 <p>⚠️ 一号必修是 <code>functools.wraps</code>。不写它会丢掉四样：<code>__name__</code>、<code>__doc__</code>、<code>__qualname__</code>，以及 ⭐ <strong>最贵的签名</strong>——<code>@tool</code> 和 FastAPI 都靠 <code>inspect.signature</code> 读参数，读到的是<strong>错的</strong>，而<strong>返回值完全正确、所以测试全绿</strong>。</p>
 <p>带参数的装饰器要三层，因为 <code>@retry(3)</code> 里发生了两次调用。⚠️ 少写括号写成 <code>@retry</code>，<strong>装饰那步不报错、调用时才炸</strong>——⭐ <strong>判据：错误信息里冒出装饰器内部的函数名，就是括号写错了。</strong></p>
 <p>叠装饰器时<strong>应用从下往上、执行从上往下</strong>。💀 <strong>叠在类方法上顺序反了最贵</strong>：<code>@staticmethod</code> 必须在最外层，反过来之后——<code>classmethod</code> 那个当场报错（<strong>好事</strong>），而 <code>staticmethod</code> 那个<strong>从类上调完全正常，只有从实例上调才炸</strong>（多出来的是 <code>self</code>）。⭐ 验证一行：<code>type(C.__dict__["名字"])</code>。</p>
-<p><code>with</code> 那半边：⚠️ <strong><code>as x</code> 绑的是 <code>__enter__</code> 的返回值</strong>——忘了 <code>return self</code> 会拿到 <code>None</code>，<strong>而且不报错</strong>。它比手写 <code>try/finally</code> 多干三件事：清理逻辑有名字能复用、多资源时前面开好的一定关掉、数量不定时有 <code>ExitStack</code>。</p>
+<p><code>with</code> 那半边：⚠️ <strong><code>as x</code> 绑的是 <code>__enter__</code> 的返回值</strong>——忘了 <code>return self</code> 会拿到 <code>None</code>，<strong>而且不报错</strong>。它比手写 <code>try/finally</code> 多干三件事：清理逻辑有名字能复用、多资源时会按逆序调用先前成功进入的管理器的退出方法，数量不定时可用 <code>ExitStack</code>。忘了为什么两个函数都读到南门，就回看<a href="#closure-late-binding">循环里的三种绑定</a>。分不清进入失败由谁清理，就回看<a href="#enter-partial-failure">草稿的失败路径</a>。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="04-GIL：为什么多线程救不了你.html">04-GIL：为什么多线程救不了你.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
