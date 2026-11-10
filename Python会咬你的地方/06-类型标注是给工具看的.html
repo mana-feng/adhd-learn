@@ -313,7 +313,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>Python 的类型标注不是给解释器看的，是给读它的程序看的。</strong>
 <code>@tool</code> 能从函数自动生成 JSON schema、FastAPI 能自动校验请求体，靠的都是同一件事：
-标注被存在一个普通字典里，任何代码都能把它读出来。理解这一点，你就知道该在哪标、标了能换来什么、以及<strong>标了之后仍然不会有人替你检查</strong>。</p>
+工具可以读取标注，再按自己的规则生成描述或校验数据。<code>__annotations__</code> 让你访问函数的标注字典，内容怎样产生取决于 Python 版本和模式。<strong>单独写标注不会自动检查参数。</strong></p>
 <h2 id="_2">🧩 一、先把最反直觉的一条钉死：写错类型照跑</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># ann_runtime.py —— 标注在运行时不做任何检查</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">add</span><span class="p">(</span><span class="n">a</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
@@ -332,9 +332,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⚠️ 第一行是 <code>你好世界</code> —— 标注说要 <code>int</code>，传进去两个 <code>str</code>，<code>+</code> 变成了字符串拼接，函数<strong>返回了一个 str</strong>，
 而标注写着 <code>-&gt; int</code>。<strong>没有任何东西阻止它，也没有任何东西提醒你。</strong></p>
 <blockquote>
-<p>⭐ <strong>记住这个心智模型</strong>：<code>def add(a: int)</code> 里的 <code>int</code> 和 <code>a = 3</code> 里的 <code>3</code> 地位差不多 ——
-它是一个<strong>被求值的表达式</strong>，结果被塞进 <code>函数.__annotations__</code> 这个字典，然后<strong>就没有然后了</strong>。
-解释器不看它，<code>if</code> 不看它，<code>+</code> 不看它。看它的是别人写的程序。</p>
+<p>⭐ <code>def add(a: int)</code> 里的 <code>int</code> 是标注表达式。在没有 <code>future</code> 导入时，Python 3.13 定义函数就求值，3.14 默认延后到读取注解值时求值。<code>int</code> 已经存在，所以两种模式下读到的字典都能给出这个类型。函数调用仍按实际参数执行，字符串的 <code>+</code> 仍是拼接。</p>
 </blockquote>
 <p>💀 这条最贵的实战形态是<strong>静默类型污染</strong>：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># silent_str.py —— 标注说 int，实际收到 str，结果是一个合法但错误的值</span>
@@ -436,7 +434,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⚠️ 装饰器本身怎么写、<code>functools.wraps</code> 不写会丢掉什么，在
 <a href="03-装饰器与上下文管理器.html">03 章</a>；这一章只管「标注怎么被读出来」这半边。</p>
 <h2 id="_3" data-mg-stop="">🧩 三、⚠️ 一个会把上面那段打回原形的坑：字符串化的标注</h2>
-<p>在文件顶部加一行 <code>from __future__ import annotations</code>，所有标注<strong>会变成字符串</strong>：</p>
+<p>下面保留原有字符串化示例。这个文件顶部显式用了 <code>from __future__ import annotations</code>，函数标注读出时是字符串。在 Python 3.13 和 3.14 都可以单独运行它。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># ann_string.py —— 加了这一行之后，标注全变成字符串</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
@@ -460,14 +458,57 @@ get_type_hints  : {&#39;x&#39;: &lt;class &#39;int&#39;&gt;, &#39;y&#39;: list[s
 </code></pre></div>
 
 <p>⚠️ <strong>前两行拿到的是字符串 <code>'int'</code>，不是类型 <code>int</code>。</strong>
-如果你的 <code>@tool</code> 里写的是 <code>PY2JSON.get(sig.parameters[name].annotation)</code>，
-在这种文件里会全部落到 <code>else</code> 分支，每个参数的类型都变成 <code>"string"</code> ——
-<strong>schema 生成了，也不报错，只是全错</strong>，而模型会按错的 schema 给你传参。</p>
-<p>⭐ <strong>所以规则很简单</strong>：<strong>要类型就用 <code>typing.get_type_hints</code>，要参数结构就用 <code>inspect.signature</code>。</strong>
-只有 <code>get_type_hints</code> 会把字符串解析回真正的类型对象。</p>
-<p>🗓️ 这块是会变的：<code>from __future__ import annotations</code>（PEP 563）本来是为「标注太贵、想延迟求值」设计的，
-后来 PEP 649 换了另一条路（<strong>惰性求值但拿到的是真对象</strong>）。
-⭐ <strong>不管未来默认成哪种，<code>get_type_hints</code> 都是那个正确答案</strong> —— 这也是为什么建议只记这一条。</p>
+如果改成拿 <code>sig.parameters[name].annotation</code> 直接查 <code>PY2JSON</code>，并让未命中项回退到 <code>"string"</code>，字符串 <code>'int'</code> 匹配不到类型键 <code>int</code>。本来应该描述为整数的 <code>x</code> 就会被写成字符串。原 <code>@tool</code> 用 <code>get_type_hints()</code> 后再查表，支持范围仍只有表里的几个类型。</p>
+<p>⭐ <code>typing.get_type_hints()</code> 可以解析这里的类型字符串。<code>inspect.signature()</code> 用来取参数结构，也会读取注解。是否求值，要看版本和选择的读取方式。</p>
+<h3 id="deferred-annotations-314">定义成功，为什么读取标注还可能失败？</h3>
+<p>给函数参数写上一个稍后才定义的类型，这个名字何时必须存在？先看 Python 版本和文件是否启用了 <code>from __future__ import annotations</code>。下表只讨论<strong>函数参数和返回值</strong>的标注，假设写的是普通表达式，例如不带引号的 <code>item: Packet</code>。</p>
+<div class="tw"><table>
+<caption>同一条函数标注的三种处理方式</caption>
+<thead><tr><th scope="col">版本和模式</th><th scope="col">定义函数时</th><th scope="col">什么时候需要找到 <code>Packet</code></th></tr></thead>
+<tbody>
+<tr><th scope="row">Python 3.13 默认</th><td>立即求值</td><td>执行 <code>def</code> 时，找不到就抛出 <code>NameError</code>。</td></tr>
+<tr><th scope="row">Python 3.13、3.14 的 <code>future</code> 模式</th><td>保留字符串形式</td><td>直接读字符串无需这个名字。显式请求解析为类型时才查找它。</td></tr>
+<tr><th scope="row">Python 3.14 默认</th><td>保留稍后求值的方式</td><td>读取注解的值时才求值。直接读取 <code>__annotations__</code> 也可能触发求值。</td></tr>
+</tbody></table></div>
+<p>Python 3.14 把默认行为改成<strong>延迟求值（deferred evaluation）</strong>。写在类型定义之前的名字叫<strong>前向引用（forward reference）</strong>。延迟求值给后面的类定义留出时间，但读取时仍然要在运行时找到这个名字。若文件使用上面的 <code>future</code> 导入，3.14 继续保留字符串化行为。<a href="https://peps.python.org/pep-0649/">PEP 649</a> · <a href="https://peps.python.org/pep-0749/">PEP 749</a></p>
+<p>下面的脚本要求 <strong>Python 3.14 或更新版本</strong>。把它单独保存运行，文件顶部不要加上一段示例的 <code>future</code> 导入。<code>Packet</code> 在函数之后定义，读取时已经能找到。另一个名字只放在 <code>TYPE_CHECKING</code> 分支里，静态检查器把这个条件视为真，实际运行时它为假。</p>
+<div class="codehilite" data-code-language="python"><pre><code class="language-python">from annotationlib import Format, get_annotations
+from inspect import signature
+from typing import TYPE_CHECKING, get_type_hints
+
+def accept_packet(item: Packet) -> str:
+    return "收到"
+
+class Packet:
+    pass
+
+assert accept_packet(Packet()) == "收到"
+assert get_type_hints(accept_packet)["item"] is Packet
+assert signature(accept_packet).parameters["item"].annotation is Packet
+
+if TYPE_CHECKING:
+    class Draft:
+        pass
+
+def preview(item: Draft) -> str:
+    return "草稿"
+
+for read in (signature, get_type_hints):
+    try:
+        read(preview)
+    except NameError as error:
+        assert error.name == "Draft"
+    else:
+        raise AssertionError("运行时不应找到 Draft")
+
+assert get_annotations(preview, format=Format.STRING)["item"] == "Draft"
+text_sig = signature(preview, annotation_format=Format.STRING)
+assert text_sig.parameters["item"].annotation == "Draft"
+print("Packet 已解析，Draft 的文本读取通过")
+</code></pre></div>
+<p>上例先验证普通调用和已绑定的类型都能正常使用。两次读取 <code>preview</code> 默认请求注解值，都在找 <code>Draft</code> 时抛出 <code>NameError</code>，异常发生在<strong>读取注解</strong>这一步。<code>inspect.signature()</code> 默认使用 <code>Format.VALUE</code>。<code>eval_str=False</code> 只表示不额外解析已经是字符串的注解，3.14 下获取默认延迟注解的值仍可能求值。<a href="https://docs.python.org/3.14/library/inspect.html#inspect.signature">Python inspect 文档</a> · <a href="https://docs.python.org/3.14/library/typing.html#typing.TYPE_CHECKING">Python TYPE_CHECKING 文档</a></p>
+<p>如果工具只想展示可信函数的签名，可以选择字符串格式，读到的 <code>"Draft"</code> 仍只是标签。如果要按类型生成 schema，就让所需类型在运行时可用，或者等依赖加载完后再注册。遇到解析失败，报出函数和缺少的名字，别把无法解析的类型默默映射成 <code>"string"</code>。诊断时按第 07 章的思路读 traceback，区分是定义、调用还是读取失败；如果涉及循环导入，再回到第 08 章查模块加载顺序。</p>
+<p>读取注解可能执行代码。<code>get_type_hints()</code> 和 <code>Format.STRING</code> 都应只用于可信对象，字符串格式不提供安全隔离。<a href="https://docs.python.org/3.14/library/annotationlib.html#security-implications-of-introspecting-annotations">Python 注解读取的安全说明</a></p>
 <h2 id="_4">📋 四、标注的词汇表：够用的就这几个</h2>
 <div class="tw"><table>
 <thead>
@@ -517,7 +558,7 @@ get_type_hints  : {&#39;x&#39;: &lt;class &#39;int&#39;&gt;, &#39;y&#39;: list[s
 </table></div>
 <p>⭐ <strong><code>Literal</code> 值得单独说</strong>：一个 <code>mode: str</code> 只告诉你「是个字符串」，
 而 <code>mode: Literal["fast", "quality"]</code> 同时告诉了静态检查器、<strong>schema 生成器</strong>和读代码的人
-合法取值只有两个。在 Agent 工具里，它会直接变成 JSON schema 的 <code>enum</code>，模型就不会瞎编第三个值。</p>
+声明的取值只有两个。生成器需要实现相应映射，才能把 <code>Literal</code> 写成 JSON schema 的 <code>enum</code>。本章的简化工具没有这一步，实际收到的值仍由运行时校验检查。</p>
 <h3 id="protocol">🚦 <code>Protocol</code>：鸭子类型的显式版，但别拿它当运行时校验</h3>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># protocol_demo.py —— Protocol 是结构化子类型：长得像就算</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Protocol</span><span class="p">,</span> <span class="n">runtime_checkable</span>
@@ -737,24 +778,34 @@ pydantic 默认会做类型转换，不是「不合格就拒绝」。这对 Web 
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>打印出 <code>你好世界</code>，<strong>不报错</strong>。标注只是被存进 <code>add.__annotations__</code> 字典的一个表达式结果，解释器不看它；<code>+</code> 对两个 str 就是拼接，函数返回了 str 而标注写着 <code>-&gt; int</code>。</li>
+<li>打印出 <code>你好世界</code>，<strong>不报错</strong>。调用不会按标注检查参数，<code>+</code> 对两个 str 就是拼接，函数返回了 str 而标注写着 <code>-&gt; int</code>。</li>
 <li><code>description</code> ← <code>fn.__doc__</code>（docstring <strong>第一行</strong>）；<code>required</code> ← <code>inspect.signature</code> 里有没有默认值（没有默认值 = 必填）；参数类型 ← <code>typing.get_type_hints(fn)</code>。</li>
 <li>因为<strong>它直接决定 schema 里这个字段必填还是选填</strong>。给了默认值 = 可选，模型可以不传；没给 = 进 <code>required</code>。</li>
-<li>拿到的是<strong>字符串</strong> <code>'int'</code>，不是类型对象 <code>int</code>。改用 <code>typing.get_type_hints(f)</code>，它会把字符串解析回真类型（<code>{'x': &lt;class 'int'&gt;, 'y': list[str], ...}</code>）。规则：要类型用 <code>get_type_hints</code>，要参数结构用 <code>signature</code>。</li>
+<li>拿到的是<strong>字符串</strong> <code>'int'</code>，不是类型对象 <code>int</code>。本例中名字都能在运行时找到，<code>typing.get_type_hints(f)</code> 可以解析出 <code>int</code> 和 <code>list[str]</code>。缺少运行时名字时，解析可能抛出 <code>NameError</code>。</li>
 <li>只检查<strong>属性名在不在</strong>，不检查是不是可调用、更不检查签名。误判例子：<code>class Liar: encode = "我不是方法"</code> —— <code>isinstance(Liar(), Encoder)</code> 返回 True。</li>
 <li>mypy 在<strong>代码根本没运行时</strong>读源码跑，挡「我这里把 <code>None</code> 传给了要 <code>str</code> 的函数」；pydantic 在每次构造对象时跑，挡外部进来的脏数据（请求体、配置、模型返回的 JSON）。前者管代码内部，后者管边界。</li>
 <li>是<strong>整数 <code>512</code></strong> —— pydantic 默认做类型转换。对 Web 请求是好事（查询参数天生是字符串）；⚠️ 但如果你指望它当断言用，它会安静地把数据改掉，那时就是坑，要开严格模式。</li>
 <li>一定标：<strong>包/模块的对外函数、Agent 工具函数、Web 请求响应模型</strong>（数据类也算）；别标：一次性实验脚本 / notebook、一般的局部变量。判据一句话：这个类型信息会不会被「你以外的人或程序」读。</li>
 </ol>
 </details>
+<p>把读取 <code>accept_packet</code> 签名的断言移到 <code>class Packet</code> 之前。在不使用 <code>future</code> 导入的 Python 3.14 里，哪一步会失败？</p>
+<details>
+<summary>👀 看答案</summary>
+<p><code>def</code> 能完成。默认读取签名会尝试求出注解值，这时 <code>Packet</code> 尚未绑定，抛出 <code>NameError</code>。把读取移回类定义之后，类型就能解析。</p>
+</details>
+<p>文档工具已经显示了 <code>preview(item: Draft)</code>。生成 schema 的工具还需要检查什么？</p>
+<details>
+<summary>👀 看答案</summary>
+<p>要确认 <code>Draft</code> 在运行时是否能解析，以及工具是否支持映射该类型。显示的文本只说明读到了名字，不能作为类型解析或输入校验通过的证据。</p>
+</details>
 <h2 id="_8">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>⭐⭐ <strong>类型标注在运行时一个字都不检查。</strong> 给两个 <code>int</code> 参数传字符串进去，实跑是<strong>正常拼接、不报错、不警告</strong>。标注只是被求值后塞进一个<strong>普通字典</strong>，你甚至可以在运行时改掉它。</p>
+<p>⭐⭐ <strong>类型标注在运行时一个字都不检查。</strong> 给两个 <code>int</code> 参数传字符串进去，实跑是<strong>正常拼接、不报错、不警告</strong>。示例可以读写 <code>__annotations__</code> 字典，修改也不会让函数自动校验参数。</p>
 <p>💀 它最贵的形态是<strong>静默类型污染</strong>：一个本该是整数的参数收到了字符串，乘以 2 得到的是重复两遍的字符串——<strong>一个合法但错误的值，一路流到很远才炸。</strong></p>
 <p>⭐ <strong>那它有什么用？全部价值是「能被程序读出来」。</strong> 自动生成工具 schema 只要两个函数就够：一个拿参数名和默认值、一个拿解析好的类型。⭐ <strong>这解释了两件事：docstring 不是注释，是发给模型的接口文档；给不给默认值直接决定字段必填还是选填。</strong></p>
-<p>⚠️ 一个会把它打回原形的坑：文件顶部一旦开了「标注延迟求值」，<strong>标注全变成字符串</strong>，于是 schema 里所有类型静默落成字符串类型——<strong>生成了、不报错、全错</strong>。⭐ <strong>规则：要类型用 <code>get_type_hints</code>，要参数结构用 <code>signature</code>。</strong></p>
-<p>词汇表里最被低估的是 <code>Literal</code>：⭐ <strong>它会直接变成 schema 的枚举，模型就编不出第三个值。</strong> <code>Protocol</code> 是鸭子类型的显式版，⚠️ 但它的运行期检查<strong>只查属性名在不在</strong>——一个把方法写成字符串的冒牌货照样通过，<strong>所以它是给静态检查器和读者看的，不是运行期门卫</strong>。</p>
+<p>⚠️ <code>future</code> 导入会保留字符串形式。Python 3.14 的默认延迟求值会在请求注解值时求值。<strong>函数能定义，读取注解时仍可能找不到类型名。</strong>工具展示、类型解析和数据校验是三步。</p>
+<p>词汇表里最被低估的是 <code>Literal</code>：⭐ <strong>支持 <code>Literal</code> 的 schema 生成器可把它映射成枚举，实际输入仍需校验。</strong> <code>Protocol</code> 是鸭子类型的显式版，⚠️ 但它的运行期检查<strong>只查属性名在不在</strong>——一个把方法写成字符串的冒牌货照样通过，<strong>所以它是给静态检查器和读者看的，不是运行期门卫</strong>。</p>
 <p>⭐⭐ <strong>标注不等于校验</strong>：静态检查器在代码没运行时读源码、管你自己写的代码；数据校验库在每次构造对象时跑、管<strong>外面进来的数据</strong>。⚠️ 而且后者<strong>默认做转换而不是拒绝</strong>——对 Web 请求是好事，当断言用就是坑。⭐ <strong>分工：边界上用校验库，边界内用静态检查。</strong></p>
 <p>⭐ 判据一句话：<strong>类型信息会不会被你以外的人或程序读。</strong> ⚠️ 最坏的形态是<strong>过时的标注，它比没有更糟，因为读的人会信它</strong>——所以标了就要让 CI 跑检查。</p>
 </blockquote>
