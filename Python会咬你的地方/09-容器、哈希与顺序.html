@@ -312,7 +312,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>112 分钟</strong> ｜ ⭐ <strong>种子全固定了、环境也一样，结果还是每次不同 —— 因为你在某处遍历了一个 <code>set</code></strong></p>
 <h2 id="_1">🎯 一句话</h2>
-<p><strong><code>dict</code> 从 3.7 起保证插入序，<code>set</code> 从来不保证；而 <code>set</code> 的实际顺序取决于字符串哈希，字符串哈希每次进程启动都不一样。</strong>
+<p><strong><code>dict</code> 从 3.7 起保证插入序，<code>set</code> 不保证迭代顺序。字符串集合的实际遍历顺序可能随进程的哈希种子而变。</strong>
 上一章解决的是「两台机器不一样」，这一章解决的是<strong>同一台机器、同一个环境、同一份代码、同一个随机种子，跑两次还是不一样</strong>。</p>
 <h2 id="_2">🧩 一、同一批元素，两种容器，两种顺序</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># order.py —— 同一批元素，dict 和 set 的迭代顺序</span>
@@ -391,7 +391,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td>①</td>
-<td><strong><code>set</code> 的顺序跨进程不稳</strong> —— 5 次 5 个样子</td>
+<td>默认环境下，原记录的 5 次运行出现了多种排列。</td>
 </tr>
 <tr>
 <td>②</td>
@@ -399,27 +399,21 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td>③</td>
-<td>⭐ <strong>只有 <code>str</code> / <code>bytes</code> / <code>datetime</code> 的哈希被随机化</strong>。整数的 <code>hash(n)</code> 就是 <code>n</code> 本身，所以整数 <code>set</code> 反而稳</td>
+<td>⭐ 整数哈希不受这里的字符串哈希种子影响。原记录的整数集合五次排列相同，顺序仍无语言保证。</td>
 </tr>
 <tr>
 <td>④</td>
-<td>⭐ <strong>同一个进程里怎么建都一样</strong> —— 顺序在进程内是确定的，只在<strong>进程之间</strong>变</td>
+<td>⭐ 原记录中，同一进程用同一方式建集合，五次排列相同。改变元素插入或删除的历史也可能改变顺序。</td>
 </tr>
 <tr>
 <td>⑤</td>
-<td>根子在这：<code>hash('a')</code> 每个进程给出完全不同的 64 位数</td>
+<td>这一批进程里的 <code>hash('a')</code> 各不相同。字符串哈希可能随进程种子变化。</td>
 </tr>
 </tbody>
 </table></div>
-<p>⚠️⚠️ <strong>第 ④ 段是这个坑之所以致命的原因</strong>：你在本地反复跑同一个脚本，
-每次结果都不一样 → 一眼看出问题；但你在一个 notebook 里反复跑同一个 cell，
-<strong>结果永远一致 → 你会以为它是确定的</strong>。等到明天重启内核、或者 CI 上跑一遍，数字就变了。</p>
+<p>⚠️ 在同一个 notebook 里反复运行同一个单元格，可能一直观察到同样的顺序。重启内核、换到 CI 或改变集合构造过程之后，结果仍可能变化。是否能依赖顺序要看容器的约定。</p>
 <blockquote>
-<p>⭐ <strong>为什么 Python 要随机化字符串哈希</strong>：
-这是 CPython 3.3 起的<strong>安全默认值</strong>（3.3 起默认开启，源自 oCERT-2011-003 的哈希碰撞攻击修复；3.4 换成 SipHash，那才是 PEP 456）。不随机的话，攻击者可以构造
-一批哈希值全部相同的键（比如 HTTP 表单字段名），把字典退化成链表，
-一个请求就能打满 CPU —— 这类攻击叫 <strong>hash-flooding DoS</strong>。
-<strong>所以它不是 bug，是你换来的安全性；代价就是迭代顺序不再跨进程稳定。</strong></p>
+<p>⭐ Python 默认随机化字符串和字节串的哈希，以降低外部输入引发的碰撞性能风险。不同进程里的观察结果可能不同。需要稳定的输出顺序时，在输出处明确排序规则。<a href="https://docs.python.org/3.14/using/cmdline.html#envvar-PYTHONHASHSEED">Python 哈希种子文档</a></p>
 </blockquote>
 <h3 id="pythonhashseed" data-mg-stop="">🚦 <code>PYTHONHASHSEED</code> 必须在解释器<strong>启动前</strong>就设好</h3>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># hashseed_late.py —— 在脚本里设 PYTHONHASHSEED，太晚了</span>
@@ -447,8 +441,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>脚本里 os.environ[&#x27;PYTHONHASHSEED&#x27;]=&#x27;0&#x27; 之后 hash(&#x27;a&#x27;)：</li><li>922772475798321245</li><li>-2360262693598893259</li><li>2801284360798806853</li><li>解释器启动前就设好：</li><li>4644417185603328019</li><li>4644417185603328019</li><li>4644417185603328019</li></ol></section>
 <p>💀 <strong>第 ① 段是最容易白干的一件事</strong>：<code>set_seed()</code> 里加一行 <code>os.environ["PYTHONHASHSEED"] = "0"</code>
 看起来很对，<strong>但哈希种子是解释器启动时读一次就定死的</strong>，等你的代码跑起来早就晚了 ——
-<code>hash('a')</code> 三次三个值，这行代码一点用都没有，还会让你以为已经修好了。</p>
-<p>⭐ <strong>正确的三种设法，都在解释器之外</strong>：</p>
+<code>hash('a')</code> 在原记录的三个进程中各不相同。这行赋值不会改变当前解释器的哈希种子，但后续启动的子进程可以继承该环境变量。</p>
+<p>⭐ 下表保留原实验的三种启动方式。<code>PYTHONHASHSEED=0</code> 会关闭哈希随机化，这些命令用于复现隔离实验。生产环境保持默认随机化。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -462,7 +456,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <td><code>PYTHONHASHSEED=0 python train.py</code>（Windows PowerShell：先 <code>$env:PYTHONHASHSEED=0</code>）</td>
 </tr>
 <tr>
-<td>Dockerfile / CI 配置</td>
+<td>隔离实验的 Dockerfile / CI 配置</td>
 <td><code>ENV PYTHONHASHSEED=0</code></td>
 </tr>
 <tr>
@@ -545,7 +539,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>修法只有一句话：任何一个 <code>set</code> 在离开集合运算、变成「一串东西」的那一刻，套一个 <code>sorted()</code>。</strong></p>
+<p>⭐ 输出需要可复现的顺序时，先定义顺序。可比较的字符串可以用 <code>sorted()</code> 按值排；要保留输入顺序，则按原列表筛选。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># setfix.py —— 集合运算的结果落地成「一串东西」时，三种写法</span>
 <span class="n">a</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;zeta&quot;</span><span class="p">,</span> <span class="s2">&quot;yak&quot;</span><span class="p">,</span> <span class="s2">&quot;xray&quot;</span><span class="p">,</span> <span class="s2">&quot;wolf&quot;</span><span class="p">]</span>
 <span class="n">b</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;yak&quot;</span><span class="p">]</span>
@@ -563,9 +557,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">--- 第一次</span></div><div class="vb-flow-row"><span class="vb-flow-step">❌ list(set)</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">[&#x27;zeta&#x27;, &#x27;xray&#x27;, &#x27;wolf&#x27;]</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ sorted</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">[&#x27;wolf&#x27;, &#x27;xray&#x27;, &#x27;zeta&#x27;]</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 保留原顺序</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">[&#x27;zeta&#x27;, &#x27;xray&#x27;, &#x27;wolf&#x27;]</span></div><div class="vb-flow-row"><span class="vb-flow-step">--- 第二次</span></div><div class="vb-flow-row"><span class="vb-flow-step">❌ list(set)</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">[&#x27;xray&#x27;, &#x27;wolf&#x27;, &#x27;zeta&#x27;]</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ sorted</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">[&#x27;wolf&#x27;, &#x27;xray&#x27;, &#x27;zeta&#x27;]</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 保留原顺序</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">[&#x27;zeta&#x27;, &#x27;xray&#x27;, &#x27;wolf&#x27;]</span></div></div></section>
 <p>⭐ <strong>只有第一行在两次之间变了</strong>，后两行纹丝不动。⚠️ 注意两个 ✅ 给出的是不同的顺序 ——
 <code>sorted</code> 是字典序，<code>keep</code> 是 <code>a</code> 的原始顺序。<strong>两个都是确定的，选哪个看你要不要保留原始顺序。</strong></p>
-<p>💡 <code>PYTHONHASHSEED=0</code> 和 <code>sorted()</code> <strong>该选哪个</strong>：
-<code>sorted()</code> 治本（代码在哪跑都对），<code>PYTHONHASHSEED=0</code> 治标但覆盖面广（连你没读过的第三方库都管）。
-⭐ <strong>生产上两个都上</strong>：<code>sorted()</code> 写进代码，<code>PYTHONHASHSEED=0</code> 写进 Dockerfile 兜底。</p>
+<p>💡 固定哈希种子只能帮助复现同一环境下的实验，无法把集合变成有序容器。正式输出靠明确排序键或保留有序输入，生产环境保持默认哈希随机化。</p>
 <hr />
 <!--MIDSTOP-->
 <blockquote>
@@ -574,11 +566,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
 <h2 id="dict-key__hash__-__eq__" data-mg-stop="">🧯 四、什么能当 dict 的 key：<code>__hash__</code> 和 <code>__eq__</code> 的契约</h2>
-<p>规则只有两条，但第二条经常被忘掉：</p>
+<p>键必须可哈希。即使 <code>hash()</code> 能算出结果，也要检查哈希是否稳定、是否与相等比较一致。</p>
 <ol>
-<li><strong>能算 <code>hash()</code></strong> —— 即「可哈希」。</li>
-<li>⭐ <strong>在它当 key 期间，<code>hash()</code> 的值不许变</strong>。字典是先按哈希找槽、再用 <code>==</code> 确认，
-   <strong>哈希变了就等于换了个槽去找，原来那格永远够不着。</strong></li>
+<li><strong>能算 <code>hash()</code>，而且同一对象的哈希值在生命周期内保持稳定。</strong></li>
+<li><strong>相等的可哈希对象必须有相同的哈希值。</strong> 用对象作键时，保持参与比较和哈希的字段稳定。改变哈希可能让后续查找失败。</li>
 </ol>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># key.py —— 什么能当 key，以及改了 key 之后会发生什么</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">Point</span><span class="p">:</span>
@@ -636,10 +627,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">① 列表当 key：TypeError: unhashable type: &#x27;list&#x27;</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 元组当 key： {(1, 2): &#x27;ok&#x27;}</span></div><div class="vb-flow-row"><span class="vb-flow-step">里面塞个列表：TypeError: unhashable type: &#x27;list&#x27;</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 只写 __eq__：TypeError: unhashable type: &#x27;OnlyEq&#x27;</span></div><div class="vb-flow-row"><span class="vb-flow-step">④ 改 key 之前 d[p] = 原点附近 | hash = 3683</span></div><div class="vb-flow-row"><span class="vb-flow-step">改完 p = Point(99, 2) | hash = 3455</span></div><div class="vb-flow-row"><span class="vb-flow-step">p in d</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">False</span></div><div class="vb-flow-row"><span class="vb-flow-step">Point(99,2) in d</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">False</span></div><div class="vb-flow-row"><span class="vb-flow-step">Point(1,2) in d</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">False</span></div><div class="vb-flow-row"><span class="vb-flow-step">但它还在字典里 ： [(Point(99, 2), &#x27;原点附近&#x27;)]</span></div><div class="vb-flow-row"><span class="vb-flow-step">len(d) = 1</span></div></div></section>
 <p>💀 <strong>第 ④ 段是本章最坏的那个状态</strong>：<code>len(d) == 1</code>，<code>list(d.items())</code> 明明白白印着那条数据，
 <strong>但三种找法全部 <code>False</code></strong> —— 连拿着原对象本身去找都找不到。</p>
-<p>⭐ <strong>机制</strong>：插入时哈希是 <code>hash((1, 2))</code>，字典把它放进了 A 槽；改完 <code>x</code> 之后哈希变成 <code>hash((99, 2))</code>，
-查找会去 B 槽敲门，<strong>而 A 槽里那条记录再没人去看</strong>。<code>Point(1, 2)</code> 也找不到，因为它算出的是 A 槽的哈希、
-到了 A 槽却发现里面那个对象现在 <code>== Point(99, 2)</code>，<code>__eq__</code> 不通过。
-⚠️ 更糟的是：它会一直占着内存和 <code>len</code>，序列化出去还在，只是逻辑上不可达。</p>
+<p>⭐ 插入时用的是 <code>hash((1, 2))</code>，修改后查找算出的是 <code>hash((99, 2))</code>。用旧坐标构造的键即使找到了旧哈希的候选，比较也不相等。原实验中记录仍能被遍历，却无法通过那三种查询取回。键已违反契约，具体结果可能随实现或数据而变。</p>
 <p>⭐ <strong>三条能直接照抄的规则</strong>：</p>
 <div class="tw"><table>
 <thead>
@@ -650,19 +638,57 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </thead>
 <tbody>
 <tr>
-<td>⭐ <strong>只拿不可变的东西当 key</strong></td>
-<td><code>str</code> / <code>int</code> / <code>tuple</code>（内部也全不可变）/ <code>frozenset</code> / <code>@dataclass(frozen=True)</code></td>
+<td>⭐ <strong>优先用值稳定的键</strong></td>
+<td><code>str</code>、<code>int</code>、所有成员均可哈希的 <code>tuple</code>、<code>frozenset</code>。冻结数据类还要检查参与哈希的字段是否可哈希。</td>
 </tr>
 <tr>
-<td>⭐ <strong><code>__eq__</code> 和 <code>__hash__</code> 必须用同一批字段</strong></td>
+<td>⭐ <strong>用参与比较的字段构造哈希是常见做法</strong></td>
 <td>只写 <code>__eq__</code> 会让 <code>__hash__</code> 自动变 <code>None</code>（第 ③ 段就是这个），Python 这么设计<strong>正是在逼你别把契约写坏</strong></td>
 </tr>
 <tr>
 <td><strong>相等的对象哈希必须相等</strong>（反过来不必）</td>
-<td>哈希相同只是「进同一个槽」，最后还是靠 <code>==</code> 定胜负</td>
+<td>哈希相同的不同对象仍可比较不等。它们可以成为两个键，见下例。</td>
 </tr>
 </tbody>
 </table></div>
+<h3 id="hash-collision-distinct-keys">哈希相同，为什么还能存两个键？</h3>
+<p>仓库里，甲和乙可以放在同一个货架。只凭架号能缩小搜索范围，还要看标签名才能区分物品。这里用「架号＋标签名」表示键。哈希值是用于帮助查找的整数。两个不相等的对象给出相同哈希值，叫<strong>哈希碰撞（hash collision）</strong>。</p>
+<div class="tw"><table>
+<caption>同在第 3 架，按标签名区分记录</caption>
+<thead><tr><th scope="col">写入</th><th scope="col">比较结果</th><th scope="col">字典变化</th></tr></thead>
+<tbody>
+<tr><th scope="row">甲 → 10</th><td>还没有旧键</td><td>新增甲，共 1 项</td></tr>
+<tr><th scope="row">乙 → 20</th><td>与甲同哈希，比较不等</td><td>新增乙，共 2 项</td></tr>
+<tr><th scope="row">新的甲 → 30</th><td>与原甲同哈希，比较相等</td><td>更新甲，共 2 项</td></tr>
+</tbody></table></div>
+<div class="codehilite" data-code-language="python"><pre><code class="language-python">from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class ShelfLabel:
+    shelf: int
+    name: str
+
+    def __hash__(self):
+        return hash(self.shelf)
+
+first = ShelfLabel(3, "甲")
+second = ShelfLabel(3, "乙")
+assert hash(first) == hash(second)
+assert first != second
+
+records = {first: 10, second: 20}
+assert len(records) == 2
+assert records[first] == 10 and records[second] == 20
+
+same_label = ShelfLabel(3, "甲")
+assert same_label is not first and same_label == first
+assert hash(same_label) == hash(first)
+records[same_label] = 30
+assert len(records) == 2
+assert records[first] == 30 and records[second] == 20
+print("同哈希的两个键可以共存，相等的新对象会更新旧记录")
+</code></pre></div>
+<p><code>@dataclass(frozen=True)</code> 生成的相等比较会看架号和标签名，两字段也不能用普通赋值修改。演示只用架号算哈希，以便观察同哈希但不相等的对象。<strong>相等必须同哈希，同哈希不能推出相等。</strong>实际设计通常让参与比较的字段也参与哈希，使键更分散。货架比喻只说明查找和比较的分工，实际存储位置由字典实现管理。<a href="https://docs.python.org/3.14/reference/datamodel.html#object.__hash__">Python 哈希与相等契约</a></p>
 <h3 id="110true-key">🚦 同一个契约的另一面：<code>1</code>、<code>1.0</code>、<code>True</code> 是同一个 key</h3>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># numkey.py —— hash 相等 + == 相等 ⇒ 字典认为是同一个 key</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;hash(1) == hash(1.0) == hash(True) →&quot;</span><span class="p">,</span> <span class="nb">hash</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="o">==</span> <span class="nb">hash</span><span class="p">(</span><span class="mf">1.0</span><span class="p">)</span> <span class="o">==</span> <span class="nb">hash</span><span class="p">(</span><span class="kc">True</span><span class="p">))</span>
@@ -1072,28 +1098,33 @@ assert sorted_intersection([], b) == []</code></pre></div>
 <ol>
 <li><strong>3.7 起写进语言规范</strong>（3.6 只是 CPython 的实现细节）。<code>dict</code>、<code>kwargs</code>、<code>json.load()</code> 的结果、<code>__dict__</code> 都可以放心依赖。⚠️ <code>set</code> 从来没有任何顺序保证**，实跑里同一批 5 个字符串，<code>dict</code> 迭代出来和插入序完全一致，<code>set</code> 出来是另一个样子。</li>
 <li>因为 <code>set</code> 的顺序不但不等于插入序，还<strong>跨进程漂</strong>。正确写法是 <code>list(dict.fromkeys(items))</code> —— 借 <code>dict</code> 的保序性，同样是 O(n)。</li>
-<li>字符串那组<strong>每次都不一样</strong>（实跑 5 次 5 种排列）；<code>{1,2,3,4}</code> 五次全是 <code>[1, 2, 3, 4]</code>。差别在于只有 <code>str</code> / <code>bytes</code> / <code>datetime</code> 的哈希被随机化，整数的 <code>hash(n)</code> 就是 <code>n</code> 本身。实跑里 <code>hash('a')</code> 在 5 个进程里给出 5 个完全不同的 64 位数。</li>
-<li><strong>不会变</strong> —— 实跑第 ④ 段，同进程建 5 次全是 <code>['c', 'b', 'd', 'a']</code>。⚠️ 这正是它难查的原因：在一个 notebook 里反复跑同一个 cell，结果永远一致，你会以为它是确定的；等到重启内核或者上 CI，数字就变了。</li>
-<li><strong>没用。</strong> 哈希种子是解释器启动时读一次就定死的，代码跑起来时早过了 —— 实跑里加了那一行，<code>hash('a')</code> 三次仍是三个值，还会让你以为已经修好了。正确设法都在解释器之外：① 命令行 <code>PYTHONHASHSEED=0 python train.py</code> ② Dockerfile / CI 里 <code>ENV PYTHONHASHSEED=0</code> ③ 脚本检测到没设就带着 env <code>os.execve</code> 重启自己。实跑里启动前设好，三次全是 <code>4644417185603328019</code>。</li>
-<li>因为那一列是 <code>[f for f in feats][:3]</code>，<strong>直接遍历了一个 <code>set</code></strong>。<code>0.639427</code> 四次相同恰恰证明种子没问题 —— 漂的不是随机数，是集合的迭代顺序。修法一行：<code>sorted(feats)[:3]</code>，实跑第三列四次全是 <code>['age', 'city', 'clicks']</code>。通则：任何 <code>set</code> 变成「一串东西」的那一刻套一个 <code>sorted()</code>。</li>
-<li>两条：<strong>能算 <code>hash()</code></strong>，且当 key 期间哈希值不许变。所以用 <code>str</code> / <code>int</code> / <code>tuple</code>（内部也全不可变）/ <code>frozenset</code> / <code>@dataclass(frozen=True)</code>。只写 <code>__eq__</code> 会让 <code>__hash__</code> 自动变成 <code>None</code>，实跑报 <code>TypeError: unhashable type: 'OnlyEq'</code> —— Python 这么设计是在逼你别把契约写坏。<code>__eq__</code> 和 <code>__hash__</code> 必须用同一批字段。</li>
-<li>变成<strong>「数据还在，但谁都找不到」</strong>：实跑里 <code>len(d) == 1</code>、<code>list(d.items())</code> 明明白白印着 <code>[(Point(99, 2), '原点附近')]</code>，但 <code>p in d</code>、<code>Point(99,2) in d</code>、<code>Point(1,2) in d</code> 三种找法全是 <code>False</code> —— 连拿原对象去找都不行。机制：插入时按 <code>hash((1,2))</code> 放进 A 槽，改完按 <code>hash((99,2))</code> 去 B 槽敲门；<code>Point(1,2)</code> 到了 A 槽又过不了 <code>__eq__</code>。它还会一直占着内存和 <code>len</code>。</li>
+<li>原记录中，字符串集合出现多种排列，整数集合五次排列相同。字符串哈希可能随进程种子变化，整数哈希不受该随机种子影响，两种集合都没有迭代顺序保证。</li>
+<li>原记录的第 ④ 段五次都观察到 <code>['c', 'b', 'd', 'a']</code>。这只是当时进程中同一构造过程的结果，重启或改变构造过程后顺序可能变。</li>
+<li><strong>对当前解释器无效。</strong> 种子在解释器启动时读取，后续启动的子进程则可能继承新的环境变量 —— 实跑里加了那一行，<code>hash('a')</code> 三次仍是三个值，还会让你以为已经修好了。正确设法都在解释器之外：① 命令行 <code>PYTHONHASHSEED=0 python train.py</code> ② Dockerfile / CI 里 <code>ENV PYTHONHASHSEED=0</code> ③ 脚本检测到没设就带着 env <code>os.execve</code> 重启自己。原记录里启动前设好，三次全是 <code>4644417185603328019</code>。这些固定值只用于隔离实验。</li>
+<li>因为那一列是 <code>[f for f in feats][:3]</code>，<strong>直接遍历了一个 <code>set</code></strong>。<code>0.639427</code> 四次相同恰恰证明种子没问题 —— 漂的不是随机数，是集合的迭代顺序。修法一行：<code>sorted(feats)[:3]</code>，实跑第三列四次全是 <code>['age', 'city', 'clicks']</code>。有顺序要求时，选定排序规则或保留原输入的先后。</li>
+<li>键要可哈希，哈希值保持稳定，相等对象必须同哈希。像例中那样定义 <code>__eq__</code> 却省略 <code>__hash__</code>，类的 <code>__hash__</code> 会自动设为 <code>None</code>，所以 <code>OnlyEq()</code> 作为键时报 <code>TypeError</code>。</li>
+<li>在原实验中，记录仍在，但三种查询失败。实跑里 <code>len(d) == 1</code>、<code>list(d.items())</code> 明明白白印着 <code>[(Point(99, 2), '原点附近')]</code>，但 <code>p in d</code>、<code>Point(99,2) in d</code>、<code>Point(1,2) in d</code> 三种找法全是 <code>False</code> —— 连拿原对象去找都不行。机制：插入时按 <code>hash((1,2))</code> 放进 A 槽，改完按 <code>hash((99,2))</code> 去 B 槽敲门；<code>Point(1,2)</code> 到了 A 槽又过不了 <code>__eq__</code>。这组结果只描述原实验。</li>
 <li>得到 <strong><code>{1: 'bool'}</code>，<code>len == 1</code></strong>。因为 <code>hash(1) == hash(1.0) == hash(True)</code> 且 <code>1 == 1.0 == True</code>，字典认为是同一个 key。⚠️ 行为不对称：key 留最先插入的（<code>1</code>，类型是 <code>int</code>），value 用最后写入的（<code>'bool'</code>）。💀 实际后果：标签列混了 <code>True/False</code> 和 <code>1/0</code>，实跑 5 个值计数只剩 <code>{1: 3, 2: 2}</code> 两个桶，没有任何报错。</li>
 <li><strong>会挪到末尾</strong> —— 实跑 <code>{"a","b","c"}</code> 删掉 <code>a</code> 再加回来变成 <code>['b', 'c', 'a']</code>。「插入序」保证的是当前这次插入的顺序，不是历史顺序（先 <code>pop</code> 再放回、更新配置先删后加都会撞上）。而改已有 key 的值不动位置。<code>dict</code> 的 <code>==</code> 不看顺序（<code>True</code>），<code>OrderedDict</code> 的 <code>==</code> 看顺序（<code>False</code>）—— 这是 3.7 后 <code>OrderedDict</code> 仅存的两个理由之一，另一个是 <code>move_to_end()</code> / <code>popitem(last=False)</code>。</li>
 <li><code>x in list</code> 是 <strong>O(n)</strong>，<code>x in set</code> 是平均 O(1)（最坏 O(n)，大量碰撞时退化）。实跑 n=1000 差 156x，n=100000 差 24706x —— <code>set</code> 那列基本没动（0.049 → 0.076 µs），<code>list</code> 那列涨了约 248 倍（7.56 → 1877.69 µs）。⚠️ 但 <code>set(another_list)</code> 本身是 O(n)，只查一次时白转，且必须把它提到循环外面。</li>
 <li><code>defaultdict</code> 💀 <strong>读一下就会把 key 建出来</strong>（实跑 <code>dd["fish"]</code> 之后 <code>len</code> 从 3 变成 4），要只读不建得用 <code>dd.get(k)</code>；<code>Counter</code> 查不存在的 key 返回 <code>0</code> 但 <code>len</code> 不变（实跑查完还是 3）。⚠️ <code>c1 - c2</code> 会丢掉 ≤0 的项 —— 实跑 <code>cat</code> 3−10 直接从结果里消失了，要保留负数用 <code>c1.subtract(c2)</code>。</li>
 </ol>
 </details>
+<p>两个标签对象的 <code>hash(a) == hash(b)</code> 为真，<code>a == b</code> 为假。先后把它们写进同一个字典，第二次会覆盖第一次吗？</p>
+<details>
+<summary>👀 看答案</summary>
+<p>会保留两条记录。两个键的哈希碰撞，但相等比较仍能区分它们。换成与 <code>a</code> 相等且遵守哈希契约的新实例，写入才会更新 <code>a</code> 那一项。</p>
+</details>
 <h2 id="_7">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>⭐ <strong><code>dict</code> 从 3.7 起由语言规范保证插入序，<code>set</code> 从来不保证——而 <code>set</code> 的实际顺序取决于字符串哈希，字符串哈希每次进程启动都不一样。</strong></p>
-<p>上一章管「两台机器不一样」，这一章管「<strong>同一台机器、同一个环境、同一个种子，跑两次还是不一样</strong>」。实测连跑 5 个进程打印同一个集合，得到 5 种排列。</p>
-<p>三个关键限定：① <strong>只有 <code>str</code> / <code>bytes</code> / <code>datetime</code> 被随机化</strong>，整数的哈希就是它自己；② 钉死 <code>PYTHONHASHSEED=0</code> 就稳；③ ⚠️⚠️ <strong>同一个进程里怎么建都一样</strong>——<strong>这才是它致命的原因</strong>：在 notebook 里反复跑同一个 cell 结果永远一致，你会以为它是确定的，<strong>重启内核或上 CI 才变</strong>。</p>
+<p>⭐ <strong><code>dict</code> 从 3.7 起保证插入序。<code>set</code> 的遍历顺序不受语言保证。</strong></p>
+<p>上一章管「两台机器不一样」，这一章管「<strong>同一台机器、同一个环境、同一个种子，跑两次还是不一样</strong>」。原记录连跑 5 个进程打印同一个集合，观察到多种排列。</p>
+<p>相同构造过程可能多次给出同样的排列。改变哈希种子或集合的构造过程都可能改变结果。需要跨运行复现时，明确输出顺序。</p>
 <p>💀 这就是「<strong>种子固定了结果还是不一样</strong>」的洞：<code>random.seed(42)</code> 一切正常，可从 <code>set</code> 里出来的顺序四次四个样。⚠️ 站内那份可复现清单写的是「python / numpy / torch / cuda」四个种子，<strong>四个全设了也挡不住这条</strong>。</p>
-<p>💀 而在 <code>set_seed()</code> 里写 <code>os.environ["PYTHONHASHSEED"]="0"</code> <strong>完全没用</strong>——哈希种子是解释器<strong>启动时</strong>读一次就定死的，⚠️ <strong>它还会让你以为修好了</strong>。必须在解释器之外设（命令行 / Dockerfile / 重启自己）。</p>
-<p>⭐ <strong>修法通则：任何 <code>set</code> 变成「一串东西」的那一刻套一个 <code>sorted()</code>。</strong></p>
-<p>key 的契约两条：能算哈希，且<strong>当 key 期间哈希不许变</strong>。💀 可变对象当 key 再改字段 → 数据明明还在、<code>len</code> 也对，<strong>但三种找法全部找不到</strong>：数据还在、内存还占、逻辑上不可达。同一契约的另一面：<code>{1: ..., 1.0: ..., True: ...}</code> 会塌成<strong>一个</strong> key——<strong>key 留最先插入的，value 用最后写入的</strong>。</p>
+<p>💀 而在 <code>set_seed()</code> 里写 <code>os.environ["PYTHONHASHSEED"]="0"</code> <strong>不会改变当前解释器的哈希种子</strong>。之后启动的子进程可能继承该值。固定种子的原命令只用于隔离实验。</p>
+<p>⭐ <strong>有顺序要求时，按值排序或沿有序输入筛选。</strong></p>
+<p>键必须可哈希，且<strong>相等的键必须同哈希</strong>。哈希相同的不同键仍可共存。💀 原实验中，改了参与哈希的字段后，记录还能遍历，三种查询却都失败。违反键契约后，具体结果可能随实现或数据而变。同一契约的另一面：<code>{1: ..., 1.0: ..., True: ...}</code> 会塌成<strong>一个</strong> key——<strong>key 留最先插入的，value 用最后写入的</strong>。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="10-编码、路径和文件.html">10-编码、路径和文件.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
