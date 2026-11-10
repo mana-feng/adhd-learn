@@ -329,8 +329,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>GPU 擅长让大量数据一起做相似的运算；它不保证把任何程序都加速。</strong></p>
-<p>例如，神经网络的一层要做很多乘加。这些运算能成批安排给 GPU，而不是一项项等 CPU 做完。</p>
-<p>本章只抓三件事：<strong>谁在算、数据放哪、为什么有时算不快。</strong> 先看图和结论；规格表与访存算账可以需要时再回来。</p>
+<p>假设程序要给 100 个数分别做同样的处理，例如给一批特征逐个加 1。只要每个输出只依赖自己的输入，就可以把 100 份工作分开。神经网络中也有大量可成批安排的乘加。</p>
+<p>接着<a href="01-AI-Infra在解决什么问题.html">第 1 章</a>的算力与带宽问题，本章只抓三件事：<strong>谁在算、数据放哪、为什么有时算不快。</strong> 先用这 100 个数区分响应和吞吐，再跟着它们走到一个 warp。</p>
 <hr />
 <h2 id="cpu-vs-gpu">🆚 一、CPU vs GPU</h2>
 <p id="nc-cpu-execution"><strong>CPU 怎么推进任务？</strong>把程序视为一串机器指令：按指令位置取指、译码，读取操作数，执行计算/访存/分支，再更新寄存器等程序状态和后续指令位置。复杂依赖和控制流会限制并行度，这正是下面对照的背景；这条主线读到这里即可。</p>
@@ -377,22 +377,31 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p><strong>不要用“博士生和小学生”理解两者。</strong> 它们是不同的硬件组织方式，不是智能程度不同。CPU 也能并行，GPU 也能处理分支。</p>
-<p>深度学习中的矩阵运算适合 GPU 的并行组织，专用矩阵单元和软件库也很重要。但小任务、频繁搬运数据或串行依赖，都可能抵消加速收益。</p>
+<p>深度学习中的矩阵运算适合 GPU 的并行组织，专用矩阵单元和软件库也很重要。实际程序中，CPU 往往负责准备任务、调用运行时并提交工作，GPU 执行提交的<strong>内核（kernel）</strong>，也就是在线程上运行的一段函数。例如，同一个加 1 内核可以让每个线程处理一个不同的数。</p>
+<section class="visual-block visual-block-calc" aria-label="延迟与吞吐的手算">
+<p class="visual-block-title">只处理一个数，和一批处理 100 个数</p>
+<div class="vb-calc">
+<p><strong>先看延迟（latency）。</strong> 从开始到拿到一个结果，等了多久？假设 CPU 逐个处理，每个用 5 μs。GPU 路径固定花 20 μs 在提交与等待等开销上，只处理一个数时，内核另用 2 μs。CPU 是 5 μs，GPU 路径是 20 + 2 = 22 μs。</p>
+<p><strong>再看吞吐（throughput）。</strong> 一段时间共交付多少结果？现在 100 个输入已准备好。假设 CPU 仍逐个处理，完成一批需 100 × 5 = 500 μs。GPU 一次提交整批，假设内核用 30 μs，合计 20 + 30 = 50 μs。各用 100 除以完成整批的时间，分别得 0.2 和 2 个结果/μs。</p>
+<p>1 μs 是百万分之一秒。以上时间都是为解释口径而设的数字。这个例子中，单件延迟更长的路径反而能交付更高的批量吞吐。若 CPU 也采用向量化或多核，或者 GPU 路径需等凑批、来回搬数据，时间就要重新算。</p>
+</div>
+</section>
 <hr />
 <h2 id="gpu">🏗️ 二、GPU 的层次结构</h2>
 <figure class="dia reading-diagram repair-diagram" id="relationship-aimd-02-1" style="--diagram-width:720px"><svg viewBox="0 0 720 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="先看包含关系：运算单元与局部存储在 SM 内；再看共享关系：多个 SM 连接 L2，继续访问显存。图示是逻辑层次，不是芯片物理布局。显存类型随型号变化，RTX 4090 使用 GDDR6X，并非 HBM。"><title>先看包含关系：运算单元与局部存储在 SM 内；再看共享关系：多个 SM 连接 L2，继续访问显存。图示是逻辑层次，不是芯片物理布局。</title><text x="20" y="30" font-size="20" text-anchor="start" fill="var(--fg)">GPU：执行单元在 SM 内，L2 由 SM 共享</text><rect x="20" y="65" width="680" height="405" rx="12" fill="var(--quote-bg)" stroke="var(--border)"/><text x="40" y="97" font-size="20" text-anchor="start" fill="var(--fg)">GPU 内部</text><rect x="40" y="120" width="400" height="220" rx="12" fill="var(--quote-bg)" stroke="var(--border)"/><text x="60" y="151" font-size="20" text-anchor="start" fill="var(--fg)">一个 SM 内</text><rect x="60" y="170" width="360" height="48" rx="10" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/><text x="240.0" y="198" font-size="18" text-anchor="middle" fill="var(--fg)">CUDA Core / Tensor Core</text><rect x="60" y="245" width="360" height="48" rx="10" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/><text x="240.0" y="273" font-size="18" text-anchor="middle" fill="var(--fg)">寄存器 / Shared Memory / L1</text><rect x="470" y="120" width="210" height="220" rx="12" fill="var(--quote-bg)" stroke="var(--border)"/><text x="575" y="195" font-size="20" text-anchor="middle" fill="var(--fg)">其他 SM</text><text x="575" y="227" font-size="18" text-anchor="middle" fill="var(--fg)">并行执行</text><rect x="40" y="385" width="640" height="48" rx="10" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/><text x="360.0" y="413" font-size="18" text-anchor="middle" fill="var(--fg)">L2 Cache：多个 SM 共享</text><line x1="240" y1="340" x2="240" y2="385" stroke="var(--muted)" stroke-width="2"/><polygon fill="var(--muted)" points="240.0,385.0 235.0,376.0 245.0,376.0"/><line x1="575" y1="340" x2="575" y2="385" stroke="var(--muted)" stroke-width="2"/><polygon fill="var(--muted)" points="575.0,385.0 570.0,376.0 580.0,376.0"/><line x1="360" y1="433" x2="360" y2="520" stroke="var(--muted)" stroke-width="2"/><polygon fill="var(--muted)" points="360.0,520.0 355.0,511.0 365.0,511.0"/><rect x="20" y="520" width="680" height="48" rx="10" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/><text x="360.0" y="548" font-size="18" text-anchor="middle" fill="var(--fg)">显存：HBM 或 GDDR，容量较大</text></svg><figcaption>先看包含关系：运算单元与局部存储在 SM 内；再看共享关系：多个 SM 连接 L2，继续访问显存。图示是逻辑层次，不是芯片物理布局。</figcaption></figure>
 
-<p>看图时，从内向外分三层就够了：</p>
+<p>看图时，先找谁能执行指令，再看它从哪里取数据：</p>
 <ul>
-<li><strong>一个 SM 内有什么？</strong> SM 是流多处理器，包含执行单元、寄存器及局部存储。CUDA Core 处理通用算术；Tensor Core 处理特定矩阵运算。</li>
-<li><strong>多个 SM 共享什么？</strong> 它们通过 L2 缓存访问显存。寄存器和 Shared Memory（共享内存）可以保存局部数据，减少重复读取。</li>
+<li><strong>谁在算？</strong> 流多处理器（Streaming Multiprocessor，SM）是 GPU 上接收线程块、调度指令并组织执行的硬件单元。CUDA Core 执行普通算术，Tensor Core 执行特定矩阵运算。它们是 SM 内的执行资源。</li>
+<li><strong>数据给谁用？</strong> 寄存器保存线程自己的中间值。同一个线程块可以用共享内存（Shared Memory）交换或复用数据，另一个块不会因为也在这个 SM 上就能直接访问这片共享内存。L1 缓存服务于本 SM，L2 缓存供多个 SM 使用，显存提供更大容量。<a href="03-显存与带宽墙.html">第 3 章</a>会沿这些层级计算搬运成本。</li>
 <li><strong>哪些数字不能背成通则？</strong> SM 数量、寄存器、L1 / Shared Memory、L2 和显存容量都随型号变化。例如 A100 有 108 个 SM、40 MB L2；不是所有 GPU 都有“100 多个 SM”。</li>
 </ul>
 <p><strong>为什么这里提 FlashAttention？</strong> 它会分块复用片上存储，减少中间结果往返显存；并不是整张注意力矩阵都能装进 Shared Memory。见<a href="08-FlashAttention.html">第 8 章</a>。</p>
 <p>架构与示例数字依据：<a href="https://docs.nvidia.com/deeplearning/performance/dl-performance-gpu-background/index.html">NVIDIA GPU 性能背景指南</a>。</p>
 <h3 id="tensor-core">⭐ Tensor Core：为什么它改变了一切</h3>
 <p><strong>Tensor Core 把一组矩阵乘加交给专用硬件，合适的运算可以有更高吞吐。</strong></p>
-<p>CUDA Core 可以参与普通乘加；Tensor Core 执行矩阵乘加 <code>D = A×B + C</code>。常见教学图里的 4×4 是早期硬件示例，不是所有代际、所有指令的固定大小。</p>
+<p>普通算术路径能分别做乘法和加法。矩阵乘加把许多这样的步骤写成 <code>D = A×B + C</code>。<var>A</var>、<var>B</var> 是相乘的两个输入矩阵，<var>C</var> 是要加上的已有结果，<var>D</var> 是新结果。<var>A</var> 的列数要等于 <var>B</var> 的行数，<var>C</var> 的形状要和乘积相同。</p>
+<p>只手算一个输出位置：<var>A</var> 取一行 [2, 3]，<var>B</var> 取一列 [4, 5]，<var>C</var> 在该位置是 1。对应相乘再相加，得 2 × 4 + 3 × 5 + 1 = 8 + 15 + 1 = 24。真实矩阵乘加会批量计算许多这样的输出位置。常见教学图里的 4×4 来自早期硬件示例，实际指令的矩阵块大小依代际和指令而定。</p>
 <p>以 A100 为例，以下是<strong>非稀疏理论峰值</strong>，不是一段训练程序的实测速度：</p>
 <div class="tw"><table>
 <thead>
@@ -433,13 +442,41 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h2 id="warp">🧵 三、执行模型：warp 和它的两个坑</h2>
 <figure class="dia reading-diagram repair-diagram" id="relationship-aimd-02-2" style="--diagram-width:720px"><svg viewBox="0 0 720 545" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="从外框向内读组织层级；线程格仅列出首尾示例，不是说一个 warp 只有三个线程。这张图不表示执行先后。"><title>从外框向内读组织层级；线程格仅列出首尾示例，不是说一个 warp 只有三个线程。这张图不表示执行先后。</title><text x="20" y="30" font-size="20" text-anchor="start" fill="var(--fg)">Grid 包含 block，block 包含 warp</text><rect x="20" y="65" width="680" height="445" rx="12" fill="var(--quote-bg)" stroke="var(--accent)" stroke-width="1.5"/><text x="42" y="99" font-size="20" text-anchor="start" fill="var(--fg)">Grid</text><rect x="40" y="130" width="450" height="330" rx="12" fill="var(--quote-bg)" stroke="var(--accent)" stroke-width="1.5"/><text x="60" y="164" font-size="20" text-anchor="start" fill="var(--fg)">一个 block</text><text x="60" y="194" font-size="18" text-anchor="start" fill="var(--fg)">在同一个 SM 上执行</text><rect x="60" y="225" width="410" height="190" rx="12" fill="var(--quote-bg)" stroke="var(--accent)" stroke-width="1.5"/><text x="80" y="260" font-size="20" text-anchor="start" fill="var(--fg)">一个 warp：32 个线程</text><rect x="80" y="305" width="110" height="48" rx="10" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/><text x="135.0" y="333" font-size="18" text-anchor="middle" fill="var(--fg)">线程 0</text><rect x="205" y="305" width="110" height="48" rx="10" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/><text x="260.0" y="333" font-size="18" text-anchor="middle" fill="var(--fg)">线程 1</text><rect x="340" y="305" width="110" height="48" rx="10" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/><text x="395.0" y="333" font-size="18" text-anchor="middle" fill="var(--fg)">线程 31</text><text x="326" y="336" font-size="18" text-anchor="middle" fill="var(--fg)">…</text><rect x="520" y="130" width="160" height="330" rx="12" fill="var(--quote-bg)" stroke="var(--accent)" stroke-width="1.5"/><text x="600" y="264" font-size="18" text-anchor="middle" fill="var(--fg)">其他 block</text></svg><figcaption>从外框向内读组织层级；线程格仅列出首尾示例，不是说一个 warp 只有三个线程。这张图不表示执行先后。</figcaption></figure>
 
-<p><strong>warp 是 NVIDIA CUDA 执行模型中一组 32 个线程。</strong> 多个 warp 组成 block，多个 block 组成 grid。</p>
-<p>一个 block 的线程在同一个 SM 上执行；一个 SM 可以同时容纳多个 block，但数量受寄存器、共享内存等资源限制。</p>
-<p>SIMT 可以先理解为：<strong>向一组活跃线程发出同一条指令，各线程处理各自的数据。</strong> 线程可以走不同分支；此时不是 32 个线程永远一起执行每一步。较新架构还有独立线程调度，不能自行假定线程之间已经同步。</p>
+<p>回到 100 个数。CUDA 让程序先决定一次内核启动要开多少个<strong>线程块（block）</strong>，以及每块有多少<strong>线程（thread）</strong>。线程可以执行同一段内核代码，每个线程用自己的编号找输入。一次启动的全部块叫<strong>网格（grid）</strong>。图里画的是一维布局的包含关系，块和线程都从 0 编号。</p>
+<p>执行时，GPU 把一个块的线程安排到同一个 SM。SM 再把块内连续编号的线程按 32 个分成一组，称为<strong>线程束（warp）</strong>。块里的最后一组可以不满 32。一个 SM 能同时容纳多少块，要看寄存器、共享内存等资源。块编号也不规定它在哪个 SM 上或什么时候执行。<a href="https://docs.nvidia.com/cuda/cuda-programming-guide/01-introduction/programming-model.html">CUDA 编程模型</a></p>
+<p><strong>怎么让 100 个数各有一个线程负责？</strong> 在这一维例子里，<var>n</var> 表示元素数，<var>B</var> 表示每块线程数。每个线程最多负责一个元素，所需块数是 <var>n</var> ÷ <var>B</var> 后向上取整。取 <var>n</var> = 100、<var>B</var> = 64，100 ÷ 64 = 1.5625，所以开 2 块。每块 64 ÷ 32 = 2 个 warp。</p>
+<div class="tw" id="gpu-thread-mapping"><table style="width:100%;min-width:0;table-layout:fixed">
+<caption>两块共 128 个线程，覆盖 100 个输入</caption>
+<thead><tr><th scope="col">块</th><th scope="col">warp 0</th><th scope="col">warp 1</th></tr></thead>
+<tbody>
+<tr><th scope="row">块 0</th><td>编号 0–31<br>处理 32 个</td><td>编号 32–63<br>处理 32 个</td></tr>
+<tr><th scope="row">块 1</th><td>编号 64–95<br>处理 32 个</td><td>编号 96–127<br>处理 4 个</td></tr>
+</tbody>
+</table></div>
+<p>设 <var>b</var> 是块编号，<var>t</var> 是块内线程编号。前面 <var>b</var> 块共有 <var>b</var> × <var>B</var> 个线程，再加块内偏移 <var>t</var>，就得到输入编号 <var>i</var> = <var>b</var> × <var>B</var> + <var>t</var>。块 1 的线程 35 得到 <var>i</var> = 1 × 64 + 35 = 99，正好处理最后一个数。下一线程得到 100，必须先检查 <var>i</var> &lt; <var>n</var>，条件不满足就不能读写数组。</p>
+<p>因此最后一个 warp 的 96–99 号线程参与加法，100–127 号线程不访问数据。两块一共启动 2 × 64 = 128 个线程，100 个有元素可做，另有 28 个没有。本例的派工覆盖比例为 100 ÷ 128 = 78.125%。它只统计本次谁拿到了输入，不能从中推出 GPU 有多忙或内核跑了多久。</p>
+<p>下面用 Python 3 复算表格。外层枚举块，内层枚举块内 warp。<code>start</code> 是这一组的第一个全局编号，<code>stop</code> 是它后面第一个编号。用 <code>min(stop, n)</code> 截住有效范围，再用 <code>max(0, ...)</code> 处理整组没有输入的情况。这里的循环只列派工结果，不模拟 GPU 的执行顺序。</p>
+<div class="codehilite" data-code-language="python" id="gpu-thread-mapping-code"><pre><code>n = 100
+block_size = 64
+warp_size = 32
+blocks = (n + block_size - 1) // block_size
+
+for block in range(blocks):
+    for warp in range(block_size // warp_size):
+        start = block * block_size + warp * warp_size
+        stop = start + warp_size
+        useful = max(0, min(stop, n) - start)
+        print(f"块 {block}, warp {warp}: {start}–{stop - 1}, {useful} 个")
+
+launched = blocks * block_size
+print(f"派工: {n}/{launched} = {n / launched:.3%}")
+</code></pre></div>
+<p><code>//</code> 对非负整数做整除，先加每块线程数减 1 就能把有余数的商进一。100 个输入时，代码依次输出表中的 32、32、32、4，最后输出 <code>派工: 100/128 = 78.125%</code>。把 <code>n</code> 改为 96，最后一个 warp 就没有可处理的元素。这段演示假定输入非空、块大小是 32 的整数倍，无需 GPU 或第三方包。</p>
+<p>同一个 warp 中，多个活跃线程可以接到相同指令，各自用不同的数据执行。这种组织叫<strong>单指令多线程（Single Instruction, Multiple Threads，SIMT）</strong>。当各线程需要走不同路径时，只有属于当前路径的线程参与那部分工作。较新架构支持独立线程调度，程序需要同步时仍要显式表达，不能假定同组线程始终齐步。<a href="https://docs.nvidia.com/cuda/cuda-programming-guide/03-advanced/advanced-kernel-programming.html">CUDA SIMT 与独立线程调度</a></p>
 <h3 id="1-warp-divergence">坑 ① warp divergence（分支发散）</h3>
 <p><strong>同一个 warp 走不同分支，可能让部分执行通道暂时闲着。慢多少要看分支里的工作。</strong></p>
-<p>假设偶数编号线程做 A，奇数编号线程做 B：</p>
-<div class="tw"><table>
+<p>继续看前面的 warp 0。现在让偶数编号线程执行路径 A，奇数编号线程执行路径 B。两边各有 16 个线程。下表只数路径各自参与的线程，不表示哪条路径先运行。</p>
+<div class="tw"><table style="width:100%;min-width:0;table-layout:fixed">
 <thead>
 <tr>
 <th>当前执行的分支</th>
@@ -460,12 +497,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>如果 A、B 工作量相近，分别执行两条路径会比所有线程一起做其中一条更贵。但<strong>不能直接得出“耗时翻倍”</strong>：路径长度、编译器是否用谓词化指令，以及访存等待都会影响开销。</p>
+<p>假设 A 只有 1 条指令、B 有 3 条，教学模型把两条路径分别发给本组。按每条指令的 32 个可参与位置计，4 条指令一共有 32 × (1 + 3) = 128 个位置，实际参与的是 16 × 1 + 16 × 3 = 64 个。这次分支段的参与比例为 64 ÷ 128 = 50%。前面的 78.125% 数的是整个网格谁分到了输入，两处的分母不同。</p>
+<p>如果 A、B 工作量相近，分别执行两条路径通常比所有线程一起做其中一条费更多发指令工作。实际耗时还受路径长度、编译器的谓词化（用条件标记哪些线程生效）以及访存等待影响，50% 不等于耗时必定翻倍。</p>
 <p>下一步不是删掉所有 <code>if</code>，而是用性能分析工具确认分支分歧是否真是瓶颈。</p>
 <h3 id="2-uncoalesced-access">坑 ② 非合并访存（uncoalesced access）</h3>
 <p><strong>同一组线程要的数据越分散，可能需要搬入越多用不上的数据。</strong></p>
-<p>用一个有明确条件的例子算账：在以 32 字节扇区处理请求的现代 CUDA 设备上，一个 warp 的 32 个线程各读一个 4 字节数，共需 128 字节。</p>
-<div class="tw"><table>
+<p>继续看一个满员 warp。假设每个线程各读一个不同且对齐的 4 字节数，设备按 32 字节扇区处理这次访存，共有 32 × 4 = 128 个有效字节。从 32 字节对齐的起点算，若地址偏移依次为 0、4、…、124，每个扇区放 32 ÷ 4 = 8 个数，所以覆盖 32 ÷ 8 = 4 个扇区。若偏移变成 0、32、…、992，每个线程都在不同扇区，一共覆盖 32 个。</p>
+<div class="tw"><table style="width:100%;min-width:0;table-layout:fixed">
 <thead>
 <tr>
 <th>地址分布</th>
@@ -486,7 +524,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>第二行只有 128 字节是本次真正需要的，按这个例子计算利用率是 <strong>128 / 1024 = 1/8</strong>，不是 1/32。</p>
+<p>把覆盖的扇区数乘以 32 字节，连续方案是 4 × 32 = 128 字节，分散方案是 32 × 32 = 1,024 字节。后者本次只需要 128 字节，因此覆盖数据中的有效字节比例为 <strong>128 ÷ 1,024 = 1/8</strong>。这里统计的是这次请求的扇区覆盖，显存实际流量还要考虑缓存。</p>
 <p>这也<strong>不是程序必然慢 8 倍</strong>：缓存命中、相邻 warp 的复用、对齐与其他瓶颈都会影响时间。<a href="https://developer.nvidia.com/blog/unlock-gpu-performance-global-memory-access-in-cuda/">NVIDIA 全局内存访问说明</a>。</p>
 <p><strong>它和 PyTorch 的关系：先区分“布局”与“访问方式”。</strong> 转置通常只改变 stride（相邻元素的地址步长），不搬数据；<code>contiguous()</code> 可以复制成连续布局。但访问能否合并，还取决于算子怎样把数据分配给线程。</p>
 <p>下面只观察布局与形状，不测 GPU 性能。安装 PyTorch 后可在 CPU 运行；有 CUDA 时使用 GPU。矩阵缩小是为了方便观察，原理不依赖 4096 这一大小。</p>
@@ -618,7 +656,8 @@ nvidia-smi<span class="w"> </span>dmon<span class="w"> </span>-s<span class="w">
 <li>GPU 靠什么掩盖内存延迟？小 batch 一定是 warp 不够吗？</li>
 <li>Tensor Core 做什么？A100 上的“16 倍”是什么口径？</li>
 <li>混合精度为什么可能快？矩阵维度不对齐就一定不能用 Tensor Core 吗？</li>
-<li>什么是 warp？分支发散为什么可能变慢，而不固定慢两倍？</li>
+<li>如果改为处理 97 个数，每块仍开 64 个线程，需要几个块？最后一个 warp 有几个线程可以读写数据？</li>
+<li>什么是 warp？例子中的 50% 参与比例，为什么不能说成 GPU-Util 50%？</li>
 <li>本章连续与分散访存各覆盖多少个扇区？contiguous 能保证算子访问合并吗？</li>
 <li>比较 RTX 4090 与数据中心卡，除算力还要看什么？</li>
 <li>为什么 GPU-Util 100% 不能证明没有优化空间？</li>
@@ -630,7 +669,8 @@ nvidia-smi<span class="w"> </span>dmon<span class="w"> </span>-s<span class="w">
 <li>缓存、数据复用及调度就绪 warp 配合。小 batch 可能并行度不足，也可能受访存、形状或启动开销限制，需要测量。</li>
 <li>Tensor Core 处理特定矩阵乘加。312 / 19.5 = 16 比的是 A100 的 BF16 Tensor Core 与 FP32 普通算术理论峰值，精度不同，不是训练加速承诺。</li>
 <li>数据更小可减少搬运，合适的矩阵运算也可走高吞吐路径。TF32 同样能用 Tensor Core；现代库中对齐常是效率因素，不是统一的硬性门槛。</li>
-<li>CUDA warp 通常包含 32 个线程；分歧会使一部分线程不参与当前路径。实际代价随路径长度、编译和其他等待变化。</li>
+<li>97 ÷ 64 向上取整为 2 块。最后一个 warp 的编号是 96–127，只有编号 96 小于 97，所以只有一个线程可以读写。</li>
+<li>CUDA warp 是 32 个执行位置组成的一组，末组可以不满。本例的 50% 是分支指令中实际参与的位置占比，GPU-Util 则按采样窗口内内核活跃时间计算。分歧的耗时还要结合实现和访存判断。</li>
 <li>在本章对齐、每线程读 4 字节的例子中，连续覆盖 4 个扇区，完全分散可覆盖 32 个；后者有效字节比例是 1/8。张量连续性和线程访问方式是两件事，不能仅看 contiguous 判断速度。</li>
 <li>显存容量、显存带宽、互联与软件支持。PCIe 的单双向口径要分清；多卡效率取决于并行方案和通信量，不是“没有 NVLink 就不能训练”。</li>
 <li>GPU-Util 主要描述 kernel 活跃时间；仍可能受访存或低效算子限制。应结合吞吐、延迟和性能分析，训练时再看 MFU 等指标。</li>
@@ -639,7 +679,7 @@ nvidia-smi<span class="w"> </span>dmon<span class="w"> </span>-s<span class="w">
 <hr />
 <h2 id="_6">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
-<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>GPU 通过大量并行任务提高吞吐；先认清 SM、缓存和显存。</li><li>Tensor Core 面向矩阵运算，收益受精度、形状与实现影响，规格峰值不是实测速度。</li><li>分支和访存的代价要测；不要把“慢两倍”“带宽 1/32”当成定律。</li></ul></section>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>CPU 提交内核，GPU 按块把工作安排到 SM，SM 以 warp 为单位组织执行。批量吞吐和单件延迟分开算。</li><li>Tensor Core 面向矩阵运算，收益受精度、形状与实现影响，规格峰值不是实测速度。</li><li>派工覆盖、分支参与和访存有效字节的分母各不相同。要判断耗时，仍要按实际实现和输入测量。</li></ul></section>
 
 <p><strong>下一节</strong> 👉 <a href="03-显存与带宽墙.html">03-显存与带宽墙.md</a> ⭐</p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
