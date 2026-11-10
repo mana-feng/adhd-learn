@@ -343,7 +343,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 第八节会把 <code>ml_md/18</code> 里那个 <code>unbroadcast()</code> 函数逐行摆回三条规则上，你会看到它就是规则的镜像。</p>
 <p>⚠️ 本章往下所有的「广播」一律是 NumPy 义，不再重复声明。</p>
 <h3 id="_3">📏 一、三条规则</h3>
-<p>拿到两个形状不同的数组做逐元素运算（<code>+ - * /</code> 和一切 ufunc），NumPy 只做这三步：</p>
+<p>拿到两个形状不同的数组做逐元素运算（如 <code>+</code>、<code>-</code>、<code>*</code>、<code>/</code>），NumPy 按这三步配对元素。矩阵乘法 <code>@</code> 只对批次轴使用这三步，第五节会把它和 <code>*</code> 放在一起对照。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -474,11 +474,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>⚠️ <strong>倒数第二行是最反直觉的一条</strong>：<code>(2,3,4)</code> 和 <code>(2,3)</code> 看起来「前两维完全一样，应该能算」，
+<p>⚠️ <strong>最后一行是最反直觉的一条</strong>：<code>(2,3,4)</code> 和 <code>(2,3)</code> 看起来「前两维完全一样，应该能算」，
 但规则 ① 是<strong>往左补</strong>，<code>(2,3)</code> 变成 <code>(1,2,3)</code> 而不是 <code>(2,3,1)</code>。
 要表达「前两维对齐」得自己写成 <code>(2,3,1)</code>，也就是 <code>y[..., None]</code>。</p>
-<p>⭐ <strong><code>np.broadcast_shapes()</code> 值得记住</strong> —— 调试形状问题时它比造两个数组再相加快得多，
-而且<strong>不分配任何内存</strong>。</p>
+<p><strong>空轴也按规则 ③ 处理。</strong> <code>np.broadcast_shapes((0, 3), (1, 3))</code> 返回 <code>(0, 3)</code>。第一根轴是 0 对 1，长度为 1 的轴跟随另一侧变成 0，结果没有任何一行。若把第二个形状换成 <code>(2, 3)</code>，0 对 2 就会报错。</p>
+<p>⭐ <strong><code>np.broadcast_shapes()</code> 值得记住</strong>。调试时可以只传形状，不必先创建输入数组或计算逐元素结果。</p>
 <div class="nm-takeaway"><button type="button" class="nm-save-note" data-nm-save="_1" data-nm-enhance disabled>记住这一段</button></div></section><section class="nm-section nm-prose" data-nm-section="2"><p class="nm-kicker">02 / 完整解释</p><h2>没有复制输入，也可能放大输出。</h2><h3 id="_5" data-nm-stop="">🧠 三、为什么拉伸是免费的</h3>
 <p>规则 ③ 说「拉伸不复制内存」。这不是修辞，是可以直接验的：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -500,12 +500,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>实跑输出：</p>
 <section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>v.shape = (5,) v.nbytes = 40</p><p>big.shape = (1000000, 5) big.nbytes(名义) = 40000000</p><p>共享内存吗 -&gt; True</p><p>big 自己有数据吗 -&gt; big.base is v : True</p><p>能写吗 -&gt; big.flags.writeable : False</p><p>np.ascontiguousarray(big).nbytes = 40000000 = 38.1 MB</p><p>real 共享内存吗 -&gt; False</p></div></section>
-<p>⭐ <strong>一个 40 字节的数组，被「拉伸」成号称 38.1 MB 的形状，实际占用还是那 40 字节。</strong>
+<p>⭐ <strong>一个 40 字节的数组，被「拉伸」成名义大小为 38.1 MiB 的形状，两者仍共享原来的 40 字节元素缓冲区。</strong>
 <code>shares_memory</code> 是 <code>True</code>，<code>big.base is v</code> 也是 <code>True</code> —— 它压根没有自己的数据，
-只是给同一块内存换了一套读法。真要实体化（<code>ascontiguousarray</code>）才会掏出那 38.1 MB。</p>
-<p>⚠️ <strong>代价是它只读</strong>（<code>writeable</code> 是 <code>False</code>）。理由很直白：
-<code>big[0, 0]</code> 和 <code>big[999999, 0]</code> 是<strong>同一个字节</strong>，往里写一个数会让一百万行同时变，
-NumPy 干脆禁掉这个歧义。这一条在第六节还会以另一副面孔出现。</p>
+只是给同一块内存换了一套读法。上面的 <code>ascontiguousarray(big)</code> 会为这个非连续视图另分配 38.1 MiB 的元素空间。</p>
+<p>⚠️ <strong><code>np.broadcast_to</code> 返回只读视图</strong>（<code>writeable</code> 是 <code>False</code>）。<code>big[0, 0]</code> 和 <code>big[999999, 0]</code> 都读 <code>v[0]</code> 所在的 8 个字节。从原数组修改 <code>v[0]</code>，视图的这两处也会变。若要让每一行都能独立修改，可用 <code>big.copy()</code> 创建一份可写的独立数组。</p>
 <blockquote>
 <p><strong>「换一套读法」到底怎么换的</strong>，是 <a href="05-内存布局与stride.html">第 05 章</a> 的正题
 （答案是那根轴的步长被设成 0）。<strong>这一章你只需要接受「它是免费的」这个事实。</strong>
@@ -663,6 +661,60 @@ sklearn 某些 <code>predict</code> 的返回、<code>keepdims=True</code> 的�
 </table></div>
 <p>⚠️ <strong>不要指望「结果形状不对我会看见」</strong> —— <code>.mean()</code> 之后就是一个标量，
 <strong>形状信息在报出指标之前就已经被 <code>mean()</code> 抹掉了</strong>。</p>
+<h4>形状也对了，偏移还是加错了</h4>
+<p>甲、乙两家店分别卖了 <code>[1, 2]</code> 杯和 <code>[3, 4]</code> 杯，列顺序都是热茶、冰茶。录入漏记了固定数量，甲店两种茶各补 10 杯，乙店两种茶各补 20 杯。先猜甲店的冰茶应该是 12 杯还是 22 杯。</p>
+<div class="tw"><table>
+<caption>修正前后逐格对照，括号内为热茶、冰茶</caption>
+<thead><tr><th scope="col">门店</th><th scope="col">原始杯数</th><th scope="col">按列加</th><th scope="col">按店加</th></tr></thead>
+<tbody>
+<tr><th scope="row">甲</th><td>(1, 2)</td><td>(1 + 10, 2 + 20) → (11, 22)</td><td>(1 + 10, 2 + 10) → (11, 12)</td></tr>
+<tr><th scope="row">乙</th><td>(3, 4)</td><td>(3 + 10, 4 + 20) → (13, 24)</td><td>(3 + 20, 4 + 20) → (23, 24)</td></tr>
+</tbody></table></div>
+<p><code>offset</code> 的形状是 <code>(2,)</code>，广播时从右对齐，视为 <code>(1, 2)</code>，所以 10 和 20 落到两列。写成 <code>offset[:, None]</code> 得到 <code>(2, 1)</code>，把两个偏移放在门店轴（第 0 轴），每家店再向右重复自己的偏移。</p>
+<div class="codehilite" data-code-language="python"><pre><code>import numpy as np
+
+counts = np.array([[1, 2], [3, 4]], dtype=np.int64)  # (2, 2)：门店 × 饮品
+offset = np.array([10, 20], dtype=np.int64)         # (2,)：每家店的补记量
+wrong = counts + offset                           # (2, 2)：10 和 20 分到两列
+right = counts + offset[:, None]                  # (2, 2)：每家店用自己的偏移
+print(wrong.shape, wrong.tolist())  # (2, 2) [[11, 22], [13, 24]]
+print(right.shape, right.tolist())  # (2, 2) [[11, 12], [23, 24]]
+</code></pre></div>
+<p>两个结果都是 <code>(2, 2)</code>。诊断这种问题时，给输入的每根轴写上名字，再挑一个应当不同的格子核对。这里核对甲店冰茶一格就能发现错轴。</p>
+<h4>一组权重怎样算出两家店的分数</h4>
+<p>回到原始杯数。现在给两家店打分，每店有一条销售记录，都按两套演示方案打分。方案 A 每杯热茶记 2 分、冰茶记 1 分，方案 B 每杯热茶记 1 分、冰茶记 3 分。要得到一套方案的总分，先算每种茶贡献了几分，再把两项加起来。</p>
+<div class="tw"><table>
+<caption>每一行是一条记录，每一列是一个方案的总分</caption>
+<thead><tr><th scope="col">门店</th><th scope="col">方案 A（分）</th><th scope="col">方案 B（分）</th></tr></thead>
+<tbody>
+<tr><th scope="row">甲</th><td>1 × 2 + 2 × 1 = 4</td><td>1 × 1 + 2 × 3 = 7</td></tr>
+<tr><th scope="row">乙</th><td>3 × 2 + 4 × 1 = 10</td><td>3 × 1 + 4 × 3 = 15</td></tr>
+</tbody></table></div>
+<p><strong>先分清两类轴。</strong> 对至少二维的数组，矩阵乘法（Matrix Multiplication，<code>@</code>）把最后两根轴看成一张矩阵的行和列。前面的轴用来选择第几张矩阵，叫批次轴（Batch Axes）。这里每家店一张矩阵，所以输入 <code>x</code> 是 <code>(2, 1, 2)</code>，依次表示门店、店内记录、饮品。权重 <code>weights</code> 是 <code>(1, 2, 2)</code>，依次表示共享的一张权重表、饮品、方案。</p>
+<ol>
+<li><strong>批次轴对齐。</strong> 2 家店对 1 张权重表，按三条规则让两家店共用一张表，保留长度 2 的门店轴。</li>
+<li><strong>矩阵内维要相等。</strong> 左边有 2 列饮品，右边有 2 行饮品。按饮品一项项相乘并相加，这根长度为 2 的饮品轴就归约掉了。结果保留左边的 1 行记录和右边的 2 列方案，形状是 <code>(2, 1, 2)</code>。</li>
+</ol>
+<p><code>*</code> 则会把整组形状右对齐：<code>(2, 1, 2)</code> 和 <code>(1, 2, 2)</code> 得到 <code>(2, 2, 2)</code>。例如甲店的 <code>[1, 2]</code> 依次与权重表的两行逐格相乘，得到 <code>[1 × 2, 2 × 1] = [2, 2]</code> 和 <code>[1 × 1, 2 × 3] = [1, 6]</code>。乙店同样得到 <code>[6, 4]</code> 和 <code>[3, 12]</code>。它把右侧的方案列对上了左侧的饮品列，没有做行乘列的求和。</p>
+<div class="codehilite" data-code-language="python"><pre><code>import numpy as np
+
+x = np.array([[[1, 2]], [[3, 4]]], dtype=np.int64)     # (2, 1, 2)
+weights = np.array([[[2, 1], [1, 3]]], dtype=np.int64) # (1, 2, 2)
+scores = x @ weights    # (2, 1, 2)：门店、记录、方案
+products = x * weights  # (2, 2, 2)：逐格乘积
+print(scores.shape, scores.tolist())      # (2, 1, 2) [[[4, 7]], [[10, 15]]]
+print(products.shape, products.tolist())  # (2, 2, 2) [[[2, 2], [1, 6]], [[6, 4], [3, 12]]]
+
+short_weights = weights[:, :1, :]  # (1, 1, 2)：只保留热茶的权重行
+print((x * short_weights).shape)   # (2, 1, 2)
+try:
+    x @ short_weights
+except ValueError:
+    print("ValueError: 矩阵内维 2 和 1 不相等")
+</code></pre></div>
+<p>用 <code>short_weights</code> 可以看到一个失败边界。即使右边的饮品轴长度是 1，<code>@</code> 也不能沿矩阵内维补齐缺失的冰茶权重。若确实只想算热茶，输入也要取热茶列。对一维输入，<code>@</code> 还有临时加轴和移除该轴的规则，见 <a href="https://numpy.org/doc/stable/reference/generated/numpy.matmul.html">NumPy 的矩阵乘法文档</a>。</p>
+<details><summary>自查：只算热茶，甲乙两家店的方案 A、B 各得几分？</summary>
+<p><code>x[:, :, :1]</code> 保留热茶列，形状是 <code>(2, 1, 1)</code>，可与 <code>(1, 1, 2)</code> 的 <code>short_weights</code> 相乘。甲店得到 <code>[1 × 2, 1 × 1] = [2, 1]</code>，乙店得到 <code>[3 × 2, 3 × 1] = [6, 3]</code>。输出仍是 <code>(2, 1, 2)</code>。</p></details>
 <div class="nm-takeaway"><button type="button" class="nm-save-note" data-nm-save="_5" data-nm-enhance disabled>记住这一段</button></div></section><section class="nm-section nm-prose" data-nm-section="3"><p class="nm-kicker">03 / 完整解释</p><h2>写回与求导，都要看原来的形状。</h2><h3 id="_7" data-nm-stop="">🧯 六、原地运算时，广播是单向的</h3>
 <p><code>a + b</code> 和 <code>a += b</code> 在广播这件事上<strong>不是同一回事</strong>：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -696,6 +748,7 @@ sklearn 某些 <code>predict</code> 的返回、<code>keepdims=True</code> 的�
 <p>⭐ <strong>规则很简单：<code>a += b</code> 要求广播结果的形状和 <code>a</code> 完全一样。</strong>
 <code>a</code> 是那个「容器」，它不许在原地长大。所以广播只能是<strong>单向的</strong> —— <code>b</code> 可以被拉伸去迎合 <code>a</code>，
 <code>a</code> 不能被拉伸去迎合 <code>b</code>。</p>
+<p>形状相同只通过了形状检查。左边还必须可写，运算结果也必须能按 NumPy 的转换规则写回左边的 dtype（数据类型）。例如浮点加法结果通常不能用 <code>+=</code> 原地写回整数数组。<a href="08-整数dtype的真相.html">第 08 章</a>会拆开转换和运算的边界。</p>
 <p>⚠️ <strong><code>non-broadcastable output operand</code> 这句报错专属于原地运算。</strong>
 看到它不要去查两个形状能不能广播（它们能，<code>small + big</code> 就成功了），
 要去看<strong>等号左边那个数组的形状</strong>。同一族的还有
