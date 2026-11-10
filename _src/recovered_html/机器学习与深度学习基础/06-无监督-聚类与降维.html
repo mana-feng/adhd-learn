@@ -360,12 +360,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <td>肘部法则、轮廓系数、<strong>业务意义</strong> ⭐</td>
 </tr>
 <tr>
-<td><strong>必须标准化</strong></td>
-<td>它用欧氏距离，尺度大的特征会主导</td>
-<td>先 <code>StandardScaler</code></td>
+<td><strong>特征尺度会影响距离</strong></td>
+<td>它用欧氏距离，数值变化大的特征可能主导</td>
+<td>按单位和任务决定是否缩放，如用 <code>StandardScaler</code></td>
 </tr>
 <tr>
-<td><strong>只能找"球形"簇</strong></td>
+<td><strong>偏好紧凑、近似球形的簇</strong></td>
 <td>长条形、环形的簇它分不好</td>
 <td>换 DBSCAN / 谱聚类</td>
 </tr>
@@ -382,10 +382,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <blockquote>
-<p>🔗 <strong><a href="../机器学习的数学原理/13-EM与高斯混合.html">数学原理第 13 章</a>会告诉你</strong>：
-<strong>K-Means 是高斯混合模型（GMM）的一个特例</strong>——
-K-Means 的平方欧氏距离目标偏好紧凑、近似球形的簇；大小、密度差异很大时，分组容易失真。
-<strong>这与目标函数和距离选择有关，不是“数据必须来自等大的球形高斯分布”这一硬性要求。</strong></p>
+<p>K-Means 用平方欧氏距离衡量远近，偏好紧凑、近似球形的簇。簇的大小或密度差异很大时，分组容易失真。这个倾向来自它优化的目标。与高斯混合模型的联系需要额外条件，下面用同一组点算一遍。</p>
 <p>⭐ <strong>上面这四步用 numpy 写出来只要 12 行</strong>：🔗 <a href="附录C-手撕代码速查.html">附录 C 第 8 题</a>。
 值得专门去一趟，是因为它补了一个「照着四步写」一定会漏的分支：<strong>空簇</strong>。
 某一轮没有任何点归到某个中心时，<code>X[lab==j].mean(0)</code> 对空数组求均值返回 <code>nan</code>，
@@ -430,7 +427,7 @@ K-Means 的平方欧氏距离目标偏好紧凑、近似球形的簇；大小、
 <tr>
 <td><strong>高斯混合 GMM</strong></td>
 <td><strong>软分配</strong>（一个点可以 70% 属于 A、30% 属于 B）</td>
-<td>需要概率、簇是椭圆形</td>
+<td>想估计归属的不确定性，且各成分可用高斯分布近似</td>
 </tr>
 </tbody>
 </table></div>
@@ -459,6 +456,90 @@ K-Means 的平方欧氏距离目标偏好紧凑、近似球形的簇；大小、
 （🔗 <a href="../机器学习的数学原理/05-维度灾难.html">数学原理第 5 章 维度灾难</a>）。
 <strong>超过 10~20 维时先降维。</strong></p>
 </details>
+<h3 id="ml06-hard-soft-clustering">同一批读数，为什么要保留归属的不确定性？</h3>
+<p>假设一台传感器可能在 A、B 两种工况下工作，记录了相对参考温度的三个偏差：0、1、3 °C。读数没有工况标签。先人为设两个初始中心，A 为 0 °C，B 为 2 °C。恰好落在正中间的 1 °C，两边都差 1 °C，单凭最近中心就分不出哪边更可信。</p>
+<p><strong>硬分配（hard assignment）</strong>仍要给每个点选一个簇。<strong>软分配（soft assignment）</strong>允许记录这个点在两个簇中的归属概率。若用钟形的高斯分布描述每种工况下读数的波动，把两种分布按各自比例混合，就是<strong>高斯混合模型（Gaussian Mixture Model，GMM）</strong>。比例表示还没看读数时两种工况各有多常见。工况是模型假设，不能拿这些概率当成真实标签。</p>
+
+<h4 id="ml06-hard-step">硬分配：K-Means 把读数整票投给最近中心</h4>
+<p>把每个点分别减去两个中心后平方。平方让左右两个方向的距离都为非负数，且距离较近的一边仍较小。这里三个读数到 A、B 的平方距离依次为 $(0^2,(-2)^2)=(0,4)$、$(1^2,(-1)^2)=(1,1)$、$(3^2,1^2)=(9,1)$，单位都是 (°C)²。本例规定平局时选 A，所以 A 得到 0、1，B 得到 3。</p>
+<p>对已经分好的点，用本簇平均值更新中心。A 的新中心是 $(0+1)/2=0.5$ °C，B 是 $3/1=3$ °C。这完成了一轮分配和更新，下一轮会使用新中心重新分配。</p>
+
+<h4 id="ml06-e-step">E 步：把每个读数的一票分给两个成分</h4>
+<p>要估计归属，先用初始中心问「每种工况对这条读数的解释有多强」，再把两种解释的得分按同一总和缩放成比例。这个比例叫<strong>责任度（responsibility）</strong>，即在当前模型下、观察到这个读数之后属于某个成分的概率。用中心来估计归属是<strong>期望步（E 步）</strong>，用归属来重算中心是<strong>最大化步（M 步）</strong>。交替执行两步，就是<strong>期望最大化（Expectation-Maximization，EM）</strong>算法。</p>
+<p>本例固定两种工况的比例各为 $1/2$，也固定同一个方差 $v=1$ (°C)²。方差是衡量波动大小的量，等于标准差的平方。对第 $i$ 条读数 $x_i$（$i=1,2,3$），用下式求成分 $j$（$j$ 为 A 或 B）的相对得分 $s_{ij}$ 和责任度 $r_{ij}$。$\mu_j$ 是该成分的当前中心，单位和读数一样，都是 °C。</p>
+<p>$$s_{ij}=\exp\!\left(-\frac{(x_i-\mu_j)^2}{2v}\right),\qquad r_{ij}=\frac{s_{ij}}{s_{iA}+s_{iB}}.$$</p>
+<p>读数离中心越远，负指数越小，得分就越低。$\exp(a)$ 是 $e^a$，底数 $e\approx2.718$。平方差和方差的单位相同，所以指数没有单位。两边方差相同，高斯密度的常数因子也相同。把密度各乘上相同的工况比例，再除以两个结果的和时，这些共同因子会约掉，所以只需计算上式的指数部分。两个责任度都在 0 到 1 之间，相加为 1。</p>
+<div class="tw" tabindex="0" role="region" aria-label="三个读数的得分与责任度计算"><table>
+<caption>代入方差 1 和初始中心 0、2，得分和责任度均四舍五入到四位小数</caption>
+<thead><tr><th scope="col">读数</th><th scope="col">A、B 的相对得分</th><th scope="col">A 的责任度</th><th scope="col">B 的责任度</th></tr></thead>
+<tbody>
+<tr><th scope="row">0 °C</th><td>$e^0=1$、$e^{-4/2}\approx0.1353$</td><td>$1/(1+0.1353)\approx0.8808$</td><td>$0.1353/(1+0.1353)\approx0.1192$</td></tr>
+<tr><th scope="row">1 °C</th><td>均为 $e^{-1/2}\approx0.6065$</td><td>$0.6065/(0.6065+0.6065)=0.5000$</td><td>$0.6065/(0.6065+0.6065)=0.5000$</td></tr>
+<tr><th scope="row">3 °C</th><td>$e^{-9/2}\approx0.0111$、$e^{-1/2}\approx0.6065$</td><td>$0.0111/(0.0111+0.6065)\approx0.0180$</td><td>$0.6065/(0.0111+0.6065)\approx0.9820$</td></tr>
+</tbody></table></div>
+<figure class="panels">
+<div class="panel"><b>0 °C</b> · K-Means 选 A<br><meter min="0" max="1" value="0.8808" aria-hidden="true"></meter> GMM：A 88.08%，B 11.92%</div>
+<div class="panel"><b>1 °C</b> · K-Means 平局选 A<br><meter min="0" max="1" value="0.5" aria-hidden="true"></meter> GMM：A 50%，B 50%</div>
+<div class="panel"><b>3 °C</b> · K-Means 选 B<br><meter min="0" max="1" value="0.0180" aria-hidden="true"></meter> GMM：A 1.80%，B 98.20%</div>
+<figcaption class="panel">每条填充长度显示分给 A 的份额，其余分给 B。看中间一行，平局规则把整票给 A，软分配则给两个成分各半票。</figcaption>
+</figure>
+
+<h4 id="ml06-m-step">M 步：每个成分用分到的票重算中心</h4>
+<p>半票应该只有一整票一半的拉力。因此每个读数先乘它在成分 $j$ 上的责任度，再除以该成分收到的总票数。固定 E 步的责任度和本例方差时，最大化加权的高斯对数密度等价于最小化加权平方距离。它在加权平均处最小，因为此处左右的加权偏差正好抵消。$\mu_j^{\mathrm{new}}$ 是成分 $j$ 更新后的中心，仍以 °C 计，求和都遍历三个读数。</p>
+<p>$$\mu_j^{\mathrm{new}}=\frac{\sum_{i=1}^3r_{ij}x_i}{\sum_{i=1}^3r_{ij}}.$$</p>
+<ul>
+<li>A：$(0.8808\times0+0.5000\times1+0.0180\times3)/(0.8808+0.5000+0.0180)=0.5540/1.3988\approx0.396$ °C。</li>
+<li>B：$(0.1192\times0+0.5000\times1+0.9820\times3)/(0.1192+0.5000+0.9820)=3.4460/1.6012\approx2.152$ °C。</li>
+</ul>
+<p>下一轮用新中心重新估计责任度。这里只更新均值，成分比例与方差仍固定。手算中心保留三位小数。程序保留未舍入的责任度，最后才将结果显示为四位小数。</p>
+
+<h4 id="ml06-em-code">用 Python 核对这一轮</h4>
+<p>这三个数是手设的演示数据，只用于展示一次拟合更新。没有随机步骤、特征缩放、调参或泛化评估。若把分群用于下游预测，先划分数据，再只用训练集拟合缩放器和聚类参数；在验证集上选择方案，冻结后再用测试集评估。</p>
+<p><code>distances</code> 保存每个读数到两个旧中心的平方距离，<code>hard</code> 存硬分配，<code>soft</code> 存每一行的责任度。更新时前者用本簇读数的普通平均，后者用 <code>weights</code> 取该成分的一列责任度并求加权平均。程序用标准库，可直接运行。</p>
+<div id="ml06-em-demo" class="codehilite" data-code-language="python"><pre><code>from math import exp
+
+readings = [0, 1, 3]
+centers = [0, 2]
+variance = 1.0
+hard = []
+soft = []
+
+for x in readings:
+    distances = [(x - center) ** 2 for center in centers]
+    group = 0 if distances[0] &lt;= distances[1] else 1  # 平局选 A
+    hard.append(group)
+
+    scores = [exp(-d / (2 * variance)) for d in distances]
+    total = sum(scores)
+    shares = [score / total for score in scores]
+    soft.append(shares)
+
+    print(f"x={x}: K-means {'AB'[group]}; GMM A={shares[0]:.4f}, B={shares[1]:.4f}")
+
+hard_centers = []
+soft_centers = []
+for group in range(len(centers)):
+    members = [x for x, label in zip(readings, hard) if label == group]
+    hard_centers.append(sum(members) / len(members))  # 本例两个簇都非空
+
+    weights = [shares[group] for shares in soft]
+    weighted_total = sum(weight * x for weight, x in zip(weights, readings))
+    soft_centers.append(weighted_total / sum(weights))
+
+print(f"K-means: A={hard_centers[0]:.4f}, B={hard_centers[1]:.4f}")
+print(f"GMM/EM: A={soft_centers[0]:.4f}, B={soft_centers[1]:.4f}")
+</code></pre></div>
+<p>输出最后两行应分别是 <code>K-means: A=0.5000, B=3.0000</code> 和 <code>GMM/EM: A=0.3960, B=2.1521</code>。这段代码只覆盖给定的两个成分和这组数据。实际 K-Means 要处理空簇，GMM 在大距离或极小方差下需要在对数空间计算，避免两个指数项都被浮点数舍入为零。</p>
+
+<h4 id="ml06-clustering-boundaries">何时两种更新接近？</h4>
+<p>固定等权重和共同的球形协方差（每个方向同样波动、各方向互不相关），让方差趋近于零。如果某点只有一个最近中心，较远中心的指数得分会比最近中心衰减得更快。归一化之后，唯一最近中心的责任度趋近 1，其他趋近 0。当不存在平局和空簇时，加权均值也趋向 K-Means 的簇内均值。本例的 1 °C 到两个初始中心等距，等权下责任度各半，即使缩小方差也不会执行 K-Means 的平局规则。一般的 GMM 可有不同的成分权重和协方差，不必遵循最近中心规则。</p>
+<p><strong>失败信号：</strong>把两个 GMM 初始中心都放在 0 °C，这一轮每个读数都会平分两票。两个均值一起更新为 $(0+1+3)/3=4/3$ °C，下一轮仍无法打破对称。在这组固定比例和方差的条件下，EM 不能靠多跑几轮解开完全相同的起点，也不保证找到全局最优。实际拟合可比较多个起点，并检查分群稳定性和下游价值。</p>
+<p><strong>先看想要的输出。</strong>K-Means 直接分簇，GMM 可以给每个读数分配成分概率，DBSCAN 依据邻域密度连出簇并可标记噪声。PCA 解决下面的另一个问题：用更少的坐标表示样本，输出是新坐标。</p>
+<details id="ml06-em-check"><summary>自检：等距读数会因方差变小而归入 A 吗？</summary>
+<p>保持旧中心 0、2 和两个相等的工况比例，只把共同方差改为 0.25 (°C)²。预测读数 1 °C 的两个责任度，再展开核对自己的理由。</p>
+<p>仍各为 0.5。两个平方距离都为 1，所以得分都为 $e^{-1/(2\times0.25)}=e^{-2}$。每个得分除以两者之和就是 0.5。K-Means 在同样的平局下才会按演示规则硬选 A。</p>
+</details>
+<p>到这里先记住：硬分配用整票更新，软分配用每个成分收到的份额更新。想继续核对 EM 更新与小方差的推导，可读<a href="../机器学习的数学原理/13-EM与高斯混合.html#k-means-gmm">数学原理第 13 章</a>和 <a href="https://cs229.stanford.edu/summer2023/cs229-notes8.pdf">Stanford CS229 EM 讲义第 3 节</a>。</p>
 <hr />
 <h2 id="pca" data-mg-stop>📉 二、PCA：降维的默认选择</h2>
 <figure class="dia" data-fig="pca_directions" data-ml-diagram="wide" tabindex="0" style="--ml-diagram-width:720px" aria-label="教学图，可在图内左右滚动或使用放大按钮"><p class="ml-diagram-hint">图内可左右滑动；需要时可放大阅读。</p><svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="PCA 的主成分方向"><defs><marker id="a9__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker><marker id="a9l__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--link)"/></marker><marker id="a9g__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--done)"/></marker></defs><circle cx="152.9" cy="244.8" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="290.0" cy="160.2" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="241.8" cy="158.5" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="232.2" cy="191.4" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="302.8" cy="160.9" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="241.0" cy="177.6" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="204.0" cy="218.6" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="301.1" cy="111.3" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="118.0" cy="321.6" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="346.4" cy="146.2" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="267.0" cy="169.8" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="218.4" cy="180.7" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="282.7" cy="165.1" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="139.2" cy="247.1" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="213.9" cy="197.0" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="370.9" cy="142.0" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="82.0" cy="307.8" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="325.6" cy="176.3" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="273.9" cy="126.2" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="301.6" cy="160.3" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="338.9" cy="147.0" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="189.9" cy="274.8" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="198.9" cy="250.8" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="270.4" cy="164.4" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="116.9" cy="252.4" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="199.4" cy="217.9" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="258.5" cy="225.9" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="288.7" cy="195.9" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="182.7" cy="221.8" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="314.2" cy="175.0" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="285.2" cy="157.6" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="213.4" cy="257.8" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="209.0" cy="206.7" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="338.9" cy="136.9" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="225.6" cy="226.8" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="254.4" cy="220.3" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="235.0" cy="179.2" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="402.0" cy="126.6" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="257.9" cy="182.5" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="170.1" cy="225.9" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="189.9" cy="249.4" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="314.5" cy="141.8" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="227.5" cy="213.9" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="255.8" cy="199.9" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="282.6" cy="180.0" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="274.6" cy="150.1" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="267.6" cy="129.1" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="253.1" cy="181.1" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="268.6" cy="173.7" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="243.1" cy="149.6" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="211.6" cy="193.9" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="271.8" cy="180.9" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="218.4" cy="196.4" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="207.9" cy="212.6" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="280.4" cy="187.9" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="228.4" cy="176.6" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="210.2" cy="231.9" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="186.0" cy="220.5" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="129.9" cy="285.9" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="242.8" cy="177.5" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="242.1" cy="208.8" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="243.6" cy="198.2" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="233.9" cy="169.5" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="162.1" cy="268.2" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="229.4" cy="230.1" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="304.8" cy="142.9" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="205.2" cy="203.3" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="337.9" cy="134.6" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="243.2" cy="215.1" r="3.6" fill="var(--link)" opacity=".62"/><circle cx="189.7" cy="212.2" r="3.6" fill="var(--link)" opacity=".62"/><line x1="250" y1="190" x2="348.4" y2="128.5" stroke="var(--accent)" stroke-width="3" marker-end="url(#a9__f1)"/><text class="dia-t" x="386" y="120" font-size="12" text-anchor="middle" fill="var(--accent)" font-weight="700">PC1：方差最大</text><line x1="250" y1="190" x2="277.6" y2="234.1" stroke="var(--done)" stroke-width="3" marker-end="url(#a9__f1)"/><text class="dia-t" x="300" y="268" font-size="12" text-anchor="middle" fill="var(--done)" font-weight="700">PC2</text><text class="dia-t" x="360" y="32" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">PCA 找的是「数据自己伸展的方向」，不是坐标轴方向</text><text class="dia-t" x="520" y="150" font-size="11.5" text-anchor="start" fill="var(--muted)" font-weight="normal">沿 PC1 投影：</text><text class="dia-t" x="520" y="168" font-size="11" text-anchor="start" fill="var(--accent)" font-weight="600">点被拉得很开 → 信息多</text><text class="dia-t" x="520" y="196" font-size="11.5" text-anchor="start" fill="var(--muted)" font-weight="normal">沿 PC2 投影：</text><text class="dia-t" x="520" y="214" font-size="11" text-anchor="start" fill="var(--muted)" font-weight="normal">点挤在一起 → 丢掉也不太可惜</text><text class="dia-t" x="360" y="322" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">⭐ 「方差大 = 信息多」的前提是：能区分【样本】。但它不保证能区分【标签】</text><text class="dia-t" x="360" y="344" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">所以 PCA 降维有时会掉分 —— 分类任务想要有监督的降维，该用 LDA</text></svg><figcaption>PCA 找的是<b>数据自己伸展的方向</b>，不是坐标轴方向。⭐ 「方差大 = 信息多」的前提是能区分<b>样本</b> —— 但它不保证能区分<b>标签</b>。所以 PCA 降维有时会掉分；分类任务想要有监督的降维，该用 LDA。</figcaption></figure>
@@ -602,7 +683,7 @@ UMAP 也可以用于下游特征，但要在训练集拟合、再转换验证集
 </tr>
 <tr>
 <td><a href="../机器学习的数学原理/13-EM与高斯混合.html">数学原理第 13 章</a></td>
-<td><strong>K-Means 是 GMM 的特例</strong>——解释了球形簇的限制 ⭐</td>
+<td>推导等权、共同球形协方差的 GMM 在小方差极限下如何对应 K-Means，另讨论平局和空簇。</td>
 </tr>
 <tr>
 <td><a href="../机器学习的数学原理/05-维度灾难.html">数学原理第 5 章</a></td>
@@ -672,7 +753,7 @@ UMAP 也可以用于下游特征，但要在训练集拟合、再转换验证集
 <div class="ml-q" data-answer="b" role="group" aria-labelledby="mlq-2">
 <p class="ml-q-stem" id="mlq-2"><span class="ml-q-tag">单选</span>2. 下面哪一项<strong>不是</strong> K-Means 的坑？</p>
 <ol class="ml-q-options">
-<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">必须先标准化</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">特征尺度不合适时，距离会被数值变化大的特征主导</span><span class="ml-q-mark"></span></button></li>
 <li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">必须先有标签才能训练</span><span class="ml-q-mark"></span></button></li>
 <li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">对初始化和离群点敏感</span><span class="ml-q-mark"></span></button></li>
 <li><button type="button" data-choice="d"><span class="ml-q-key">D</span><span class="ml-q-text">K 要自己定</span><span class="ml-q-mark"></span></button></li>
@@ -680,7 +761,7 @@ UMAP 也可以用于下游特征，但要在训练集拟合、再转换验证集
 <p class="ml-q-feedback" role="status"></p>
 <details class="ml-q-explain"><summary>看答案与解析</summary>
 <p><strong>答案：B</strong></p>
-<p>K 要自己定、必须标准化、只能找球形簇、<strong>初始化敏感</strong>（<code>n_init=10</code>）、对离群点敏感。</p>
+<p>K 要自己定，距离会受尺度影响，偏好紧凑、近似球形的簇，对离群点和<strong>初始化</strong>敏感（可用 <code>n_init=10</code> 多试几个起点）。</p>
 </details>
 </div>
 <div class="ml-q" data-answer="a" role="group" aria-labelledby="mlq-3">
@@ -787,6 +868,7 @@ UMAP 也可以用于下游特征，但要在训练集拟合、再转换验证集
 <ul>
 <li><strong>分组与压缩是两个目标</strong>；跑出结果，不等于结果有用。</li>
 <li><strong>K-Means</strong>：留意尺度、簇形状、初始化与离群点；没有清楚的肘部时，结合业务选择 K。</li>
+<li><strong>GMM 与 EM</strong>：先估计每个点的归属份额，再用份额更新中心。换初始中心可能改变结果。</li>
 <li><strong>PCA</strong>：方差大不代表对标签有用。预处理只在训练集拟合；稀疏数据可考虑 TruncatedSVD。</li>
 <li><strong>t-SNE/UMAP</strong>：探索图需要回到原始特征或下游任务核验。换参数、换种子检查稳定性；打乱标签不能验真。</li>
 </ul>
