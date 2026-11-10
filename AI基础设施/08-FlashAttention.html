@@ -379,7 +379,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <hr />
 <h2 id="_3">📊 三、收益</h2>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>HBM 访问量：</p><p>标准： O(n² + nd)</p><p>FlashAttention：O(n²d² / M) （M = 片上存储可容纳的元素数）</p><p>访问量可显著减少；具体倍数取决于分块、片上容量与数据类型 ⭐</p></div></section>
+<section class="visual-block visual-block-calc" aria-label="两级存储模型中的 HBM 访问量"><p class="visual-block-title">先说模型，再读渐近式</p><div class="vb-calc"><p>这里采用论文的<strong>两级存储模型</strong>：慢而大的 HBM 与快而小的片上 SRAM。$M$ 表示 SRAM 能容纳的<strong>标量元素个数</strong>，不是字节数；讨论范围是 $d \le M \le nd$。</p><p>在这些假设下，朴素 attention 的 HBM 元素访问量上界为 $O(n²+nd)$；FlashAttention 的 HBM 元素访问量渐近上界为 $O(n²d²/M)$。</p><p>这个式子数的是<strong>两层存储之间搬了多少个元素</strong>，不是额外显存容量，也不是某次 profiler 里直接读到的字节数。估算字节还要乘每个元素的字节数，并计入具体实现常数、布局和额外读写。</p><p>$M$ 越大，能在片上复用的块越大，HBM 往返通常越少；但实际倍数仍取决于分块、数据类型、硬件和 kernel 实现 ⭐</p></div></section>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -407,7 +407,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 这移除了长上下文的一道关键显存障碍。以 BF16、单头、单样本估算，n=128K 的一个 $n×n$ 中间矩阵就约为 <strong>32 GiB</strong>。但请别把“能装下”读成“已经便宜”：完整注意力的主要矩阵运算仍随 $n²d$ 增长，128K 是否可运行还取决于层数、batch、硬件、并行和内核。</p>
 </blockquote>
 <h3 id="_4">💡 反向传播怎么办</h3>
-<section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">反向需要 P 矩阵，但它没被保存</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 解法：重算（recomputation）</span></div><div class="vb-flow-row"><span class="vb-flow-step">反向时用保存下来的 O、ℓ、m 重新算出 P</span></div><div class="vb-flow-row"><span class="vb-flow-step">又是&quot;用计算换显存&quot;</span></div><div class="vb-flow-row"><span class="vb-flow-step">带宽受限时，重算可能比读 HBM 更划算 ⭐</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="FlashAttention 反向传播的重算流程"><p class="visual-block-title">反向不是只靠 O、ℓ、m 凭空恢复</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">前向后仍需保留或可访问 Q、K、V 与输出 O</span></div><div class="vb-flow-row"><span class="vb-flow-step">同时保存每一行的 softmax 统计量 m、ℓ（实现也可能保存等价的 log-sum-exp）</span></div><div class="vb-flow-row"><span class="vb-flow-step">反向收到上游梯度 dO，但完整 P 没有保存</span></div><div class="vb-flow-row"><span class="vb-flow-step">重新遍历 Q/K 块：S = QKᵀ/√d，再由 m、ℓ 分块重建 P</span></div><div class="vb-flow-row"><span class="vb-flow-step">结合 P、Q、K、V 与 dO，分块累积 dQ、dK、dV</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 用重算换掉保存和读取 n×n 的 P；带宽受限时可能更划算</span></div></div></section>
+<p><strong>边界要说完整：</strong>$O$、$m$、$\ell$ 只提供输出与逐行归一化信息，不能单独恢复分数；重算 $S$ 仍然需要原来的 $Q$ 和 $K$，计算值梯度还要用到 $V$ 与上游梯度 $dO$。具体内核可能保存 log-sum-exp 等等价统计量，但不会绕过这些数据依赖。</p>
 <hr />
 <h2 id="prefill-decode-context">🧭 四、训练、Prefill 与 Decode：不要把一个结论套遍所有阶段</h2>
 <section class="visual-block visual-block-compare" aria-label="训练、预填充、解码和多设备长上下文对比"><p class="visual-block-title">同一个注意力公式，瓶颈不一样</p><div class="vb-compare"><p><strong>训练 / Prefill（一次读入整段提示）</strong>：Q 的长度和 K/V 的长度都接近 n，朴素实现可能物化 n×n 中间矩阵。分块与在线 softmax 能省下大量 HBM 往返，也是本章主线。</p><p><strong>单 token Decode（一次只生成一个 token）</strong>：新 Q 的长度是 1，分数形状是 1×n，本来就没有 n×n 新矩阵；主要代价常变成每步读取越来越长的 KV Cache。Prefill 的加速倍数不能直接搬到这里。</p><p><strong>多设备长上下文</strong>：Ring Attention 把序列块分到多台设备，让 K/V 块沿环传递，并尝试把通信和当前块计算重叠。它解决“单卡装不下”的分布问题，不会把完整注意力的总计算凭空变成线性。</p></div></section>
@@ -542,11 +543,11 @@ FA-1 里的 online softmax 有大量这类操作，FA-2 重新安排了顺序把
 <h2 id="_10">✅ 检查点</h2>
 <ol>
 <li>标准 attention 的搬运量花在哪了？占比多少？</li>
-<li>FlashAttention 减少了浮点运算次数吗？它到底优化了什么？</li>
+<li>FlashAttention 减少了主要矩阵运算次数吗？$O(n²d²/M)$ 中的 $M$ 是什么，这个式子又在数什么？</li>
 <li>核心思想是什么？靠哪一级存储实现？</li>
 <li>softmax 需要全局最大值，怎么分块？代价是什么？</li>
 <li>额外保存量从多少降到多少？为什么这只移除长上下文的一道障碍，而不是让总计算变成线性？</li>
-<li>反向传播需要 P 矩阵但没保存，怎么解决？为什么这样划算？</li>
+<li>反向传播需要 P 矩阵但没保存，必须保留或重新使用哪些数据，具体怎样分块重算并得到梯度？</li>
 <li>为什么不能背一张永久的“Flash 后端五条件”清单？怎样确认当前输入真的走了目标后端？</li>
 <li>Prefill 与单 token Decode 的注意力形状和主要瓶颈有什么不同？</li>
 <li>FlashAttention、Ring Attention 和滑窗/稀疏注意力分别改变了什么？</li>
@@ -557,11 +558,11 @@ FA-1 里的 online softmax 有大量这类操作，FA-2 重新安排了顺序把
 <summary>👀 答案</summary>
 <ol>
 <li>花在那个 <strong>n×n 的中间矩阵</strong>上。在本章的简化账本里，n=4096 时每个 BF16 中间矩阵为 32 MiB，S/P 的四次往返约 128 MiB，而 Q/K/V/O 合计 4 MiB；128÷132≈97%。这只是为了看清数量级，不是完整 kernel profiler 统计。</li>
-<li><strong>主要矩阵运算仍是 O(n²d)</strong>，并可能增加缩放修正与重算。它主要优化 HBM 访问量；不同版本也会减少部分非矩阵操作。</li>
+<li><strong>主要矩阵运算仍是 O(n²d)</strong>，并可能增加缩放修正与重算。论文的两级存储模型把 HBM 视为慢存储、SRAM 视为快存储；$M$ 是 SRAM 可容纳的标量元素数，范围 $d≤M≤nd$。$O(n²d²/M)$ 是该模型下 HBM<strong>元素访问次数的渐近上界</strong>，不是额外显存复杂度，也不是实测字节。换成字节还要乘元素大小并考虑实现常数。</li>
 <li><strong>分块 + 在片上完成</strong>：把 Q/K/V 切成能装进 Shared Memory 的小块，在片上算完 softmax 和乘 V，只把最终的 O 写回 HBM——那个 n×n 矩阵从来没进过 HBM。靠片上高速存储（容量与带宽依 GPU 而变）。</li>
 <li><strong>online softmax（增量修正）</strong>：维护 running max 和 running sum，每遇到更大的最大值就把之前累积的结果乘 e^(m−m_new) 打折再加新块贡献。最后必须用未归一化加权和除以指数和：O=U/ℓ。代价是缩放修正与可能的重算，增量并非固定比例。</li>
 <li>朴素实现要额外保存 O(n²) 的中间矩阵；FlashAttention 把额外保存量降到 O(nd)，固定头维度 d 时常简写为 O(n)。这移除了关键显存障碍，但主要矩阵运算仍是 O(n²d)，所以长上下文仍受计算、层数、batch、硬件和并行约束。</li>
-<li><strong>重算</strong>：反向时用保存的 O、ℓ、m 重新算出 P。带宽受限时，重算可能比从 HBM 读更划算。</li>
+<li><strong>重算</strong>：前向后仍需保留或可访问 Q/K/V、输出 O 和逐行 softmax 统计量 m、ℓ（或等价的 log-sum-exp），反向还会收到上游梯度 dO。内核重新遍历 Q/K 块得到 $S=QK^T/√d$，再用逐行统计量重建 P，随后结合 P、Q、K、V 与 dO 分块累积 dQ、dK、dV。这样避免保存和读取完整 n×n 的 P，带宽受限时可能比读回它更划算。</li>
 <li>因为 dtype、头维度、stride、mask、设备与构建支持都随框架和内核版本变化。最常见的错误是“调用了 SDPA 就等于用了 Flash”。测试时用 <code>sdpa_kernel(SDPBackend.FLASH_ATTENTION)</code> 限定目标后端，让不支持原因显式暴露；纯因果场景优先用 <code>is_causal=True</code>。</li>
 <li>Prefill 中 Q 与 K/V 长度都接近 n，朴素实现可能物化 n×n；单 token Decode 的 Q 长度是 1，分数只有 1×n，主要压力常是每一步读取整个 KV Cache。因此 Prefill 的加速倍数不能直接套给 Decode。</li>
 <li>FlashAttention 重排同一个精确注意力的计算与 I/O；Ring Attention 把块分到多设备并环形传递 K/V；滑窗/稀疏注意力限制可见位置，改变了注意力模式来减少计算。</li>
@@ -576,7 +577,8 @@ FA-1 里的 online softmax 有大量这类操作，FA-2 重新安排了顺序把
 <p>⭐⭐ <strong>它主要靠减少显存搬运提速——关键是别把那个 n×n 的中间矩阵写回显存。</strong></p>
 <p>把账摊开就很清楚：序列一长，中间矩阵的搬运量能占到教学账本的绝大部分，⭐ <strong>而它是一个根本不需要长期保存的东西</strong>；在本章给定的 A100 理论峰值、BF16 与形状假设下，算术强度低于平衡点，<strong>更可能受带宽限制</strong>。换硬件和形状必须重新算。</p>
 <p>⭐ <strong>核心思想：分块，在片上高速存储里把 softmax 和乘 V 一次算完，只把结果写回</strong>——<strong>那个 n×n 矩阵从来没进过显存</strong>。难点是 softmax 需要全局最大值，解法是 ⭐ <strong>在线 softmax</strong>：维护当前的最大值和累加和，<strong>遇到更大的最大值就把已累积的结果按比例打折，再加上新块，最后用 U 除以 ℓ 得到输出</strong>。</p>
-<p>⚠️ 缩放修正与反向重算可能增加计算，增量依实现与形状而变——⭐ <strong>带宽受限时，用计算换搬运可能更划算。</strong></p>
+<p>⚠️ 缩放修正与反向重算可能增加计算，增量依实现与形状而变——⭐ <strong>带宽受限时，用计算换搬运可能更划算。</strong>这里“重算”不是只靠 O、ℓ、m：必须重新使用 Q/K/V，结合上游梯度 dO，按块重建分数与 P，再累积 dQ、dK、dV。</p>
+<p>📐 看到 $O(n²d²/M)$ 时先记住边界：它是在 $d≤M≤nd$ 的两级存储模型里，以 $M$ 个标量元素为片上容量，计算 HBM 元素访问次数的渐近上界；它不是额外显存复杂度，也不是实测字节。</p>
 <p>收益里最该记的一条不是速度：⭐⭐ <strong>额外保存量从 O(n²) 降到 O(nd)，固定 d 时常简写为线性——它移除了长上下文的一道关键显存障碍</strong>。但完整注意力的计算仍是 O(n²d)，能装下不等于已经便宜，更不等于模型会有效利用全部信息。⭐ 它<strong>计算同一个注意力公式；浮点舍入可能不同</strong>。反向需要那个中间结果却没存，<strong>于是重算——在带宽受限时可能更划算</strong>。</p>
 <p>⚠️ <strong>后端条件不是永久固定的五条规则。</strong>最常见的错误是“调用 SDPA 就等于用了 Flash”。处方：用当前框架的后端限定工具让不支持原因显式暴露；纯因果场景优先用 <code>is_causal=True</code>。⭐ 还要记住：Prefill 的 Q 长度接近 n，而单 token Decode 的 Q 长度是 1，后者主要读取 KV Cache，不能直接套用 Prefill 的收益。</p>
 <p>⭐ <strong>三条可迁移的启发</strong>：主要矩阵运算量不变也可能提速（<strong>优化是少搬，不是少算</strong>）、<strong>用计算换带宽常常划算</strong>、<strong>同样的算法「在哪一层算」也会影响性能</strong>。</p>
