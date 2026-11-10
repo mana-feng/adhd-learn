@@ -293,16 +293,49 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <main class="nm-main"><header class="nm-cover"><div class="nm-cover-copy"><p class="nm-kicker" id="01">NUMPY / 01 · 01 · 为什么写循环是错的</p><h1 class="nm-question">同样算一遍，时间花在哪里了？</h1><p class="nm-dek">问题不只是有没有写 for。先分清：是在解释器里逐个处理，还是把一整块任务交给数组内核。</p><p class="nm-outcome">你能先定位开销，再决定改写是否值得；不会把“向量化”当成无条件更快。</p><div class="nm-actions"><a class="nm-primary" href="#_2">从这个问题开始</a><a class="nm-secondary" href="#nm-reading-start">直接进入完整解释</a></div><p class="nm-resume-status" role="status"></p></div><figure class="nm-cover-visual"><svg xmlns="http://www.w3.org/2000/svg" id="nm-cover-01-svg" viewbox="0 0 320 312" role="img" aria-labelledby="nm-cover-01-title nm-cover-01-desc"><title id="nm-cover-01-title">dispatch 机制示意</title><desc id="nm-cover-01-desc">这是执行路径的简化示意，不按方框数量或线长表示耗时；具体倍数仍以原文实验条件为限。</desc><defs><marker id="nm-cover-01-arrow" markerwidth="7" markerheight="7" refx="6" refy="3.5" orient="auto"><path d="M0 0 L7 3.5 L0 7Z" fill="#1e6661"></path></marker></defs><rect width="320" height="312" fill="#f7f6f0"></rect><rect x="16" y="22" width="288" height="77" rx="3" fill="#e9eee3" stroke="#8da396"></rect><text x="29" y="51" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="18" fill="#1e6661">逐个处理</text><text x="29" y="80" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="19" fill="#202720">Python → 取数 → 运算</text><rect x="16" y="122" width="288" height="77" rx="3" fill="#e9eee3" stroke="#8da396"></rect><text x="29" y="151" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="18" fill="#1e6661">数组整体处理</text><text x="29" y="180" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="19" fill="#202720">Python → 数组内核</text><rect x="16" y="222" width="288" height="77" rx="3" fill="#e9eee3" stroke="#8da396"></rect><text x="29" y="251" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="18" fill="#1e6661">先问任务与规模</text><text x="29" y="280" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="19" fill="#202720">不能凭名字承诺加速</text></svg><figcaption>这是执行路径的简化示意，不按方框数量或线长表示耗时；具体倍数仍以原文实验条件为限。</figcaption></figure></header><article class="nm-article" id="nm-reading-start"><details class="nm-deep nm-prose"><summary>阅读范围、用时与原有实验记录</summary><details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>42 分钟</strong> ｜ ⭐ <strong>同一件事，纯 Python 68 毫秒、NumPy 3.5 毫秒 —— 差的是一个量级，而差距的来源不是「C 比 Python 快」</strong></p>
 </details><section class="nm-section nm-prose" data-nm-section="1"><p class="nm-kicker">01 / 完整解释</p><h2>先比较同一件任务。</h2><h3 id="_1" data-nm-stop="">🎯 一句话</h3>
-<p><strong>慢的不是 Python 这门语言，是「每一个元素都要被当成一个独立的 Python 对象处理一遍」这件事。</strong></p>
-<p>NumPy 快，是因为它把「一百万次决策」压缩成了「一次决策 + 一百万次执行」。
-这一章会给出一个<strong>同样是 NumPy、同样走 C 代码、却慢 8 倍</strong>的反例来证明这一点。</p>
+<p><strong>同样乘一遍，逐个处理 Python 对象会多做什么工作？</strong></p>
+<p>循环写法让解释器逐次取值、相乘、保存。把一组同类型的数交给 NumPy，可以为整批数据选择一套运算方式，在底层完成乘法。这里先把结果算对，再比较成本。</p>
 <blockquote>
 <p>⚠️ <strong>先消歧</strong>：这一套教程里的「<strong>向量化</strong>」指<strong>把 Python 循环改写成整块数组运算</strong>。
 站内别处出现的「向量化」（<code>智能体工程教程/11</code>、<code>大模型全景导论/08</code> 等 10 处）
 说的是<strong>把文本变成 embedding 向量</strong>，是另一回事。</p>
 </blockquote>
 <h3 id="_2">📏 一、先看差距有多大</h3>
-<p>同一件事：把两个长度 100 万的数列逐个相乘。三种写法。</p>
+<h4>先手算三笔销售额</h4>
+<p>三笔订单的数量是 <code>[2, 4, 3]</code> 件，对应单价是 <code>[5, 2, 6]</code> 元/件。每笔销售额等于该笔的数量乘单价，结果保留原订单顺序。可以先遮住结果一列，自己算出三个值。</p>
+<div class="tw"><table>
+<caption>每笔订单只乘同一位置的两个数</caption>
+<thead><tr><th scope="col">订单</th><th scope="col">数量 × 单价</th><th scope="col">销售额（元）</th></tr></thead>
+<tbody>
+<tr><th scope="row">第 1 笔</th><td>2 × 5</td><td>10</td></tr>
+<tr><th scope="row">第 2 笔</th><td>4 × 2</td><td>8</td></tr>
+<tr><th scope="row">第 3 笔</th><td>3 × 6</td><td>18</td></tr>
+</tbody>
+</table></div>
+<p>循环中的 <code>i</code> 是从 0 数起的位置。每轮取同一位置的数量和单价，把结果追加到列表。数组写法先把两列数据各转成一个 NumPy 数组（<code>ndarray</code>），再用 <code>q * p</code> 一次交给 NumPy 处理。两个输入的形状都是 <code>(3,)</code>，也就是各有三个元素。</p>
+<div class="codehilite" data-code-language="python"><pre><code class="language-python">import numpy as np
+
+quantity = [2, 4, 3]
+unit_price = [5, 2, 6]
+
+loop_result = []
+for i in range(len(quantity)):
+    loop_result.append(quantity[i] * unit_price[i])
+
+q = np.array(quantity, dtype=np.int64)
+p = np.array(unit_price, dtype=np.int64)
+array_result = q * p
+
+print(loop_result)
+print(array_result.tolist())
+assert loop_result == array_result.tolist() == [10, 8, 18]</code></pre></div>
+<p>两行都输出 <code>[10, 8, 18]</code>。<code>tolist()</code> 把结果转成普通列表，方便逐项对照。<code>dtype=np.int64</code> 指定每项用 64 位有符号整数存储；这个例子的数都在它的范围内。改用别的数据时，还要核对形状和结果的取值范围，详见<a href="02-shape与axis到底怎么数.html">第 02 章</a>和<a href="08-整数dtype的真相.html">第 08 章</a>。</p>
+<details>
+<summary>自查：若第二笔单价从 2 变成 3，哪笔结果会变？</summary>
+<p>第二笔变成 <code>4 × 3 = 12</code>，结果是 <code>[10, 12, 18]</code>。循环中只有 <code>i=1</code> 的乘法换了一个输入；数组运算同样按位置相乘。</p>
+</details>
+<h4>再比较百万项的记录</h4>
+<p>下面沿用逐项相乘的规则，把输入换成两个各有 100 万项的浮点数列，比较三种写法。计时代码在准备阶段建好列表和数组，表里的耗时只比较乘法过程，包含各自创建结果的开销。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">timeit</span>
 
@@ -330,22 +363,17 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>实跑输出：</p>
 <section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>列表推导 [x*y for x,y in zip(la,lb)] min 68.17 ms median 81.21 ms max 104.56 ms</p><p>for + append min 81.23 ms median 87.83 ms max 97.64 ms</p><p>numpy a * b min 3.51 ms median 3.97 ms max 5.33 ms</p></div></section>
-<p><strong>min 口径下差 19 倍。但这个「19」不要记。</strong></p>
-<p>💀 <strong>同一个脚本在同一台机器上重跑 4 次，倍数分别是 19x / 29x / 35x / 37x。</strong>
-这台笔记本会热降频，NumPy 那一行的 min 从 3.51 ms 掉到 2.17 ms，
-而列表推导那一行反而从 68 ms 涨到 79 ms —— 两头一起动，倍数当然乱跳。</p>
+<p><strong>这组记录里，两行最短耗时之比约为 <code>68.17 ÷ 3.51 ≈ 19.4</code>。</strong> 分子是列表推导，分母是数组运算。</p>
+<p>同一脚本在同一台机器上四次运行，记录的比值为 19x / 29x / 35x / 37x。其中 NumPy 的最短耗时由 3.51 ms 变为 2.17 ms，列表推导则由约 68 ms 变为约 79 ms。</p>
 <blockquote>
-<p>⭐ <strong>所以正文只写「差一个量级、大约 20–40 倍」，不钉死一个数。</strong>
-这一条本身就是这一章最该记住的教学点之一：
-<strong>在一台会降频的机器上报单点数字，就是在编数字。</strong>
-你自己跑出来的绝对毫秒数一定和上面不同 —— <strong>看量级，不要看毫秒。</strong></p>
+<p>⭐ 这些比值只描述这组测量。换成刚才的三笔订单，或把列表转数组的时间也计入，结论可能不同。要优化自己的代码时，先核对两边结果，再按真实输入和相同计时口径比较。</p>
 <p>📌 <strong>本章不讲怎么测。</strong> 「为什么取 min 不取 mean」「怎么预热」
 「<code>perf_counter</code> 和 <code>time.time</code> 差在哪」「<code>cProfile</code> 怎么读」
 这些是 Python 工程题，不是 NumPy 题，归《Python》板块的性能剖析章。
 上面那六行 <code>timeit.repeat</code> 是本章唯一一处计时代码，之后不再出现。</p>
 </blockquote>
 <h3 id="_3">🧩 二、慢在哪：解释器每转一圈要做的事</h3>
-<p><code>for i in range(N): r.append(la[i]*lb[i])</code> 这一行，Python 每一圈要做的事远不止「乘一下」：</p>
+<p><code>for i in range(N): r.append(la[i]*lb[i])</code> 逐次读取两个列表中的 Python 浮点对象、相乘并保存。下表用 CPython 的对象模型拆开这些工作，具体指令和对象管理会随解释器版本与优化路径变化。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -362,7 +390,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td>② 下标取值</td>
-<td><code>la[i]</code> 走 <code>list.__getitem__</code>，边界检查、取出<strong>指针</strong></td>
+<td>按 <code>la[i]</code> 定位列表中存放的对象引用。</td>
 <td>✅ 每圈</td>
 </tr>
 <tr>
@@ -382,7 +410,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td>⑥ 真正的乘法</td>
-<td>一条 CPU 指令，<strong>纳秒级</strong></td>
+<td>把取到的两个浮点数相乘。</td>
 <td>✅ 每圈</td>
 </tr>
 <tr>
@@ -392,13 +420,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td>⑧ 引用计数</td>
-<td>append 进列表要 <code>Py_INCREF</code>，临时变量出作用域要 <code>Py_DECREF</code></td>
+<td>解释器需要管理结果对象和列表持有的引用。</td>
 <td>✅ 每圈</td>
 </tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>第 ⑥ 步才是你真正想做的事，它在整圈里占的比例小到可以忽略。</strong>
-其余七步是<strong>为了让「任意类型都能相乘」这件事成立而付的税</strong>，而你一百万次付的是同一笔税。</p>
+<p>⭐ <strong>第 ⑥ 步产生所需数值。其他步骤负责驱动循环、读写对象和保存结果。</strong> 上面的计时只测了整段计算，无法从耗时表拆出单步占比。</p>
 <h3 id="_4">💾 装箱的代价能直接量出来</h3>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -415,16 +442,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>实跑输出：</p>
 <section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>一个 Python int 对象自己占 28 字节</p><p>list 的指针表 8.000056 MB</p><p>list 连同 100 万个 int 36.000056 MB</p><p>ndarray int64 8.0 MB</p></div></section>
-<p><strong>一个整数，真正的数据是 8 字节，Python 对象要 28 字节</strong> ——
-多出来的 20 字节是类型指针和引用计数。再加上列表自己那张 8 MB 的指针表，
-<strong>同样 100 万个整数，Python 要 36 MB，NumPy 要 8 MB，差 4.5 倍。</strong></p>
-<p>💀 <strong>而且这 4.5 倍不只是内存账，是速度账</strong>：那 100 万个 <code>PyObject</code> 散落在堆的各处，
-CPU 每取一个都要跳一次地址；ndarray 那 8 MB 是<strong>一整块连着的</strong>。
+<p>在这次测量里，<code>sys.getsizeof(lst[0])</code> 返回 28 字节。Python 整数对象大小随数值和解释器而变。按脚本的口径，把这个列表的引用表和每项的对象大小相加约为 36 MB。对照数组采用 <code>int64</code>，元素缓冲区为 <code>1,000,000 × 8 = 8,000,000</code> 字节。<code>nbytes</code> 只统计元素数据，数组对象本身还有元数据。</p>
+<p>列表读出引用后还要找到对应的对象。这次 <code>arange</code> 创建的数值数组把元素连续存放，有利于顺序读取。
 （这一层往下就是 CPU cache 的事了，<a href="../AI基础设施/02-GPU到底是什么.html">AI 基础设施 02 章</a>
 在 GPU 的尺度上讲过同一个道理。）</p>
 <div class="nm-takeaway"><button type="button" class="nm-save-note" data-nm-save="_1" data-nm-enhance disabled>记住这一段</button></div></section><section class="nm-section nm-prose" data-nm-section="2"><p class="nm-kicker">02 / 完整解释</p><h2>数组操作也有适用边界。</h2><h3 id="numpy-8" data-nm-stop="">🚦 三、反例：同样是 NumPy，慢 8 倍</h3>
-<p>如果「快」的原因是「C 比 Python 快」，那么<strong>所有</strong> NumPy 数组都该一样快。
-下面这段推翻它 —— 两边都是 <code>np.ndarray</code>，都走同一份 C 代码，只有 <code>dtype</code> 不同：</p>
+<p>两边都对 <code>ndarray</code> 写 <code>* 2</code>，但一种数组直接存 64 位整数，另一种存 Python 对象的引用。改变数据类型（data type，<code>dtype</code>）会改变实际执行乘法的方式。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">timeit</span>
 
@@ -444,50 +467,39 @@ CPU 每取一个都要跳一次地址；ndarray 那 8 MB 是<strong>一整块连
 
 <p>实跑输出：</p>
 <section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>dtype=int64 a * 2 -&gt; 3.23 ms</p><p>dtype=object a * 2 -&gt; 25.41 ms</p><p>dtype=object 的数组也是 numpy： &lt;class 'numpy.ndarray'&gt; object</p></div></section>
-<p>⭐ <strong>同一个库、同一个 <code>*</code> 运算符、同一份 C 实现，差 8 倍。</strong></p>
-<p>区别只有一个：<code>dtype=object</code> 的数组里存的<strong>还是一排指向 <code>PyObject</code> 的指针</strong>，
-所以 NumPy 只能退回去，对每个元素重做第二节那八步。</p>
-<blockquote>
-<p><strong>结论要改口了</strong>：
-❌ 「NumPy 快是因为它是 C 写的」
-✅ 「NumPy 快是因为它拿到的是<strong>一整块连续的、类型统一的原始内存</strong>，
-所以那八步里的 ①③④⑤⑦⑧ 只需要在<strong>整个数组上做一次</strong>，不是每个元素做一次。」</p>
-</blockquote>
+<p>这次记录中，<code>25.41 ÷ 3.23 ≈ 7.9</code>。虽然两次都写了 <code>*</code>，NumPy 会根据输入的 <code>dtype</code> 选择内部循环。<code>int64</code> 路径直接读写固定宽度整数，<code>object</code> 路径逐个调用 Python 对象的乘法。两者都有循环，循环里做的工作不同。<a href="https://numpy.org/doc/stable/user/basics.ufuncs.html">NumPy 对通用函数内部循环的说明</a></p>
 <p>⚠️ <strong>先区分 dtype 推断与运算开销</strong>：在 NumPy 2.x 中，纯字符串通常得到字符串 dtype；含 <code>None</code> 的混合数据或显式 <code>dtype=object</code> 可得到 object 数组；长度不齐的嵌套列表通常直接报 <code>ValueError</code>，除非明确请求 object，不能都说成“悄悄变 object 且不报错”。当 dtype 确实是 object 时，本节的逐元素 Python 对象运算开销才适用。拿不准就检查 <code>print(a.dtype)</code>，并验证输入是否规则。</p>
 <h3 id="_5">⚡ 四、快在哪：三层，一层比一层浅</h3>
-<p>前两节讲的是「慢在哪」。反过来说，NumPy 的快是三层叠出来的，量级依次递减：</p>
+<p>可以从下面三方面检查一次数组运算的成本。上面的计时没有分别测出三项各自贡献多少。</p>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>层</th>
 <th>省掉了什么</th>
-<th>大致贡献</th>
+<th>什么时候有帮助</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>⭐ <strong>① 只判断一次类型</strong></td>
-<td>八步里的 ①③④⑤⑦⑧，从「每元素一次」变成「整个数组一次」</td>
-<td>主力，就是上一节那 8 倍的来源</td>
+<td>① <strong>按类型选择内部循环</strong></td>
+<td>数值路径直接处理数据，减少逐个 Python 对象乘法的开销。</td>
+<td>输入适合固定宽度的数值类型。</td>
 </tr>
 <tr>
-<td>② 连续内存</td>
-<td>CPU 预取器能猜到下一个地址；一次 cache line 拉进来 64 字节 = 8 个 float64</td>
-<td>显著</td>
+<td>② 内存访问布局</td>
+<td>邻近元素一起读时更容易利用缓存。以 64 字节缓存行为例，一行可放 8 个 8 字节的 <code>float64</code>。</td>
+<td>访问顺序能有效利用已读入的数据。</td>
 </tr>
 <tr>
-<td>③ SIMD</td>
-<td>一条指令同时算 4 个 / 8 个 double（AVX2 / AVX-512）</td>
-<td>锦上添花</td>
+<td>③ 单指令多数据（SIMD）</td>
+<td>用同一条指令处理多个数值元素。</td>
+<td>依赖运算、类型、内存布局及 CPU 和 NumPy 构建支持。</td>
 </tr>
 </tbody>
 </table></div>
-<p>注意第 ③ 层排在最后。很多人以为向量化 = SIMD，其实 SIMD 只是最后那一点常数因子；
-①② 两层是它的前提 —— 数据不连续、类型不统一，SIMD 根本用不上。</p>
+<p>数值数组的底层循环可以按步长取值。步长就是沿某个方向走一格时在内存里跨过的字节数，详见<a href="05-内存布局与stride.html">第 05 章</a>。例如 <code>a[::2] * 2</code> 能直接对隔一个元素取到的数据做数组运算。单看数组是否连续，无法确定这次调用走哪条 SIMD 路径。<a href="https://numpy.org/doc/stable/reference/simd/index.html">NumPy 的 CPU 与 SIMD 说明</a></p>
 <blockquote>
-<p>⭐ <strong>「向量化」不是「用了 SIMD」，是「把逐元素的决策提到整个数组这一层做一次」。</strong>
-你写 <code>a * b</code>，等于告诉 NumPy：这一百万次乘法，类型、形状、步长全都一样，按一套方案办。
-省下的是决策，不是算术。</p>
+<p>⭐ 本章说的向量化，是把一批元素交给数组操作。<code>a * b</code> 仍要完成每项乘法，但可以避开外层 Python 的逐项调用。<code>np.vectorize(某个 Python 函数)</code> 则为原函数提供数组输入的写法，默认逐元素调用它，仍有 Python 函数调用成本。<a href="https://numpy.org/doc/stable/reference/generated/numpy.vectorize.html">NumPy 的 vectorize 说明</a></p>
 </blockquote>
 <h3 id="_6">🧯 那什么时候循环反而是对的？</h3>
 <p>⚠️ 别把「不许写循环」当教条。这三种情况循环是正确选择：</p>
@@ -513,8 +525,7 @@ CPU 每取一个都要跳一次地址；ndarray 那 8 MB 是<strong>一整块连
 </tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>判据不是「有没有 for」，是「解释器每秒要转多少圈」。</strong>
-外层 100 圈、内层 100 万个元素，这是好的；外层 100 万圈，这是要改的。</p>
+<p>⭐ <strong>先确定循环中哪些步骤耗时，再比较改写的总成本。</strong> 保留少量外层循环、每次处理一块数据，有时可以兼顾内存和速度。转换输入或创建中间数组的成本也要计入。</p>
 <div class="nm-takeaway"><button type="button" class="nm-save-note" data-nm-save="numpy-8" data-nm-enhance disabled>记住这一段</button></div></section><section class="nm-section nm-prose" data-nm-section="3"><p class="nm-kicker">03 / 完整解释</p><h2>把测量带回自己的代码。</h2><h3 id="_7" data-nm-stop="">🔗 这一章连到哪里</h3>
 <div class="tw"><table>
 <thead>
@@ -534,7 +545,7 @@ CPU 每取一个都要跳一次地址；ndarray 那 8 MB 是<strong>一整块连
 </tr>
 <tr>
 <td><a href="05-内存布局与stride.html">05 · 内存布局、stride 与 C/F order</a></td>
-<td>本章第四节那个「② 连续内存」只说了结论。⭐ 想知道「连续」到底是什么、以及<strong>为什么换个轴求和会慢 2 倍</strong>，去那一章</td>
+<td>第 05 章解释步长怎样改变访问顺序，并用具体输入对比连续性和计算耗时。</td>
 </tr>
 <tr>
 <td><a href="08-整数dtype的真相.html">08 · 整数 dtype 的真相</a></td>
@@ -554,9 +565,9 @@ CPU 每取一个都要跳一次地址；ndarray 那 8 MB 是<strong>一整块连
 <ol>
 <li>纯 Python 循环和 <code>a * b</code> 差多少倍？为什么这一章不给一个确定的数字？</li>
 <li>解释器每转一圈要做八件事，其中哪一件是你真正想做的？其余七件为什么存在？</li>
-<li>一个 Python <code>int</code> 对象占多少字节？100 万个整数，<code>list</code> 和 <code>ndarray</code> 各占多少内存？</li>
+<li>按本页脚本的统计口径，100 万个整数用 Python 列表和 <code>int64</code> 数组各占多少空间？</li>
 <li>⭐ 那个「同样是 NumPy 却慢 8 倍」的反例是怎么构造的？它推翻了哪个说法？</li>
-<li>NumPy 的快是三层叠出来的，按贡献从大到小排一下。为什么 SIMD 排在最后？</li>
+<li>除了数值类型，数组运算的内存访问布局和 CPU 指令支持怎样影响速度？</li>
 <li>「向量化」的准确含义是什么？（提示：省下的不是算术）</li>
 <li>什么时候写循环反而是对的？举三种情况。</li>
 <li>判断「这个循环该不该改」的判据是什么？</li>
@@ -564,25 +575,23 @@ CPU 每取一个都要跳一次地址；ndarray 那 8 MB 是<strong>一整块连
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>min 口径下<strong>约 19 倍</strong>（68.17 ms vs 3.51 ms）。不给确定数字是因为同一台机器重跑 4 次，倍数在 19x / 29x / 35x / 37x 之间摆动 —— 这台笔记本会热降频，NumPy 那行的 min 从 3.51 ms 掉到 2.17 ms，列表推导那行反而从 68 涨到 79 ms，两头一起动。💀 在会降频的机器上报单点数字就是在编数字，所以正文只写「一个量级、大约 20–40 倍」。</li>
-<li>只有 <strong>⑥ 真正的乘法</strong>（一条 CPU 指令，纳秒级）是你想做的。其余七步（字节码分派、下标取值、解引用、类型判断、拆箱、装箱、引用计数）是为了让「任意类型都能相乘」成立而付的税，一百万次付的是同一笔税。</li>
-<li>一个 Python <code>int</code> 占 <strong>28 字节</strong>（真正的数据只有 8 字节，多出的 20 字节是类型指针和引用计数）。100 万个整数：<code>list</code> 连同对象共 36.0 MB（其中指针表 8.0 MB），<code>ndarray</code> int64 8.0 MB，差 4.5 倍。而且这不只是内存账 —— 那 100 万个 <code>PyObject</code> 散落在堆各处，ndarray 那 8 MB 是一整块连着的。</li>
-<li>用 <code>np.arange(N, dtype=object)</code> 对比 <code>dtype=np.int64</code>：<strong>同一个库、同一个 <code>*</code>、同一份 C 实现，25.41 ms vs 3.23 ms，差 8 倍</strong>。因为 object 数组里存的还是一排指向 <code>PyObject</code> 的指针，NumPy 只能退回去逐元素重做那八步。它推翻的是「NumPy 快是因为它是 C 写的」——正确说法是「快是因为它拿到的是一整块连续的、类型统一的原始内存」。</li>
-<li><strong>① 只判断一次类型</strong>（主力，就是那 8 倍的来源）&gt; ② 连续内存（CPU 预取、一条 cache line 64 字节 = 8 个 float64）&gt; ③ SIMD（一条指令算 4/8 个 double）。SIMD 排最后是因为它只是常数因子，而且 ①② 是它的前提 —— 数据不连续、类型不统一，SIMD 根本用不上。</li>
-<li>不是「用了 SIMD」，而是「<strong>把逐元素的决策提到整个数组这个层次上做一次</strong>」。写 <code>a * b</code> 等于告诉 NumPy「这一百万次乘法类型、形状、步长全一样，按一套方案办」——省下的是决策，不是算术。</li>
+<li>这组记录用两行最短耗时相除，<code>68.17 ÷ 3.51 ≈ 19.4</code>。四次运行的记录分别为 19x、29x、35x、37x，其他输入大小、布局或计时口径会得到自己的结果。</li>
+<li>第 ⑥ 步算出数值。其他步骤负责执行循环、取得输入对象、选择运算、保存结果及管理引用。</li>
+<li>这份列表的引用表约 8 MB，连同脚本逐项统计的整数对象约 36 MB。<code>int64</code> 数组的元素缓冲区为 <code>1,000,000 × 8 = 8,000,000</code> 字节。</li>
+<li><code>np.arange(N, dtype=object)</code> 与 <code>dtype=np.int64</code> 都执行 <code>* 2</code>，这次记录分别为 25.41 ms 和 3.23 ms。相同的运算入口按类型选用不同循环，前者仍逐个调用 Python 对象乘法。</li>
+<li>相邻的数据更容易一起读入缓存。SIMD 可以让一条指令处理多个值，实际能否启用依赖运算、类型、布局、CPU 和构建选项。</li>
+<li>把一批元素交给数组操作，NumPy 按输入的类型与布局组织循环。以 <code>a * b</code> 为例，每项仍要相乘，但普通数值路径省掉了逐项调用 Python 乘法的工作。</li>
 <li>① <strong>迭代次数少、每次的数组很大</strong>（训练循环跑 100 个 epoch，外层 100 圈的开销可忽略）；② 本质串行（后一步依赖前一步，⚠️ 但先确认不是 <code>cumsum</code>/<code>cumprod</code>/<code>maximum.accumulate</code> 能干的）；③ 向量化版本的中间体撑爆内存（03 章那个例子：400 个样本算两两距离，广播版中间体 2.4 MB；样本涨到 4000 就是 244.1 MB）。</li>
-<li><strong>不是「有没有 for」，是「解释器每秒要转多少圈」。</strong> 外层 100 圈、内层 100 万个元素是好的；外层 100 万圈是要改的。</li>
+<li>核对两种写法的结果，再比较真实规模下的总时间和内存。若大数组的临时结果占用太高，可以保留外层循环，每轮处理一块。</li>
 </ol>
 </details>
 <h3 id="_9">🛑 可以停在这里</h3>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>⭐ <strong>慢的不是 Python 这门语言，是「每个元素都被当成一个独立的 Python 对象处理一遍」这件事。</strong></p>
-<p>解释器每转一圈要做八件事：字节码分派、下标取值、解引用、类型判断、拆箱、真正的乘法、装箱、引用计数。<strong>只有第 ⑥ 步是你想做的</strong>，其余七步是为「任意类型都能相乘」付的税，一百万次付的是同一笔。</p>
-<p>本章的关键证据是那个反例：<code>np.arange(1_000_000, dtype=object) * 2</code> 要 25.41 ms，换成 <code>dtype=np.int64</code> 只要 3.23 ms —— 同一个库、同一个 <code>*</code>、同一份 C 实现，差 8 倍。原因是 object 数组里存的还是一排 <code>PyObject</code> 指针。⭐ <strong>它推翻了「NumPy 快是因为它是 C 写的」</strong>：快是因为它拿到了一整块连续、类型统一的原始内存，那八步里的六步只需在整个数组上做一次。</p>
-<p>快的三层按贡献排：只判断一次类型 &gt; 连续内存 &gt; SIMD。SIMD 只是最后那点常数因子，前两层是它的前提。⚠️ NumPy 2.x 中，纯字符串通常是字符串 dtype；含 <code>None</code> 或显式 <code>dtype=object</code> 可得到 object；长度不齐的嵌套列表通常报 <code>ValueError</code>。先检查 <code>print(a.dtype)</code>，再判断本节的 object 运算开销是否适用。</p>
-<p>判据不是「有没有 for」，是解释器每秒要转多少圈：外层 100 圈、内层 100 万个元素是好的；外层 100 万圈要改。</p>
-<p>（速度倍数只看量级、不看毫秒：同一台机器重跑 4 次是 19x/29x/35x/37x，热降频让两头一起动。）</p>
+<p>⭐ <strong>先对结果。</strong> 三笔订单逐项相乘得到 <code>[10, 8, 18]</code>，循环和数值数组写法都应给出这三个数。</p>
+<p>逐项处理 Python 对象需要取引用、执行运算和管理结果。<code>int64</code> 数组可以直接读写固定宽度的数；<code>object</code> 数组仍逐项调用 Python 对象乘法。同样的 <code>*</code> 可以走不同路径。</p>
+<p>布局影响怎样读数据，SIMD 取决于本次运算和运行环境。遇到陌生数组先检查 <code>a.dtype</code> 与 <code>a.shape</code>。</p>
+<p>在自己的输入上测量耗时和内存。数据转换、大型中间结果以及必须保留的顺序依赖，都会影响改写的取舍。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="02-shape与axis到底怎么数.html">02-shape与axis到底怎么数.md</a></p>
 <div class="nm-takeaway"><button type="button" class="nm-save-note" data-nm-save="_7" data-nm-enhance disabled>记住这一段</button></div></section><aside class="nm-prose nm-original-navigation" aria-label="原有完整章节目录"><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
