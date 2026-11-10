@@ -329,21 +329,32 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⏱ <strong>26 分钟</strong> ｜ ⭐ <strong>把一层切开放到多张卡上</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p>前面的并行都是"每卡一份完整的层"。
-<strong>张量并行把【一层内部的矩阵】横着或竖着切开，分给多张卡。</strong>
-<strong>它是处理单层工作集超显存的一种办法，代价是层内通信；适用线性层也可评估 ZeRO-3 + TiledLinear 顺序分块，需核对峰值与吞吐。</strong></p>
+<p>两张卡都有空闲显存，但一层的权重和临时数据在任何一张卡上都放不下。只把不同样本交给不同卡，每张卡还是得加载完整的层。把不同层放到不同卡上时，过大的那一层也仍然完整。</p>
+<p><strong>张量并行（Tensor Parallelism，TP）</strong>把同一层的权重和部分计算拆给多个设备。它能缩小每卡的部分工作集，但各卡算完还要交换结果。本章用一个小矩阵算清两种切法，再判断什么时候值得为显存或计算并行付出通信开销。适用线性层也可评估第 11 章提到的 ZeRO-3 + TiledLinear 顺序分块。</p>
 <hr />
 <h2 id="_2">✂️ 一、两种切法</h2>
-<p>设一层是 $Y = \text{GeLU}(XA)$，权重 $A$ 要切开。</p>
+<p>假设一个 token 有两个输入特征，线性层要输出四个特征。把一个 token 写成一行 <var>X</var>，把权重写成矩阵 <var>A</var>。<var>A</var> 的每一列对应一个输出，每一行对应一个输入特征。这里用 <var>Z</var> 表示线性层结果，暂不加偏置。先算完整的 <var>Z</var> = <var>X</var><var>A</var>，才能看出分卡后丢了哪部分。</p>
+<p>取 <var>X</var> = [2, 1]（1 × 2），<var>A</var> 的两行依次是 [1, −2, 0, 3] 和 [2, 1, 4, −1]（2 × 4）。第一项是 2 × 1 + 1 × 2 = 4。其余三项依次是 2 × (−2) + 1 × 1 = −3、2 × 0 + 1 × 4 = 4、2 × 3 + 1 × (−1) = 5，所以 <var>Z</var> = [4, −3, 4, 5]（1 × 4）。</p>
+<div class="tw" id="tp-split-ledger"><table style="width:100%;min-width:0;table-layout:fixed;overflow-wrap:anywhere">
+<caption>同一线性层，两种分卡结果</caption>
+<thead><tr><th scope="col">切法</th><th scope="col">GPU0</th><th scope="col">GPU1</th></tr></thead>
+<tbody>
+<tr><th scope="row">按输出列切<br>拼接</th><td>[4, −3]</td><td>[4, 5]</td></tr>
+<tr><th scope="row">按输入行切<br>逐项求和</th><td>[2, −4, 0, 6]</td><td>[2, 1, 4, −1]</td></tr>
+</tbody>
+</table></div>
 <h3 id="1-a">① 列并行（按列切 A）</h3>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>A = [A₁ | A₂] ← 竖着切</p><p>GPU0 算 Y₁ = GeLU(X A₁)</p><p>GPU1 算 Y₂ = GeLU(X A₂)</p><p>⭐ 关键：GeLU 是逐元素的，可以【各算各的】，不需要通信！</p><p>结果拼起来就是完整的 Y = [Y₁ | Y₂]</p></div></section>
+<p>每张卡都有完整的 <var>X</var>（1 × 2），权重却只留两列（2 × 2）。GPU0 算前两个输出，得到 [4, −3]。GPU1 算后两个输出，得到 [4, 5]。两张卡负责不同的输出位置，所以需要完整输出时，把两段按顺序<strong>拼接</strong>。若下一层能直接接分片，就可以保留分片，避免此处的 AllGather（收集各卡分片）。</p>
+<p>逐元素激活只用当前位置的值，所以每段可独立做激活。例如 ReLU 把负数置为 0，两张卡分别得到 [4, 0] 和 [4, 5]。模型用 GeLU 时也能逐元素处理，本例用 ReLU 方便手算。</p>
 <h3 id="2-a">② 行并行（按行切 A）</h3>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">A = ⎡A₁⎤ ← 横着切</span></div><div class="vb-flow-row"><span class="vb-flow-step">⎣A₂⎦</span></div><div class="vb-flow-row"><span class="vb-flow-step">输入也要按列切：X = [X₁ | X₂]</span></div><div class="vb-flow-row"><span class="vb-flow-step">GPU0 算 X₁A₁</span></div><div class="vb-flow-row"><span class="vb-flow-step">GPU1 算 X₂A₂</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ Y = X₁A₁ + X₂A₂</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">必须 AllReduce 求和</span></div></div></section>
+<p>每张卡只拿 <var>X</var> 的一个输入特征（1 × 1），以及 <var>A</var> 对应的一行（1 × 4）。GPU0 将第一行乘以 2，得 [2, −4, 0, 6]。GPU1 将第二行乘以 1，得 [2, 1, 4, −1]。两张卡都贡献了四个位置的部分和，逐项<strong>相加</strong>得到 [2 + 2, −4 + 1, 0 + 4, 6 − 1] = [4, −3, 4, 5]。若每张卡都需要完整结果，可用 AllReduce（归约后各卡都拿到结果）。</p>
+<p><strong>激活要等归约结果。</strong>第二项的两个部分和为 −4 和 1。先相加再做 ReLU 得 max(0, −4 + 1) = 0；先各自做 ReLU 再相加却得 0 + 1 = 1。有共享输出偏置时，也要保证完整结果只加一次。</p>
+<p>这里的矩阵 <var>A</var> 按「输入 × 输出」书写。PyTorch 的 <code>nn.Linear.weight</code> 按「输出 × 输入」存储，计算 <var>X</var> 乘该权重的转置（再加偏置）。因此本章的列并行在 PyTorch 权重里对应切输出行，行并行对应切输入列。<a href="https://docs.pytorch.org/docs/stable/generated/torch.nn.Linear.html">PyTorch Linear 文档</a></p>
 <hr />
 <h2 id="megatron">🧩 二、Megatron 的经典组合（⭐ 这一节是核心）</h2>
-<p>MLP 块：$Y = \text{GeLU}(XA) \cdot B$</p>
+<p>前馈网络（MLP）连续做两次线性变换，中间有逐元素激活。记 <var>H</var> 为 <var>X</var><var>A</var> 激活后的中间结果，<var>B</var> 为第二层权重，<var>Y</var> = <var>H</var><var>B</var> 为最终结果。第一层按输出列切后，每张卡手里已有第二层行并行所需的一段 <var>H</var>。</p>
 <figure class="dia" id="mg-ai-infra-12-figure-1">
-<svg viewBox="0 0 700 290" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Megatron 的 MLP 张量并行：两张 GPU 各自把 X 过一遍列并行的第一层、GeLU、再过行并行的第二层，两条支路直到最后才汇入一次 AllReduce 得到输出">
+<svg viewBox="0 0 700 290" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Megatron 的 MLP 张量并行：两张 GPU 在前向中各自计算第一层、逐元素 GeLU 和第二层的部分和，最后 AllReduce 得到完整输出">
 <text class="dia-t" x="350" y="22" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">⭐ 精妙之处：第一层用【列并行】，第二层用【行并行】</text>
 <text class="dia-t" x="133" y="58" font-size="11" text-anchor="middle" fill="var(--accent)" font-weight="600">第一层 列并行</text>
 <text class="dia-t" x="337" y="58" font-size="11" text-anchor="middle" fill="var(--accent)" font-weight="600">第二层 行并行</text>
@@ -400,33 +411,60 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <text class="dia-t" x="660" y="145" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">输出</text>
 <rect x="20" y="212" width="660" height="62" rx="10" fill="var(--accent-soft)" stroke="var(--border)" stroke-width="1.2"/>
 <text class="dia-t" x="350" y="236" font-size="12.5" text-anchor="middle" fill="var(--fg)">→ 中间【完全不需要通信】</text>
-<text class="dia-t" x="350" y="258" font-size="12.5" text-anchor="middle" fill="var(--fg)" font-weight="600">→ 整个 MLP 块只需要【一次】AllReduce ⭐</text>
+<text class="dia-t" x="350" y="258" font-size="12.5" text-anchor="middle" fill="var(--fg)" font-weight="600">→ MLP 前向在图中只需【一次】AllReduce ⭐</text>
 </svg>
-<figcaption>两条支路从左跑到右<b>一直没有交叉</b> —— 中间四步全在各自卡内算完，要看的就是箭头合拢的位置有多靠右：整个 MLP 只在那里跨卡一次。</figcaption>
+<figcaption>图中两张卡都从完整输入出发。中间两段特征各留在原卡，直到输出部分和需要合并。图中只画前向，反向还有通信。</figcaption>
 </figure>
 
-<blockquote>
-<p>🔑 <strong>为什么这样组合是最优的</strong>：
-列并行的输出天然是"按列切开的"，
-<strong>而行并行需要的输入恰好就是"按列切开的"</strong> —— 严丝合缝。
-如果顺序反过来（先行后列），中间就要多一次通信。</p>
-</blockquote>
-<p>Attention 块：更自然</p>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">多头注意力本来就是【多个独立的头】</span></div><div class="vb-flow-row"><span class="vb-flow-step">直接把头分给不同的卡：GPU0 拿头 1-8，GPU1 拿头 9-16</span></div><div class="vb-flow-row"><span class="vb-flow-step">各自算完整的 attention（Q、K、V 投影都按列并行）</span></div><div class="vb-flow-row"><span class="vb-flow-step">最后的输出投影用行并行</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">一次 AllReduce ⭐</span></div></div></section>
-<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⭐ 一个 Transformer 层的总通信：</span></div><div class="vb-flow-row"><span class="vb-flow-step">前向：MLP 一次 AllReduce + Attention 一次 AllReduce = 2 次</span></div><div class="vb-flow-row"><span class="vb-flow-step">反向：同样 2 次</span></div><div class="vb-flow-row"><span class="vb-flow-step">每层 4 次 AllReduce</span></div></div></section>
+<p>沿用前面的 ReLU 例，<var>H</var> = [4, 0, 4, 5]，第一层留下 [4, 0] 和 [4, 5] 两段。取第二层权重 <var>B</var>（4 × 2），四行分别为 [1, 2]、[2, 0]、[0, 1]、[3, −1]。GPU0 直接拿前两行，算出 [4 × 1 + 0 × 2, 4 × 2 + 0 × 0] = [4, 8]。GPU1 拿后两行，算出 [4 × 0 + 5 × 3, 4 × 1 + 5 × (−1)] = [15, −1]。两张卡做一次求和，完整 <var>Y</var> 为 [4 + 15, 8 − 1] = [19, 7]。</p>
+<p>这次少搬数据，是因为两层的中间布局正好匹配。若第一层先做行并行，要在逐元素激活前合并部分和；若第二层改做列并行而后续又要完整输出，还要拼回输出片段。通信次数取决于这些边界需要什么布局。</p>
+<p><strong>注意力也可以沿特征维切。</strong>例如普通 16 头注意力在两卡上各算 8 个完整的头，Q、K、V 投影列切后保留每卡负责的头，最后用行并行输出投影合并部分和。若分组查询注意力（GQA）里的多个 Q 头共享同一组 K/V，切分时必须让每个 Q 头能访问对应的 K/V；实现可能复制部分 KV 头或限制可用的 TP 度。</p>
+<p><strong>数清前向和反向。</strong>经典 Megatron 的完整 Transformer 层在前向有两次归约（注意力输出与 MLP 输出），反向还有两次（各列并行投影的输入梯度有来自不同卡的贡献）。这就是原论文配置中的每层 4 次 AllReduce。推理没有这两次反向通信；序列分片与不同实现也会改用其他集合操作。<a href="https://arxiv.org/abs/1909.08053">Megatron-LM 原论文 §3</a></p>
 <hr />
 <h2 id="_3">📉 三、通信代价：为什么通常优先放在高速互联域</h2>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>每次 AllReduce 的数据量 = batch × seq_len × hidden × 2 字节</p><p>例：batch=8, seq=2048, hidden=8192, BF16</p><p>→ 8 × 2048 × 8192 × 2 = 268 MB</p><p>→ 每层 4 次 = 1.07 GB</p><p>→ 80 层 = 86 GB【每一步】⭐</p><p>若示例有效带宽取 900GB/s：除法约 0.1 秒（非设备实测）</p><p>若示例有效带宽取 64GB/s：除法约 1.3 秒</p><p>若跨机有效带宽取 25GB/s：除法约 3.4 秒；可能明显受通信限制，不代表跨机不可运行</p></div></section>
-<blockquote>
-<p>🔑 <strong>这个算账例子提示一种性能偏好：</strong>
-<strong>通常先测试高速互联域内的 TP；需要跨节点时，另核对链路、集合通信、负载及目标效率。</strong>
-这不是可行性的硬上限；示例只做通信量除以假设有效带宽，未计延迟、集合通信系数和重叠。<strong></strong></p>
-<p>⭐ 另外注意：<strong>通信量和层数、hidden、序列长度都成正比，但和张量并行度无关</strong> ——
-也就是说，TP=2 和 TP=8 的通信量一样，但 TP=8 分摊的计算更少 →
-<strong>并行度越高，通信占比越大，效率越低。</strong></p>
-</blockquote>
+<p>各卡要相加的部分和有多大？设 <var>b</var> 是 TP 组在一个训练微批里处理的序列数，<var>s</var> 是每条序列的 token 数，<var>h</var> 是每个 token 的隐藏特征数，<var>w</var> 是通信时每个元素的字节数。一个部分和的形状是 <var>b</var> × <var>s</var> × <var>h</var>，所以一次 AllReduce 在每个 rank 的逻辑输入大小 <var>S</var> = <var>b</var> × <var>s</var> × <var>h</var> × <var>w</var> 字节。rank 指通信组中各自参与操作的进程，这里一进程对应一张卡。</p>
+<section class="visual-block visual-block-calc" aria-label="逻辑张量与发送流量">
+<p class="visual-block-title">先算张量，再算每张卡实际要发多少</p>
+<div class="vb-calc">
+<p><strong>① 单次和整步的逻辑输入。</strong>取 <var>b</var> = 8、<var>s</var> = 2,048、<var>h</var> = 8,192、BF16 的 <var>w</var> = 2。代入 8 × 2,048 × 8,192 × 2 = 268,435,456 字节，即 256 MiB（1 MiB = 1,048,576 字节）。假设一个训练步只含一个微批，80 层各有 4 次，合计 320 次。320 × 268,435,456 = 85,899,345,920 字节，约 85.90 GB（1 GB = 10<sup>9</sup> 字节）。这是把 320 个逻辑输入的大小相加。</p>
+<p><strong>② 选定算法后再算链路。</strong>用第 5 章的等分 Ring，设 <var>p</var> 为组内卡数，每个 rank 发 2 × (<var>p</var> − 1) 轮，每轮发 <var>S</var> ÷ <var>p</var> 字节。TP=8 时，单次每 rank 发 14 × (268,435,456 ÷ 8) = 469,762,048 字节，收同样多。整步每 rank 发 320 × 469,762,048 = 150,323,855,360 字节，约 150.32 GB。TP=2 时，发送系数 2 × (2 − 1) ÷ 2 = 1，整步每 rank 发约 85.90 GB。逻辑输入大小相同，每 rank 的发送量却不同。</p>
+<p><strong>③ 只估搬运时间。</strong>若 TP=8 时每 rank 有效单向发送速率是 100 GB/s，收发可重叠，仅搬这些数据约需 150.32 ÷ 100 = 1.50 秒。若只有 25 GB/s，则约 6.01 秒。它们是演示输入，没计启动、等待、链路竞争及计算重叠。实际要在相同消息大小与拓扑上测量；若工具报告的是 <code>algbw</code>，其分子是逻辑输入大小，直接用该口径估时间时不可再乘一次 Ring 系数。</p>
+</div>
+</section>
+<p>TP 一般先在机内高速互联域测，是因为上面的通信可能在各层频繁发生。跨节点能否达到目标，还取决于集合算法、可用链路、负载和重叠。训练要连同反向评估步时与吞吐；推理要按预填充、解码各自的负载看首 token、后续输出间隔和吞吐。增加卡数会减小本地矩阵，却可能增加等待或让小矩阵难以跑满。<a href="https://github.com/NVIDIA/nccl-tests/blob/master/doc/PERFORMANCE.md">NCCL Tests 的带宽口径</a></p>
+<p><strong>显存也要分两笔。</strong>假设模型的可切权重占 32 GiB，各卡还要复制 8 GiB 的其他数据（1 GiB = 2<sup>30</sup> 字节）。不切时每卡 32 + 8 = 40 GiB。均匀做 TP=4 后，每卡是 32 ÷ 4 + 8 = 16 GiB，比把整个 40 GiB 除以 4 得到的 10 GiB 多。实际还要分开检查激活、缓冲区和推理的 KV Cache。</p>
 <hr />
 <h2 id="_4">🔧 四、代码长什么样</h2>
+<p>用标准 Python 在 CPU 上复算。<code>multiply</code> 依次对每个输出列做乘加；<code>left</code>、<code>right</code> 是两组列片，<code>first</code>、<code>second</code> 是两组行片的部分和。最后对中间列片各做 ReLU，再用第二层权重的对应两行计算部分和。</p>
+<div id="tp-split-check" class="codehilite" data-code-language="python"><pre><code># 按输入行存权重，复算正文中的两次乘法。
+def multiply(vector, matrix):
+    return [sum(x * weight for x, weight in zip(vector, column))
+            for column in zip(*matrix)]
+
+x = [2, 1]
+a = [[1, -2, 0, 3], [2, 1, 4, -1]]
+b = [[1, 2], [2, 0], [0, 1], [3, -1]]
+
+left = multiply(x, [weights[:2] for weights in a])
+right = multiply(x, [weights[2:] for weights in a])
+column = left + right
+first = multiply(x[:1], a[:1])
+second = multiply(x[1:], a[1:])
+row = [u + v for u, v in zip(first, second)]
+
+hidden_left = [max(0, value) for value in left]
+hidden_right = [max(0, value) for value in right]
+partial_left = multiply(hidden_left, b[:2])
+partial_right = multiply(hidden_right, b[2:])
+joined = [u + v for u, v in zip(partial_left, partial_right)]
+whole = multiply([max(0, value) for value in multiply(x, a)], b)
+
+assert column == row == multiply(x, a)
+assert joined == whole
+print("同一线性层：", column, row)
+print("MLP：", partial_left, "+", partial_right, "=", joined)
+</code></pre></div>
+<p>输出的两种线性层结果都是 [4, −3, 4, 5]。MLP 的两份部分和是 [4, 8] 与 [15, −1]，合计 [19, 7]。代码里的拼接和求和只模拟集合通信的结果，不测真实设备。下面保留的类定义只是框架骨架：权重尚未初始化，行并行需要已建立的 <code>dist</code> 和 <code>TP_GROUP</code>，不能直接运行。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 概念示意：列并行的线性层</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
@@ -454,7 +492,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
         <span class="k">return</span> <span class="n">out</span>
 </code></pre></div>
 
-<p>实际使用（别自己写）：</p>
+<p>下面是 PyTorch 原生 TP 的配置骨架。需要先建立设备网格 <code>tp_mesh</code> 和模型；子模块名称、融合 QKV 的分片布局及输入输出约定都要按具体模型核对。<a href="https://docs.pytorch.org/docs/stable/distributed.tensor.parallel.html">PyTorch 张量并行文档</a></p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：`model` 来自你自己的代码，这一段只看写法</span>
 <span class="c1"># ⭐ PyTorch 原生（2.x）</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.tensor.parallel</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -476,12 +514,14 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <hr />
 <h2 id="_5">🧵 五、序列并行：一个重要的补充</h2>
-<section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 张量并行有个盲区：LayerNorm 和 Dropout 【没有被切】</span></div><div class="vb-flow-row"><span class="vb-flow-step">每张卡都要存完整的激活</span></div><div class="vb-flow-row"><span class="vb-flow-step">长序列时这部分显存很可观</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 序列并行（Sequence Parallel）：</span></div><div class="vb-flow-row"><span class="vb-flow-step">在 LayerNorm/Dropout 这些地方，按【序列维度】切开</span></div><div class="vb-flow-row"><span class="vb-flow-step">和张量并行【交替使用】，用 AllGather/ReduceScatter 转换</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 效果：激活显存再降 TP 倍，而【通信总量不变】</span></div><div class="vb-flow-row"><span class="vb-flow-step">（因为 AllReduce 被拆成了 ReduceScatter + AllGather）</span></div></div></section>
-<blockquote>
-<p>💡 <strong>又是那个恒等式</strong>（<a href="05-互联与集群拓扑.html">第 5 章</a>、<a href="11-ZeRO与FSDP.html">第 11 章</a>）：
-<strong>AllReduce = ReduceScatter + AllGather。</strong>
-这已经是它第三次出场了 —— <strong>它是分布式训练里最有用的一个等式。</strong></p>
-</blockquote>
+<p>列→行组合在块的输出处会把完整隐藏向量留在每张卡。对于按 token 独立执行的 LayerNorm 和 Dropout，可以把不同 token 分给不同卡，同时让每张卡保留其 token 的完整隐藏向量。这是这里的<strong>序列并行（Sequence Parallelism，SP）</strong>。</p>
+<section class="visual-block visual-block-flow" aria-label="序列分片与特征分片的转换"><p class="visual-block-title">保留 token 分片，需要时再拼回</p><div class="vb-flow">
+<div class="vb-flow-row"><span class="vb-flow-step">行并行部分和</span><span class="vb-flow-arrow" aria-hidden="true">→</span><span class="vb-flow-step">ReduceScatter 求和并按 token 分发</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step">逐 token 归一化等操作保留分片</span><span class="vb-flow-arrow" aria-hidden="true">→</span><span class="vb-flow-step">下一次需要完整输入时用 AllGather</span></div>
+</div></section>
+<p>例如 4 个 token、每个 8 个特征、BF16 每元素 2 字节。原来每卡保存 4 × 8 × 2 = 64 字节。按 token 均匀分给两卡后，各保留 2 × 8 × 2 = 32 字节。减半的是这份中间张量的本地存量。切换布局所需缓冲、其他张量与总峰值要另外算。</p>
+<p>沿用<a href="05-互联与集群拓扑.html">第 5 章</a>和<a href="11-ZeRO与FSDP.html">第 11 章</a>的关系，先 ReduceScatter 再 AllGather 可得到 AllReduce 的结果。等分 Ring 下，同一个张量的这两段传输字节量合计可和原 AllReduce 相同；调用时机、重叠以及端到端耗时可能变化。这里切的是逐 token 操作之间的布局，与把注意力计算本身沿长上下文拆开的方案不同。</p>
+<p>下面保留的是 Megatron 的参数示例。是否启用，要看框架版本、分片约束、额外缓冲与实测峰值。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：`sequence` 来自你自己的代码，这一段只看写法</span>
 <span class="c1"># Megatron 里开启</span>
 <span class="o">--</span><span class="n">sequence</span><span class="o">-</span><span class="n">parallel</span>     <span class="c1"># ⭐ 几乎总是该开，和 TP 配套</span>
@@ -499,7 +539,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td><strong>维度不能整除</strong></td>
-<td>hidden、头数必须能被 TP 度整除 ⭐</td>
+<td>均匀分片时，对应维度要能被 TP 度整除；注意力还要检查 Q/KV 头的配组及框架是否支持复制。</td>
 </tr>
 <tr>
 <td><strong>随机种子</strong></td>
@@ -516,9 +556,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <blockquote>
-<p>💥 <strong>随机数流那条需按实现检查</strong>：如果 TP 组内所有卡的 dropout mask 相同，
-那么被切开的那些神经元会被<strong>同步地丢弃</strong>，等效的 dropout 率完全不对 ——
-<strong>训练能跑，loss 也在降，但相关性可能变化；不能据此断言等效 dropout 率为零。</strong></p>
+<p><strong>随机数流要跟着布局走。</strong>复制的是同一个逻辑张量时，各副本需要一致的随机掩码。分片中不同位置应由框架用匹配的随机流处理；如果不同分片复用了同样的掩码模式，丢弃事件可能相关。每个位置的丢弃概率仍可能不变，变化的是哪些位置一起被丢弃。</p>
 </blockquote>
 <hr />
 <h2 id="_7">🔗 和站内其他章的关系</h2>
@@ -531,7 +569,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </thead>
 <tbody>
 <tr>
-<td><a href="05-互联与集群拓扑.html">第 5 章</a> NVLink vs PCIe 差 15 倍</td>
+<td><a href="05-互联与集群拓扑.html">第 5 章</a> NVLink、PCIe 与跨机链路的带宽口径</td>
 <td><strong>TP 通常优先使用高速互联的原因</strong> ⭐</td>
 </tr>
 <tr>
@@ -555,42 +593,31 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="_8">✅ 检查点</h2>
 <ol>
-<li>列并行和行并行的区别？哪个需要通信？</li>
-<li>Megatron 的 MLP 为什么用"先列后行"？反过来会怎样？</li>
-<li>Attention 怎么切？为什么它比 MLP 更自然？</li>
-<li>一个 Transformer 层前向反向共几次 AllReduce？</li>
-<li>算一下：80 层、hidden=8192、batch=8、seq=2048 时每步通信多少？在 NVLink 和跨机各要多久？</li>
-<li>为什么常先在高速互联域内测试 TP，而不是把 8 当通用上限？</li>
-<li>通信量和 TP 度的关系是什么？这有什么含义？</li>
-<li>序列并行解决什么问题？它靠哪个恒等式？</li>
-<li>TP 组内的 dropout 随机数流如何匹配张量布局？</li>
+<li>用 1 × 2 输入、2 × 4 权重重算两种切法。各卡拿到什么？什么时候拼接，什么时候相加？</li>
+<li>为什么不能把行并行的两个部分和分别做 ReLU 再相加？</li>
+<li>在本章 MLP 中，为什么两层之间可以保留分片？如果下一层要完整输出，又要做什么？</li>
+<li>经典 Megatron 的完整 Transformer 层训练有几次 AllReduce？推理少了什么？GQA 为什么还要查 K/V 布局？</li>
+<li>逻辑输入为 256 MiB 的 Ring AllReduce 在 TP=8 时，每 rank 发多少？为什么不能把标称链路带宽直接当成有效通信带宽？</li>
+<li>序列并行的 4-token 示例里每卡少存多少字节？Dropout 的随机数流要怎么匹配布局？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>列并行按列切权重，各卡各算各的、不需要通信</strong>（因为 GeLU 是逐元素的）；行并行按行切，需要 AllReduce 求和。</li>
-<li>因为<strong>列并行的输出天然是按列切开的，而行并行需要的输入恰好就是按列切开的</strong>——严丝合缝，中间完全不用通信，整个 MLP 只需一次 AllReduce。反过来（先行后列）中间要多一次通信。</li>
-<li><strong>直接把头分给不同的卡</strong>（Q/K/V 投影列并行，输出投影行并行）。更自然是因为多头注意力本来就是多个独立的头。</li>
-<li><strong>4 次</strong>：前向 MLP 一次 + Attention 一次，反向同样 2 次。</li>
-<li>经典示例中每次 AllReduce 输入约 268MB，每层四次、80 层共约 86GB 输入量。若有效带宽分别假设为 900 和 25GB/s，直接相除约为 0.1 与 3.4 秒；还未计集合通信系数、延迟及重叠，不能据此判定跨机不可用。<strong></strong></li>
-<li>层内同步频繁，所以优先使用高速互联通常值得测试；但单机 GPU 数和 8 都不是 TP 的通用上限。跨节点的可行性与效率，应结合有效链路、消息形状、计算量、重叠和目标吞吐判断。<strong></strong></li>
-<li><strong>经典分解中每次 AllReduce 的输入张量大小不随 TP 度改变，但集合通信的链路字节量、延迟和计算划分仍会变化。TP=8 或 16 的效率取决于拓扑、消息大小、内核形状、负载与通信重叠，不能给出通用甜点。</strong></li>
-<li>解决<strong>LayerNorm 和 Dropout 没被切、每卡都要存完整激活</strong>的问题。按序列维度切，和 TP 交替使用。靠 AllReduce = ReduceScatter + AllGather——所以激活显存降 TP 倍而通信总量不变。</li>
-<li>如果 TP 组内 dropout mask 相同，<strong>被切开的神经元会被同步丢弃，等效 dropout 率完全不对</strong>。隐蔽在于训练能跑、loss 也在降，但相关性可能变化；不能据此断言等效 dropout 率为零。</li>
+<li>列切每卡拿完整输入和两列权重，得 [4, −3] 与 [4, 5]，需要完整输出时拼接。行切每卡拿一个输入特征和一行权重，得 [2, −4, 0, 6] 与 [2, 1, 4, −1]，逐项相加。</li>
+<li>第二项先相加是 −4 + 1 = −3，做 ReLU 得 0；先分别做 ReLU 得 0 和 1，再相加得 1。</li>
+<li>第一层列切留下的中间特征正好对应第二层的行片。末尾两卡持有同一输出的不同贡献，需归约；若最后采用列切而后续要完整输出，则需拼回不同输出位置。</li>
+<li>经典配置的完整训练层是 2 次前向加 2 次反向。推理没有反向两次。GQA 的多个 Q 头共用 K/V，切分后各 Q 头仍必须能访问对应 K/V。</li>
+<li>8 卡 Ring 共发 14 轮，每轮 256 ÷ 8 = 32 MiB，合计每 rank 发 448 MiB。实际链路可能共享，算法和拓扑也会改变流量及等待；应按相同配置测有效带宽。</li>
+<li>每卡从 64 字节变成 32 字节，少存 32 字节。逻辑副本的掩码要一致，不同分片应由框架用匹配的随机流处理。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_9">🛑 可以停在这里</h2>
-<p>⚡ <strong>走神救援</strong></p>
-<blockquote>
-<p><strong>张量并行把一层内部的矩阵切开分给多卡</strong>——⭐ <strong>处理单层工作集超显存的一种办法；适用线性层还可评估 ZeRO-3 + TiledLinear 顺序分块，核对分块峰值、兼容性和吞吐</strong>，代价是每层都要通信。</p>
-<p>两种切法：一种切完各算各的、不用通信；另一种切完必须求和。⭐⭐ <strong>Megatron 的精妙之处是把两者按顺序组合</strong>：<strong>前一种的输出天然就是后一种需要的输入形状，严丝合缝</strong>——⭐ <strong>于是整个前馈块只要一次通信，反过来排就要多一次。</strong> 注意力那边更自然：<strong>多个头本来就独立，直接分给不同卡。</strong></p>
-<p>⭐⭐ <strong>通信代价解释了为何通常先把 TP 放入高速互联域，但跨机也可以运行。示例的带宽除法不能证明可行性上限；是否值得跨机，要结合有效链路、延迟、负载与性能目标实测。</strong><strong></strong><strong></strong></p>
-<p>⭐ 另一条也是算出来的：<strong>通信量和并行度无关，而计算被分摊了</strong>——⭐ <strong>所以并行度越大，通信占比越高</strong>，到某个点之后再加收益已经很小。</p>
-<p><strong>序列并行</strong>补的是它的盲区（归一化和随机丢弃没被切），⭐ <strong>激活显存再降一档而通信总量不变</strong>——<strong>又是「一次同步等于两次半同步」那个等式，这已经是它第三次出场，是分布式里最有用的一个。</strong></p>
-<p>⚠️ 四个坑里最阴的一个：⭐⭐ <strong>同一组内的随机种子必须不同</strong>——<strong>相同的话，被切开的神经元会被同步丢弃，训练照跑、loss 也降，但相关性可能变化；不能据此断言等效 dropout 率为零。</strong></p>
-<p>⭐ 最后一句：<strong>别自己实现，用现成的。</strong></p>
-</blockquote>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul>
+<li>列切得到不同输出位置，完整输出靠拼接。行切得到同一输出的部分和，先求和再做非线性。</li>
+<li>列切的输出分片可直接喂给下一层的行切。输出布局、前反向阶段和注意力头的配组决定还需哪些通信。</li>
+<li>先分开数可切显存、逻辑张量字节和每 rank 的通信量，再结合实际拓扑、并行度和任务测耗时。</li>
+</ul></section>
 <p><strong>下一节</strong> 👉 <a href="13-流水线并行.html">13-流水线并行.md</a></p>
 <details class="g05-content-note"><summary>条件与依据</summary><p>这里四次 AllReduce 是经典 Megatron 前反向分解的示例，不覆盖所有序列并行或优化实现。AllReduce 输入张量大小不随 TP 度变化，不表示链路字节量与延迟都无关。Dropout 需让复制的逻辑张量一致、分片张量使用匹配的随机数流，不能概括成“TP 必须不同、DP 必须相同”。</p><p><a href="https://arxiv.org/abs/1909.08053">原论文</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
