@@ -322,7 +322,7 @@ main .nc-r02-extension pre { max-width:100%; overflow-x:auto; }
 </details>
 <h1 id="03b">03b · 接口的形状：资源怎么划、方法怎么选、状态码怎么返</h1>
 <p class="polish-evidence-note">HTTP 的“安全方法”和“可重试”要分开理解：幂等比较的是请求的预期效果，响应状态码可以不同。见 <a href="https://www.rfc-editor.org/rfc/rfc9110.html#section-9.2.2">RFC 9110 §9.2.2</a>。</p>
-<p>⏱ <strong>76 分钟</strong> ｜ ⭐ <strong>第 11 章立了「400/401 直接进死信，429/500/超时才重试」—— 那条规则的另一半在这里</strong></p>
+<p>⏱ <strong>76 分钟</strong> ｜ ⭐ <strong>第 11 章讲任务失败后怎么处理。本章补齐服务端怎样写出可判断的接口响应</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>状态码不是给人看的装饰，是你对客户端下的一道指令：这个错该不该重试、这个请求还要不要再发。</strong>
@@ -331,7 +331,7 @@ main .nc-r02-extension pre { max-width:100%; overflow-x:auto; }
 <h2 id="_2" data-mg-stop>🧩 一、先把洞指出来：一条规则只有一半</h2>
 <p><a href="11-长任务与队列.html">第 11 章</a>第五节立了一条判据，<a href="16-上线前检查单.html">第 16 章</a>的验收项就是照它写的：</p>
 <blockquote>
-<p>⚠️ <strong>还要分清能不能重试</strong>：<code>400</code>、<code>401</code>、内容被安全策略拒绝，重试一万次也是同样结果，直接进死信；只有 <code>429</code>、<code>500</code>、超时才值得退避重试。</p>
+<p><strong>先核对错误原因，再判断能否重发。</strong>输入有误先修输入，凭证失效先处理凭证。服务暂时故障可能恢复，但还要确认重发安全并控制预算。</p>
 </blockquote>
 <p><a href="04-调用层.html">第 4 章</a>的重试白名单、<a href="12-限流配额与成本护栏.html">第 12 章</a>的项目约定「<code>429</code> 尽量带 <code>Retry-After</code>」，都建在同一件事上：<strong>对面返回的那个数字是可信的</strong>。</p>
 <p>⚠️ <strong>但到这一章为止，本板块的业务接口基本只有 <code>POST /chat</code> 一种形状</strong>（<code>GET</code> 只出现在查任务和健康检查上），<strong>而「该返哪个状态码」只被顺手提过几次</strong>（03 章的 <code>422</code>、11 章的 <code>202</code>、12 章的 <code>429</code>），没有一处讲判据。规则的消费端讲透了，生产端是空的。 而写错一个码，就是让对面做出错误的决定：</p>
@@ -360,7 +360,7 @@ main .nc-r02-extension pre { max-width:100%; overflow-x:auto; }
 <td>登录成功 → 又被踢回登录页 → <strong>无限循环</strong></td>
 </tr>
 <tr>
-<td>「还在排队」返成 <strong>201</strong></td>
+<td>摘要仍在排队，却用 <strong>201</strong> 承诺已经创建结果消息</td>
 <td>立刻去拿结果</td>
 <td><code>GET</code> 那个地址得到 404，前端分不清是自己拿早了还是你搞砸了</td>
 </tr>
@@ -490,18 +490,18 @@ main .nc-r02-extension pre { max-width:100%; overflow-x:auto; }
 <tbody>
 <tr>
 <td><strong>200</strong></td>
-<td>成了，结果在 body 里</td>
-<td>默认</td>
+<td>当前请求处理成功</td>
+<td>例如成功读取任务状态，任务本身可能仍在运行</td>
 </tr>
 <tr>
 <td><strong>201</strong> Created</td>
 <td>⭐ <strong>新资源已经存在了</strong></td>
-<td>建了条消息/会话，<strong>现在就能拿到</strong>。顺着 <code>Location</code> 去取</td>
+<td>创建会话后，本例用 <code>Location</code> 给出它的地址</td>
 </tr>
 <tr>
 <td><strong>202</strong> Accepted</td>
 <td>⭐ <strong>收到了，但还没答应你它会成功</strong></td>
-<td>活扔进队列（11 章那五条信号）。顺着 <code>Location</code> <strong>轮询任务</strong></td>
+<td>接受生成请求，本例提供任务地址供查询</td>
 </tr>
 <tr>
 <td><strong>204</strong> No Content</td>
@@ -658,7 +658,7 @@ main .nc-r02-extension pre { max-width:100%; overflow-x:auto; }
 </code></pre></div>
 
 <p>六个用例依次是「没带 token / reason 空串 / 别人的 job / 只读 token / 已经 done 了 / 正常」，实跑输出 <strong>401 422 404 403 409 200</strong>。⭐ <strong>判断顺序本身也是设计</strong>：先认人（401）→ 判归属（404）→ 判权限（403）→ 判状态（409）。⚠️ 颠倒会漏信息 —— 先判状态的话，别人靠「这个 id 返 409 而不是 404」就能推断出它存在且正在运行。</p>
-<p>🧯 <strong>唯一一处状态码用不了的地方</strong>：<a href="05-流式输出.html">第 5 章</a>那条结论 —— <strong>流式下状态码在第一帧发出去的那一刻就定死成 200，改不了。</strong> ⭐ 对本章的意义只有一句话：上面这些码必须在第一个字发出去之前全部用完。</p>
+<p>🧯 <strong>流式请求的分界是响应头已经发出。</strong>输入有误且响应还没开始时，可以直接返回 4xx。已经以 200 开始流式响应后，后续失败用正文事件报告，或由客户端根据提前断流判断。见<a href="05-流式输出.html">第 05 章</a>。</p>
 <hr />
 <!--MIDSTOP-->
 <blockquote>
@@ -668,80 +668,190 @@ main .nc-r02-extension pre { max-width:100%; overflow-x:auto; }
 </blockquote>
 <hr />
 <h2 id="_6">🔍 五、一次对话既是资源，又是长任务</h2>
-<p>⭐ <strong>这一节是本章唯一一个别的 Web 教程不会讲的东西。</strong> 两套建模各自都对：<strong>资源视角</strong>（<a href="06-关系数据库.html">第 6 章</a>）发一条消息 = 往 <code>messages</code> 加一行 → 201；任务视角（<a href="11-长任务与队列.html">第 11 章</a>）这次生成要 3 分钟、有状态、要查进度、要重试 → 202。</p>
-<p>⚠️ <strong>打架的点：同一个用户动作同时属于两边。</strong> 用户点的是「发送」，落地却是一条消息<strong>加</strong>一个任务。只选一边都缺东西 —— 只做消息资源，客户端拿不到进度、没法取消；只做 job，任务完成后前端不知道结果落在哪儿，只能整段重拉会话，用户自己刚打的那句话也没法立刻显示。</p>
+<p>用户打开空白会话，输入「总结这份年报」。界面需要分别回答三个问题。会话是否已经创建？后台任务是否已经接收？摘要是否已经生成？会话、任务和结果消息分别有自己的地址，客户端才能查到对应状态。</p>
+<p>这里复用<a href="06-关系数据库.html">第 06 章</a>的会话与消息关系，并把<a href="11-长任务与队列.html">第 11 章</a>的任务查询落实到接口。用户消息可以先出现，任务生成的助手消息稍后补上。接口契约（API Contract）规定每一步发什么、收到什么，以及客户端接下来可以做什么。</p>
 <div class="tw"><table>
-<thead>
-<tr>
-<th>这次生成</th>
-<th>状态码</th>
-<th>客户端做什么</th>
-</tr>
-</thead>
+<thead><tr><th scope="col">本次操作</th><th scope="col">响应说明</th><th scope="col">客户端接下来做什么</th></tr></thead>
 <tbody>
-<tr>
-<td>快（几秒答完，非流式）</td>
-<td><strong>201</strong> + <code>Location</code> 指向那条新消息</td>
-<td>直接用结果</td>
-</tr>
-<tr>
-<td>⭐ 边看边等（<strong>本板块主路径</strong>）</td>
-<td><strong>200</strong>（第一帧一发就定死，05 章）</td>
-<td>逐帧渲染</td>
-</tr>
-<tr>
-<td>用户等不了 / 批量 / 要重试</td>
-<td>⭐ <strong>202</strong> + <code>Location: /jobs/{jid}</code></td>
-<td>轮询 job，完成后去 <code>result_url</code> 取</td>
-</tr>
-</tbody>
-</table></div>
-<p>⭐ <strong><a href="11-长任务与队列.html">11 章第三节</a>那张「状态怎么让前端知道」的表（轮询 vs SSE），上游就是这里</strong> —— 那张表回答的是「怎么把状态送过去」，而<strong>先得有个东西可以被查</strong>，那个东西就是 <code>Location</code> 指向的 job 资源。没有它，轮询没有地址可轮。</p>
-<p>⚠️ <strong>两个坑</strong>：<strong>① job 不是消息的替代品，是它的一个阶段</strong> —— job 里要带 <code>result_url</code> 指回资源，否则前端只认识 job_id、不认识结果的位置。② 用户那条消息要先单独落库再入队 —— <a href="06-关系数据库.html">6 章第六节</a>已经立了这条（「用户消息先单独提交，LLM 失败就记 <code>failed</code> 状态」），⭐ 它在接口层的红利是：202 的响应里当场就能带上那条 user message 的 seq，前端立刻能渲染用户自己那句话。</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 一次对话既是资源又是长任务：用 202 + 一个 job 资源把两种建模接起来</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">uuid</span>
+<tr><td>同步创建会话或消息</td><td><strong>201</strong>，本例用 <code>Location</code> 标明新资源</td><td>读取已创建的资源</td></tr>
+<tr><td>逐段展示生成内容</td><td><strong>200</strong>，响应正文以事件流传递</td><td>读事件判断结果，见<a href="05-流式输出.html">第 05 章</a></td></tr>
+<tr><td>接收稍后处理的生成请求</td><td><strong>202</strong>，本例给出任务查询地址</td><td>查任务状态，成功后再取结果</td></tr>
+</tbody></table></div>
+<h3 id="interface-contract-walkthrough">跟完一次「总结这份年报」</h3>
+<div class="flowchain" role="list" aria-label="创建会话、接收生成、查任务、取消息">
+<div class="fstep" role="listitem"><b>① 建会话</b><span>发 POST /conversations，收到 201 和会话地址 /conversations/c1。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>② 提交消息</b><span>发 POST /conversations/c1/messages，收到 202、用户消息序号和任务地址 /jobs/j1。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>③ 查任务</b><span>发 GET /jobs/j1。收到 200 后读正文中的 status。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>④ 取结果</b><span>status 为 done 时，按 result_url 读取那条助手消息。</span></div>
+</div>
+<p>第一次提交的 JSON 是 <code>{"content":"总结这份年报"}</code>。<code>202</code> 的正文给出 <code>job_id</code>、<code>status</code>、<code>status_url</code> 和 <code>user_message_seq</code>。用户消息序号让界面能标记刚提交的那句话。本例从 0 编号，第一条用户消息的序号是 0。第 06 章示例从 1 开始，序号起点由各接口约定。<code>status_url</code> 与本例的 <code>Location</code> 都指向同一个任务。查询返回 <code>200</code> 时，客户端已经读到了任务记录，仍需看生成有没有完成。</p>
+<div class="panels" role="group" aria-label="同一任务地址的三种查询结果">
+<div class="panel"><div class="ph">queued · 已接收</div><p>任务还没生成结果。页面保留用户消息，按计划再查。</p></div>
+<div class="panel"><div class="ph">done · 已生成</div><p>本例返回 <code>result_url</code> 指向助手消息。先取到消息，再展示摘要。</p></div>
+<div class="panel"><div class="ph">failed · 已结束</div><p>页面显示失败，停止轮询。保留用户消息，根据 <code>failure_code</code> 决定下一步。</p></div>
+</div>
+<p><strong>再分清三个拒绝。</strong> 空白消息得到 <code>422 / invalid_input</code>，改好输入再发。取消已经完成的任务得到 <code>409 / job_not_cancellable</code>，查原任务并结束取消流程。服务暂时无法接收新任务时，本例在接收前返回 <code>503 / queue_unavailable</code>，界面提示暂不可用。是否重发还要核对有没有执行过、重发是否安全。<code>503</code> 本身不证明其他接口没执行，下一章会讲怎样处理结果不明的重试。</p>
+<p>用 Python 3.11+ 运行以下练习。安装方式沿用<a href="03-后端骨架.html">第 03 章</a>，本例用到 FastAPI 和 HTTPX。保存为 <code>interface_demo.py</code> 后运行 <code>python interface_demo.py</code>。请求在进程内发送，内存字典只记录本次练习数据。<code>finish_job()</code> 由测试显式调用，模拟后台进程推进任务，查询路由只读。真实队列、持久化、并发和权限由对应章节继续讲。</p>
+<div class="codehilite" data-code-language="python" data-code-title="interface_demo.py · 验收会话与任务接口"><pre><code>import asyncio
+from uuid import uuid4
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastAPI</span><span class="p">,</span> <span class="n">HTTPException</span><span class="p">,</span> <span class="n">Response</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">fastapi.testclient</span><span class="w"> </span><span class="kn">import</span> <span class="n">TestClient</span>
+from fastapi import FastAPI, Response
+from fastapi.responses import JSONResponse
+from httpx import ASGITransport, AsyncClient
 
-<span class="n">app</span> <span class="o">=</span> <span class="n">FastAPI</span><span class="p">()</span>
-<span class="n">MESSAGES</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;c1&quot;</span><span class="p">:</span> <span class="p">[]}</span>      <span class="c1"># 会话资源（第 6 章两张表的内存版）</span>
-<span class="n">JOBS</span> <span class="o">=</span> <span class="p">{}</span>                  <span class="c1"># 任务资源（第 11 章 jobs 表的内存版）</span>
-
-
-<span class="nd">@app</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/conversations/</span><span class="si">{cid}</span><span class="s2">/messages&quot;</span><span class="p">,</span> <span class="n">status_code</span><span class="o">=</span><span class="mi">202</span><span class="p">)</span>   <span class="c1"># ⭐ 202 = 收到了，还没答应你会成功</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">post_message</span><span class="p">(</span><span class="n">cid</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">body</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span> <span class="n">resp</span><span class="p">:</span> <span class="n">Response</span><span class="p">):</span>
-    <span class="k">if</span> <span class="n">cid</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">MESSAGES</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="n">HTTPException</span><span class="p">(</span><span class="mi">404</span><span class="p">,</span> <span class="s2">&quot;no such conversation&quot;</span><span class="p">)</span>
-    <span class="n">seq</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">MESSAGES</span><span class="p">[</span><span class="n">cid</span><span class="p">])</span>          <span class="c1"># ⭐ 用户那条消息先单独落库，202 里当场就能给出 seq</span>
-    <span class="n">MESSAGES</span><span class="p">[</span><span class="n">cid</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;seq&quot;</span><span class="p">:</span> <span class="n">seq</span><span class="p">,</span> <span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">body</span><span class="p">[</span><span class="s2">&quot;content&quot;</span><span class="p">]})</span>
-    <span class="n">jid</span> <span class="o">=</span> <span class="s2">&quot;j_&quot;</span> <span class="o">+</span> <span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">()</span><span class="o">.</span><span class="n">hex</span><span class="p">[:</span><span class="mi">8</span><span class="p">]</span>
-    <span class="n">JOBS</span><span class="p">[</span><span class="n">jid</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;queued&quot;</span><span class="p">,</span> <span class="s2">&quot;cid&quot;</span><span class="p">:</span> <span class="n">cid</span><span class="p">,</span>
-                 <span class="s2">&quot;result_url&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;/conversations/</span><span class="si">{</span><span class="n">cid</span><span class="si">}</span><span class="s2">/messages&quot;</span><span class="p">}</span>   <span class="c1"># ⭐ 结果最终落回资源</span>
-    <span class="n">resp</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s2">&quot;Location&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;/jobs/</span><span class="si">{</span><span class="n">jid</span><span class="si">}</span><span class="s2">&quot;</span>                      <span class="c1"># ⭐ 202 必须说清&quot;去哪儿看&quot;</span>
-    <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;job_id&quot;</span><span class="p">:</span> <span class="n">jid</span><span class="p">,</span> <span class="s2">&quot;user_message_seq&quot;</span><span class="p">:</span> <span class="n">seq</span><span class="p">}</span>
+app = FastAPI()
+app.state.accepting = True
+CONVERSATIONS = {}
+JOBS = {}
 
 
-<span class="nd">@app</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;/jobs/</span><span class="si">{jid}</span><span class="s2">&quot;</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">get_job</span><span class="p">(</span><span class="n">jid</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
-    <span class="n">j</span> <span class="o">=</span> <span class="n">JOBS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">jid</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">j</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="n">HTTPException</span><span class="p">(</span><span class="mi">404</span><span class="p">,</span> <span class="s2">&quot;no such job&quot;</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">j</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;queued&quot;</span><span class="p">:</span>       <span class="c1"># 这里假装 worker 刚好干完，真的在第 11 章</span>
-        <span class="n">j</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;done&quot;</span>
-        <span class="n">MESSAGES</span><span class="p">[</span><span class="n">j</span><span class="p">[</span><span class="s2">&quot;cid&quot;</span><span class="p">]]</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;seq&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">MESSAGES</span><span class="p">[</span><span class="n">j</span><span class="p">[</span><span class="s2">&quot;cid&quot;</span><span class="p">]]),</span> <span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;assistant&quot;</span><span class="p">})</span>
-    <span class="k">return</span> <span class="n">j</span>
+def problem(status, code, message):
+    return JSONResponse(status_code=status, content={"error": {
+        "code": code, "message": message, "trace_id": uuid4().hex,
+    }})
 
 
-<span class="n">c</span> <span class="o">=</span> <span class="n">TestClient</span><span class="p">(</span><span class="n">app</span><span class="p">)</span>
-<span class="n">r</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/conversations/c1/messages&quot;</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="s2">&quot;总结这份年报&quot;</span><span class="p">})</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">status_code</span><span class="p">,</span> <span class="s2">&quot;| Location:&quot;</span><span class="p">,</span> <span class="n">r</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;location&quot;</span><span class="p">),</span> <span class="s2">&quot;|&quot;</span><span class="p">,</span> <span class="n">r</span><span class="o">.</span><span class="n">json</span><span class="p">())</span>
+@app.post("/conversations", status_code=201)
+def create_conversation(response: Response):
+    cid = f"c{len(CONVERSATIONS) + 1}"
+    CONVERSATIONS[cid] = []
+    response.headers["Location"] = f"/conversations/{cid}"
+    return {"id": cid}
+
+
+@app.get("/conversations/{cid}")
+def get_conversation(cid: str):
+    if cid not in CONVERSATIONS:
+        return problem(404, "conversation_not_found", "找不到会话")
+    return {"id": cid}
+
+
+@app.post("/conversations/{cid}/messages", status_code=202)
+def post_message(cid: str, body: dict, response: Response):
+    messages = CONVERSATIONS.get(cid)
+    if messages is None:
+        return problem(404, "conversation_not_found", "找不到会话")
+    content = body.get("content")
+    if not isinstance(content, str) or not content.strip():
+        return problem(422, "invalid_input", "请填写消息")
+    if not app.state.accepting:
+        return problem(503, "queue_unavailable", "暂时不能接收任务")
+    seq = len(messages)
+    messages.append({"seq": seq, "role": "user", "content": content})
+    jid = f"j{len(JOBS) + 1}"
+    JOBS[jid] = {"cid": cid, "status": "queued"}
+    url = f"/jobs/{jid}"
+    response.headers["Location"] = url
+    return {"job_id": jid, "status": "queued", "status_url": url,
+            "user_message_seq": seq}
+
+
+@app.get("/jobs/{jid}")
+def get_job(jid: str):
+    job = JOBS.get(jid)
+    if job is None:
+        return problem(404, "job_not_found", "找不到任务")
+    return job  # 查询只读取已记录的状态
+
+
+@app.get("/conversations/{cid}/messages/{seq}")
+def get_message(cid: str, seq: int):
+    messages = CONVERSATIONS.get(cid, [])
+    if not 0 &lt;= seq &lt; len(messages):
+        return problem(404, "message_not_found", "找不到消息")
+    return messages[seq]
+
+
+@app.post("/jobs/{jid}/cancellation")
+def cancel_job(jid: str):
+    job = JOBS.get(jid)
+    if job is None:
+        return problem(404, "job_not_found", "找不到任务")
+    if job["status"] != "queued":
+        return problem(409, "job_not_cancellable", "请查询任务当前状态")
+    job["status"] = "cancelled"
+    return {"status": "cancelled"}
+
+
+def finish_job(jid, success):
+    # 测试显式调用的假 worker，不是 HTTP 路由。
+    job = JOBS[jid]
+    assert job["status"] == "queued"
+    if not success:
+        job.update(status="failed", failure_code="generation_failed")
+        return
+    cid = job["cid"]
+    messages = CONVERSATIONS[cid]
+    seq = len(messages)
+    messages.append({"seq": seq, "role": "assistant", "content": "年报摘要示例"})
+    job.update(status="done", result_url=f"/conversations/{cid}/messages/{seq}")
+
+
+async def verify():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        created = await client.post("/conversations")
+        assert created.status_code == 201
+        location = created.headers["Location"]
+        assert location == "/conversations/c1"
+        conversation = await client.get(location)
+        assert conversation.status_code == 200 and conversation.json() == {"id": "c1"}
+
+        endpoint = location + "/messages"
+        accepted = await client.post(endpoint, json={"content": "总结这份年报"})
+        assert accepted.status_code == 202
+        ticket = accepted.json()
+        status_url = ticket["status_url"]
+        assert status_url == accepted.headers["Location"] == "/jobs/j1"
+        assert ticket["user_message_seq"] == 0
+        for _ in range(2):
+            pending = await client.get(status_url)
+            assert pending.status_code == 200 and pending.json()["status"] == "queued"
+            assert "result_url" not in pending.json()
+
+        finish_job(ticket["job_id"], success=True)
+        completed = await client.get(status_url)
+        assert completed.status_code == 200 and completed.json()["status"] == "done"
+        result = await client.get(completed.json()["result_url"])
+        assert result.status_code == 200 and result.json() == {
+            "seq": 1, "role": "assistant", "content": "年报摘要示例",
+        }
+
+        conflict = await client.post(status_url + "/cancellation")
+        assert conflict.status_code == 409
+        assert conflict.json()["error"]["code"] == "job_not_cancellable"
+        assert (await client.get(status_url)).json() == completed.json()
+
+        sizes = (len(CONVERSATIONS["c1"]), len(JOBS))
+        invalid = await client.post(endpoint, json={"content": " "})
+        assert invalid.status_code == 422 and invalid.json()["error"]["code"] == "invalid_input"
+        app.state.accepting = False
+        busy = await client.post(endpoint, json={"content": "总结这份年报"})
+        assert busy.status_code == 503 and busy.json()["error"]["code"] == "queue_unavailable"
+        assert (len(CONVERSATIONS["c1"]), len(JOBS)) == sizes
+
+        app.state.accepting = True
+        accepted_again = await client.post(endpoint, json={"content": "总结另一份年报"})
+        assert accepted_again.status_code == 202
+        ticket_again = accepted_again.json()
+        finish_job(ticket_again["job_id"], success=False)
+        failed = await client.get(ticket_again["status_url"])
+        assert failed.status_code == 200 and failed.json()["status"] == "failed"
+        assert failed.json()["failure_code"] == "generation_failed"
+        assert "result_url" not in failed.json()
+
+    print("201 → 202 → 200 queued → 200 done → 200 result")
+    print("409 / 422 / 503 → 200 failed")
+
+
+if __name__ == "__main__":
+    asyncio.run(verify())
 </code></pre></div>
-
-<p>实跑：<code>202 | Location: /jobs/j_c896f95d | {'job_id': 'j_c896f95d', 'user_message_seq': 0}</code>（job id 每次不同）。⭐ <strong>三样东西各解决一个前端立刻会遇到的问题</strong>：状态码是 <strong>202</strong> 不是 201（活还没干）、有 <code>Location</code>（知道去哪轮询）、body 里有 <code>user_message_seq</code>（立刻能渲染用户那句话）。</p>
-<blockquote>
-<p>⭐ <strong>一句话记住</strong>：<strong>202 的意思不是「异步」，是「我还没答应你这件事会成功」。</strong> 所以它必须配一个能被查的地址；给不出地址，就别用 202。</p>
-</blockquote>
+<p>先核对两次轮询都是 <code>200 / queued</code>，也都没有结果地址。测试推进任务后才读到 <code>done</code>，随后用结果地址取到第 1 条助手消息。另一次任务虽然同样以 <code>202</code> 接收，查询到的终态却是 <code>200 / failed</code>。这时 200 说明状态读到了，生成失败由任务正文说明。代码还检查了 <code>422</code> 和 <code>503</code> 都没有新建消息或任务，以及 <code>409</code> 保留已完成的结果。</p>
+<p>本接口约定用 <code>Location</code> 和 <code>status_url</code> 指向查询入口。HTTP 的 202 表示已接受、处理尚未完成，建议在响应中描述状态并指向状态监视器。201 则表示创建已经完成，主要资源由 <code>Location</code> 或请求目标标明。<a href="https://www.rfc-editor.org/rfc/rfc9110.html#section-15.3.2">RFC 9110 §15.3.2–15.3.3</a>。</p>
 <hr />
 <h2 id="code">📋 六、错误响应：状态码定大方向，<code>code</code> 定细节</h2>
 <p><a href="03-后端骨架.html">第 3 章</a>已经把形状定死了（<code>code</code> 机器码 + <code>message</code> 人话 + <code>trace_id</code>），这里只补两条关系：<strong>① ⭐ 状态码全世界共用，<code>code</code> 是你自己的词表</strong> —— <code>prompt_too_long</code>、<code>quota_exhausted</code> 不该编进状态码，⚠️ <strong>更别自定义 4xx 码</strong>（比如返 460），中间层不认识它，一律当普通 4xx 处理。② ⭐ 同一个 <code>code</code> 必须永远对应同一个状态码；把这个映射写成一张表放进代码，别散在各个 <code>raise</code> 里。</p>
@@ -775,9 +885,9 @@ main .nc-r02-extension pre { max-width:100%; overflow-x:auto; }
 </tr>
 <tr>
 <td>⭐ 你的上游额度不够</td>
-<td><code>503</code> + <code>Retry-After</code></td>
+<td><code>503</code>，恢复时间可估时可带 <code>Retry-After</code></td>
 <td><code>upstream_unavailable</code></td>
-<td>重试</td>
+<td>先判断故障能否恢复、重发是否安全，再在预算内等待或重试</td>
 </tr>
 <tr>
 <td>job 已完成，不能取消</td>
@@ -892,7 +1002,7 @@ main .nc-r02-extension pre { max-width:100%; overflow-x:auto; }
 <li>URL 里写动词（<code>POST /createConversation</code>）跟「好不好看」无关的那个代价是什么？</li>
 <li>判断「该不该单独建一个资源」的判据是什么？</li>
 <li>为什么说方法是<strong>承诺</strong>而不是规矩？<code>DELETE</code> 连发两次第二次该返什么、为什么？</li>
-<li>201 和 202 的差别是什么？202 必须配上什么才成立？</li>
+<li>201 和 202 分别承诺了什么？任务查询返回 <code>200 / failed</code> 时，页面下一步做什么？</li>
 <li>401 和 403 分错会造成什么具体症状？跨租户访问该返 404 还是 403，判据和代价各是什么？</li>
 <li>409 是否一定能靠等待恢复？已完成任务取消与短暂锁冲突分别怎么办？</li>
 <li>「用户配额用完了」该返 429 还是 403？本章给的判据是哪一句？</li>
@@ -905,7 +1015,7 @@ main .nc-r02-extension pre { max-width:100%; overflow-x:auto; }
 <li>代价是<strong>方法全变成 POST</strong>，于是代理、CDN、浏览器、日志、限流器、重试器看到的都是一个不透明的 POST —— 能不能缓存、重发安不安全、是读还是写全推不出来。信息藏在 URL 字符串里，没有中间层会去读。</li>
 <li><strong>它有没有自己的生命周期</strong>：需不需要被单独查询、单独重试、单独取消。3 分钟的 PDF 总结有 <code>queued / running / done</code>、有查进度和取消的需求，所以必须有自己的 id；300 毫秒返回的没有中间状态，就只是一次 <code>POST</code>。</li>
 <li>因为客户端和中间层<strong>真的照着它行事，不问你一句</strong> —— <code>GET</code> 上的删除会被预取、被 CDN 缓存住「成功」、被重试器自动重发，参数还进各层日志。<code>DELETE</code> 本例两次返 204；第二次按契约返 404 也可符合幂等，比较的是预期效果。</li>
-<li><strong>201 = 已经成了、喏在这儿；202 = 排上了、成不成还不知道。</strong> 返 201 却把活丢进队列，客户端立刻 <code>GET</code> 那个 <code>Location</code> 会拿到 404，还分不清是自己拿早了还是服务器搞砸了。202 必须配一个能被查的地址（<code>Location</code> 指向 job 资源）；给不出地址就别用 202。</li>
+<li><strong>201 确认承诺的资源已创建，202 只确认请求已接受处理。</strong>本例通过任务地址查询。<code>200 / failed</code> 表示任务记录读取成功、摘要生成失败。页面显示失败原因，停止轮询，并保留已提交的用户消息。</li>
 <li>401 是缺少有效认证凭证，先按认证挑战处理；403 是当前请求被拒，不以同凭证原样自动重试。新凭证或权限/策略改变可能恢复，不能因 403 固定跳登录。混用的症状是<strong>登录成功 → 又被跳回登录页 → 无限循环，而日志里全是成功的登录</strong>。跨租户判据：403 承认了这个 id 存在，id 可枚举时就成了探测接口，所以「存在与否本身敏感就返 404」。代价是自己排查时分不清「真没有」和「没权限」，解法是对外 404、日志里记真实原因和 <code>trace_id</code>。</li>
 <li>409 是资源状态冲突。已完成的任务不能通过等待变回可取消；短暂锁冲突也只有在契约说明可恢复、重发安全且有预算时才退避。不能按状态码统一决定重试或死信。</li>
 <li>区分暂时速率限制和需人工处理的配额耗尽，读业务 code。本项目分别使用 429 和 403；这不是协议唯一选择。429 的 Retry-After 可选，缺省不能理解为立即重试。</li>
@@ -921,8 +1031,8 @@ main .nc-r02-extension pre { max-width:100%; overflow-x:auto; }
 <p>⭐ <strong>方法是承诺不是规矩</strong>：<code>GET</code> 安全且幂等，所以会被预取、被缓存、被自动重发。💀 把删除写成 <code>GET</code>，会被预取器扫光、被 CDN 缓存住「成功」、被重试器重发。生成天然不幂等，所以发消息就该是 <code>POST</code>。</p>
 <p><strong>状态码说明结果；可恢复性、重发安全和预算共同决定是否重试。</strong> ⭐ <strong>201 = 已经成了喏在这儿，202 = 排上了成不成还不知道</strong>；⭐ <strong>401 先处理认证凭证，403 先核对拒绝原因，不以同凭证原样自动重试</strong>（混用会造成登录无限循环，而日志里全是成功的登录）。409 要先解决状态冲突；已完成任务的取消不应盲目重试。</p>
 <p>跨租户返 404 还是 403：<strong>403 承认了这个 id 存在</strong>，所以存在性本身敏感就返 404，代价是自己排查分不清——解法是<strong>对外 404、日志记真实原因和 <code>trace_id</code></strong>。⚠️ 判断顺序也是设计：认人 → 归属 → 权限 → 状态。</p>
-<p>⚠️ 流式下状态码在第一帧就定死成 200，所以<strong>这些码必须在第一个字之前全用完</strong>。</p>
-<p>⭐ <strong>AI 特有的真问题：一次对话既是资源又是长任务。</strong> 只做消息拿不到进度、没法取消；只做 job 则不知道结果落在哪。答案是 <strong>202 + 一个 job 资源</strong>——⭐ <strong>202 不是「异步」，是「我还没答应你这件事会成功」。</strong></p>
+<p>⚠️ 流式响应头发出后，后续失败要看正文事件和流是否正常结束。</p>
+<p>⭐ <strong>一次对话可以同时产生消息和任务。</strong>本例用 202 给出任务入口。查询时按任务状态决定继续等、显示失败，或去结果地址读取那条助手消息。</p>
 <p>429 的 <code>Retry-After</code> 是可选字段。暂时速率限制与需充值的配额耗尽，在本项目用不同 code 和处理提示区分，不能拿字段是否存在当协议分界。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="03c-幂等与条件请求.html">03c-幂等与条件请求.md</a></p>
