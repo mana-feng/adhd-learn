@@ -308,9 +308,38 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⏱ <strong>10 分钟</strong> ｜ atoi、最长无重复子串、字符流</p>
 <h2 id="_1">🎯 一句话</h2>
 <p>字符串题的本质常常是一个小状态机：<strong>当前读到哪里、已经确认了什么、下一类字符还允不允许出现。</strong></p>
+<h3>屏幕上看着一样，程序数的是什么？</h3>
+<p>复制两个看起来相同的 <code>é</code>，程序却可能把它们判断为不同。上一章先约定整数的位宽，这里先约定字符串的计数单位。</p>
+<div class="tw"><table>
+<caption>同一个可见字形的两种写法，UTF-8 字节用十六进制表示</caption>
+<thead><tr><th scope="col">写法</th><th scope="col">Unicode 码点</th><th scope="col">UTF-8 字节</th></tr></thead>
+<tbody>
+<tr><th scope="row">预组成的 é</th><td><code>U+00E9</code>，1 个</td><td><code>C3 A9</code>，2 个</td></tr>
+<tr><th scope="row">e 加组合重音</th><td><code>U+0065 U+0301</code>，2 个</td><td><code>65 CC 81</code>，3 个</td></tr>
+</tbody></table></div>
+<ul>
+<li><strong>码点（code point）</strong>是 Unicode 编号，<code>U+</code> 后写十六进制数字。Python 的 <code>str</code> 按码点索引，所以两种写法的 <code>len()</code> 分别是 1 和 2。</li>
+<li><strong>编码（encoding）</strong>规定怎样把文本变成字节序列。UTF-8 中，这两个例子的字节长度分别为 2 和 3；用 <code>len(text.encode("utf-8"))</code> 才能得到这个长度。</li>
+<li><strong>字素簇（grapheme cluster）</strong>是一种切分用户感知字符的单位。这两种写法各是一个字素簇；按码点截取组合写法的第一项，只会留下 <code>e</code>。<a href="https://www.unicode.org/reports/tr29/">Unicode 文本分段规范</a></li>
+</ul>
+<p>本章的示例使用 <code>str</code>，按原有码点比较，不自动做 Unicode 归一化。若业务规定两种 é 必须相等，可以先对双方做 NFC 归一化，例如让 <code>e</code> 与组合重音合成同一个码点。归一化可能改变长度或下标，返回原串坐标时需要另外保留位置关系。字素簇切分仍是单独的一步。<a href="https://www.unicode.org/reports/tr15/">Unicode 归一化规范</a></p>
+<p>来自文件或网络的 <code>bytes</code> 先按约定编码解码。举例说，<code>b"\xc3"</code> 缺了后续字节，按 UTF-8 严格解码会抛出 <code>UnicodeDecodeError</code>。这是解码失败，应和解码成功但字段不符合解析规则区分开。<a href="https://docs.python.org/3.14/howto/unicode.html">Python Unicode 指南</a></p>
 <h2 id="1atoi" data-mg-stop="">🧩 题 1：把字符串转换成整数（atoi）</h2>
 <p>先约定本题输入规则：前导空白只接受 ASCII 空格，数字只接受 0–9，结果限制为 32 位有符号整数。<code>isdigit()</code> 还接受 ² 等 Unicode 字符，但 <code>int("²")</code> 会报错；若题目另有 Unicode 约定，应单独实现并验证。</p>
 <p>顺序固定：跳空格 → 读正负号 → 连续读数字 → 处理溢出。任何一步不符合规则就停止，而不是“尽量猜”。</p>
+<h3>逐位读数，读到第一个不合规字符就停</h3>
+<p>收到文本 <code>"  -306g7"</code> 时，程序得先分清哪些位置属于整数。这里允许跳过开头的 ASCII 空格（<code>U+0020</code>），接着读至多一个 ASCII <code>+</code> 或 <code>-</code>，随后必须是连续的 ASCII 十进制数字。<strong>ASCII</strong> 是一套字符编码标准，本例只选它的空格、符号和十个数字作为合法输入。开头的制表符、全角数字和 Unicode 负号都不纳入这个规则。</p>
+<p>代码里的 <code>index</code> 是下一处待读下标，<code>sign</code> 记录符号，<code>value</code> 是当前绝对值。已有值乘 10 会把十进制数的各位左移一格，再加当前数字就填上新的个位。</p>
+<div class="tw"><table>
+<caption>用 <code>"  -306g7"</code> 跟踪解析过程，下标从 0 开始</caption>
+<thead><tr><th scope="col">读到</th><th scope="col">状态变化</th></tr></thead>
+<tbody>
+<tr><th scope="row">下标 0、1 的空格</th><td>跳过，下一处是 2。</td></tr>
+<tr><th scope="row">下标 2 的 -</th><td>记下负号，下一处是 3。</td></tr>
+<tr><th scope="row">3、0、6</th><td>0 × 10 + 3 = 3；3 × 10 + 0 = 30；30 × 10 + 6 = 306。</td></tr>
+<tr><th scope="row">下标 6 的 g</th><td>停止，后面的 7 不参与。加回符号得 −306。</td></tr>
+</tbody></table></div>
+<p>结果要夹在 −2³¹（−2147483648）与 2³¹−1（2147483647）之间。代码最后用 <code>min</code> 压住上界，再用 <code>max</code> 抬到下界。比如 <code>"-2147483649"</code> 的前缀解析值比下界小 1，返回 −2147483648。</p>
 <div class="codehilite" data-code-language="python"><pre><code class="language-python">def my_atoi(text):
     index, sign, value = 0, 1, 0
     while index &lt; len(text) and text[index] == &#x27; &#x27;:
@@ -330,8 +359,23 @@ assert my_atoi(&#x27;words and 9&#x27;) == 0
 assert my_atoi(&#x27;91283472332&#x27;) == 2**31 - 1
 </code></pre></div>
 
+<p><strong>返回值的边界。</strong>开头没有合法数字时返回 0，比如空串、只剩符号或遇到连续符号。<code>"0"</code> 也返回 0。夹紧后的最大值同样无法区分原数是否越界。若业务需要校验整个字段或区分这些状态，须另外定义校验和错误返回规则。</p>
+<p><strong>扫描次数和算术成本。</strong>输入有 <code>n</code> 个码点，扫描位置最多前进 <code>n</code> 次。原示例先累加完整的 Python 整数再夹紧。若数字前缀有 <code>d</code> 位，最坏要保存 O(d) 位量级的大整数；逐位乘 10 和加一位数字随当前整数宽度增长，最坏累计 O(d²) 位工作量。扫描线性只说明每个位置读几次，实际耗时还要计入这部分运算。</p>
 <h2 id="2">🧩 题 2：最长不含重复字符的子字符串</h2>
-<p>窗口的左边界只向右走。每次遇到重复字符，就把左边界跳到它上一次出现位置的后一格。</p>
+<p>窗口的左边界只向右走。新字符上一次出现的位置仍在窗口内时，就把左边界跳到那个位置的后一格。</p>
+<h3>找到重复项后，先问旧位置还在窗口里吗？</h3>
+<p>试着从 <code>xyyx</code> 挑出一段连续且无重复的码点。对子串逐段重查会多次看同一个位置。滑动窗口（sliding window）用 <code>left</code>、<code>right</code> 标出当前连续片段的两端，并用 <code>last_seen</code> 记住每个码点最近出现的位置。新码点若和窗内旧码点冲突，就从旧位置后面继续。</p>
+<div class="tw"><table>
+<caption>读一遍 <code>xyyx</code>，每步先判断旧位置，再改记录</caption>
+<thead><tr><th scope="col">右端读到</th><th scope="col">左端怎么走</th><th scope="col">剩余窗口</th></tr></thead>
+<tbody>
+<tr><th scope="row">0，x</th><td>首次出现，左端为 0。</td><td><code>x</code>，长度 1</td></tr>
+<tr><th scope="row">1，y</th><td>首次出现，左端仍为 0。</td><td><code>xy</code>，长度 2</td></tr>
+<tr><th scope="row">2，y</th><td>旧 y 在 1，左端跳到 2。</td><td><code>y</code>，长度 1</td></tr>
+<tr><th scope="row">3，x</th><td>旧 x 在 0，已经出窗，左端保持 2。</td><td><code>yx</code>，长度 2</td></tr>
+</tbody></table></div>
+<p>端点都算进长度，所以最后一步是 <code>3 − 2 + 1 = 2</code>。这一步若直接改成 <code>left = 0 + 1</code>，两个 y 会重新一起进入窗口。代码的 <code>&gt;= left</code> 检查就是为了避免这个错误。</p>
+<p>函数返回长度；空字符串返回 0。按哈希查询和写入平均常数时间计，扫描 <code>n</code> 个码点花 O(n) 时间，字典为 <code>u</code> 个不同码点各存一个位置，额外空间 O(u)。例如 <code>"甲e\u0301甲"</code> 的最长无重复窗口有 3 个码点。若题目改成按字素簇计数，输入会先切成「甲、e 加重音、甲」三项，这个例子的最长窗口只有 2 项。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">longest_unique</span><span class="p">(</span><span class="n">text</span><span class="p">):</span>
     <span class="n">last_seen</span><span class="p">,</span> <span class="n">left</span><span class="p">,</span> <span class="n">best</span> <span class="o">=</span> <span class="p">{},</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span>
     <span class="k">for</span> <span class="n">right</span><span class="p">,</span> <span class="n">char</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">text</span><span class="p">):</span>
@@ -383,9 +427,23 @@ for text in texts:
 assert kmp_find(&quot;甲乙甲丙&quot;, &quot;甲丙&quot;) == 2
 print(&quot;前缀表/失配回退/空模式/无匹配/重叠前缀核验通过&quot;)
 </code></pre></div>
+<p>这里的匹配是原码点序列完全相同。代码用 <code>q</code> 表示已匹配的前缀长度，遇到失配时从 <code>pi[q−1]</code> 读出仍可复用的较短长度。设模式长 <code>m</code>、文本长 <code>n</code>，单位都为码点。空模式返回 0，非空模式找不到返回 −1，找到返回第一次出现的码点下标。比如在 <code>"甲é乙"</code> 中找 <code>"乙"</code> 返回 2；用 UTF-8 字节偏移表示则是 5，因为前面是 3 + 2 个字节。</p>
 <p>q 每次匹配最多加一，回退只会减少 q；把加减次数一起摊算，建表 O(m)、扫描 O(n)，额外表空间 O(m)，不是看到 while 就乘成 O(nm)。示例按 Python 字符比较与索引，Unicode 归一化、字节偏移、多模式搜索都需另立约定。本节只解释这一个失配复用机制。原始依据：<a href="https://www.cs.jhu.edu/~misha/Spring23/Knuth77.pdf">Knuth / Morris / Pratt，Fast Pattern Matching in Strings（1977）</a>。</p></details>
 <h2 id="3" data-mg-stop="">🧩 题 3：字符流中第一个不重复的字符</h2>
 <p>一边读一边维护两个事实：每个字符出现次数，以及第一次出现的顺序。队首若已经重复就淘汰。</p>
+<h3>队首不合格时，再看它后面的人</h3>
+<p>字符一个接一个到达，每次都重新数一遍会反复扫历史。这里让 <code>Counter</code> 记累计次数，让 <code>deque</code> 按到达顺序保存尚未弹出的记录。队列可以从末尾加人，也可以从头移人。某个码点已经出现两次，以后次数只会增加，所以队首一旦重复就能永久弹出。</p>
+<div class="tw"><table>
+<caption>依次插入「甲、乙、乙、甲、丙」</caption>
+<thead><tr><th scope="col">新来的码点</th><th scope="col">清理后的队列</th><th scope="col">当前答案</th></tr></thead>
+<tbody>
+<tr><th scope="row">甲</th><td>甲</td><td>甲</td></tr>
+<tr><th scope="row">乙</th><td>甲、乙</td><td>甲</td></tr>
+<tr><th scope="row">乙</th><td>甲、乙、乙</td><td>甲</td></tr>
+<tr><th scope="row">甲</th><td>空。四个记录的码点都已重复。</td><td><code>#</code></td></tr>
+<tr><th scope="row">丙</th><td>丙</td><td>丙</td></tr>
+</tbody></table></div>
+<p>每次只插入一个 Unicode 码点，约定 <code>#</code> 为「目前没有答案」的保留标记。代码不验证参数；如果允许把 <code>#</code> 当普通输入，返回它就无法区分真实字符和空结果。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">Counter</span><span class="p">,</span> <span class="n">deque</span>
 
 
@@ -409,6 +467,45 @@ print(&quot;前缀表/失配回退/空模式/无匹配/重叠前缀核验通过&
 <span class="k">assert</span> <span class="n">stream</span><span class="o">.</span><span class="n">first_unique</span><span class="p">()</span> <span class="o">==</span> <span class="s1">&#39;l&#39;</span>
 </code></pre></div>
 
+<p><strong>单次和总成本。</strong>一次插入可能弹出很多条。每条记录却只入队一次、最多出队一次，所以在哈希操作平均常数时间的前提下，<code>n</code> 次插入总共 O(n)，平均到每次为 O(1)，查询队首是 O(1)。原代码会把每次到达都入队。如果先来一个始终只出现一次的甲，之后一直来乙，甲会挡在队首，重复的乙仍然堆在后面。即使只有两种码点，队列最坏仍用 O(n) 空间。</p>
+<details>
+<summary>复现输入边界检查</summary>
+<p>把本页四段示例代码按顺序放入同一个 Python 文件，再把下面的断言接到末尾。运行后若断言全部成立，最后会打印通过信息。</p>
+<div class="codehilite" data-code-language="python"><pre><code class="language-python">from unicodedata import normalize
+
+cases = [
+    ("  -306g7", -306), ("\t12", 0), ("１２", 0), ("²", 0),
+    ("-2147483648", -2147483648), ("-2147483649", -2147483648),
+    ("2147483647", 2147483647), ("2147483648", 2147483647),
+    ("", 0), ("+", 0), ("-+3", 0), ("23²8", 23), ("0", 0),
+]
+for text, expected in cases:
+    assert my_atoi(text) == expected, (text, expected)
+
+composed, combined = "é", "e\u0301"
+assert composed != combined and normalize("NFC", combined) == composed
+assert (len(composed), len(combined)) == (1, 2)
+assert (len(composed.encode("utf-8")), len(combined.encode("utf-8"))) == (2, 3)
+try:
+    b"\xc3".decode("utf-8", errors="strict")
+except UnicodeDecodeError:
+    pass
+else:
+    raise AssertionError("incomplete UTF-8 was accepted")
+assert longest_unique("xyyx") == 2
+assert longest_unique("甲e\u0301甲") == 3
+assert kmp_find(combined, composed) == -1
+assert kmp_find("甲é乙", "乙") == 2
+
+example_stream = FirstUniqueStream()
+seen = []
+for char in "甲乙乙甲丙":
+    example_stream.insert(char)
+    seen.append(example_stream.first_unique())
+assert seen == ["甲", "甲", "甲", "#", "丙"]
+print("输入边界与文本单位核验通过")
+</code></pre></div>
+</details>
 <h2 id="_2">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -420,10 +517,11 @@ print(&quot;前缀表/失配回退/空模式/无匹配/重叠前缀核验通过&
 <tbody>
 <tr>
 <td><a href="../Python会咬你的地方/09-容器、哈希与顺序.html">Python 会咬你的地方 09 · 容器、哈希与顺序</a></td>
-<td>⭐ 题 3 靠的是 <code>Counter</code> + <code>deque</code> 和「第一次出现的顺序」。那一章讲这批容器各自保不保序：<code>dict</code> 从 3.7 起保证插入序，<strong><code>set</code> 从来不保证</strong>，而且它的实际顺序每次进程启动都会变</td>
+<td>⭐ 题 3 靠的是 <code>Counter</code> + <code>deque</code> 和「第一次出现的顺序」。那一章讲这批容器各自保不保序：<code>dict</code> 从 3.7 起保证插入序，<strong><code>set</code> 从来不保证</strong>，字符串集合的实际遍历顺序可能随哈希种子而变</td>
 </tr>
 </tbody>
 </table></div>
+<p>附录速查把这些问题归到不同的不变量。做题前先写清输入的读取单位，再写清输出的含义，比如值、长度、位置或「暂无结果」。模型分词又定义了自己的单位 token。即使一个汉字占 3 个 UTF-8 字节，也不能据此确定 token 数，要用目标分词器和词表检查。</p>
 <h2 id="_3">🛑 可以停在这里</h2>
 <p>看到字符串解析题，先列出合法阶段，而不是先写一堆 <code>if</code>。阶段明确，边界自然会出现。</p>
 <h2 id="_4">✅ 检查点</h2>
@@ -431,6 +529,16 @@ print(&quot;前缀表/失配回退/空模式/无匹配/重叠前缀核验通过&
 <details>
 <summary>👀 看答案</summary>
 <p>右边界已经向右扩展；回退左边界只会把已知会冲突的字符重新放回窗口，既无帮助又会重复计算。</p>
+</details>
+<p>预测 <code>my_atoi("  +12３4")</code> 的返回值。全角 ３ 和最后的 4 会被读取为数字吗？</p>
+<details>
+<summary>👀 看答案</summary>
+<p>返回 12。全角 ３ 不在 ASCII 0–9 内，扫描在这里停止，后面的 4 不会进入解析。</p>
+</details>
+<p>把组合写法的 <code>e</code> 加重音放进文本，再用预组成的 <code>é</code> 查找。它们看起来相同，原 KMP 能找到吗？</p>
+<details>
+<summary>👀 看答案</summary>
+<p>找不到。原 KMP 比较的是码点，<code>U+0065 U+0301</code> 里没有 <code>U+00E9</code>。若输入规则允许 NFC，把双方归一化后再查，匹配会成功，返回的是归一化后的下标。</p>
 </details>
 <hr />
 <p>⚡ <strong>走神救援</strong></p>
