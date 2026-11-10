@@ -389,7 +389,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>$M$：当前训练作业的平均故障间隔；三者必须使用同一时间单位；</li>
 <li>$C/T$：每隔 $T$ 时间保存一次带来的写盘浪费；$T/(2M)$：故障率约为 $1/M$，每次故障平均重算约 $T/2$，两者相乘得到回滚重算浪费。</li>
 </ul>
-<p>要让这两个方向相反的代价之和最小，对 $T$ 求导：$W'(T)=-C/T^2+1/(2M)$。令 $W'(T)=0$，得到 $T^2=2CM$，所以：</p>
+<p><strong>先解释这里的“导数”：</strong>把 checkpoint 间隔 $T$ 想成一个可以缓慢转动的旋钮。$W'(T)$ 表示“$T$ 稍微增大一点时，总浪费 $W$ 变化得多快”，也就是曲线在当前位置的斜率。$W'(T)&lt;0$ 表示继续增大 $T$ 会让浪费下降；$W'(T)&gt;0$ 表示继续增大 $T$ 会让浪费上升。</p>
+<p>如果最小值位于允许范围 $T&gt;0$ 的内部，而不是人为规定的边界上，那么曲线必须从“向下走”转为“向上走”。这个转折位置的斜率应为 0，所以先寻找满足 $W'(T)=0$ 的<strong>驻点候选</strong>。注意：斜率为 0 只说明它是候选点，还不能单独证明它不是最大值。</p>
+<section class="visual-block visual-block-flow" aria-label="Young 公式逐项求导"><p class="visual-block-title">逐项求导，不跳步</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">先改写第一项：$C/T=C\cdot T^{-1}$。$C$ 是常数；用幂函数规则“$T^n$ 的导数是 $nT^{n-1}$”，得到 $C\cdot(-1)T^{-2}=-C/T^2$</span></div><div class="vb-flow-row"><span class="vb-flow-step">再改写第二项：$T/(2M)=(1/(2M))T$。$1/(2M)$ 是常数，而 $T$ 的导数是 1，所以导数为 $1/(2M)$</span></div><div class="vb-flow-row"><span class="vb-flow-step">两项相加：$W'(T)=-C/T^2+1/(2M)$</span></div><div class="vb-flow-row"><span class="vb-flow-step">令斜率为 0：$-C/T^2+1/(2M)=0$</span></div><div class="vb-flow-row"><span class="vb-flow-step">移项：$C/T^2=1/(2M)$；两边乘 $2MT^2$，得到 $2CM=T^2$</span></div><div class="vb-flow-row"><span class="vb-flow-step">因为间隔必须为正，只取正根：$T=\sqrt{2CM}$</span></div></div></section>
+<p>最后确认它确实是最小值。再求一次导数可得 $W''(T)=2C/T^3$。在 $C&gt;0$、$M&gt;0$、$T&gt;0$ 的模型范围内，$W''(T)&gt;0$，表示曲线在驻点附近向上弯，因此这个驻点是最小值而不是最大值。直觉上的“保存越频繁写盘越贵、保存越稀疏回滚越多”帮助记忆，但不能代替上面的推导。</p>
+<p>所以：</p>
 <p>$$T\approx\sqrt{2CM}$$</p>
 <p>这是 Young 一阶近似的推导起点，不是对相关故障、长时间保存或带冗余集群的通用最优解。权威出处：John W. Young, <a href="https://doi.org/10.1145/361147.361115"><em>A First Order Approximation to the Optimum Checkpoint Interval</em></a>, Communications of the ACM, 1974。</p>
 <section class="visual-block visual-block-calc" aria-label="checkpoint 间隔完整计算"><p class="visual-block-title">完整代入</p><div class="vb-calc"><p>教学输入：$C=5$ 分钟，$M=10$ 小时 $=600$ 分钟</p><p>$T=\sqrt{2\times5\times600}=\sqrt{6000}\approx77.46$ 分钟</p><p>保存开销占比约为 $C/T=5/77.46\approx6.5\%$</p><p>若故障在区间内近似均匀发生，单次故障平均丢失约 $T/2\approx38.73$ 分钟进度</p><p>所以可先试 75–80 分钟，再用真实保存耗时、故障记录和吞吐复测；不是机械地“每小时一次”</p></div></section>
@@ -680,7 +684,7 @@ dist.init_process_group(&quot;nccl&quot;, timeout=timedelta(minutes=30))
 <h2 id="_6">✅ 检查点</h2>
 <ol>
 <li>什么时候可以用 $M_{cluster}=M_{card}/N$？冗余屏蔽为何会让这个除法失效？“10 小时”为什么不是故障时刻表？</li>
-<li>$W(T)\approx C/T+T/(2M)$ 的两项分别来自哪里？怎样由最小化得到 $T\approx\sqrt{2CM}$，并用 5 分钟与 600 分钟得到 77.46 分钟？</li>
+<li>$W(T)\approx C/T+T/(2M)$ 的两项分别来自哪里？$W'(T)$ 表示什么？怎样逐项求导、令斜率为 0，并用 $W''(T)&gt;0$ 证明得到的是最小值？最后怎样用 5 分钟与 600 分钟得到 77.46 分钟？</li>
 <li>分片 checkpoint 为什么不能靠“每个文件各自 rename”就宣布原子完成？</li>
 <li>只加载模型权重，缺少哪些状态会让训练轨迹改变？</li>
 <li>示例在 update 300 保存、update 307 崩溃，什么条件下才可以说要重算 1792 个样本？复杂批次为什么要另存实际消费样本/token？</li>
@@ -694,7 +698,7 @@ dist.init_process_group(&quot;nccl&quot;, timeout=timedelta(minutes=30))
 <summary>👀 答案</summary>
 <ol>
 <li>只有各卡故障近似独立、故障率近似稳定、口径一致，并且任一卡故障都会让作业发生有效故障、没有冗余吸收时，故障率才能相加。有冗余屏蔽或相关故障时要按真实作业故障记录重估。$10000/1000=10$ 小时是长期平均间隔，不表示每逢十小时必然坏一张卡。</li>
-<li>$C/T$ 是周期保存开销，$T/(2M)$ 是故障率 $1/M$ 乘以平均回滚损失 $T/2$。对两项之和求导并令零：$-C/T^2+1/(2M)=0$，所以 $T=\sqrt{2CM}$。代入 $C=5$、$M=600$ 得 $\sqrt{6000}\approx77.46$ 分钟；结论依赖独立稳定故障率、短保存耗时和回滚到最近完整快照等一阶假设。</li>
+<li>$C/T$ 是周期保存开销，$T/(2M)$ 是故障率 $1/M$ 乘以平均回滚损失 $T/2$；$W'(T)$ 是总浪费随间隔 $T$ 的变化速度。$C/T=C\cdot T^{-1}$ 的导数是 $-C\cdot T^{-2}=-C/T^2$；$T/(2M)=(1/(2M))T$ 的导数是 $1/(2M)$。内部最小值先满足斜率为 0：$-C/T^2+1/(2M)=0\Rightarrow T^2=2CM$；因 $T&gt;0$，取 $T=\sqrt{2CM}$。又因 $C&gt;0$、$M&gt;0$、$T&gt;0$ 时 $W''(T)=2C/T^3&gt;0$，驻点向上弯，确为最小值。代入 $C=5$、$M=600$ 得 $\sqrt{6000}\approx77.46$ 分钟；结论仍依赖独立稳定故障率、短保存耗时和回滚到最近完整快照等一阶假设。</li>
 <li>多个 rank 可能只写完部分分片。应先写临时版本，等待所有分片完成并核对 checksum，再最后发布 manifest 或 current 指针；对象存储和跨文件系统还要使用其提交协议。</li>
 <li>还需优化器、调度器、GradScaler、optimizer update、数据/sampler 游标、以 <code>{rank: state}</code> 保存的每 rank RNG，以及代码、数据、配置和环境信息。缺任一项都可能改变 lr、动量、样本顺序、dropout 或更新计数；world size 变化后不能机械映射旧 rank 状态。</li>
 <li>仅在 $B_{micro}=4$、$N=8$、$K=8$，等长非尾批、world size 不变且每次 optimizer update 都真实完成、没有 AMP overflow 跳步时，每次更新才固定消费 $256$ 个样本，从 307 回到 300 才是 $7\times256=1792$。复杂批次应保存实际消费样本/token 数与每 rank 游标，不能只靠 update 反推。</li>
@@ -709,7 +713,7 @@ dist.init_process_group(&quot;nccl&quot;, timeout=timedelta(minutes=30))
 <h2 id="_7">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>⭐ 在独立、稳定故障率，且任一卡故障都会成为作业有效故障、没有冗余屏蔽的教学假设下，$M_{cluster}=M_{card}/N$；它给的是<strong>平均间隔</strong>，不是故障时刻表。Young 一阶浪费模型 $W(T)\approx C/T+T/(2M)$ 平衡保存开销与平均回滚重算；令导数为零才得到 $T\approx\sqrt{2CM}$，最后仍要用本集群数据复测。</p>
+<p>⭐ 在独立、稳定故障率，且任一卡故障都会成为作业有效故障、没有冗余屏蔽的教学假设下，$M_{cluster}=M_{card}/N$；它给的是<strong>平均间隔</strong>，不是故障时刻表。Young 一阶浪费模型 $W(T)\approx C/T+T/(2M)$ 平衡保存开销与平均回滚重算；导数表示总浪费随 $T$ 的变化速度，内部最小值先满足斜率 0，再由 $W''(T)=2C/T^3&gt;0$ 确认它向上弯，才得到 $T\approx\sqrt{2CM}$。最后仍要用本集群数据复测。</p>
 <p>四个要点：得到一致 staging 快照、分片保存、所有分片校验后原子发布 manifest/current、保留多个已验证可恢复的代次。异步、NVMe 和热备都只是有条件的加速手段。</p>
 <p>⭐ <strong>能加载权重不等于恢复训练。</strong> 还要恢复优化器、调度器、scaler、update 计数，以及用 <code>{rank: state}</code> 明确保存的每 rank RNG 和数据/sampler 游标；world size 改变时旧 rank 不能机械映射。恢复后核对下一批样本、实际消费样本/token、lr、scale、update 和短窗口训练探针。</p>
 <p>⭐⭐ <strong>最可怕的不是崩溃，是静默失败</strong>——训练照跑、loss 也在降，<strong>但结果是错的</strong>。⭐ <strong>崩溃是好故障，它至少会告诉你出事了。</strong></p>
