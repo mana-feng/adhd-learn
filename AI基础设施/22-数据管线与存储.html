@@ -342,20 +342,26 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="n">fake</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">vocab</span><span class="p">,</span> <span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">S</span><span class="p">),</span> <span class="n">device</span><span class="o">=</span><span class="s1">&#39;cuda&#39;</span><span class="p">)</span>
 <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">50</span><span class="p">):</span>
     <span class="n">train_step</span><span class="p">(</span><span class="n">fake</span><span class="p">)</span>          <span class="c1"># 固定张量，完全没有数据加载</span>
-<span class="c1"># → 如果 MFU 显著上升，瓶颈就在数据管线</span>
+<span class="c1"># → 若 step 明显缩短，把输入路径列为候选；继续分段计时，不能唯一归因</span>
 
 <span class="c1"># ⭐ 实验二：只跑 dataloader，不训练</span>
 <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+<span class="n">seen_samples</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">batch_count</span> <span class="o">=</span> <span class="mi">0</span>
 <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">batch</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">loader</span><span class="p">):</span>
-    <span class="k">if</span> <span class="n">i</span> <span class="o">&gt;=</span> <span class="mi">100</span><span class="p">:</span> <span class="k">break</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;数据管线吞吐 </span><span class="si">{</span><span class="mi">100</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">B</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="p">)</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2"> samples/s&quot;</span><span class="p">)</span>
+    <span class="n">first</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="n">batch</span><span class="o">.</span><span class="n">values</span><span class="p">()))</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">batch</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="p">(</span><span class="n">batch</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">batch</span><span class="p">,</span> <span class="p">(</span><span class="nb">tuple</span><span class="p">,</span> <span class="nb">list</span><span class="p">))</span> <span class="k">else</span> <span class="n">batch</span><span class="p">)</span>
+    <span class="n">seen_samples</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">first</span><span class="p">)</span>  <span class="c1"># 尾批可能小于配置的 B，按实际样本数累计</span>
+    <span class="n">batch_count</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="k">if</span> <span class="n">batch_count</span> <span class="o">&gt;=</span> <span class="mi">100</span><span class="p">:</span> <span class="k">break</span>
+<span class="n">elapsed</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">t0</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">batch_count</span><span class="si">}</span><span class="s2"> batches, 数据管线吞吐 </span><span class="si">{</span><span class="n">seen_samples</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">elapsed</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2"> samples/s&quot;</span><span class="p">)</span>
 <span class="c1"># → 和训练需要的速度对比</span>
 </code></pre></div>
 
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">先隔离，再量化</p><div class="vb-compare"><p>固定 GPU 张量明显缩短 step：数据路径是有力候选，还要继续拆读、解码、组批和搬运。</p><p>平均供给率高于平均消耗率仍不够：尾延迟、缓冲深度和偶发重试仍可能让 GPU 断粮。</p></div></section>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">先隔离，再量化</p><div class="vb-compare"><p>固定 GPU 张量明显缩短 step：输入路径是有力候选；它同时移除了读取、CPU 变换、组批、H2D 和形状波动，不能直接锁定其中一项。</p><p>平均供给率高于平均消耗率仍不够：尾延迟、缓冲深度和偶发重试可能造成断粮；CPU 同步、进程调度和其他等待也可能制造相似空隙。</p></div></section>
 <blockquote>
 <p>💡 <strong>profiler 里的信号</strong>（<a href="04-Roofline与MFU.html">第 4 章</a>）：
-<strong>GPU 时间轴上有规律的空隙，且空隙出现在每个 step 的开头</strong> —— 就是数据没跟上。</p>
+<strong>GPU 时间轴在 step 边界出现有规律空隙</strong>是输入路径等待的候选信号，不是唯一诊断。还要把 loader wait、H2D、CPU 同步/调度、collective 和 step time 放到同一时间线排除。</p>
 </blockquote>
 <h3 id="throughput-ledger">📐 把“喂得够不够”写成同一本吞吐账</h3>
 <p>先只看<strong>单个 rank</strong>。设本地 batch 大小为 <code>b</code>（样本/step），纯训练计算时间为 <code>t_step</code>（秒/step），那么这个 rank 的平均消耗率是：</p>
@@ -366,10 +372,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <thead><tr><th>同一 rank 的观测</th><th>数值</th><th>能说明什么</th></tr></thead>
 <tbody>
 <tr><td>平均 batch 准备时间</td><td>0.32 秒</td><td>平均快于 0.40 秒计算窗，有机会被预取隐藏</td></tr>
-<tr><td>P95 batch 准备时间</td><td>0.55 秒</td><td>约 5% 的批次可能超过一层计算窗，需要缓冲或继续定位尾延迟</td></tr>
-<tr><td>预取队列最低深度</td><td>0</td><td>训练确实发生过断粮；只看平均 samples/s 会漏掉</td></tr>
+<tr><td>P95 batch 准备时间</td><td>0.55 秒</td><td>说明分布尾部的某个位置高于 0.40 秒；不同分位数定义下不能据此推出精确超窗比例</td></tr>
+<tr><td><code>prep_time &gt; 0.40</code> 的实测比例</td><td>另行统计</td><td>直接回答有多少观测超过一层计算窗；仍不等于每次都造成 GPU 等待</td></tr>
+<tr><td>预取队列最低深度</td><td>0</td><td>队列曾为空，是供给不足候选；消费者也可能同时被同步、调度或其他阶段阻塞</td></tr>
 </tbody></table></div>
-<p>这里的 P95 是把 batch 准备耗时从小到大排列后，第 95 百分位附近的值；它不等于每 20 步必卡一次。判断是否真的拖慢训练，还要把 loader 等待、GPU 空隙和 step time 按同一时间窗对齐。建议记录 <strong>batch 准备平均/P95、队列深度最低值、H2D 时间和 step time</strong>，再一次只改一个变量。</p>
+<p>这里的 P95 是把 batch 准备耗时从小到大排列后，第 95 百分位附近的值；它不等于每 20 步必卡一次，也不能替代超阈值计数。要回答“多少批次超过 0.40 秒”，应直接计算 <code>sum(prep_time &gt; 0.40) ÷ n</code>，其中 <code>n</code> 是观测批次数。判断是否拖慢训练，还要把 loader wait、H2D、CPU 同步/调度、GPU 空隙、collective 与 step time 按同一时间窗对齐，再一次只改一个变量。</p>
 <hr />
 <h2 id="dataloader">🔧 二、DataLoader 的六个参数</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：`DataLoader` 来自你自己的代码，这一段只看写法</span>
@@ -625,9 +632,9 @@ FlashAttention 支持 <code>cu_seqlens</code>（变长序列），
 <hr />
 <h2 id="_9">✅ 检查点</h2>
 <ol>
-<li>怎么隔离数据管线瓶颈？为什么平均 samples/s 高于训练消耗仍不能直接判定“喂得饱”？</li>
+<li>怎么隔离输入路径瓶颈？为什么平均 samples/s 和 P95 都不能直接给出“实际超窗比例”？</li>
 <li>单 rank 每步 32 个样本，纯计算 0.40 秒，8 个 rank 的单 rank 与全局需求各是多少？</li>
-<li>profiler 里数据没跟上的信号是什么？</li>
+<li>profiler 里哪些现象可把输入路径列为候选？为什么不能据此唯一归因？</li>
 <li>DataLoader 的四个常见错误配置？</li>
 <li><code>pin_memory</code> 和 <code>non_blocking</code> 的关系是什么？</li>
 <li>为什么小文件在分布式训练里特别糟？</li>
@@ -641,9 +648,9 @@ FlashAttention 支持 <code>cu_seqlens</code>（变长序列），
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>先把 dataloader 换成固定 GPU 张量做对照，再单独测读取、解码、组 batch、H2D，并把 loader 等待与 GPU 空隙按同一时间窗对齐。平均供给只说明长期总量；P95 准备时间、缓冲见底和重试仍可能造成断粮。</li>
+<li>先把 dataloader 换成固定 GPU 张量做对照，再单独测读取、解码、组 batch、H2D，并把 loader wait、CPU 同步/调度、GPU 空隙、collective 与 step time 对齐。平均供给只说明长期总量；P95 只给尾部位置。实际超窗比例必须直接统计 <code>sum(prep_time &gt; t_step) ÷ n</code>。</li>
 <li>单 rank 为 <code>32 ÷ 0.40 = 80</code> 样本/秒；8 个 rank 全局为 <code>8 × 80 = 640</code> 样本/秒。单 rank loader 应与 80 比，不应和 640 直接比。</li>
-<li><strong>GPU 时间轴上有规律的空隙，且空隙出现在每个 step 的开头</strong>。</li>
+<li>step 边界空隙、loader wait 增长、预取队列见底都能把输入路径列为候选，但 CPU 同步/调度、collective、形状变化等也能产生相似现象；必须对齐多条时间线和阶段计时。</li>
 <li><code>num_workers=0</code> 让读取/变换在主进程执行，复杂管线可能阻塞；过多 worker 会争抢 CPU/内存/存储；<code>pin_memory=False</code> 不满足本章 pinned 源跨流重叠模式；<code>persistent_workers=False</code> 会在每轮重建 worker。四项都要测量，不能写成固定最优参数。</li>
 <li><code>non_blocking=True</code> 尝试相对 CPU 异步返回，并不限于 pinned 内存；本章要让 H2D 与独立计算重叠，还需 pinned 源、不同流和可用 DMA 引擎。跨流用 wait_stream 管顺序、record_stream 或显式保留管寿命；CPU 改写源前须确认复制完成。</li>
 <li>因为<strong>大量 worker 同时读取小文件可能使元数据服务成为瓶颈</strong>，其他节点也可能受影响；要比较元数据、内容传输和解码耗时，不能仅凭文件数定因。</li>
@@ -660,7 +667,7 @@ FlashAttention 支持 <code>cu_seqlens</code>（变长序列），
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
 <p>⭐ <strong>最容易被忽略的瓶颈，也最容易被误诊成「模型慢」。</strong></p>
-<p>⭐⭐ <strong>先隔离，再量化</strong>：把数据加载换成固定 GPU 张量，接着拆开测读取、解码、组 batch 与 H2D。单 rank 需要的平均供给率是 <code>本地 batch ÷ 纯计算 step 时间</code>；还要看 P95、队列是否见底和 GPU 空隙，平均吞吐够高不代表没有尾部断粮。</p>
+<p>⭐⭐ <strong>先隔离，再量化</strong>：固定 GPU 张量只把输入路径列为候选，不能直接锁定磁盘或 DataLoader。接着对齐 loader wait、H2D、CPU 同步/调度、GPU 空隙、collective 和 step time。单 rank 平均需求是 <code>本地 batch ÷ 纯计算 step 时间</code>；P95 不等于超窗比例，后者要直接统计 <code>prep_time &gt; t_step</code> 的观测占比。</p>
 <p>加载器参数里最容易漏的两个：⭐ <strong>non_blocking 返回不代表复制完成；H2D／计算重叠需 pinned 源、独立流与硬件条件，源和目标还要各管寿命</strong>；⭐ <strong>不开持久化 worker，每个 epoch 都要重建一次。</strong></p>
 <p><strong>存储格式</strong>：⚠️⭐ <strong>小文件是灾难</strong>——大量 worker 同读小文件可能压满元数据服务，需测量确认；✅ 打包成整块。⭐ <strong>可选预处理路线是提前切词，按正确 dtype 存数组后用内存映射读</strong>——<strong>切片不等于零 I/O；冷/暖缓存、读取形状与转换搬运都影响成本。</strong></p>
 <p>分布式先写采样契约：数据版本、rank 划分、洗牌状态、同步步数和 sample ID 审计。<code>DistributedSampler</code> 的补齐可能重复、drop_last 会丢尾部；“训练没挂”不能证明不重不漏。流式 buffer 大小按相关性和混合度验证，不背固定数字。</p>
