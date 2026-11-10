@@ -305,6 +305,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#ai">🔺 五、测试金字塔在 AI 应用里不是金字塔</a></li>
 <li><a href="#evals">🚧 六、和《模型上线之后》/ Evals 那几章的分界</a></li>
 <li><a href="#ci">💸 七、CI 里怎么不烧钱：靠结构，不靠记性</a></li>
+<li><a href="#fullstack-prompt-strategies-evaluation">🧭 八、Prompt 改动怎么评：从回归集到线上回滚</a></li>
 <li><a href="#_5">🔄 换个栈怎么对应</a></li>
 <li><a href="#_6">🔗 这一章连到哪里</a></li>
 <li><a href="#_7">✅ 检查点</a></li>
@@ -672,6 +673,191 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ 允许失败、不阻塞合并（它红了多半是上游在抖）；</p>
 <p>⭐ 它也要记账（<a href="04-调用层.html">04 章</a>记账表的 <code>feature</code> 传成 <code>ci_smoke</code> —— ⚠️ 不记的话，某天成本涨了你会先去怀疑用户）。</p>
 <hr />
+<h2 id="fullstack-prompt-strategies-evaluation">🧭 八、Prompt 改动怎么评：从回归集到线上回滚</h2>
+<p><strong>先看一次很像“进步”的失败。</strong>售后助手的 prompt v1 回答有点啰嗦。你把三个演示问题改成 v2，三个回答都更短、更像人话，于是准备上线。可生产里有一小类“<strong>已退款，但发票还要红冲</strong>”的问题：v1 会同时提醒退款与发票动作，v2 为了简短只说“退款已完成”。演示看起来更好，少见但高风险的类别却被悄悄改坏了。</p>
+<blockquote>
+<p>⭐ <strong>一个成功示例只能证明“这一次看起来不错”，不能证明改动稳定。</strong>要比较的是<strong>版本</strong>：固定同一批输入与上下文，让 <code>prompt_v1</code> 和 <code>prompt_v2</code> 跑同一份回归集，再按风险切片看结果。</p>
+</blockquote>
+
+<h3 id="prompt-evaluation-four-layers">先别急着算总分：四层检查回答四个不同问题</h3>
+<p>模型输出不是只能“全对 / 全错”。把一次评测拆成四层，每层失败后的处置动作不同：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>层</th>
+<th>它回答什么</th>
+<th>例子</th>
+<th>失败后先做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>① Schema / 契约断言</strong></td>
+<td>输出形状能不能被程序安全接住</td>
+<td>JSON 能解析；必需字段齐；枚举值合法；引用 id 都来自本次提供的文档</td>
+<td>修解析、约束输出或降级分支；这一层是确定性检查</td>
+</tr>
+<tr>
+<td><strong>② 任务专用的确定性检查</strong></td>
+<td>能精确核对的业务事实对不对</td>
+<td>金额相加正确；日期没有越界；“已退款且需红冲”同时包含两个必需动作</td>
+<td>修 prompt、规则或任务实现；不能让模糊评分器替它放行</td>
+</tr>
+<tr>
+<td><strong>③ 语义量表评分</strong></td>
+<td>没有唯一措辞时，回答质量是否达到标准</td>
+<td>完整性、证据一致性、可执行性分别按可见量表评分</td>
+<td>查看具体扣分项与分歧样本，而不是只看一个“像不像好答案”的总分</td>
+</tr>
+<tr>
+<td><strong>④ 生产 / 业务结果</strong></td>
+<td>真实用户是否真的得到更好结果</td>
+<td>一次解决率、转人工率、投诉或纠错率，以及延迟和成本</td>
+<td>看线上分布、漂移和发布版本；必要时回滚</td>
+</tr>
+</tbody>
+</table></div>
+<p>⭐ <strong>前一层过了，不代表后一层也过。</strong>JSON 完全合法，内容仍可能漏掉发票动作；离线评分更高，线上转人工率仍可能上升。反过来也不行：生产指标暂时没变，不能替代“引用必须来自给定上下文”这种安全契约。</p>
+
+<h3 id="versioned-regression-set">回归集也要有版本：四类样本缺一不可</h3>
+<p>把评测样本当成代码依赖，而不是聊天记录文件夹。一次比较至少要记下 <code>prompt_version</code>、<code>model_version</code> 和 <code>regression_set_version</code>；样本还要有稳定 id、所属切片、冻结的输入与上下文、预期契约、评分量表和风险等级。这样“v2 比 v1 好”才是一句能复查的话。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>样本类型</th>
+<th>它防什么</th>
+<th>售后助手例子</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>普通样本</strong></td>
+<td>主流程被改坏</td>
+<td>查询退款进度、查询发票状态</td>
+</tr>
+<tr>
+<td><strong>边界样本</strong></td>
+<td>临界值、空值和组合条件被漏掉</td>
+<td>退款刚完成但发票状态尚未同步</td>
+</tr>
+<tr>
+<td><strong>对抗样本</strong></td>
+<td>输入诱导模型越权或忽略约束</td>
+<td>要求跳过身份核验、编造内部处理记录</td>
+</tr>
+<tr>
+<td>⭐ <strong>历史失败样本</strong></td>
+<td>已经修过的事故再次出现</td>
+<td>“已退款但需红冲”曾漏掉发票动作，修复后永久留在回归集</td>
+</tr>
+</tbody>
+</table></div>
+<p>新增一类真实失败，就给它稳定样本 id、标出来源和风险，再把回归集从例如 <code>refund-reg-v7</code> 升到 <code>refund-reg-v8</code>。⚠️ 不要只把“这次答得好”的一个问题塞进 prompt 当示例：它既没有覆盖相邻边界，也没有告诉你别的切片是否退化。</p>
+
+<h3 id="llm-as-judge-boundaries">LLM-as-Judge 能帮忙，但它不是裁判席上的真相</h3>
+<p>语义没有唯一答案时，可以让模型按量表辅助评分，这叫 <strong>LLM-as-Judge</strong>。关键不是“再问一个更强模型哪个好”，而是让评分依据<strong>可见、可复查</strong>：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>量表项</th>
+<th>0 分</th>
+<th>1 分</th>
+<th>2 分</th>
+<th>证据边界</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>完整性</strong></td>
+<td>漏掉关键动作</td>
+<td>动作齐但条件不清</td>
+<td>动作与触发条件都齐</td>
+<td>只对照任务要求和<strong>经人工审核、带版本的参考答案要点</strong></td>
+</tr>
+<tr>
+<td><strong>证据一致性</strong></td>
+<td>结论与给定资料冲突或编造</td>
+<td>结论可支持但引用不清</td>
+<td>每个关键结论都能回指给定资料</td>
+<td>只用本题提供的上下文；评分器自己的常识不能补证据</td>
+</tr>
+<tr>
+<td><strong>可执行性</strong></td>
+<td>用户不知道下一步做什么</td>
+<td>给出动作但缺对象或顺序</td>
+<td>动作、对象和顺序清楚</td>
+<td>不把“写得长”或“语气自信”当成质量</td>
+</tr>
+</tbody>
+</table></div>
+<p>⚠️ <strong>评分模型也会偏。</strong>候选答案先后顺序可能造成<strong>位置偏差</strong>，更长的答案可能得到<strong>长度偏差</strong>，流畅礼貌的措辞可能得到<strong>风格偏差</strong>；同一模型还可能偏爱和自己写法相似的答案。可做的防护包括：隐藏版本名、交换 A/B 顺序再评一次、明确“长度和语气不单独加分”、保留逐项分数与引用证据。</p>
+<p>当两次换序评分不一致、两个评分器分歧，或量表分数与确定性检查冲突时，<strong>不要取平均把分歧抹掉</strong>：把样本送人工复核并记录最终判定。涉及退款、医疗、法律、安全或权限等高风险决定，<strong>人工复核是必选项</strong>，不能由 Judge 单独放行。</p>
+<blockquote>
+<p>⭐ <strong>只评最终答案和可核验的证据。</strong>你看不到模型的隐藏推理；模型展示出来的“思考过程”也只是生成文本，不是事实真值。不要要求或保存隐藏思维链来证明答案正确，更不能把写得像推理的文字当成正确性标签。</p>
+</blockquote>
+
+<h3 id="slice-metrics-example">完整算一次：80% 的总分怎样藏住 0% 的关键切片</h3>
+<p>假设 <code>prompt_v2</code> 在同一份 10 题回归集上得到下面结果。每题必须先通过契约与任务检查，再按量表达到门槛，才算“通过”：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>切片</th>
+<th>通过 / 总数</th>
+<th>通过率</th>
+<th>读法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>普通</td>
+<td>6 / 6</td>
+<td>100%</td>
+<td>演示里最常见的路径全过</td>
+</tr>
+<tr>
+<td>边界</td>
+<td>1 / 1</td>
+<td>100%</td>
+<td>一个边界样本通过</td>
+</tr>
+<tr>
+<td>对抗</td>
+<td>1 / 1</td>
+<td>100%</td>
+<td>一个对抗样本通过</td>
+</tr>
+<tr>
+<td>⭐ 关键历史失败：已退款但需红冲</td>
+<td>0 / 2</td>
+<td><strong>0%</strong></td>
+<td>两个都漏掉发票动作</td>
+</tr>
+</tbody>
+</table></div>
+<p>现在逐步计算总通过率：总通过数是 <code>6 + 1 + 1 + 0 = 8</code>，总样本数是 <code>6 + 1 + 1 + 2 = 10</code>，所以</p>
+<p>$$\text{总通过率}=\frac{8}{10}=0.80=80\%$$</p>
+<p>只设“总通过率至少 80%”时，这个版本会被放行；但关键切片是 <code>0 / 2 = 0%</code>，上线就会重演事故。⭐ <strong>正确结论不是“v2 达到 80%，可以上线”，而是“总体达线，关键切片未达线，禁止上线”。</strong></p>
+<p>⚠️ 两个关键样本仍然很少，它们只能证明“已发现明确退化”，不能证明未来通过率恰好是多少。发布门槛应同时写<strong>总门槛</strong>和<strong>关键切片门槛</strong>；高风险切片可以要求零已知失败，并由人工复核。</p>
+
+<h3 id="confidence-calibration">置信度要校准：说“90%”不等于真的有九成对</h3>
+<p><strong>校准（calibration）</strong>问的不是模型“心里怎么想”，而是：<strong>它报出的置信度，和之后观察到的正确率是否相符。</strong>把置信度落在同一区间的样本放成一组，再比较这组的平均置信度与实际正确率。</p>
+<p>例如有 10 个样本都声明 <code>confidence = 0.90</code>，人工按可见证据核对后只有 6 个正确。实际正确率是 <code>6 / 10 = 0.60</code>。用一个简单差值观察这组：</p>
+<p>$$\text{校准差}=|\text{平均声明置信度}-\text{观察正确率}|=|0.90-0.60|=0.30$$</p>
+<p><code>0.30</code> 就是 <strong>30 个百分点</strong>：这组输出明显过度自信。这里“平均声明置信度”是这 10 个输出报告的平均值，“观察正确率”是按预先写好的标准核对后正确的比例。⚠️ 10 个样本只够教学演示；生产判断要更多样本，并按任务与风险切片分别看。</p>
+<p>⭐ <strong>校准良好也不等于答案一定正确，更不等于安全。</strong>它只表示“报 90% 的一组，长期大约有九成正确”。高风险动作仍要契约、权限和人工门槛；也不要用一段展示出来的思维链代替正确标签。</p>
+
+<h3 id="production-evaluation-loop">上线不是评测结束：把失败送回下一版回归集</h3>
+<ol>
+<li><strong>发布时写全版本身份：</strong>至少记录 <code>prompt_version</code>、<code>model_version</code>、<code>regression_set_version</code> 和代码版本；有检索时再记录索引或知识库版本。否则线上坏样本无法重放。</li>
+<li><strong>按切片抽样复核：</strong>随机样本看总体，高风险与低频切片要额外抽样；只随机抽很容易永远抽不到“已退款但需红冲”。</li>
+<li><strong>看漂移与业务结果：</strong>比较各切片占比、失败率、校准差、转人工率和投诉率。输入类别变了叫分布漂移，不能把它误判成代码突然坏了。</li>
+<li><strong>发布前写回滚条件：</strong>例如“任一关键样本失败”“关键切片低于既定门槛”“Schema 失败率或转人工率超过基线容忍范围”。阈值要由业务风险决定，不能上线后看着曲线临时解释。</li>
+<li><strong>触发就回滚并留样：</strong>先退回已知可用的 prompt / 模型组合，再把已确认的失败匿名化、补充人工标签，加入“历史失败”切片并升级回归集版本。</li>
+</ol>
+<blockquote>
+<p>⭐ <strong>闭环是：</strong>版本化改动 → 同集对比 → 分切片门禁 → 小流量上线 → 抽样与漂移监控 → 达到预写条件就回滚 → 失败样本进入下一版回归集。<strong>线上反馈不是替代离线评测，而是给下一轮评测补上现实里才会出现的样本。</strong></p>
+</blockquote>
+<hr />
 <h2 id="_5">🔄 换个栈怎么对应</h2>
 <div class="tw"><table>
 <thead>
@@ -775,6 +961,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>第三档「真上游冒烟」为什么只验那三件事、又为什么不许挡住合并？</li>
 <li>本章、Evals、《模型上线之后》怎么分？为什么绝不能塞进同一个 CI 作业？</li>
 <li>CI 里不烧钱的两条<strong>结构性</strong>做法是什么？真实调用的作业为什么不能挂 PR 上、为什么也要记账？</li>
+<li>评测 prompt 改动时，四层检查分别回答什么？为什么 Schema 通过不能证明内容正确？</li>
+<li>版本化回归集为什么至少要有普通、边界、对抗和历史失败四类样本？</li>
+<li>LLM-as-Judge 常见的三种偏差是什么？评分分歧和高风险样本分别怎么处理？</li>
+<li>10 个样本通过 8 个时，为什么不能只写“80% 通过”？本章例子的关键切片结果是多少？</li>
+<li>校准在比较哪两个量？10 个都报 90% 置信度、实际只对 6 个时，校准差是多少？</li>
+<li>生产跟进闭环要记录哪些版本身份，什么条件应该在上线前写好？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
@@ -787,6 +979,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>因为它唯一的理由是回答假客户端<strong>答不了</strong>的问题：上游今天还长这个样子吗。不许挡合并，是因为它每跑一次真花钱且天生 flaky；判据 「它红的时候，是我的代码错了，还是模型今天心情不好？」</li>
 <li>看<strong>处置动作</strong>：改代码 → 本章；改 prompt / 换模型 → Evals；看漂移 / 重训 / AB → 《模型上线之后》。⚠️ 混在一起，两周内团队会把作业设成允许失败 —— 真正的软件 bug 也一起被放过去了。</li>
 <li>① <strong>真实客户端在测试环境里根本构造不出来</strong>；② 断网闸。不挂 PR 是因为 ⚠️ 任何人开个 PR 就能花你的钱，fork 的 PR 也拿不到 secret；要记账（<code>feature</code> 传 <code>ci_smoke</code>）是因为 不记的话某天成本涨了，你会先去怀疑用户。</li>
+<li>① Schema / 契约断言检查程序能否安全接住；② 任务专用确定性检查核对可精确判断的业务事实；③ 语义量表判断没有唯一措辞时的质量；④ 生产 / 业务结果看真实用户与成本。Schema 合法只证明形状合法，完全可能漏掉“发票红冲”这个关键动作。</li>
+<li>普通样本守主流程，边界样本守临界和组合条件，对抗样本守权限与约束，历史失败样本防已经修过的事故复发。一个成功示例只证明那一次，不证明其他切片稳定。</li>
+<li>位置、长度、风格偏差（同一模型还可能偏爱和自己相似的写法）。换序仍分歧或评分器不一致就送人工复核，不能平均抹掉；退款、医疗、法律、安全、权限等高风险样本必须人工复核。</li>
+<li>必须同时报告各切片。例子里总计 <code>8 / 10 = 80%</code>，但关键历史失败切片 <code>0 / 2 = 0%</code>，所以应阻止上线，而不是被总平均放行。</li>
+<li>比较平均声明置信度与观察正确率。本例观察正确率 <code>6 / 10 = 0.60</code>，所以 <code>|0.90 - 0.60| = 0.30</code>，即相差 30 个百分点，表现为过度自信。</li>
+<li>至少记录 prompt、model、regression set 和代码版本，有检索时再记索引 / 知识库版本。关键切片失败、Schema 失败或业务指标超过容忍范围等<strong>回滚条件必须上线前写好</strong>；触发后回滚，并把确认的失败加入下一版回归集。</li>
 </ol>
 </details>
 <hr />
@@ -800,6 +998,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>对不确定输出能断言四类：结构、范围、⭐ <strong>不变量</strong>（引用的来源必须都在检索结果里）、⭐ <strong>确定的那部分</strong>（记账条数、状态流转）。实测同一个问题问几百次会出现上百种不同回答——断言相等毫无活路，而这四类全过。</p>
 <p>⚠️ <strong><code>temperature=0</code> 不代表输出确定</strong>，这个错更糟：<strong>测试会绿很久，然后某天突然全红</strong>。⚠️ 快照测试是陷阱——💀 <strong>被无脑更新之后它从此不会失败，比没有测试更糟，因为它占着「已经测过」这个位置</strong>。</p>
 <p>⭐ 判据一句话：<strong>它红的时候，是我的代码错了，还是模型今天心情不好？</strong> 改代码归本章、改 prompt 归 Evals、看漂移归上线之后。</p>
+<p>⭐ 改 prompt 时别只看几个演示：固定 prompt / model / regression set 版本，用普通、边界、对抗、历史失败四类样本同集对比；同时看契约、确定性任务、语义量表和生产结果四层。<strong>总计 8 / 10 = 80% 也可能藏着关键切片 0 / 2 = 0%</strong>，关键切片不过就不能上线。</p>
+<p>⚠️ LLM-as-Judge 要有可见量表、给定上下文边界和人工复核；它会受顺序、长度、风格影响。只评最终答案和可核验证据，展示出来的思维链不是事实真值。上线后记录版本、分切片抽样、看漂移，触发预写条件就回滚，再把失败加入下一版回归集。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="16-上线前检查单.html">16-上线前检查单.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
