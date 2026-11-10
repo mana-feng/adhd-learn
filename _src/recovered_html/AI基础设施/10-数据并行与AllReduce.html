@@ -299,7 +299,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p class="mg-kicker">AI基础设施 · 10</p>
 <p class="mg-question">每张卡看不同数据，参数为什么不会越训越不一样？</p>
 <p class="mg-dek">各卡本地计算不同数据的梯度，再按约定同步并更新。同步方式、累积步骤和数据划分都影响是否得到预期训练行为。</p>
-<p class="mg-outcome">读完能判断：把各卡梯度、AllReduce 同步与本地 step 连接起来，理解扩展效率。</p>
+<p class="mg-outcome">读完能做到：把各卡梯度、AllReduce 与本地 step 连起来，手算 Ring 通信量，并判断慢卡和跨机链路为什么拖慢整步。</p>
 <nav class="mg-actions" aria-label="本页阅读入口">
 <a class="mg-primary" href="#_2">一、它怎么工作</a>
 <a href="#mg-ai-infra-10-reading-start">直接进入完整正文</a>
@@ -318,6 +318,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#ring-allreduce-5">🔁 三、Ring AllReduce（第 5 章的展开）</a></li>
 <li><a href="#_3">📉 四、扩展效率：为什么卡越多效率越低</a></li>
 <li><a href="#_4">⚠️ 五、五个真实的坑</a></li>
+<li><a href="#parallel-boundary">🧭 六、它和其他并行方案的边界</a></li>
 <li><a href="#_5">🔗 和站内其他章的关系</a></li>
 <li><a href="#_6">✅ 检查点</a></li>
 <li><a href="#_7">🛑 可以停在这里</a></li>
@@ -330,6 +331,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>每张卡放一份完整的模型，各自吃不同的数据，算完梯度后求个平均。</strong>
 复制式数据并行是常见起点；是否适合仍要看模型容量、负载和通信代价。<strong></strong></p>
+<div class="framecard"><div class="fh">🧭 先把这一章放进路线里</div><ul>
+<li><strong>已经学过：</strong><a href="05-互联与集群拓扑.html">第 5 章</a>认识了机内、跨机链路；<a href="09-显存优化全家桶.html">第 9 章</a>认识了梯度累积。</li>
+<li><strong>本章只解决：</strong>模型放得下时，怎样让多张卡看不同数据却保持同一组参数，以及这次同步要付多少通信代价。</li>
+<li><strong>下一章再解决：</strong>每张卡都放完整模型太占显存时，<a href="11-ZeRO与FSDP.html">ZeRO / FSDP</a>怎样切分模型状态。</li>
+</ul><div class="fnote">数据并行、张量并行、流水线并行和专家并行不是四个同义词。本章只把数据并行讲透；其他切分方式在后续章节比较。</div></div>
 <hr />
 <h2 id="_2">🔄 一、它怎么工作</h2>
 <figure class="dia" id="mg-ai-infra-10-figure-1">
@@ -448,17 +454,23 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </blockquote>
 <h3 id="2">② 梯度累积时要关掉同步</h3>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：`loader` 来自你自己的代码，这一段只看写法</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">nullcontext</span>
+
 <span class="c1"># ❌ 每个 micro batch 都 AllReduce → 通信量翻 N 倍</span>
 <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">batch</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">loader</span><span class="p">):</span>
     <span class="n">loss</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">batch</span><span class="p">)</span> <span class="o">/</span> <span class="n">accum</span>
     <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
 
-<span class="c1"># ✅ 只在最后一步同步</span>
+<span class="c1"># ✅ 每个累积窗口只在最后一步同步；尾批不足 accum 步也要更新</span>
+<span class="n">total_batches</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">loader</span><span class="p">)</span>
 <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">batch</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">loader</span><span class="p">):</span>
-    <span class="n">is_last</span> <span class="o">=</span> <span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">%</span> <span class="n">accum</span> <span class="o">==</span> <span class="mi">0</span>
+    <span class="n">window_start</span> <span class="o">=</span> <span class="p">(</span><span class="n">i</span> <span class="o">//</span> <span class="n">accum</span><span class="p">)</span> <span class="o">*</span> <span class="n">accum</span>
+    <span class="n">window_size</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">accum</span><span class="p">,</span> <span class="n">total_batches</span> <span class="o">-</span> <span class="n">window_start</span><span class="p">)</span>
+    <span class="n">is_last</span> <span class="o">=</span> <span class="p">((</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">%</span> <span class="n">accum</span> <span class="o">==</span> <span class="mi">0</span>
+               <span class="ow">or</span> <span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">==</span> <span class="n">total_batches</span><span class="p">)</span>
     <span class="n">ctx</span> <span class="o">=</span> <span class="n">nullcontext</span><span class="p">()</span> <span class="k">if</span> <span class="n">is_last</span> <span class="k">else</span> <span class="n">model</span><span class="o">.</span><span class="n">no_sync</span><span class="p">()</span>    <span class="c1"># ⭐</span>
     <span class="k">with</span> <span class="n">ctx</span><span class="p">:</span>
-        <span class="p">(</span><span class="n">model</span><span class="p">(</span><span class="n">batch</span><span class="p">)</span> <span class="o">/</span> <span class="n">accum</span><span class="p">)</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+        <span class="p">(</span><span class="n">model</span><span class="p">(</span><span class="n">batch</span><span class="p">)</span> <span class="o">/</span> <span class="n">window_size</span><span class="p">)</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
     <span class="k">if</span> <span class="n">is_last</span><span class="p">:</span>
         <span class="n">opt</span><span class="o">.</span><span class="n">step</span><span class="p">();</span> <span class="n">opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">(</span><span class="n">set_to_none</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </code></pre></div>
@@ -466,37 +478,60 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <blockquote>
 <p>⚠️ <strong>忘了 <code>no_sync()</code> 是一个隐蔽的性能杀手</strong>：
 累积 8 步就意味着<strong>通信量是必要值的 8 倍</strong>，而代码看起来完全正常。</p>
+<p>上面的正例假设每个 micro batch 的有效样本数相同，所以可按窗口中的 micro batch 数平均；若尾批样本数不同，还要按有效样本或 token 数加权，不能只按批次数平均。</p>
 </blockquote>
 <hr />
 <h2 id="ring-allreduce-5">🔁 三、Ring AllReduce（<a href="05-互联与集群拓扑.html">第 5 章</a>的展开）</h2>
+<p><strong>归约分散（Reduce-Scatter，RS）</strong>先把“相同位置的梯度相加”和“结果分片归属”一起完成；<strong>全收集（All-Gather，AG）</strong>再把各卡拥有的完整分片发给所有卡。两阶段合起来，才是这里的 Ring AllReduce。</p>
 <section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">N 张卡排成环，梯度切成 N 份</span></div><div class="vb-flow-row"><span class="vb-flow-step">阶段① ReduceScatter（转 N-1 步）：</span></div><div class="vb-flow-row"><span class="vb-flow-step">每一步，每张卡把手里的一份发给下家、从上家收一份并累加</span></div><div class="vb-flow-row"><span class="vb-flow-step">结束时，第 i 张卡持有【第 i 份的完整求和】</span></div><div class="vb-flow-row"><span class="vb-flow-step">阶段② AllGather（再转 N-1 步）：</span></div><div class="vb-flow-row"><span class="vb-flow-step">把各自那份完整结果传遍全环</span></div><div class="vb-flow-row"><span class="vb-flow-step">结束时，所有卡都有完整的求和结果</span></div></div></section>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>⭐ 每张卡发送的数据量（接收量相同）= 2 × (N-1)/N × 数据量 ≈ 2 × 数据量</p><p>【和卡数几乎无关】</p><p>对比朴素的&quot;都发给 0 号卡&quot;：0 号要收发 N-1 倍 💀</p></div></section>
+<h3 id="ring-four-gpu">先追踪一份：4 张卡怎样把 A 算成 10</h3>
+<p>把每张卡的梯度都切成 A、B、C、D 四份。只看 A：GPU0～GPU3 的 A 分别是 1、2、3、4，环方向是 0→1→2→3→0。下面的数字是<strong>教学用标量</strong>；真实分片是一段向量，并且 B、C、D 会在其他链路上同时流动。</p>
+<div class="tw"><table style="min-width:42em"><thead><tr><th>阶段</th><th>这一步发生什么</th><th>A 的状态</th></tr></thead><tbody>
+<tr><td>RS 第 1 步</td><td>GPU0 把 A=1 发给 GPU1；GPU1 与自己的 A=2 相加</td><td>1+2=3</td></tr>
+<tr><td>RS 第 2 步</td><td>GPU1 把部分和 3 发给 GPU2；GPU2 再加自己的 3</td><td>3+3=6</td></tr>
+<tr><td>RS 第 3 步</td><td>GPU2 把部分和 6 发给 GPU3；GPU3 再加自己的 4</td><td>6+4=<strong>10</strong></td></tr>
+<tr><td>AG 第 1～3 步</td><td>GPU3 持有完整 A=10，再沿环传给 GPU0、GPU1、GPU2</td><td>四张卡最后都有 A=10</td></tr>
+</tbody></table></div>
+<p>同一时刻，B、C、D 也在轮转，所以不是先花 3 步只算 A、再重新算 B。经过 $N-1=3$ 轮 RS，每张卡各持有一个完整求和分片；再经过 3 轮 AG，所有卡拿回全部四个分片。若训练需要平均梯度，最后再按约定除以 $N$；如果各卡有效样本数不同，则要使用前文的样本权重，不能只除以卡数。</p>
+<section class="visual-block visual-block-compare" aria-label="Ring 每卡通信量"><p class="visual-block-title">先看精确式，再看近似</p><div class="vb-compare"><p>每张卡发送量：$V_{send}=2\times\frac{N-1}{N}\times D$</p><p>每张卡接收量与发送量相同，但不要再把收、发相加后仍称作“发送量”。</p><p>只有 $N$ 较大时，$2(N-1)D/N$ 才接近 $2D$。</p></div></section>
 <details>
 <summary>📐 <b>为什么是 2×(N−1)/N（想看再点）</b></summary>
-<p>梯度总量 $D$，切成 $N$ 份，每份 $D/N$。</p>
+<p>设 $N$ 是参与 Ring 的卡数（$N\ge 2$），$D$ 是每张卡上待归约梯度的总字节数，并假设能均匀切成 $N$ 份；每份大小就是 $D/N$。</p>
 <ul>
 <li><strong>ReduceScatter</strong>：转 $N-1$ 步，每步发送 $D/N$ → 共发送 $(N-1)D/N$</li>
 <li><strong>AllGather</strong>：同样 $N-1$ 步，每步 $D/N$ → 共 $(N-1)D/N$</li>
 </ul>
-<p>合计 $2(N-1)D/N \approx 2D$（$N$ 大时）。</p>
-<p>💡 <strong>关键点：随着 N 增大，每卡发送量趋于常数 2D，接收量另计，不随 N 增长。</strong>
-但步数是 $2(N-1)$，所以<strong>延迟随 N 线性增长</strong> —— 这是 Ring 的软肋。</p>
+<p>两阶段相加得到 $V_{send}=2(N-1)D/N$。例如 $N=4$、$D=8\,\text{GB}$（十进制 GB），每卡发送：</p>
+<p>$$2\times\frac{4-1}{4}\times 8=2\times 0.75\times 8=12\,\text{GB}$$</p>
+<p>每卡也接收 12 GB。这里不能直接写成 $2D=16$ GB；16 GB 只是把 $(N-1)/N$ 近似成 1 后的上界式直觉。随着 $N$ 增大，发送量趋近 $2D$，但通信轮数是 $2(N-1)$，启动延迟会随轮数增加。</p>
+<p><strong>成立条件：</strong>这是平衡分片、标准双阶段 Ring 的每 rank 逻辑流量。实际时间还受拓扑、链路竞争、协议、并行通道和计算通信重叠影响，不能只用字节数承诺固定速度。</p>
 </details>
-<h3 id="allreduce">⭐ 分层 AllReduce：大规模的标准做法</h3>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">问题：跨机带宽只有机内 NVLink 的 1/15（第 5 章）</span></div><div class="vb-flow-row"><span class="vb-flow-step">纯 Ring 会让慢链路成为瓶颈</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 分层：</span></div><div class="vb-flow-row"><span class="vb-flow-step">① 机内 8 卡先做一次 ReduceScatter/AllReduce（NVLink，快）</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 各机的代表跨机做一次 AllReduce（慢链路，但数据量只有 1/8）⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 机内 Broadcast/AllGather 回去</span></div><div class="vb-flow-row"><span class="vb-flow-step">跨机通信量降到 1/8</span></div></div></section>
+<h3 id="allreduce">⭐ 分层 AllReduce：把快链路和慢链路分开用</h3>
+<section class="visual-block visual-block-flow" aria-label="分层 AllReduce"><p class="visual-block-title">以每机 8 卡为例</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">① 每台机器内部先做 Reduce-Scatter</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">每个本地 rank 拿到约 1/8 的归约分片</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 各机器“相同本地 rank”组成跨机组</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">8 个组分别归约自己的分片</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 每台机器内部再 All-Gather</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">8 张卡都拿回完整结果</span></div></div></section>
+<blockquote><p>⚠️ <strong>不是“随便派一张代表卡就自动省 1/8”。</strong>如果只让一个代表携带完整梯度，它仍要跨机传完整数据，还可能形成单点瓶颈。正确的分层实现会让多个本地 rank 分担不同分片；每个跨机参与者处理约 1/8 的分片，但整机聚合流量、网卡利用和最终时间仍取决于拓扑与算法。</p></blockquote>
 <blockquote>
-<p>💡 <strong>NCCL 会自动根据拓扑选择算法</strong> —— 这也是为什么
-<a href="05-互联与集群拓扑.html">第 5 章</a>说要先确认拓扑被正确识别（<code>NCCL_DEBUG=INFO</code>）。</p>
+<p>💡 <strong>NCCL 可以根据消息大小和检测到的拓扑选择算法/协议</strong>，但“自动选择”不等于在所有机器上必然最优。先用 <code>NCCL_DEBUG=INFO</code> 确认拓扑和实际选择，再用端到端测量判断。</p>
 </blockquote>
 <hr />
 <h2 id="_3">📉 四、扩展效率：为什么卡越多效率越低</h2>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">每步时间 = 计算时间 + max(0, 通信时间 − 可重叠部分)</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 卡数增加时：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 计算时间</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">（每卡分到的数据变少）</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 通信量 ≈ 不变（Ring 的性质）</span></div><div class="vb-flow-row"><span class="vb-flow-step">通信占比【上升】</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">效率下降</span></div></div></section>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>一个具体的例子（7B 模型，BF16 梯度 14GB）：</p><p>通信量 = 2 × 14 GB = 28 GB/步</p><p>机内 NVLink 900GB/s → 0.03 秒</p><p>跨机 IB 25GB/s → 1.1 秒 ⭐ 差 35 倍</p><p>如果单步计算是 0.5 秒：</p><p>· 机内：通信可完全重叠 → 扩展效率 ~95%</p><p>· 跨机：通信 1.1 秒 &gt; 计算 0.5 秒 → 【通信成为瓶颈】💀</p></div></section>
+<p>先不要背“几张卡能加速几倍”。同步训练每一步都要等最慢的 rank，因此可以先用一个教学模型拆账：</p>
+<p>$$T_{step}\approx \max_r(T_{compute,r})+T_{exposed\_comm}$$</p>
+<p>$r$ 是 rank 编号；$T_{compute,r}$ 是第 $r$ 张卡完成本步计算的时间；$\max$ 表示取最慢者；$T_{exposed\_comm}$ 是没有被反向计算遮住、真正暴露在关键路径上的通信时间。若把总通信时间记作 $T_{comm}$、成功重叠的部分记作 $T_{overlap}$，可用 $T_{exposed\_comm}\approx\max(0,T_{comm}-T_{overlap})$ 做第一轮估算。</p>
+<h3 id="alpha-beta">把“轮数”和“字节数”放进同一张账单</h3>
+<p>在忽略计算重叠、分片均匀且用一个有效带宽近似整条路径时，Ring 通信可粗略写成：</p>
+<p>$$T_{ring}\approx 2(N-1)\alpha+\frac{2(N-1)D}{N\,B_{eff}}$$</p>
+<ul>
+<li>$N$：参与通信的卡数；$D$：每卡待归约数据量（字节）。</li>
+<li>$\alpha$：每一轮启动通信的固定延迟（秒/轮），包含软件和链路启动开销。</li>
+<li>$B_{eff}$：实测有效带宽（字节/秒），不是直接抄硬件宣传峰值。</li>
+<li>第一项为 $2(N-1)$ 轮的启动代价；第二项为前面推导的发送字节数除以有效带宽。</li>
+</ul>
+<section class="visual-block visual-block-calc" aria-label="Ring 通信时间完整计算"><p class="visual-block-title">完整代入：4 卡、8 GB 梯度</p><div class="vb-calc"><p>教学假设：$N=4$，$D=8$ GB，$\alpha=5$ 微秒/轮，$B_{eff}=100$ GB/s；这些是演示参数，不代表某款硬件。</p><p>发送量：$2\times(4-1)/4\times8=12$ GB</p><p>启动代价：$2\times(4-1)\times5=30$ 微秒 = 0.00003 秒</p><p>传输代价：$12/100=0.12$ 秒</p><p>所以 $T_{ring}\approx0.00003+0.12=0.12003$ 秒，即约 120.03 ms。</p><p>若其中 90 ms 能藏在反向计算后面，暴露通信约为 $120.03-90=30.03$ ms；若最慢 rank 计算 200 ms，则整步约 $200+30.03=230.03$ ms。</p></div></section>
+<h3 id="straggler">慢卡为什么让所有卡一起等</h3>
+<p>假设四个 rank 本步计算分别耗时 80、90、125、85 ms，且进入集合通信后还有 30 ms 暴露通信。AllReduce 必须有全部 rank 以相同顺序参与，因此整步不会在 110 ms 结束，而是约 $125+30=155$ ms。80 ms 完成的 rank 要先等慢卡约 45 ms，再一起完成通信。这个最慢者叫<strong>拖尾者（straggler）</strong>。</p>
+<section class="visual-block visual-block-flow" aria-label="卡数增加后的扩展瓶颈"><p class="visual-block-title">卡数增加时要同时观察</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">每卡计算量是否下降</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">取决于强扩展还是扩大全局 batch</span></div><div class="vb-flow-row"><span class="vb-flow-step">通信字节数与轮数</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">Ring 字节数趋近 2D，但轮数增加</span></div><div class="vb-flow-row"><span class="vb-flow-step">最慢 rank 与拓扑</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">数据、硬件或跨机链路不均衡都会拖慢全体</span></div></div></section>
 <blockquote>
-<p>🔑 <strong>这就是为什么大规模训练必须做三件事</strong>：
-① <strong>梯度压缩/量化</strong>（FP16 甚至 FP8 通信）
-② <strong>分层 AllReduce</strong>
-③ <strong>换策略</strong> —— 数据并行到了瓶颈就该上 <a href="11-ZeRO与FSDP.html">ZeRO</a> 或<a href="12-张量并行.html">模型并行</a></p>
+<p>🔑 <strong>所以优化顺序是先测量，再选择手段：</strong>可以尝试梯度分桶与重叠、拓扑感知的分层集合通信、在验证收敛与精度后采用低精度/压缩通信，或在显存与切分需求变化时转向 <a href="11-ZeRO与FSDP.html">ZeRO/FSDP</a>、<a href="12-张量并行.html">张量并行</a>。这些手段解决的问题不同，不是卡数一多就全部必选。</p>
 </blockquote>
 <hr />
 <h2 id="_4">⚠️ 五、五个真实的坑</h2>
@@ -530,19 +565,28 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <td>换 <code>SyncBatchNorm</code> 或用 LayerNorm</td>
 </tr>
 <tr>
-<td><strong>随机性不一致</strong></td>
-<td>各卡 dropout mask 不同导致结果不可复现</td>
-<td>统一 seed；<strong>数据增强的种子要各卡不同</strong></td>
+<td><strong>随机数策略不可追踪</strong></td>
+<td>重跑结果漂移，或各卡错误地重复同一份随机增强</td>
+<td>记录 base seed，并按 rank、epoch 派生可追踪但不同的随机数流</td>
 </tr>
 </tbody>
 </table></div>
 <blockquote>
 <p>💥 <strong>"AllReduce 挂死"是最难排查的一个</strong>：
-症状是训练突然卡住不动、没有报错、GPU 利用率 100%（在空转等待）。
+症状是训练突然卡住不动、没有报错；监控有时仍显示 GPU 或通信内核处于忙碌状态，但这不等于在做有效训练计算。
 根因常常是<strong>某张卡的数据比别人少一个 batch，提前退出了循环</strong>，
 其他卡在等一个永远不会来的 AllReduce。</p>
 <p>✅ <strong>排查</strong>：<code>export TORCH_NCCL_BLOCKING_WAIT=1</code> 会让它超时报错而不是永久挂起。</p>
 </blockquote>
+<hr />
+<h2 id="parallel-boundary">🧭 六、它和其他并行方案的边界</h2>
+<div class="tw"><table style="min-width:46em"><thead><tr><th>方案</th><th>设备上放什么</th><th>主要通信</th><th>解决的核心问题</th></tr></thead><tbody>
+<tr><td><strong>DDP / AllReduce 数据并行</strong></td><td>每个 rank 都有完整模型、梯度和优化器状态</td><td>同步归约梯度</td><td>模型放得下时，提高训练吞吐；不直接省模型状态显存</td></tr>
+<tr><td><strong>参数服务器（Parameter Server）</strong></td><td>worker 计算梯度；中心或分片 server 保存/更新参数</td><td>worker push 梯度、pull 参数；可同步也可异步</td><td>把更新职责放到 server；异步模式还要处理参数陈旧，不等同于 AllReduce</td></tr>
+<tr><td><strong>ZeRO / FSDP</strong></td><td>把优化器状态、梯度、参数中的部分或全部分片</td><td>按阶段使用 reduce-scatter、all-gather 等集合通信</td><td>减少每卡模型状态显存；它仍属于数据并行家族，但通信时机与内容更复杂</td></tr>
+<tr><td><strong>张量 / 流水线 / 专家并行</strong></td><td>把一层张量、不同层或不同专家分到设备</td><td>激活、部分结果或 token 路由通信</td><td>单卡放不下模型或需要改变单次前后向的计算切分；详见 12～14 章</td></tr>
+</tbody></table></div>
+<blockquote><p><strong>训练目标和推理目标也不同：</strong>训练数据并行通常在每步反向后同步梯度，关注样本吞吐和收敛一致性；普通推理副本处理不同请求时没有梯度，不需要每个请求做 AllReduce。推理中的张量并行则可能为了让单个模型放得下或降低单请求延迟，在每层产生通信。不要把“训练用了 8 卡 DDP”直接当成“推理也必须 8 卡同步”。</p></blockquote>
 <hr />
 <h2 id="_5">🔗 和站内其他章的关系</h2>
 <div class="tw"><table>
@@ -575,7 +619,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><a href="../机器学习与深度学习基础/09-优化器与学习率.html">《机器学习与深度学习基础》09 优化器与学习率</a> warmup 与学习率量级</td>
-<td><strong>数据并行把全局 batch 放大了 N 倍，学习率必须跟着改</strong> —— 不然扩到几十卡就发散 ⭐</td>
+<td>等量 rank 下 $B_{global}=N\times B_{micro}\times A$，其中 $A$ 是梯度累积步数。只有保持每卡 batch 不变时，全局 batch 才随 $N$ 放大；学习率是否缩放必须结合优化器和验证实验，不能机械乘 $N$。</td>
 </tr>
 <tr>
 <td><a href="../Kaggle竞赛方法论/02_训练策略与正则化.html">《Kaggle竞赛方法论》02 训练策略与正则化</a> 梯度累加</td>
@@ -591,11 +635,14 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>DDP 的梯度桶做了什么？为什么反向传播的顺序让它成为可能？</li>
 <li>梯度累积时忘了 <code>no_sync()</code> 会怎样？</li>
 <li>Ring AllReduce 每卡的通信量是多少？它的软肋是什么？</li>
-<li>分层 AllReduce 为什么能降到 1/8？</li>
-<li>为什么卡越多扩展效率越低？</li>
+<li>4 卡、梯度总量 8 GB 时，每卡精确发送多少？为什么不能直接写 16 GB？</li>
+<li>分层 AllReduce 为什么不能只理解成“派一张代表卡”？</li>
+<li>$T_{ring}$ 的启动项和传输项分别由什么决定？</li>
+<li>为什么慢 rank 会让所有卡等待？</li>
 <li>数据并行省显存吗？</li>
 <li>"训练突然卡死、无报错、GPU 100%"最可能是什么原因？</li>
 <li>一般数据并行、nn.DataParallel 与 DDP 有何区别？DDP 会自动切输入吗？</li>
+<li>每卡 batch=4、4 张卡、累积 2 步时，全局 batch 是多少？学习率必须乘 4 吗？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
@@ -604,21 +651,24 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>每个 epoch 的数据顺序和划分完全一样，等于没有 shuffle</strong>。</li>
 <li>攒够一个桶（默认 25MB）就立刻开始 AllReduce，让<strong>通信和后面层的计算重叠</strong>。可能是因为反向传播是从后往前的，最后一层的梯度最先算出来，不用等全部算完。</li>
 <li><strong>通信量翻 N 倍</strong>（累积 8 步就是 8 倍必要通信量），而代码看起来完全正常——隐蔽的性能杀手。</li>
-<li><strong>≈ 2 × 数据量，和卡数几乎无关</strong>。软肋是步数为 2(N−1)，延迟随卡数线性增长。</li>
-<li>先在<strong>机内用 NVLink</strong> 做一次归约，只让各机的代表跨机通信（数据量变成 1/8），最后机内广播回去。</li>
-<li>因为卡数增加时<strong>计算时间下降（每卡数据变少）但通信量基本不变</strong>，所以通信占比上升。</li>
+<li>每 rank 发送量是 $2(N-1)D/N$，接收量相同。$N$ 大时才接近 $2D$；软肋是通信轮数为 $2(N-1)$，启动延迟随轮数增加。</li>
+<li>$2\times(4-1)/4\times8=12$ GB。16 GB 是把 $(N-1)/N$ 近似为 1 后的 $2D$；4 卡时 0.75 不能忽略。</li>
+<li>正确做法是机内先把梯度分成约 1/8 的归约分片，再让各机器相同本地 rank 分组跨机归约，最后机内收集。随便派一张代表携带完整梯度不会自动省流量，还可能形成瓶颈。</li>
+<li>启动项 $2(N-1)\alpha$ 由轮数和每轮固定延迟决定；传输项 $2(N-1)D/(NB_{eff})$ 由每 rank 字节数和实测有效带宽决定。该式是忽略重叠、分片平衡的粗估。</li>
+<li>同步集合通信要求所有 rank 以相同顺序参与；快 rank 到达后也要等最慢 rank。整步先受 $\max_r(T_{compute,r})$ 限制，再加暴露在关键路径上的通信。</li>
 <li><strong>一块都没省</strong>——每张卡都有完整的参数、梯度、优化器状态。省显存要用 ZeRO。</li>
 <li><strong>某张卡的数据比别人少一个 batch 提前退出循环</strong>，其他卡在等一个永远不来的 AllReduce。排查：<code>TORCH_NCCL_BLOCKING_WAIT=1</code> 让它超时报错而不是永久挂起。</li>
 <li>一般数据并行是范式；nn.DataParallel 常用单进程多线程、forward 复制/scatter/gather；DDP 常用每 GPU 一进程、保留副本并同步梯度。DDP 可用于单机或多机，但不自动切输入；调用方安排数据。比较速度前先对齐有效 batch 与 loss 口径。</li>
+<li>$B_{global}=4\times4\times2=32$。学习率不必机械乘 4；先看相对原实验的全局 batch 是否真的改变，再结合优化器、warmup 和验证指标实验。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_7">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
-<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>数据并行让每卡保留模型副本、处理不同数据，再同步梯度；它本身不分摊模型状态。</li><li>DP 范式不是 nn.DataParallel 类名。DDP 也能单机多卡，输入分片由调用方安排；有效样本数不等时需核对梯度权重。</li><li>检查采样器、梯度累积和各卡迭代次数，避免重复通信或集合操作相互等待。</li><li>通过梯度分桶与计算通信重叠提高效率，再实测增加卡数后的扩展收益。</li></ul></section>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>数据并行让每卡保留模型副本、处理不同数据，再同步梯度；它本身不分摊模型状态。</li><li>Ring = Reduce-Scatter + All-Gather；每 rank 发送量是 $2(N-1)D/N$，接收量相同，$N$ 大时才近似 $2D$。</li><li>DP 范式不是 nn.DataParallel 类名。DDP 也能单机多卡，输入分片由调用方安排；有效样本数不等时需核对梯度权重。</li><li>同步训练由最慢 rank 和暴露通信共同决定；检查采样器、梯度累积、随机数策略与各卡迭代次数。</li><li>分层通信要让不同本地 rank 分担不同分片，不是派一个代表带完整梯度；最终收益必须在真实拓扑上测。</li></ul></section>
 
 <p><strong>下一节</strong> 👉 <a href="11-ZeRO与FSDP.html">11-ZeRO与FSDP.md</a> ⭐</p>
-<details class="g05-content-note"><summary>条件与依据</summary><p>Ring 的 2(N−1)D/N 是每 rank 的发送量，接收量相同；不能再将二者合计当同一数字。分层方案需各本地 rank 对应分片跨机归约；“只派一个代表”不会自动使整机网络流量降到 1/8。no_sync 示例需导入 contextlib.nullcontext，并处理尾批；各 rank 的 dropout 不同本身不是错误，复现需要可追踪的随机数流。</p><p><a href="https://docs.pytorch.org/docs/stable/generated/torch.nn.parallel.DistributedDataParallel.html">官方文档</a></p></details>
+<details class="g05-content-note"><summary>条件与依据</summary><p>Ring 的 $2(N-1)D/N$ 是每 rank 的发送量，接收量相同；不能把两者合计后仍称作发送量。$\alpha$-$B_{eff}$ 时间式是假设分片平衡、用单一有效带宽近似、暂不计重叠的教学模型，不是性能承诺。分层方案需各本地 rank 对应分片跨机归约；“只派一个代表”不会自动使整机网络流量降到 1/8。<code>no_sync()</code> 示例还需导入 <code>contextlib.nullcontext</code> 并处理不足一个累积窗口的尾批；各 rank 的 dropout 不同本身不是错误，复现需要可追踪的随机数流。</p><p>参考：<a href="https://docs.pytorch.org/docs/stable/generated/torch.nn.parallel.DistributedDataParallel.html">PyTorch DistributedDataParallel</a>、<a href="https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/collectives.html">NCCL Collectives</a>。本页未运行真实多卡训练或网络性能测试。</p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="09-显存优化全家桶.html"><div class="dir">← 上一节</div>⭐ 显存优化</a><a class="next" href="11-ZeRO与FSDP.html"><div class="dir">下一节 →</div>⭐⭐ ZeRO 与 FSDP</a></nav>
