@@ -468,17 +468,18 @@ LEFT JOIN 明细:
 </tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>判据（背下来）</strong>：</p>
+<p>⭐ <strong>判据（按执行顺序记）</strong>：</p>
 <blockquote>
-<p><strong><code>LEFT JOIN</code> 的时候，针对【右表】的条件写 <code>ON</code>，针对【左表】的条件写 <code>WHERE</code>。</strong>
-把右表条件写进 <code>WHERE</code>，你的 <code>LEFT JOIN</code> <strong>就退化成 <code>INNER JOIN</code> 了</strong> —— 实跑里 ② 和 ③ 的输出一模一样。</p>
+<p><strong><code>ON</code> 决定左右行怎样配对；<code>LEFT JOIN</code> 再给没有配对的左表行补上右侧 <code>NULL</code>；最后 <code>WHERE</code> 才筛选这些结果行。</strong>
+只有当 <code>WHERE</code> 里的右表谓词<strong>拒绝 <code>NULL</code></strong>时，补出来的行才会被淘汰，此时结果才<strong>可能</strong>与写成相应 <code>INNER JOIN</code> 相同。实跑里 ② 和 ③ 一样，是因为 <code>o.status = 'paid'</code> 在右侧为 <code>NULL</code> 时不是 <code>TRUE</code>。</p>
 </blockquote>
+<p>反过来，接受 <code>NULL</code> 的条件不一定淘汰扩展行。例如 <code>WHERE o.status = 'paid' OR o.id IS NULL</code> 会同时保留「已支付的订单」和「完全没有订单的用户」。所以不能把「右表列出现在 <code>WHERE</code>」直接等同于「必然退化」。</p>
 <p>⚠️ <strong>对 <code>INNER JOIN</code> 则完全没区别</strong>：两边都要配上对，条件写哪儿结果一样。
 💀 <strong>所以这个坑是这样长出来的</strong>：先写了个 <code>INNER JOIN</code>，条件顺手放进 <code>WHERE</code>，一切正常；
 后来需求变成「没有单的人也要出现在报表里」，于是把 <code>INNER</code> 改成 <code>LEFT</code> —— 只改了一个词，<code>WHERE</code> 忘了动。
 报表还是少那几个人，而且不报错。</p>
-<p>⭐ <strong>一种常见的有意用法是第④种写法</strong>：<code>LEFT JOIN</code> 之后 <code>WHERE 右表列 IS NULL</code>。
-它是<strong>故意</strong>利用这个退化行为来做「反连接」（找左边有、右边没有的），是标准手法，05 章还会再用它一次。</p>
+<p>⭐ <strong>一种常见的 <code>NULL</code> 接受写法是第④种</strong>：<code>LEFT JOIN</code> 之后检查 <code>WHERE 右表非空键 IS NULL</code>。
+它保留的正是右侧没有配对、因而被补上 <code>NULL</code> 的行，可用来做「反连接」（找左边有、右边没有的）。这里应检查右表中「匹配成功时必定非空」的键，例如主键；它不是唯一的例外，也不是在利用所谓的必然退化。05 章还会再用它一次。</p>
 <hr />
 
 <figure class="polish-figure" style="margin:1.5em 0"><img src="../assets/polish-sql-query-figures/left-join-filter.svg" width="288" height="695" style="display:block;max-width:100%;height:auto" loading="lazy" alt="沿用原页三个用户：阿呆有paid和refunded订单，阿瓜只有refunded订单，阿花无订单。paid条件放ON时保留阿呆的paid单并为另两人补NULL，得到三行；放WHERE时只剩阿呆的paid单一行。"><figcaption><strong>LEFT JOIN：在哪一步筛</strong> — 同样的右表条件 o.status = &#x27;paid&#x27;：放在 ON 得 3 行，放在 WHERE 得 1 行。该结论针对这个拒绝 NULL 的条件；不要推广成所有 WHERE 条件都会消除外连接。 <a href="../assets/polish-sql-query-figures/left-join-filter.svg">单独打开图示</a></figcaption></figure>
@@ -711,7 +712,7 @@ orders JOIN tags JOIN items -&gt; 7 行  ⚠️ 是相乘不是相加
 </code></pre></div>
 
 <p>⭐ <strong>第二个查询是「反证法」的标准形状</strong>：「找不到比我更好的，我就是最好的」——
-<code>LEFT JOIN</code> 一个「比我大」的条件，然后 <code>WHERE b.id IS NULL</code>（第二节那个合法例外）。</p>
+<code>LEFT JOIN</code> 一个「比我大」的条件，然后用 <code>WHERE b.id IS NULL</code> 保留没有匹配者的扩展行。这里检查的是匹配成功时必定非空的 <code>b.id</code>，属于常见的 <code>NULL</code> 接受写法。</p>
 <p>⚠️ <strong>但请注意第一个查询的做法很脆</strong>：它靠 <code>b.id = a.id + 1</code> 假设 id 连续。
 删掉一行，链就断了。
 ⭐ <strong>「和上一行比」这件事的正确工具是窗口函数 <code>LAG()</code></strong>，那是 <a href="07-窗口函数.html">07 章</a>的正题 ——
@@ -919,8 +920,8 @@ IS 而不是 = -&gt; [(&#39;x1&#39;, &#39;y1&#39;), (&#39;x-null&#39;, &#39;y-nu
 <ol>
 <li>三个用户、四张单（含一张孤儿单、一个没下过单的人）那组实测里，五种连接各返回几行？每个数字怎么来的？</li>
 <li>同一个 <code>status='paid'</code> 条件，写在 <code>LEFT JOIN</code> 的 <code>ON</code> 里和 <code>WHERE</code> 里，实跑分别返回几行？为什么？</li>
-<li>那条判据是什么？为什么这个坑常常是「改一个词改出来的」？</li>
-<li><code>LEFT JOIN … WHERE 右表列 IS NULL</code> 为什么是合法用法而不是同一个坑？</li>
+<li>请按顺序解释 <code>ON</code> 配对、<code>LEFT JOIN</code> 补 <code>NULL</code>、<code>WHERE</code> 后筛选。什么样的右表谓词才会淘汰未匹配行？</li>
+<li><code>LEFT JOIN … WHERE 右表非空键 IS NULL</code> 为什么能保留右侧没有匹配的扩展行？为什么不能把它说成唯一例外？</li>
 <li>扇出那组实测里，真实总额是多少，<code>JOIN</code> 之后 <code>SUM</code> 是多少，参与求和的是几行？用一行算式说明差在哪。</li>
 <li>为什么说扇出「偏大的比例不固定」？它等于什么？</li>
 <li>三种修法各在什么时候用？为什么 <code>SUM(DISTINCT amount)</code> 是错的？</li>
@@ -938,11 +939,11 @@ IS 而不是 = -&gt; [(&#39;x1&#39;, &#39;y1&#39;), (&#39;x-null&#39;, &#39;y-nu
 <li>写在 <code>ON</code> 里 <strong>3 行</strong>（阿呆有 paid 单，阿瓜和阿花右边补 <code>NULL</code>，行还在）；
    写在 <code>WHERE</code> 里 <strong>1 行</strong>，和 <code>INNER JOIN + WHERE</code> 输出<strong>一模一样</strong>。
    因为 <code>ON</code> 在第①步配对时生效，<code>WHERE</code> 在第②步逐行筛 —— 补出来的 <code>NULL</code> 让 <code>NULL='paid'</code> 判不出真，整行被扔。</li>
-<li><strong><code>LEFT JOIN</code> 时右表条件写 <code>ON</code>，左表条件写 <code>WHERE</code>；右表条件进了 <code>WHERE</code>，<code>LEFT JOIN</code> 就退化成 <code>INNER JOIN</code>。</strong>
+<li><strong><code>ON</code> 决定配对，<code>LEFT JOIN</code> 给未匹配的左表行补右侧 <code>NULL</code>，<code>WHERE</code> 再筛选结果。</strong> 只有拒绝这些 <code>NULL</code> 的右表谓词才会淘汰未匹配行，此时结果才可能与相应 <code>INNER JOIN</code> 相同；接受 <code>NULL</code> 的条件（例如带 <code>OR ... IS NULL</code>）仍可能保留扩展行。
    💀 常见来路：本来是 <code>INNER JOIN</code>（条件写哪儿都一样），后来需求变成「没单的人也要出现」，
    把 <code>INNER</code> 改成 <code>LEFT</code> —— <strong>只改了一个词，<code>WHERE</code> 忘了动</strong>，报表还是少人且不报错。</li>
-<li>因为它是<strong>故意</strong>利用这个退化行为做「反连接」：先 <code>LEFT JOIN</code> 让没配上的补 <code>NULL</code>，
-   再 <code>WHERE 右表列 IS NULL</code> 把这些「右边没有」的挑出来。实跑返回 <code>('阿花',)</code>。</li>
+<li>因为它是一个常见的 <code>NULL</code> 接受条件：先 <code>LEFT JOIN</code> 让没配上的补 <code>NULL</code>，
+   再用 <code>WHERE 右表非空键 IS NULL</code> 把这些「右边没有」的挑出来。要检查匹配成功时必定非空的列；<code>IS NULL</code> 不是唯一能保留扩展行的条件。实跑返回 <code>('阿花',)</code>。</li>
 <li>真实 <strong>150.0</strong>，<code>JOIN</code> 之后 250.0，参与求和 3 行。
    <code>100 + 100 + 50 = 250</code>（100 出现两次）而不是 <code>100 + 50 = 150</code> —— 因为一行不再代表一张订单，而是一个 <code>(订单, 标签)</code> 配对。</li>
 <li>因为放大倍数 = <strong>平均每张单有几个标签</strong>。今天 1.5 倍，运营多打一批标签就变 2.3 倍，
@@ -965,7 +966,7 @@ IS 而不是 = -&gt; [(&#39;x1&#39;, &#39;y1&#39;), (&#39;x-null&#39;, &#39;y-nu
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
 <p>⭐ <strong><code>JOIN</code> 不是「拼表」，是按条件配对，配出来的行数可能比任何一张原表都多。</strong></p>
-<p>⭐ <strong>第一条要背的判据：<code>LEFT JOIN</code> 时，针对右表的条件写 <code>ON</code>，针对左表的条件写 <code>WHERE</code>。</strong> 同一个条件写错位置，配不上的那些行就整批消失——<strong><code>LEFT JOIN</code> 当场退化成 <code>INNER</code></strong>。💀 这个坑常常是「改一个词改出来的」：本来是 <code>INNER</code>（条件写哪儿都一样），需求变成「没单的人也要出现」就改成 <code>LEFT</code>，<strong>而 <code>WHERE</code> 忘了动，报表少人且不报错</strong>。⭐ 唯一的例外是配上 <code>IS NULL</code> 做反连接，那是<strong>故意</strong>用这个退化。</p>
+<p>⭐ <strong>第一条要背的是执行顺序：<code>ON</code> 决定配对，<code>LEFT JOIN</code> 给未匹配行补右侧 <code>NULL</code>，<code>WHERE</code> 最后筛选。</strong> 若 <code>WHERE</code> 中的右表谓词拒绝 <code>NULL</code>，未匹配行会消失，结果才可能与相应 <code>INNER JOIN</code> 相同。💀 常见事故是需求从「只看有订单的人」改成「没单的人也要出现」时，只把 <code>INNER</code> 改成 <code>LEFT</code>，却保留了会拒绝 <code>NULL</code> 的 <code>WHERE</code> 条件，报表少人且不报错。⭐ 若条件接受 <code>NULL</code>，例如检查一个匹配成功时必定非空的右表键 <code>IS NULL</code>，或使用能让扩展行成立的 <code>OR</code>，这些行仍可保留；反连接只是这种语义的一种常见应用，不是唯一例外。</p>
 <p>💀💀 <strong>本章的正题是扇出</strong>：顺手连一下标签表，求和就变大了——<strong>因为一行不再代表一张订单，而是一个「订单加标签」的配对</strong>。⚠️ <strong>危险全在「不报错」三个字上</strong>：不抛异常、不返回空值，<strong>只给一个看起来合理、只是偏大的数</strong>；而且<strong>放大倍数不固定，趋势图上只会显示「增长」</strong>。</p>
 <p>三种修法：⭐ <code>EXISTS</code> 只筛不取列（首选）、⭐ 先把右表聚合成一行一键再连、<code>DISTINCT</code> 按主键去重（别当默认）。⚠️ <strong>按值去重是错的</strong>——两张真实订单金额相同会少算一张。事前体检一行 SQL 就够：总行数除以去重主键数，<strong>大于 1 就会扇出</strong>；⚠️ <strong>还要看最大值，长尾那几个键会集中放大</strong>。</p>
 <p>💀 <strong>多路 <code>JOIN</code> 是相乘不是相加</strong>——而「订单加明细加优惠券」正是最常见的报表结构。</p>
