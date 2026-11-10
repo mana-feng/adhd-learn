@@ -313,7 +313,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">📊 一、四层指标体系</a></li>
-<li><a href="#_3">🎯 二、每一层最该盯的那一个</a></li>
+<li><a href="#_3">🎯 二、每一层先看哪些信号</a></li>
 <li><a href="#_4">💰 三、成本模型：钱花在哪</a></li>
 <li><a href="#profiling">🔬 四、profiling 工具链</a></li>
 <li><a href="#_6">🧭 五、一套可复用的优化流程</a></li>
@@ -325,12 +325,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="23">23 · 可观测性与成本</h1>
-<p>⏱ <strong>26 分钟</strong> ｜ ⭐ <strong>让优化变成一件可管理的事</strong></p>
+<p>⏱ <strong>38 分钟</strong> ｜ ⭐ <strong>看懂一次延迟回退，再核对服务账单</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>你无法优化你没有测量的东西。</strong>
-这一章把前面 22 章的所有指标收拢成一套可以长期运行的观测体系 ——
-<strong>以及一份"钱到底花在哪"的账。</strong></p>
+<p>推理服务上线新配置后，每秒输出的 token 多了，GPU 也更忙，用户却更常等不到首个 token。先沿用<a href="20-推理服务化.html#slo">第 20 章</a>的首 token 时间（TTFT）、平均每输出 token 时间（TPOT）和达标率，判断体验在哪一段变差，再结合请求记录查原因。最后用同一批观测数据算一笔账：输出更便宜时，每个达标请求也一定更便宜吗？</p>
 <hr />
 <h2 id="_2">📊 一、四层指标体系</h2>
 <p id="nc-cpu-load"><strong>宿主 CPU 的两个数别混用：</strong>CPU 使用率描述采样期间 CPU 时间花在哪里；Linux Load Average 描述运行/可运行及不可中断等待任务数的平滑平均。前者是时间比例，后者是任务数，不能互相直接换算。它们是下面硬件层的补充诊断信号，仍要回到业务、排队和训练等待判断影响。</p>
@@ -345,7 +343,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </details>
 <div class="panels">
 <div class="panel">
-<div class="ph">每千次请求成本 / 每百万 token 成本 ⭐</div>
+<div class="ph">达标率 / 每千达标请求成本 ⭐</div>
 <ul class="pl"><li>用户感知延迟 P95/P99</li></ul>
 </div>
 <div class="panel">
@@ -368,43 +366,82 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <strong>反过来（盯着 GPU 利用率优化）会让你优化一堆不影响业务的东西。</strong></p>
 </blockquote>
 <hr />
-<h2 id="_3">🎯 二、每一层最该盯的那一个</h2>
+<h2 id="_3">🎯 二、每一层先看哪些信号</h2>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>层</th>
-<th>最该盯的指标</th>
+<th>第一批要看的指标</th>
 <th>为什么</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><strong>业务</strong></td>
-<td><strong>每百万 token 成本</strong></td>
-<td>唯一能和钱直接对应的数字</td>
+<td><strong>达标率、每千达标请求成本</strong></td>
+<td>分别看达到用户目标的比例与交付成本。每百万 token 成本用于解释产出效率。</td>
 </tr>
 <tr>
 <td><strong>服务</strong></td>
-<td><strong>KV Cache 使用率</strong> ⭐</td>
-<td>比 GPU 利用率<strong>更早</strong>的容量预警（<a href="20-推理服务化.html">第 20 章</a>）</td>
+<td><strong>TTFT、TPOT、排队、KV Cache 使用率</strong></td>
+<td>前两个看体验，队列与缓存压力提供排查方向（<a href="20-推理服务化.html">第 20 章</a>）。</td>
 </tr>
 <tr>
 <td><strong>框架</strong></td>
 <td><strong>MFU</strong> ⭐</td>
-<td>唯一能回答"还剩多少空间"（<a href="04-Roofline与MFU.html">第 4 章</a>）</td>
+<td>MFU（Model FLOPs Utilization，模型浮点运算利用率）比较估计的有效模型计算和硬件理论峰值。搭配步时和等待才能定位（<a href="04-Roofline与MFU.html">第 4 章</a>）。</td>
 </tr>
 <tr>
 <td><strong>硬件</strong></td>
 <td><strong>带宽利用率</strong> ⭐</td>
-<td>大部分负载是带宽瓶颈（<a href="03-显存与带宽墙.html">第 3 章</a>）</td>
+<td>检查该内核是否受数据搬运限制。也要对照算力、实际传输量和时间线（<a href="03-显存与带宽墙.html">第 3 章</a>）。</td>
 </tr>
 </tbody>
 </table></div>
 <blockquote>
-<p>⚠️ <strong><code>nvidia-smi</code> 的 GPU-Util 不在这个列表里</strong> —— <a href="02-GPU到底是什么.html">第 2 章</a>说过，
-它只表示"有 kernel 在跑"，<strong>一个只用 5% 算力的 kernel 也显示 100%</strong>。
-<strong>可判断是否有 kernel 活跃，但不能单独代表算力或带宽利用率。</strong></p>
+<p><strong><code>nvidia-smi</code> 的 GPU-Util</strong>衡量采样期内至少一个 GPU 内核（kernel）在执行的时间比例。如果一个小内核一直在跑，GPU-Util 也可以很高。判断算力、带宽和用户体验要分别找证据。<a href="02-GPU到底是什么.html">第 2 章</a>解释了 GPU 内核和并行单元。<a href="https://docs.nvidia.com/deploy/nvidia-smi/index.html">NVIDIA 字段说明</a></p>
 </blockquote>
+
+<h3 id="serving-observability-window">同一负载，两份五分钟面板</h3>
+<p>在隔离环境把同一批 1,000 个合规问答请求回放两次。两次使用相同的模型、硬件、请求到达节奏、输入与生成设置，只改批处理配置。A、B 各观察 300 秒，算例中请求均在各自窗口内到达并有终态。沿用第 20 章判定：成功完成、TTFT 不超过 150 ms，多 token 响应的 TPOT 不超过 40 ms/token。下表为教学假设。</p>
+<div class="tw" id="serving-metrics-window"><table style="width:100%;min-width:0;table-layout:fixed">
+<caption>监控面板先回答体验有没有变，再缩小排查范围</caption>
+<colgroup><col style="width:44%"><col style="width:28%"><col style="width:28%"></colgroup>
+<thead><tr><th scope="col">观测量</th><th scope="col">A 基线</th><th scope="col">B 新配置</th></tr></thead>
+<tbody>
+<tr><th scope="row">完成 / 超时 / 过载拒绝</th><td>970 / 20 / 10</td><td>920 / 55 / 25</td></tr>
+<tr><th scope="row">达标数 / 合规到达数</th><td>950 / 1,000<br><strong>95%</strong></td><td>800 / 1,000<br><strong>80%</strong></td></tr>
+<tr><th scope="row">可见输出吞吐（token/s）</th><td>1,000</td><td>1,200</td></tr>
+<tr><th scope="row">客户端 TTFT P95</th><td>120 ms</td><td>210 ms</td></tr>
+<tr><th scope="row">客户端 TPOT P95</th><td>31 ms/token</td><td>33 ms/token</td></tr>
+<tr><th scope="row">网关排队 P95</th><td>15 ms</td><td>95 ms</td></tr>
+<tr><th scope="row">GPU-Util 窗口平均</th><td>86%</td><td>96%</td></tr>
+</tbody>
+</table></div>
+<p>每个 P95 用该指标有有效观测的请求计算。没有首 token 的请求没有 TTFT 样本，超时、过载拒绝仍进入合规请求分母。两窗分别输出 300,000 和 360,000 个 token，各除以 300 秒得 1,000 和 1,200 token/s。B 多输出 200 token/s，达标吞吐却从 950 ÷ 300 ≈ 3.17 降到 800 ÷ 300 ≈ 2.67 请求/s。排队和 TTFT 同时上升，值得先查等待。两个 P95 来自各自的分布，不能相减来推算其余阶段耗时。</p>
+
+<h3 id="serving-signals-trace">从面板的变化找到一条慢请求</h3>
+<div class="tw"><table>
+<caption>用三种信号回答三个问题</caption>
+<thead><tr><th scope="col">信号</th><th scope="col">这次要找什么</th></tr></thead>
+<tbody>
+<tr><th scope="row">指标（Metrics）</th><td>用窗口内的计数和耗时分布找出受影响的路由或模型版本。看达标率、排队和 TTFT。</td></tr>
+<tr><th scope="row">日志（Logs）</th><td>查带有时间、请求标识、模型版本、终态和原因的结构化事件。区分排队超时与生成中断。对本例成功但慢的请求，日志可写 <code>status=completed</code> 并关联 <code>trace_id</code>。</td></tr>
+<tr><th scope="row">追踪（Trace）</th><td>把同一请求的网关、队列和引擎工作串起来。每段记录一个操作及其耗时，称为 span。各段通过同一 <code>trace_id</code> 关联。</td></tr>
+</tbody>
+</table></div>
+<section class="visual-block visual-block-flow" aria-label="窗口 B 内一条慢请求的时间线">
+<p class="visual-block-title">窗口 B 的一条请求：从发送到生成</p>
+<div class="vb-flow">
+<div class="vb-flow-row"><span class="vb-flow-step">入队 10 ms</span><span class="vb-flow-arrow" aria-hidden="true">→</span><span class="vb-flow-step">等待 135 ms</span><span class="vb-flow-arrow" aria-hidden="true">→</span><span class="vb-flow-step">Prefill 与首 token 采样 40 ms</span><span class="vb-flow-arrow" aria-hidden="true">→</span><span class="vb-flow-step">传回首 token 15 ms</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step">TTFT：10 + 135 + 40 + 15 = 200 ms</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step">其后在 232、266、296 ms 收到 token</span><span class="vb-flow-arrow" aria-hidden="true">→</span><span class="vb-flow-step">TPOT：(296 − 200) ÷ 3 = 32 ms/token</span></div>
+</div>
+</section>
+<p>算例时钟已对齐，四段沿同一串行路径。实际用客户端的单调时钟量 TTFT，各服务在本地量阶段时长，再用追踪串联。发生重叠时要检查关键路径，不可把跨机器时间戳直接相减或把重叠的 span 相加。</p>
+<p><strong>下一次验证。</strong>这条样本说明它主要等在队列里。再查一批慢请求，按模型版本和长度分组，检查批处理、可用槽位和 KV 抢占。在同样负载下只改一个批处理参数，比较排队、达标率和可见吞吐。如果排队下降但达标率没有恢复，继续查其他阶段。告警按服务的达标目标和观察窗口设计，面板单项升高用于下钻。合并副本的 P95 时，应先汇总同口径的直方图数据再估计，不能把各副本的 P95 做平均。</p>
+<p class="dia-note">延伸阅读 <a href="https://opentelemetry.io/docs/concepts/signals/">OpenTelemetry 信号</a>、<a href="https://opentelemetry.io/docs/concepts/signals/traces/">追踪与 span</a>、<a href="https://prometheus.io/docs/practices/histograms/">Prometheus 直方图</a>、<a href="https://sre.google/workbook/alerting-on-slos/">Google SRE 的 SLO 告警</a>。指标标签用模型版本、终态等有限取值，逐请求标识放日志和追踪。</p>
+<p>下面仍用训练场景说明框架层怎么记数据。损失、梯度范数、学习率和步时要放在同一训练步或采样窗口里。示例依赖你的训练循环，仅展示字段。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：`loss` 来自你自己的代码，这一段只看写法</span>
 <span class="c1"># ⭐ 训练时该记的最小指标集</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -423,7 +460,17 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <hr />
 <h2 id="_4">💰 三、成本模型：钱花在哪</h2>
-<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">训练总成本 = GPU 小时数 × 单价</span></div><div class="vb-flow-row"><span class="vb-flow-step">= (6 × N × D) / (卡数 × 峰值FLOPS × MFU) / 3600 × 卡数 × 单价</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 简化后：训练成本 ∝ 1 / MFU</span></div><div class="vb-flow-row"><span class="vb-flow-step">MFU 从 25% 提到 50%，成本【直接减半】</span></div></div></section>
+<p>两次训练如果使用同一个模型、数据和 GPU，为什么效率变化会影响总账单？先估算训练需要多少次浮点运算，再除以每秒能做多少次。得到秒数之后，才能换成计费小时。</p>
+<section class="visual-block visual-block-calc" aria-label="训练 GPU 成本的手算">
+<p class="visual-block-title">原示例：从训练计算量算到 GPU 账单</p>
+<div class="vb-calc">
+<p>用前面章节的稠密 Transformer 粗算 <code>6 × N × D</code>。<var>N</var> 是参数个数，<var>D</var> 是训练处理的 token 总数。7×10⁹ 个参数与 10¹² 个 token 对应约 6 × 7×10⁹ × 10¹² = 4.2×10²² 次浮点运算。这是近似模型。</p>
+<p>每卡理论峰值 312 TFLOP/s，即每秒 312×10¹² 次浮点运算。按 MFU 45% 估算，每卡有效速率为 312×10¹² × 0.45 = 1.404×10¹⁴ 次/秒。64 卡总计 8.9856×10¹⁵ 次/秒。</p>
+<p>所需时间约 4.2×10²² ÷ 8.9856×10¹⁵ ≈ 4,674,145 秒 ≈ 1,298.37 小时（约 54 天）。按每卡每小时 2 美元，乘回 64 张卡和单价，约 166,192 美元。</p>
+<p>MFU 换成 25% 后，每卡有效速率是 312×10¹² × 0.25 = 7.8×10¹³ 次/秒，64 卡合计 4.992×10¹⁵ 次/秒。4.2×10²² 除以该速率约 8,413,462 秒。再除以 3,600 得 2,337.07 小时（约 97 天），乘 64 × 2 得约 299,145 美元。</p>
+</div>
+</section>
+<p>下方程序依次计算运算量、训练秒数与费用。在训练量、卡数、峰值和单价相同的模型里，时间与费用都随 1/MFU 变化。把 25% 提到 45%，费用变为原来的 25 ÷ 45 ≈ 55.6%。这笔账只含 GPU 时价，输入数字均为教学假设。</p>
 
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">training_cost</span><span class="p">(</span><span class="n">params_B</span><span class="p">,</span> <span class="n">tokens_T</span><span class="p">,</span> <span class="n">n_gpus</span><span class="p">,</span> <span class="n">mfu</span><span class="p">,</span>
                   <span class="n">peak_tflops</span><span class="o">=</span><span class="mi">312</span><span class="p">,</span> <span class="n">hourly</span><span class="o">=</span><span class="mf">2.0</span><span class="p">):</span>
@@ -438,13 +485,48 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <h3 id="_5">推理成本的三个杠杆</h3>
-<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">每百万 token 成本 = GPU 时价 ÷ (吞吐 × 3600 × 利用率) × 1e6</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 三个杠杆，收益依次递减：</span></div><div class="vb-flow-row"><span class="vb-flow-step">① 提高吞吐 （量化、连续批处理、更好的引擎）</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">常有 5-10 倍空间</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 提高平均利用率 （把离线任务填到低峰期）</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">常有 2 倍空间 ⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 换更便宜的卡 （量化后可能装得下）</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">1.5-3 倍</span></div></div></section>
-<blockquote>
-<p>⭐ <strong>第 ② 条最容易被忽略</strong>：
-很多服务的日间峰值和夜间低谷差 5 倍以上，
-<strong>但集群是按峰值买的</strong>。把批量推理、评测、数据处理这类<strong>可延迟的任务</strong>
-调度到低峰期，等于免费拿到大量算力。</p>
-</blockquote>
+<p>回到 A、B 两个推理窗口。按窗口内占用的 GPU 计费，即使显卡有空闲也收费。两张卡各占 5 分钟，每卡每小时假设 3 美元，则每窗 GPU 成本为 2 × (5 ÷ 60) × 3 = <strong>0.50 美元</strong>。两窗入口收到的是同一批请求。为了展示引擎工作量，输入 token 只数实际执行 Prefill 的输入位置，本例禁用前缀复用。部分被拒绝或排队超时的请求没有进入 Prefill。可见输出 token 只数已交付给客户端的内容，包含失败前已经交付的部分，排除未发送的草稿或中间生成。</p>
+<div class="tw" id="serving-cost-ledger"><table style="width:100%;min-width:0;table-layout:fixed">
+<caption>费用相同，三个分母回答三个问题</caption>
+<colgroup><col style="width:44%"><col style="width:28%"><col style="width:28%"></colgroup>
+<thead><tr><th scope="col">单位成本</th><th scope="col">A（美元）</th><th scope="col">B（美元）</th></tr></thead>
+<tbody>
+<tr><th scope="row">每百万已处理输入 token</th><td>0.833</td><td>0.877</td></tr>
+<tr><th scope="row">每百万可见输出 token</th><td>1.667</td><td>1.389</td></tr>
+<tr><th scope="row">每千达标请求</th><td>0.526</td><td>0.625</td></tr>
+</tbody>
+</table></div>
+<p>公式来自「总费用除以总产出」，再乘单位规模。逐行代入如下，结果的单位都是美元。</p>
+<ul>
+<li><strong>每百万输入。</strong>A：0.50 ÷ 600,000 × 1,000,000 ≈ 0.833。B：0.50 ÷ 570,000 × 1,000,000 ≈ 0.877。</li>
+<li><strong>每百万输出。</strong>A：0.50 ÷ 300,000 × 1,000,000 ≈ 1.667。B：0.50 ÷ 360,000 × 1,000,000 ≈ 1.389。</li>
+<li><strong>每千达标请求。</strong>A：0.50 ÷ 950 × 1,000 ≈ 0.526。B：0.50 ÷ 800 × 1,000 = 0.625。</li>
+</ul>
+<p>B 每百万可见输出更便宜，每千达标请求却更贵。超时、拒绝和已完成但超出延迟目标的请求不计入达标数，它们占用的资源成本仍在总费用里。如果一个窗口的达标数为零，单位成本未定义，应把 0.50 美元和零达标数分开报告。</p>
+<p>同一笔 GPU 费用被三种分母分别解释，所以三行不能相加。若要做服务总账，还要明确 CPU、内存、网络等费用是否纳入，以及如何把共享开销分给各个服务。例如先按专用副本计费，剩余共享费用按已约定的 GPU 占用时间分摊，再把分摊结果与总账对上。使用外部 API 时还应按实际合同区分输入、输出和缓存计费。</p>
+<p>下面用 Python 3 复算表格。<code>cost</code> 是整窗 GPU 费用，<code>count</code> 是这一列计数，<code>unit</code> 是报告规模。输出依次是每百万输入、每百万可见输出和每千达标请求的美元费用。<code>None</code> 表示分母为零，表里不填一个假的零费用。</p>
+<div class="codehilite" data-code-language="python"><pre><code>def unit_cost(cost, count, unit):
+    return cost / count * unit if count else None
+
+gpu_cost = 2 * (5 / 60) * 3
+for window, inputs, outputs, good in [
+    ("A", 600_000, 300_000, 950),
+    ("B", 570_000, 360_000, 800),
+]:
+    rates = [
+        unit_cost(gpu_cost, inputs, 1_000_000),
+        unit_cost(gpu_cost, outputs, 1_000_000),
+        unit_cost(gpu_cost, good, 1_000),
+    ]
+    print(window, *("—" if rate is None else f"{rate:.3f}" for rate in rates))
+</code></pre></div>
+<p>输出 A 为 <code>0.833 1.667 0.526</code>，B 为 <code>0.877 1.389 0.625</code>。试把 B 的达标请求数改成 1,000，第三列就变为 0.500 美元。这个改动只演示公式怎样随分母变化。</p>
+<ol>
+<li><strong>同一硬件交付更多达标请求。</strong>量化、连续批处理和换引擎都是候选，用同请求分布检查质量、延迟与达标数。</li>
+<li><strong>让低峰资源做能延迟的任务。</strong>可以把批量推理和评测移到低峰，但先保留突发余量，并测对在线达标率和耗电的影响。</li>
+<li><strong>降低资源单价。</strong>换卡前先核对能否装下模型和缓存，再用同一质量和达标目标测需要多少副本。</li>
+</ol>
+<p>需要预测时才用「活跃吞吐 × 活跃时间占比」估算整窗吞吐，前提是停工阶段产出为零、活跃期吞吐代表预期负载。若已用总产出除以窗口时长，就已经包含空闲时间，不要再次乘占比。这里的占比也不能拿 GPU-Util 替代。</p>
 <hr />
 <h2 id="profiling">🔬 四、profiling 工具链</h2>
 <div class="tw"><table>
@@ -511,14 +593,14 @@ PyTorch Profiler 能看到 nccl kernel 的耗时，
 <thead>
 <tr>
 <th>症状</th>
-<th>最可能的原因</th>
+<th>先验证的候选原因</th>
 <th>去哪一章</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>MFU &lt; 20%</td>
-<td>数据管线没喂饱</td>
+<td>对照步时和取数等待，再用固定随机张量做对照。通信和硬件受限也可能让 MFU 偏低。</td>
 <td><a href="22-数据管线与存储.html">22</a></td>
 </tr>
 <tr>
@@ -548,17 +630,17 @@ PyTorch Profiler 能看到 nccl kernel 的耗时，
 </tr>
 <tr>
 <td>推理吞吐低</td>
-<td>KV Cache 碎片 / 没用连续批处理</td>
+<td>先看负载是否足够，再查 KV Cache 容量、连续批处理和抢占。</td>
 <td><a href="16-KV-Cache.html">16</a>、<a href="17-连续批处理与PagedAttention.html">17</a></td>
 </tr>
 <tr>
 <td>解码速度慢</td>
-<td>带宽瓶颈，考虑量化</td>
+<td>核对访存量和带宽。若证据支持带宽受限，再对照量化和质量。</td>
 <td><a href="15-推理和训练是两回事.html">15</a>、<a href="18-量化.html">18</a></td>
 </tr>
 <tr>
 <td>TPOT 有毛刺</td>
-<td>长 prefill 插队</td>
+<td>对齐长 Prefill、抢占恢复和发送缓冲的时间，再做对照。</td>
 <td><a href="17-连续批处理与PagedAttention.html">17</a></td>
 </tr>
 <tr>
@@ -589,7 +671,7 @@ PyTorch Profiler 能看到 nccl kernel 的耗时，
 </tr>
 <tr>
 <td><a href="20-推理服务化.html">第 20 章</a> KV Cache 使用率</td>
-<td>服务层的核心指标</td>
+<td>服务容量诊断的一项信号，和排队及达标率一起看</td>
 </tr>
 <tr>
 <td><a href="01-AI-Infra在解决什么问题.html">第 1 章</a> 先测再优化</td>
@@ -605,31 +687,31 @@ PyTorch Profiler 能看到 nccl kernel 的耗时，
 <h2 id="_9">✅ 检查点</h2>
 <ol>
 <li>四层指标体系是什么？诊断该从哪一层开始？</li>
-<li>每一层最该盯的指标各是什么？</li>
-<li>为什么 <code>nvidia-smi</code> 的 GPU-Util 不在名单里？</li>
-<li>训练成本和 MFU 是什么关系？MFU 从 25% 到 50% 省多少？</li>
-<li>推理降成本的三个杠杆？哪个最容易被忽略？</li>
+<li>在窗口 B 里，为什么先查排队？应该拿什么证据确认？</li>
+<li>GPU-Util 上升为什么不能证明用户体验变好？</li>
+<li>如果其他条件固定，训练 MFU 从 25% 提到 50%，只计 GPU 的估算费用怎么变？</li>
+<li>推理降成本的三个杠杆是什么？B 的 GPU 费用不变，但达标数降至 500 时，每千达标请求要多少？</li>
 <li>什么时候该用 Nsight Systems 而不是 PyTorch Profiler？</li>
 <li>优化流程的五步是什么？为什么"只改一件事"？</li>
-<li>"MFU &lt; 20%" 最可能是什么原因？</li>
+<li>MFU 很低时，如何验证是不是数据管线没喂饱？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
 <li><strong>业务层 / 服务层 / 框架层 / 硬件层</strong>。诊断应该从上往下——先看业务指标异常再逐层下钻。反过来盯着 GPU 利用率优化会优化一堆不影响业务的东西。</li>
-<li>业务层：<strong>每百万 token 成本</strong>；服务层：KV Cache 使用率；框架层：MFU；硬件层：带宽利用率。</li>
-<li>因为它只表示"<strong>有 kernel 在跑</strong>"，一个只用 5% 算力的 kernel 也显示 100%——几乎没有诊断价值。</li>
-<li><strong>训练成本 ∝ 1/MFU</strong>。MFU 从 25% 提到 50%，成本直接减半（例子里从 $12,442/97 天降到 $6,912/54 天）。</li>
-<li>①提高吞吐（5-10 倍空间）②<strong>提高平均利用率</strong>（2 倍空间）③换更便宜的卡。第 ② 条最容易被忽略——日夜峰谷差 5 倍以上但集群按峰值买，把可延迟的批量任务调度到低峰期等于免费拿算力。</li>
+<li>窗口 B 的排队 P95 和 TTFT P95 一起上升。查带版本和终态的日志，再按请求追踪观察等待、Prefill 和发送。只改一个参数复测，不根据两个 P95 推断单条请求的阶段耗时。</li>
+<li>GPU-Util 反映采样期里 GPU 上有内核在跑的时间比例。用户体验仍要看首 token、后续间隔和达标率。</li>
+<li>同一训练量、卡数、峰值和单价下，估算费用乘以 25 ÷ 50 = 0.5。上面的程序比较 25% 与 45%，对应约 299,145 与 166,192 美元，比例是 25 ÷ 45 ≈ 0.556。</li>
+<li>增加达标产出、利用低峰空闲、降低资源单价。B 的分母若变成 500，则 0.50 ÷ 500 × 1,000 = 1.00 美元/千达标请求。每百万输出的价格不能用来代替这项结果。</li>
 <li><strong>当你怀疑通信没有和计算重叠时</strong>。PyTorch Profiler 能看到 nccl kernel 耗时，但 Nsight Systems 能直观看到它们在时间线上是并排还是串行。</li>
 <li>①建立基线 ②定位瓶颈 ③<strong>只改一件事然后测</strong> ④记录到实验表 ⑤回到②。只改一件事是因为同时改两个你不知道是哪个起作用，也不知道它们有没有互相抵消。</li>
-<li><strong>数据管线没喂饱</strong>（第 22 章）。</li>
+<li>先对照取数等待和步时，再临时改用固定的合成张量重复测量。如果等待和步时同时下降，数据管线是更有力的候选。否则继续看通信、内核与测量口径。实验方法见<a href="22-数据管线与存储.html">第 22 章</a>。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_10">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
-<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>从业务目标向下追踪服务、框架和硬件指标，不因某个利用率好看就认定优化成功。</li><li>训练看有效计算与等待，推理同时看吞吐、延迟、质量和实际利用时段。</li><li>建立基线、定位瓶颈、只改一项、记录结果，再开始下一轮。</li></ul></section>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>从业务目标向下追踪服务、框架和硬件指标，不因某个利用率好看就认定优化成功。</li><li>指标圈定异常范围，日志找状态，追踪查阶段。把假设放回同一负载做单变量验证。</li><li>训练看有效计算与等待。推理要一起报可见输出吞吐、达标率和每千达标请求成本。</li><li>建立基线、定位瓶颈、只改一项、记录结果，再开始下一轮。</li></ul></section>
 
 <p><strong>下一节</strong> 👉 <a href="24-实战与挑战项目.html">24-实战与挑战项目.md</a> ⭐</p>
 <details class="g05-content-note"><summary>条件与依据</summary><p>成本函数按 6ND、每卡时价和给定 MFU 计算，原输出注释已复算为约 16.62 万与 29.91 万美元；这是教学假设，不是云报价或实际训练账单。MFU 变化也可能伴随卡数、质量、重算与 token 预算变化；只有其他条件固定时才有成本反比关系。</p><p><a href="https://docs.nvidia.com/deeplearning/performance/dl-performance-gpu-background/index.html">官方文档</a>；<a href="https://docs.pytorch.org/docs/stable/notes/cuda.html">官方文档</a></p></details>
