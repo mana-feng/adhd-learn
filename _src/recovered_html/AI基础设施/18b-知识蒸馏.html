@@ -368,7 +368,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>量化后的恢复训练、剪枝后的微调也能针对任务优化。<strong>蒸馏不是唯一能“更适合任务”的方法</strong>；它的特点是利用老师提供的监督，可以改变学生架构或把集成压到单模型。</p>
-<p>例如“结构化剪枝 → 蒸馏恢复 → INT4 量化”是可测试的组合。顺序会影响结果，每一步都应复测；见<a href="18-量化.html">第 18 章</a>与<a href="18c-剪枝与稀疏化.html">第 18c 章</a>。</p>
+<p>例如“结构化剪枝 → 蒸馏恢复 → INT4 量化”是可测试的组合。顺序会影响结果，每一步都应复测。<a href="18-量化.html">量化</a>改变数值表示，<a href="18c-剪枝与稀疏化.html">剪枝</a>改变保留的连接或结构，蒸馏改变学生训练时收到的监督。<a href="19-投机解码.html">投机解码</a>则改变生成时的提议与验证流程。即使用蒸馏训练草稿模型，保持目标分布的条件也来自验证算法。</p>
 <h3 id="_3">对照表：先看清代价再选</h3>
 <div class="tw"><table>
 <thead>
@@ -410,123 +410,85 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>稀疏度 50–90%、结构缩小 1.5–3 倍、学生参数少 3–10 倍，都可以是实验目标，<strong>不是这些方法自带的典型保证</strong>。也不能预先承诺“量化几小时，蒸馏一定几周最贵”。</p>
 <hr />
 <h2 id="_4">🌡️ 二、蒸馏的机制：软标签里的"暗知识"</h2>
-<h3 id="_5">硬标签扔掉了什么</h3>
-<p><strong>硬标签只说目标是哪类；软标签还给出老师对其他类的判断。</strong></p>
-<p>假设一张猫图片有下面这组人工设定的输出：</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>类别</th>
-<th style="text-align: right;">硬标签</th>
-<th style="text-align: right;">teacher 概率</th>
-</tr>
-</thead>
+<h3 id="_5">硬标签和软目标分别告诉学生什么</h3>
+<p>假设要把一台能分辨图片的大模型换成轻量版本。一张图的真实类别是猫。如果训练数据只写「猫」，小模型看不出另一种动物和汽车为什么应该得到不同分数。已经训练好的模型可以为这张图提供整组判断。</p>
+<section class="visual-block visual-block-flow" aria-label="同一张图片如何产生两路监督">
+<p class="visual-block-title">同一张图片，两个学习信号</p>
+<div class="vb-flow">
+<div class="vb-flow-row"><span class="vb-flow-step">固定的教师模型给出整组分数</span><span class="vb-flow-arrow" aria-hidden="true">→</span><span class="vb-flow-step">把分数转成软目标</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step">真实类别为猫</span><span class="vb-flow-arrow" aria-hidden="true">→</span><span class="vb-flow-step">保留硬标签</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step">两路分别算损失</span><span class="vb-flow-arrow" aria-hidden="true">→</span><span class="vb-flow-step">合起来更新学生</span></div>
+</div></section>
+<p><strong>知识蒸馏（Knowledge Distillation，KD）</strong>用一个<strong>教师模型（Teacher Model）</strong>提供额外监督，让<strong>学生模型（Student Model）</strong>学习它的部分行为。本例两边看同一张图，类别顺序都是猫、虎、车。训练时固定教师的参数，损失只用于更新学生。</p>
+<p>硬标签（Hard Label）可以写成 <code>[1, 0, 0]</code>。教师的<strong>软目标（Soft Target）</strong>则给每类一个概率，三项加起来等于 1。它还能表达教师对其他类的相对判断，这些信息常被称为暗知识。比如教师给虎的概率比车高，只说明它对这张图的判断。<a href="https://arxiv.org/abs/1503.02531">Hinton 等人的原论文</a>。</p>
+<p>概率之外，模型常先输出<strong>未归一化分数（Logits）</strong>。下面用自然对数 <var>ln</var> 给出分数，方便手算：<var>ln</var> 4 约为 1.386，指数函数把它变回 4。本例分数均为教学设定。</p>
+<div class="tw" id="kd-example-scores"><table style="width:100%;min-width:0;table-layout:fixed;overflow-wrap:anywhere">
+<caption>同一张图的分数和标签</caption>
+<thead><tr><th scope="col">类别</th><th scope="col">教师分数</th><th scope="col">学生分数</th><th scope="col">硬标签</th></tr></thead>
 <tbody>
-<tr>
-<td>猫</td>
-<td style="text-align: right;">1</td>
-<td style="text-align: right;">0.870</td>
-</tr>
-<tr>
-<td>老虎</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: right;">0.120</td>
-</tr>
-<tr>
-<td>狗</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: right;">0.008</td>
-</tr>
-<tr>
-<td>汽车</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: right;">0.001</td>
-</tr>
-<tr>
-<td>卡车</td>
-<td style="text-align: right;">0</td>
-<td style="text-align: right;">0.001</td>
-</tr>
-</tbody>
-</table></div>
-<p>0.120 / 0.001 = 120，表示<strong>这个老师对这张图片给“老虎”的概率是“汽车”的 120 倍</strong>。它不等于客观上“猫像老虎的程度是汽车的 120 倍”。</p>
-<p>非目标类别之间的相对输出可能携带有用的泛化信息，常称暗知识；也可能包含老师的偏差。学生是否获益，要与只用真实标签训练的基线比较。<a href="https://arxiv.org/html/1503.02531">Hinton 等人的原论文</a>。</p>
-<p><strong>不要用存储量冒充有效知识量。</strong> 若类别等概率，一个 C 类标签的熵为 log₂C；一般情况下最多这么大。5 类的约 2.3 bit、128k 类的约 17 bit，并不是每个训练样本固定贡献的“知识”。</p>
-<p>一个 C 维软分布保存了更多数值，但有归一化、有限精度、冗余和错误。不能拿“17 bit vs 12.8 万个数”就证明蒸馏必胜或监督质量高几个数量级。</p>
-<h3 id="t">温度 T：把暗知识"放大"出来</h3>
-<p><strong>固定 logits 时，T &gt; 1 会把概率摊平，T &lt; 1 会让它更尖锐。</strong> T 必须大于 0；模型好坏不能只由分布尖不尖判断。</p>
-<p>$$p_i = \frac{\exp(z_i / T)}{\sum_j \exp(z_j / T)}$$</p>
-<p>zᵢ 是某一类的 logit，pᵢ 是转换后的概率。先除以同一个 T，再做 softmax；不是把已经得到的概率简单除以 T。</p>
-<p>同一组老师 logits [6.0, 4.0, 0.5, 0.2, −1.0]，按公式计算、四舍五入到三位：</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th style="text-align: right;">T</th>
-<th style="text-align: right;">猫</th>
-<th style="text-align: right;">老虎</th>
-<th style="text-align: right;">狗</th>
-<th style="text-align: right;">汽车</th>
-<th style="text-align: right;">卡车</th>
-</tr>
-</thead>
+<tr><th scope="row">猫</th><td>ln 16</td><td>ln 4</td><td>1</td></tr>
+<tr><th scope="row">虎</th><td>ln 4</td><td>0</td><td>0</td></tr>
+<tr><th scope="row">车</th><td>0</td><td>0</td><td>0</td></tr>
+</tbody></table></div>
+<p>从存储角度，硬标签只需一个类别索引。对等概率的 <var>C</var> 个类别，标签熵为 log₂ <var>C</var>，即用以 2 为底的对数衡量平均不确定性。比如 <var>C</var> = 5 时约为 2.3 bit。软目标多存了一组数值，监督价值还取决于教师质量、数据分布及有限精度。</p>
+<h3 id="t">温度 T：同一组分数怎样变成不同概率</h3>
+<p>只看最高分会丢掉其他类的差异。<strong>温度（Temperature）</strong><var>T</var> 是归一化前共同使用的正数。设 <var>z</var><sub>i</sub> 是第 <var>i</var> 类的 logit，<var>j</var> 遍历全部类别。先将每个分数除以 <var>T</var>，再取指数，最后除以所有指数值之和。这就是带温度的 Softmax。</p>
+<p>$$p_i(T) = \frac{\exp(z_i / T)}{\sum_j \exp(z_j / T)}$$</p>
+<p><strong>先算 T = 1。</strong> 教师取指数后得到 <code>[16, 4, 1]</code>，总和 21，逐项除以 21 得 <code>[16/21, 4/21, 1/21]</code>。学生取指数后是 <code>[4, 1, 1]</code>，总和 6，逐项除以 6 得 <code>[4/6, 1/6, 1/6]</code>。</p>
+<p><strong>再用 T = 2。</strong> 指数运算满足 exp((ln 16) ÷ 2) = √16 = 4。教师的指数值变为 <code>[4, 2, 1]</code>，和是 7。学生变为 <code>[2, 1, 1]</code>，和是 4。各自再除以自己的和，得到下面两列软分布。</p>
+<div class="tw" id="kd-worked-distributions"><table style="width:100%;min-width:0;table-layout:fixed;overflow-wrap:anywhere">
+<caption>同温比较。右两列用于下面的软损失。</caption>
+<thead><tr><th scope="col">类别</th><th scope="col">教师 T=1</th><th scope="col">教师 T=2</th><th scope="col">学生 T=2</th></tr></thead>
 <tbody>
-<tr>
-<td style="text-align: right;">1</td>
-<td style="text-align: right;">0.875</td>
-<td style="text-align: right;">0.118</td>
-<td style="text-align: right;">0.004</td>
-<td style="text-align: right;">0.003</td>
-<td style="text-align: right;">0.001</td>
-</tr>
-<tr>
-<td style="text-align: right;">2</td>
-<td style="text-align: right;">0.659</td>
-<td style="text-align: right;">0.243</td>
-<td style="text-align: right;">0.042</td>
-<td style="text-align: right;">0.036</td>
-<td style="text-align: right;">0.020</td>
-</tr>
-<tr>
-<td style="text-align: right;">4</td>
-<td style="text-align: right;">0.441</td>
-<td style="text-align: right;">0.267</td>
-<td style="text-align: right;">0.111</td>
-<td style="text-align: right;">0.103</td>
-<td style="text-align: right;">0.077</td>
-</tr>
-<tr>
-<td style="text-align: right;">8</td>
-<td style="text-align: right;">0.314</td>
-<td style="text-align: right;">0.245</td>
-<td style="text-align: right;">0.158</td>
-<td style="text-align: right;">0.152</td>
-<td style="text-align: right;">0.131</td>
-</tr>
-</tbody>
-</table></div>
-<p>看“猫”一列在下降，而几个小概率在增大；舍入后每行不一定恰好加到 1。有限 T 下，类别排序不变，相对差距被压缩。</p>
-<p>T 趋于无穷时，<strong>概率分布本身</strong>趋于均匀；但与 T² 缩放联合考虑的高温损失仍可保留中心化 logit 差异，不能把两者混为一谈。</p>
-<p>可以将 1、2、4 等作为候选温度，配合验证集调整。词表大不保证输出足够软，LLM 也不是天然只能用 T=1；更不能说温度偏小就必然“蒸馏白做”。</p>
-<h3 id="t2">⭐ 那个必须记住的细节：T² 缩放</h3>
-<p><strong>先看各项分工，再按需打开推导。</strong></p>
+<tr><th scope="row">猫</th><td>16/21</td><td>4/7</td><td>2/4</td></tr>
+<tr><th scope="row">虎</th><td>4/21</td><td>2/7</td><td>1/4</td></tr>
+<tr><th scope="row">车</th><td>1/21</td><td>1/7</td><td>1/4</td></tr>
+</tbody></table></div>
+<p>温度从 1 提到 2 时，教师的猫类概率从约 76.2% 降到 57.1%，其余两类的份额提高。固定分数时，有限的正温度保留类别排序。温度越高分布越平，越接近 0 分布越尖。直接除以温度的是分数，概率需要重新归一化。</p>
+<p>温度趋于无穷时，概率分布趋于均匀。高温下乘上 T² 的训练损失仍可保留中心化分数的差异。词表大小无法单独决定合适的温度，1、2、4 等都可以作为验证集上的候选。</p>
+<h3 id="t2">软损失、T² 缩放和硬损失怎样合起来</h3>
+<p>表中的学生给车分配了 1/4，教师只给 1/7。需要一个数汇总整张表的偏差，才能让训练知道要往哪个方向改。令 <var>p</var><sub>i</sub> 是教师在 <var>T</var> 下的概率，<var>q</var><sub>i</sub> 是学生在同一温度下的概率。<strong>KL 散度（Kullback–Leibler Divergence）</strong>在这里用教师的概率加权每类的对数比例：</p>
+<p>$$\mathrm{KL}(p\|q) = \sum_i p_i \ln\frac{p_i}{q_i}$$</p>
+<div class="tw" id="kd-loss-ledger"><table style="width:100%;min-width:0;table-layout:fixed;overflow-wrap:anywhere">
+<caption>T=2，逐类代入教师 → 学生的 KL（自然对数）</caption>
+<thead><tr><th scope="col">类别</th><th scope="col">p / q</th><th scope="col">加权项</th></tr></thead>
+<tbody>
+<tr><th scope="row">猫</th><td>(4/7) ÷ (2/4) = 8/7</td><td>(4/7) × ln(8/7) ≈ 0.076304</td></tr>
+<tr><th scope="row">虎</th><td>(2/7) ÷ (1/4) = 8/7</td><td>(2/7) × ln(8/7) ≈ 0.038152</td></tr>
+<tr><th scope="row">车</th><td>(1/7) ÷ (1/4) = 4/7</td><td>(1/7) × ln(4/7) ≈ −0.079945</td></tr>
+</tbody></table></div>
+<p>三项相加得到约 0.034510。单项可以为负，整项 KL 非负。交换方向会改成按学生概率加权，代入同一组数得到约 0.039755，表示另一个训练目标。极端例子是教师 <code>(0.5, 0.5)</code>、学生 <code>(1, 0)</code>：正向 KL 发散，反向 KL 为 ln 2，也就是 1 比特。详见<a href="../机器学习的数学原理/01b-KL散度.html">数学原理 01b</a>。</p>
+<p><strong>把真实答案也留进损失。</strong> 记 <var>y</var> 为真实类别猫。硬标签交叉熵（Cross-Entropy，CE）是学生在 <var>T</var> = 1 时给真类的概率取负自然对数。这里是 −ln(4/6) ≈ 0.405465。软损失用 <var>T</var> = 2，先乘 <var>T</var>²，得 2² × 0.034510 ≈ 0.138041。</p>
 <p>$$\begin{aligned}
-\mathcal{L} ={}&amp; \alpha T^2\mathrm{KL}(p_T^{t}\|p_T^{s}) \\
+\mathcal{L} ={}&amp; \alpha T^2\mathrm{KL}(p\|q) \\
 &amp;+ (1-\alpha)\mathrm{CE}(z^{s}, y)
 \end{aligned}$$</p>
-<p>这里上标 t 表示老师（teacher），s 表示学生（student），都不是时间步。分成两行只是为了方便阅读，仍是两项相加的同一个损失。</p>
-<ul>
-<li>KL 项：让学生在相同温度下接近老师的概率分布。</li>
-<li>CE 项：让学生仍学习真实标签 y，这里不对 logits 除以 T。</li>
-<li>α：两类监督的相对权重，通常取 0–1。</li>
-<li>T²：补偿高温下软损失梯度的近似尺度变化，不保证任何 T 下梯度都不变。</li>
-</ul>
-<p><strong>优化等价与数值相等是两回事。</strong> 固定老师分布 p 时，KL(p‖q)=H(p,q)−H(p)。对学生来说，最后一项是常数；因此对应的软标签交叉熵可有相同梯度，但数值不同。</p>
-<p>替换框架调用时还要统一输入格式、温度、权重和归约，不能只把函数名换掉。实现参照 <a href="https://docs.pytorch.org/tutorials/beginner/knowledge_distillation_tutorial.html">PyTorch 蒸馏教程</a>。</p>
-<p><strong>方向也不能写反。</strong> KL(teacher‖student) 按老师分布加权；反向按学生分布加权。受限学生可能偏好不同近似，但不存在“遗漏长尾完全免费”的通则。</p>
-<p>例如老师 (0.5,0.5)、学生 (1,0)，反向 KL 仍为 1 比特。长尾质量要实际验证，详见<a href="../机器学习的数学原理/01b-KL散度.html">数学原理 01b</a>。</p>
+<p>式中的 <var>L</var> 是学生这一样本的总损失，<var>z</var><sup>s</sup> 是学生原始 logits，<var>α</var> 在 0 到 1 之间，控制软项的权重。取 <var>α</var> = 0.5，完整代入为 0.5 × (2² × 0.034510…) + (1 − 0.5) × 0.405465… ≈ <strong>0.271753</strong>。训练时用该损失的梯度更新学生。部署本例时只用学生做分类，可取最高分，或用 <var>T</var> = 1 转成概率。训练时的温度负责构造监督，服务若另设校准或采样温度，需按部署目标验证。</p>
+<p><strong>为什么乘 T²？</strong> 高温下，学生分数对软损失的梯度包含两次近似缩小：除以温度带来一个 1/T，教师与学生概率差也大约按 1/T 缩小。乘上 T² 让软项梯度在高温近似下维持量级。有限温度下概率差与方向仍会变，权重和温度要一起验证。</p>
+<p>固定教师时，KL(p‖q) = H(p,q) − H(p)，其中 H(p,q) 是软目标交叉熵，H(p) 是教师分布的熵。最后一项对学生是常数，所以同温同归约下，优化软交叉熵也能得到同样的学生梯度，两种损失的读数相差教师熵。PyTorch 的 <code>kl_div</code> 第一个参数放学生的 <code>log_softmax</code>，第二个参数放教师概率，使用 <code>batchmean</code> 时对样本取平均。见 <a href="https://docs.pytorch.org/tutorials/beginner/knowledge_distillation_tutorial.html">PyTorch 蒸馏教程</a>与 <a href="https://docs.pytorch.org/docs/stable/generated/torch.nn.KLDivLoss.html">KLDivLoss 文档</a>。</p>
+<p>用 Python 标准库复算刚才的三类例子。函数 <code>softmax</code> 接受给定分数与正温度，返回归一化后的概率。<code>teacher_soft</code> 和 <code>student_soft</code> 用同一个温度，硬项单独从 <code>temperature=1</code> 的学生分布取猫类概率。这个程序只算一次损失，不包含训练循环。</p>
+<div class="codehilite" data-code-language="python" id="kd-worked-code"><pre><code>from math import exp, log
+
+def softmax(logits, temperature):
+    weights = [exp(score / temperature) for score in logits]
+    total = sum(weights)
+    return [weight / total for weight in weights]
+
+teacher = [log(16), log(4), 0]
+student = [log(4), 0, 0]
+temperature, alpha, cat = 2, 0.5, 0
+
+teacher_soft = softmax(teacher, temperature)
+student_soft = softmax(student, temperature)
+kl = sum(p * log(p / q) for p, q in zip(teacher_soft, student_soft))
+hard = -log(softmax(student, temperature=1)[cat])
+total = alpha * temperature**2 * kl + (1 - alpha) * hard
+print(f"KL={kl:.6f}, 硬 CE={hard:.6f}, 总损失={total:.6f}")
+</code></pre></div>
+<p>输出为 <code>KL=0.034510, 硬 CE=0.405465, 总损失=0.271753</code>。接着可用旧的五类实验观察温度对梯度的影响。</p>
 <details>
 <summary>📐 <b>为什么恰好是 T²（想看再点）</b></summary>
-<p>KL 项对学生 logit $z_i$ 的梯度是</p>
+<p>在下列推导里，向量 $z$ 是学生 logits，向量 $t$ 是教师 logits，$i$ 是类别下标，$\sigma$ 表示 Softmax。教师固定时，KL 项对学生 logit $z_i$ 的梯度是</p>
 <p>$$\frac{\partial}{\partial z_i}\mathrm{KL} = \frac{1}{T}\Big(\sigma(z/T)_i - \sigma(t/T)_i\Big)$$</p>
 <p>前面那个 $\frac{1}{T}$ 来自链式法则（softmax 的输入被除了 T）。</p>
 <p>当 T 相对 logits 的差异足够大时，对 $\sigma(z/T)_i$ 做一阶展开（设 logits 零均值、类数 C）：</p>
@@ -536,7 +498,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p><strong>这里是高温近似，不是任意 T 的精确等式。</strong> 乘上 $T^2$ 可以补偿这种近似尺度变化，但有限 T 下，概率差本身也会变化；软损失梯度不一定保持不变。</p>
 <p>这也是为什么不能把改温度精确等同于改学习率：更新方向、硬软损失的相对贡献与概率分布都可能改变。</p>
 </details>
-<p>下面是保留的梯度实验，需安装 PyTorch。两组 logits 是给定的教学输入，不是训练中期的实测记录。每次从同一个 student0 开始，比较是否乘 T²。</p>
+<p>下面的梯度实验需安装 PyTorch，使用另一组固定的五类 logits，以便观察更多温度点。每次从同一个 <code>student0</code> 开始，比较乘 T² 前后的软损失与梯度范数。结果表是解析复算值。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
 
@@ -815,7 +777,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p><strong>这个例子能证明什么？</strong> 总体平均会弱化小群体的变化，应该分组验收。</p>
 <p><strong>不能证明什么？</strong> 它没有老师 logits、真实训练过程或业务日志，不能证明“软标签在长尾天然没信息”“蒸馏必然伤害长尾”，也不能推出转人工率翻三倍、SLA 违约两周或节约了 40% 费用。</p>
-<p>高熵输出有时表达有效的不确定性，低熵输出也可能自信地错。不要只凭熵高就剔除所有样本。</p>
+<p>高熵输出有时表达有效的不确定性，低熵输出也可能自信地错。先找有独立标签的样本，核对教师在什么条件下容易错，再决定怎样利用它的输出。</p>
+<section class="visual-block visual-block-compare" aria-label="蒸馏失败的三种来源"><p class="visual-block-title">遇到质量下降，先区分这三种原因</p><div class="vb-compare">
+<p><strong>教师判断有误。</strong> 如果前面的图片实际是虎，教师在 T=2 时仍给猫 4/7、虎 2/7。学生若完全匹配这组软目标，KL 可以为 0，但最高分还是猫。可靠的硬标签提供不同的监督方向。</p>
+<p><strong>学生输入或容量不够。</strong> 如果学生的低分辨率输入让两张真实类别不同的图变成同一个表示，同一个确定性学生就只能给它们同一组概率，无法同时复制两组不同的教师判断。</p>
+<p><strong>部署分布变了。</strong> 蒸馏数据若主要是清晰白天图片，夜间或遮挡图的质量要单独检查。提高温度只调整当前样本的类别概率，填补场景缺口仍需合适的数据与独立评测。</p>
+</div></section>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -881,7 +848,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>蒸馏既能做任务专精，也可训练通用学生或压缩集成。<strong>它不是窄任务上的唯一赢家，也不是通用模型的“最差选择”。</strong></p>
-<p>小学生有时能在特定评测超过老师，但需要实验解释；通用能力是否下降、下降多少，同样要测，而不是“全部丢掉正是目标”。</p>
+<p>学生可能在某项评测超过教师。用独立任务集和同预算基线判断提升，另测未参与训练的通用能力与关键分组。</p>
+<p>部署时，用同一硬件、推理引擎、精度与输入输出长度分布对照教师、未蒸馏学生和蒸馏学生。分类任务在同一批量下记录分类延迟、每秒处理图片数与峰值显存。生成式服务在同一到达负载下记录首 token 时间（TTFT）、首 token 后平均每输出一个 token 的时间（TPOT）、达标吞吐与峰值显存。学生参数较少只减少部分负担，算子支持、缓存及批处理都会影响实际速度。见<a href="20-推理服务化.html">第 20 章</a>的服务验收口径。</p>
 <h3 id="_9">⚠️ 蒸馏的成本：这笔账常被低估</h3>
 <p><strong>先把 2.8 倍放回它的假设里。</strong> 以下仅是同 token 数、相近架构、每一步都在线跑老师的粗略计算量估计。</p>
 <p>以 1.3B 学生的一次前向为 1 单位，并假设前向成本正比于参数量：</p>
@@ -999,9 +967,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h2 id="_12">✅ 检查点</h2>
 <ol>
 <li>量化、剪枝和蒸馏各改什么？为什么能组合却不代表收益独立？</li>
-<li>暗知识是什么？120 倍概率能代表客观相似性吗？</li>
-<li>温度怎样改变概率？词表大就能确定 T 吗？</li>
-<li>T² 补偿什么？为什么它不是任意温度下的精确不变量？</li>
+<li>三类图例里教师与学生各提供什么？硬标签和软目标各告诉了你什么？</li>
+<li>教师 logits 是 ln 16、ln 4、0。取 T=2 时，怎样一步步得到三个软目标？</li>
+<li>软 KL 的哪一侧负责加权？将算例的 α 改成 0.25，其他不变，总损失约是多少？</li>
+<li>T² 补偿什么？当教师把真实类别为虎的图片判成猫时，KL 为 0 能说明什么？</li>
 <li>四类对齐信号各需检查什么？</li>
 <li>Token 级与序列级有什么不同？生成答案一定是众数序列吗？</li>
 <li>合成数据训练立项前需留下哪些来源与授权记录？</li>
@@ -1014,9 +983,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <summary>👀 答案</summary>
 <ol>
 <li>位宽、结构/连接、训练监督分别是主要切入点。它们会相互影响，组合后仍需测质量、文件、显存和速度。</li>
-<li>是老师对非目标类别的相对判断等信息，可能有用也可能有偏差。120 倍只是给定输入上的老师概率比，不是客观相似度比。</li>
-<li>对固定 logits，T 增大时概率更平。最佳 T 需要验证，不能只凭词表大小或“老师很强”确定。</li>
-<li>在 logits 差异相对 T 小时，梯度近似按 1/T² 缩放；有限 T 下概率差仍变化，乘 T² 后梯度不保证相同。</li>
+<li>教师给出整组类别概率作为额外监督。学生给出自身预测供损失比较。硬标签指定真实类别，软目标还表达教师对非目标类别的相对判断。</li>
+<li>分数除以 2 再取指数得 4、2、1，总和 7。分别除以 7 得 4/7、2/7、1/7。</li>
+<li>教师概率加权。软项约 0.138041，硬项约 0.405465，计算 0.25 × 0.138041… + 0.75 × 0.405465… ≈ 0.338609。</li>
+<li>在分数差异相对 T 小时，梯度近似按 1/T² 缩小。有限 T 下乘回 T² 后仍可能变化。KL 为 0 说明分布匹配，学生也可能复现教师的错误。</li>
 <li>输出需对齐类别与条件；特征需配层和维度处理；注意力需匹配头、位置或关系；关系蒸馏也有定义与实现边界。</li>
 <li>Token 级比较对齐位置的分布；序列级学习生成答案，可跨 tokenizer。采样、贪心、beam search 均不保证找到真实最高概率序列。</li>
 <li>模型和版本、生成时间与提示、适用许可/条款、预期用途、数据来源与审核记录。不能用泛化断言替代具体核对。</li>
@@ -1029,7 +999,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="_13">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
-<section class="reading-recap" aria-label="走神救援"><p>回来时先接上这四点</p><ul><li>蒸馏是利用老师监督学生，不自动保证更小、更快或更准。</li><li>温度改变概率；T² 是高温梯度尺度的近似补偿。</li><li>总体过关还不够：独立样本、可靠标签和关键分组都要检查。</li><li>训练、缓存、评测与部署一起算账，不能照搬固定成本倍数。</li></ul></section>
+<section class="reading-recap" aria-label="走神救援"><p>回来时先接上这四点</p><ul><li>蒸馏是利用老师监督学生，不自动保证更小、更快或更准。</li><li>同温比较教师和学生分布，软项乘 T²，硬标签仍看学生 T=1 的输出。</li><li>总体过关还不够：独立样本、可靠标签和关键分组都要检查。</li><li>训练、缓存、评测与部署一起算账，不能照搬固定成本倍数。</li></ul></section>
 
 <p><strong>下一节</strong> 👉 <a href="18c-剪枝与稀疏化.html">18c-剪枝与稀疏化.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
