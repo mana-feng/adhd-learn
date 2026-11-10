@@ -327,21 +327,25 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="05">05 · 互联与集群拓扑</h1>
-<p>⏱ <strong>主线约 29 分钟（不含选读，估计）</strong> ｜ ⭐ <strong>它决定了你能用哪种并行策略</strong></p>
+<p>⏱ <strong>主线约 33 分钟（不含选读，估计）</strong> ｜ ⭐ <strong>画路径，算通信，再放任务</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>卡和卡之间怎么连，直接决定了后面五章的并行策略能不能用。</strong>
-张量并行通常更依赖高速互联，流水线并行能忍受慢网络 ——
-<strong>这需要同时核对拓扑、有效带宽、延迟和通信计算比。</strong></p>
+<p>同一个训练任务，卡数没变，把两个经常交换数据的计算进程拆到两台服务器后，一步却可能更慢。沿用<a href="03-显存与带宽墙.html">第 03 章</a>的搬运账，本章从一份消息出发，先画出它经过的路径，再算启动与搬运分别占多久，最后决定哪一组通信应留在机内。</p>
 <hr />
 <h2 id="_2">🔌 一、四个层级的带宽</h2>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>卡内 HBM ~2000-3350 GB/s ← 基准</p><p>NVLink（同机卡间） ~450-900 GB/s ⭐ 约为 HBM 的 1/4</p><p>PCIe 4.0/5.0 ~32-64 GB/s ⚠️ 慢 15-30 倍</p><p>InfiniBand（跨机） ~25-50 GB/s ⚠️ 和 PCIe 同量级</p><p>以太网（普通） ~1-12 GB/s 💀 慢两个数量级</p></div></section>
-<blockquote>
-<p>🔑 <strong>最重要的一条断层在 NVLink 和 PCIe 之间 —— 差 15 倍以上。</strong>
-这条断层把并行策略分成了两类：
-<strong>"通常优先放在高速互联域内"的（张量并行）和"可以跨机"的（数据/流水线并行）。</strong></p>
-</blockquote>
-
+<p>先区分<strong>拓扑（Topology）</strong>和带宽。拓扑回答「设备怎么连，两个端点经过哪里」，带宽回答「某段路径每秒能搬多少数据」。如果两条消息共用一段上行，它们争用的是同一份容量。</p>
+<div class="tw" id="interconnect-rate-ledger"><table style="width:100%;min-width:0;table-layout:fixed;white-space:normal;overflow-wrap:anywhere">
+<caption>四类路径的规格示例。单位 GB/s，均非应用实测。</caption>
+<thead><tr><th scope="col">路径</th><th scope="col">示例</th><th scope="col">怎么看</th></tr></thead>
+<tbody>
+<tr><th scope="row">卡内 HBM</th><td>H100 SXM<br>3,350</td><td>GPU 访问本卡显存</td></tr>
+<tr><th scope="row">NVLink</th><td>H100 SXM<br>900</td><td>每卡多链路双向合计</td></tr>
+<tr><th scope="row">PCIe</th><td>Gen4 / Gen5 x16<br>约 31.51 / 63.02</td><td>单方向，扣编码</td></tr>
+<tr><th scope="row">跨机网络</th><td>200 / 400 Gb/s 端口<br>25 / 50</td><td>单端口单向线速换算</td></tr>
+</tbody></table></div>
+<p><strong>先对齐方向、对象和单位。</strong> H100 SXM 的第四代 NVLink 每条链路双向合计 50 GB/s，18 条合计 18 × 50 = 900 GB/s。以对称的发送和接收能力拆分，单方向是每条 25 GB/s、每卡聚合 18 × 25 = 450 GB/s。它仍是整张卡可用链路的规格总和；某对卡能走几条、是否和其他流共享，要按拓扑查。</p>
+<p><strong>再把 bit 换成字节。</strong> 小写 b 是 bit，大写 B 是 byte，1 字节 = 8 bit。按十进制，400 Gb/s ÷ 8 = 50 GB/s，即每秒 500 亿字节。网络可用 InfiniBand 或以太网。端口速率不能只从协议名称判断，应用可用的有效带宽还要扣协议、调度与争用。机内交换和跨机交换也不是固定的倍数关系。</p>
+<p class="dia-note">规格依据 <a href="https://resources.nvidia.com/en-us-gpu/h100-datasheet-24306">H100 数据表</a>、<a href="https://docs.nvidia.com/cuda/hopper-tuning-guide/index.html#nvlink">Hopper NVLink 规格</a>、<a href="https://docs.nvidia.com/dgx/dgxh100-user-guide/introduction-to-dgxh100.html">DGX H100/H200 网卡规格</a>。下图继续拆解 PCIe 的单方向速率与共享路径。</p>
 <section class="mg-infra-gpu-systems" id="mg-infra-gpu-pcie" aria-labelledby="mg-infra-gpu-pcie-title">
 <p class="mg-sys-kicker">读拓扑前，先看实际路径 · 一张图，一个小例</p>
 <h4 id="mg-infra-gpu-pcie-title">插得进 x16，不等于跑在 x16</h4>
@@ -359,15 +363,28 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p class="mg-sys-source">依据（2026-10-25 核对）：<a href="https://download.msi.com/archive/mnu_exe/mb/B550-APRO_EN.pdf#page=29">MSI B550-A PRO 手册 pp.17、29：插槽来源与电气宽度示例</a>；<a href="https://pcisig.com/faq?field_category_value%5B%5D=pci_express_3.0">PCI-SIG Gen3 FAQ：编码、方向与共同能力</a>；<a href="https://pcisig.com/sites/default/files/files/PCIe_Specification_Webinar_Rev%206_FINAL_0.pdf#page=4">PCI-SIG 2024 规格演进 p.4：Gen4 16 GT/s、128b/130b</a>；<a href="https://developer.nvidia.com/nccl">NCCL 支持的互联</a>；<a href="https://docs.vllm.ai/en/latest/serving/parallelism_scaling/">vLLM 并行策略</a>。数字与图均为教学假设，未运行 GPU／多卡测试。</p>
 </section>
 <h3 id="_3">💡 为什么延迟也重要</h3>
-<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">带宽决定&quot;搬 1GB 要多久&quot;</span></div><div class="vb-flow-row"><span class="vb-flow-step">延迟决定&quot;搬 1KB 要多久&quot;</span></div><div class="vb-flow-row"><span class="vb-flow-step">NVLink 延迟 ~1-2 微秒</span></div><div class="vb-flow-row"><span class="vb-flow-step">InfiniBand 延迟 ~1-3 微秒（RDMA）</span></div><div class="vb-flow-row"><span class="vb-flow-step">以太网 TCP 延迟 ~20-100 微秒 ⭐ 差一个数量级</span></div><div class="vb-flow-row"><span class="vb-flow-step">小消息频繁通信时，【延迟比带宽更致命】</span></div><div class="vb-flow-row"><span class="vb-flow-step">这就是为什么大规模训练必须用 RDMA 而不是普通 TCP</span></div></div></section>
+<p>只发一个很短的张量，也得先发起操作、让传输进入路径并等它完成。可以用两个量估算一条<strong>串行点对点消息</strong>。设 <var>t</var> 是消息用时，<var>α</var> 是一次操作的近似固定开销（秒），<var>S</var> 是有效载荷（字节），<var>B</var> 是大消息条件下估得的有效带宽（字节/秒）。因为搬运时间等于字节数除以每秒速率，所以 <var>t</var> ≈ <var>α</var> + <var>S</var> ÷ <var>B</var>。每个加项都要换成同一单位。</p>
+<div class="tw" id="interconnect-time-ledger"><table style="width:100%;min-width:0;table-layout:fixed;white-space:normal;overflow-wrap:anywhere">
+<caption>教学假设。机内 2 μs / 200 GB/s，跨机 10 μs / 25 GB/s</caption>
+<thead><tr><th scope="col">载荷</th><th scope="col">机内</th><th scope="col">跨机</th></tr></thead>
+<tbody>
+<tr><th scope="row">1 kB</th><td>2.005 μs</td><td>10.04 μs</td></tr>
+<tr><th scope="row">1 MB</th><td>7 μs</td><td>50 μs</td></tr>
+</tbody></table></div>
+<p>沿用十进制，1 kB = 1,000 字节，1 MB = 1,000,000 字节。1 μs 是百万分之一秒。200 GB/s = 200,000 字节/μs，25 GB/s = 25,000 字节/μs。</p>
+<ol>
+<li><strong>小消息。</strong>机内 2 + 1,000 ÷ 200,000 = 2.005 μs，跨机 10 + 1,000 ÷ 25,000 = 10.04 μs。两条路径都主要在等启动。</li>
+<li><strong>大消息。</strong>机内 2 + 1,000,000 ÷ 200,000 = 7 μs，跨机 10 + 1,000,000 ÷ 25,000 = 50 μs。载荷增大后，搬运所占时间更显眼。</li>
+</ol>
+<p>这个模型固定了路径、方向和传输模式，未计入并发、拥塞、包大小变化和计算重叠；数字是演示输入。真实场景可在相同路径上测多档消息长度，小消息观察近似固定开销，大消息估有效带宽。集合通信还要计入各轮与每条链路上的数据量。</p>
 <hr />
 <h2 id="nvlink-nvswitch">🕸️ 二、NVLink 与 NVSwitch</h2>
 <ul>
-<li>❌ <strong>早期：NVLink 点对点连接</strong> —— 8 卡之间不是全连接，<strong>有的卡对之间要绕路</strong></li>
-<li>✅ <strong>现在（DGX/HGX）：NVSwitch 全互联</strong> —— GPU 之间可通过交换网络通信，带宽受路径与并发限制⭐</li>
+<li><strong>NVLink 是 GPU 间高速链路。</strong>如果只在特定卡对上连线，只有接上线的卡对有直接路径；其他卡对能用什么通道，要查这台机器。</li>
+<li><strong>NVSwitch 是交换芯片。</strong>它让接入交换网络的 GPU 可以互通。图把交换域画成一个方框；例如 HGX H100 八卡底板有四颗 NVSwitch。<a href="https://docs.nvidia.com/hgx-platforms/fabric-manager-user-guide/index.html">NVIDIA 平台拓扑</a></li>
 </ul>
 <figure class="dia" id="mg-ai-infra-05-figure-1">
-<svg viewBox="0 0 700 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="8 张 GPU 全部挂在一颗 NVSwitch 上，任意两卡之间全带宽直连">
+<svg viewBox="0 0 700 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="8 张 GPU 通过 NVLink 接入逻辑交换域，卡对之间经过交换网络">
 <text class="dia-t" x="350" y="24" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">NVSwitch 全互联：8 张卡通过交换网络互联（逻辑示意）</text>
 <line x1="176" y1="82" x2="285" y2="140" stroke="var(--border)" stroke-width="1.6"/>
 <line x1="292" y1="82" x2="325" y2="140" stroke="var(--border)" stroke-width="1.6"/>
@@ -395,13 +412,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <text class="dia-t" x="524" y="271" font-size="12.5" text-anchor="middle" fill="var(--fg)" font-weight="600">GPU7</text>
 <rect x="270" y="140" width="160" height="44" rx="9" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.8"/>
 <text class="dia-t" x="350" y="167" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">NVSwitch</text>
-<text class="dia-t" x="446" y="158" font-size="11.5" text-anchor="start" fill="var(--accent)" font-weight="600">← 任意两卡全带宽</text>
-<text class="dia-t" x="446" y="176" font-size="11" text-anchor="start" fill="var(--muted)" font-weight="normal">不用绕路，没有慢路径</text>
+<text class="dia-t" x="446" y="158" font-size="11.5" text-anchor="start" fill="var(--accent)" font-weight="600">← 卡对经交换域互通</text>
+<text class="dia-t" x="446" y="176" font-size="11" text-anchor="start" fill="var(--muted)" font-weight="normal">带宽随路径与并发变化</text>
 <text class="dia-t" x="70" y="164" font-size="11" text-anchor="start" fill="var(--muted)" font-weight="normal">每条线都是</text>
 <text class="dia-t" x="70" y="180" font-size="11" text-anchor="start" fill="var(--muted)" font-weight="normal">NVLink</text>
-<text class="dia-t" x="350" y="310" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">⚠️ 便宜实例常常是 8 卡直接挂 PCIe —— 没有中间这颗芯片</text>
+<text class="dia-t" x="350" y="310" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">八卡也可能只通过 PCIe 连接，需核对具体机器</text>
 </svg>
-<figcaption>NVSwitch 把 8 张卡接成真正的全互联：<b>任意两张卡之间都是经交换网络连接；物理交换芯片数量与路径随平台变化</b>。</figcaption>
+<figcaption>读图时从一张卡沿 NVLink 到交换域，再到另一张卡。方框是逻辑简化；物理交换芯片数量和实际路径随平台变化。</figcaption>
 </figure>
 
 <blockquote>
@@ -413,37 +430,37 @@ TP 的层内通信可能成为瓶颈，但不能只凭 PCIe 就判定不可用�
 <div class="codehilite" data-code-language="bash"><pre><span></span><code>nvidia-smi<span class="w"> </span>topo<span class="w"> </span>-m
 </code></pre></div>
 
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">输出解读（关键的几个值）：</span></div><div class="vb-flow-row"><span class="vb-flow-step">NV8 / NV12</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">NVLink 直连，几条链路 ✅ 最好</span></div><div class="vb-flow-row"><span class="vb-flow-step">NODE</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">同 NUMA 节点，走 PCIe ⚠️</span></div><div class="vb-flow-row"><span class="vb-flow-step">SYS</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">跨 NUMA / 跨 CPU socket 💀 最慢</span></div><div class="vb-flow-row"><span class="vb-flow-step">PIX / PXB</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">经过 1 个 / 多个 PCIe 交换机</span></div></div></section>
+<div class="tw"><table style="width:100%;min-width:0;table-layout:fixed;white-space:normal;overflow-wrap:anywhere">
+<caption>读拓扑矩阵：一行和一列相交处写的是路径类型</caption>
+<thead><tr><th scope="col">标记</th><th scope="col">含义</th></tr></thead>
+<tbody>
+<tr><th scope="row"><code>NV8</code></th><td>路径经过一组绑定的 8 条 NVLink，交换域内也可能出现。</td></tr>
+<tr><th scope="row"><code>PIX</code> / <code>PXB</code></th><td>经过单个或多个 PCIe 交换机，不经过 PCIe 主桥。</td></tr>
+<tr><th scope="row"><code>PHB</code> / <code>NODE</code></th><td>前者经过 PCIe 主桥，后者还经过同一 NUMA 节点内的主桥间互联。</td></tr>
+<tr><th scope="row"><code>SYS</code></th><td>经过 PCIe 和跨 NUMA 节点的处理器互联。NUMA 表示到不同内存或设备路径的代价可能不同。</td></tr>
+</tbody></table></div>
+<p>这些标签给出查找范围。要知道某对端点实际跑多快，还需结合访问方向、同用链路的流量、是否支持 GPU 对等访问及同规模实测。<a href="https://docs.nvidia.com/deploy/nvidia-smi/index.html#topology">nvidia-smi 拓扑文档</a></p>
 <hr />
 <h2 id="rdma">📡 三、跨机通信：RDMA 是关键</h2>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">❌ 传统 TCP/IP：</span></div><div class="vb-flow-row"><span class="vb-flow-step">GPU 显存</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">CPU 内存</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">内核协议栈</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">网卡</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">·</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">反向一遍</span></div><div class="vb-flow-row"><span class="vb-flow-step">多次拷贝，CPU 全程参与，延迟高</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ RDMA（远程直接内存访问）：</span></div><div class="vb-flow-row"><span class="vb-flow-step">GPU 显存 → 网卡 → 远端 GPU 显存</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 绕过 CPU 和内核，零拷贝</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ GPUDirect RDMA：GPU 显存直接和网卡对接，连 CPU 内存都不经过</span></div></div></section>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>技术</th>
-<th>说明</th>
-</tr>
-</thead>
+<section class="visual-block visual-block-flow" id="interconnect-cross-node" aria-label="跨机数据路径">
+<p class="visual-block-title">两台机器怎样交换一份 GPU 数据</p>
+<div class="vb-flow">
+<div class="vb-flow-row"><span class="vb-flow-step">用主机缓冲中转的典型路径</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step">GPU 显存 → 本机内存 → 网卡 → 网络 → 远端网卡 → 远端内存 → 远端 GPU</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step">两端支持 GPUDirect RDMA 时</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step">GPU 显存 → 本机网卡 → 网络 → 远端网卡 → 远端 GPU 显存</span></div>
+</div></section>
+<p><strong>远程直接内存访问（Remote Direct Memory Access，RDMA）</strong>让网卡在通信建立并登记缓冲区之后，直接读写允许访问的远端内存。普通 RDMA 的目标也可以是主机内存。NVIDIA 的 <strong>GPUDirect RDMA</strong> 让兼容的网卡通过 PCIe 直接访问 GPU 缓冲区，省掉载荷经主机内存中转的拷贝；连接建立、内存登记与调度仍有开销，也需要驱动、设备与实际 PCIe 路径支持。<a href="https://docs.nvidia.com/cuda/gpudirect-rdma/index.html">GPUDirect RDMA 文档</a></p>
+<div class="tw"><table style="width:100%;min-width:0;table-layout:fixed;white-space:normal;overflow-wrap:anywhere">
+<caption>把网络类型和 GPU 访问方式分开看</caption>
+<thead><tr><th scope="col">术语</th><th scope="col">负责哪一段</th></tr></thead>
 <tbody>
-<tr>
-<td><strong>InfiniBand</strong></td>
-<td>原生 RDMA，大规模训练集群的主流</td>
-</tr>
-<tr>
-<td><strong>RoCE</strong></td>
-<td>在以太网上跑 RDMA，便宜但需要<strong>无损网络配置</strong>（PFC/ECN），容易配错</td>
-</tr>
-<tr>
-<td><strong>GPUDirect RDMA</strong></td>
-<td>GPU ↔ 网卡直通，必备</td>
-</tr>
-</tbody>
-</table></div>
-<blockquote>
-<p>💥 <strong>一个常见的坑</strong>：RoCE 配置不当会导致<strong>丢包→重传→性能雪崩</strong>。
-症状是"平时还行，一到大规模 AllReduce 就卡死"。
-<strong>排查时先看网卡的 PFC 计数器。</strong></p>
-</blockquote>
+<tr><th scope="row">InfiniBand</th><td>支持 RDMA 的网络。</td></tr>
+<tr><th scope="row">RoCE</th><td>在以太网上使用 RDMA。按网卡与交换机方案配置流量和拥塞控制。</td></tr>
+<tr><th scope="row">GPUDirect RDMA</th><td>网卡如何访问 GPU 内存，可与兼容的 InfiniBand 或 RoCE 配合。</td></tr>
+</tbody></table></div>
+<p>路径还有机器外的一段。两台主机在同一个叶交换机（Leaf）下，流量可能在叶内转发；跨叶常经脊交换机（Spine）。两块 GPU 如果同时向同一 400 Gb/s 端口各要求 30 GB/s，同一方向总需求为 30 + 30 = 60 GB/s，已超过端口的 50 GB/s 标称值。即使机内路径更快，也不能把共享端口当成两份 50 GB/s。多个端口能否共同承载，还要看进程到网卡的映射和交换上行。<a href="https://docs.nvidia.com/enterprise-reference-architectures/hgx-ai-factory-h100-h200-b200/latest/network-logical-architecture.html">叶脊网络示例</a></p>
+<p>如果并发增大时才出现慢和超时，先把受影响的消息、链路和交换队列对应起来。使用优先级流控（PFC）的 RoCE 部署可查暂停计数，也可结合明确拥塞通知（ECN）、丢包与重传指标。单个计数器或一次挂起不足以定位原因。</p>
 <hr />
 <h2 id="_4">🔄 四、集合通信原语（后面天天见）</h2>
 <div class="tw"><table>
@@ -487,25 +504,51 @@ TP 的层内通信可能成为瓶颈，但不能只凭 PCIe 就判定不可用�
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>💡 <strong>一个关键恒等式</strong>：<strong>AllReduce = ReduceScatter + AllGather</strong>
-这解释了为什么 <a href="11-ZeRO与FSDP.html">ZeRO-2</a> 的通信量和普通数据并行<strong>一样</strong>——
-它只是把一次 AllReduce 拆成了两半，中间插入了参数分片。</p>
-</blockquote>
-<h3 id="ring-allreduce">⭐ Ring AllReduce：为什么它是标准做法</h3>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">朴素做法：所有卡把梯度发给 0 号卡，0 号求和后发回</span></div><div class="vb-flow-row"><span class="vb-flow-step">0 号卡的网络成为瓶颈，通信量 O(N × 数据量) 💀</span></div><div class="vb-flow-row"><span class="vb-flow-step">Ring AllReduce：卡排成一个环，分两个阶段</span></div><div class="vb-flow-row"><span class="vb-flow-step">① ReduceScatter：转 N-1 步，每卡最终持有 1/N 的完整求和结果</span></div><div class="vb-flow-row"><span class="vb-flow-step">② AllGather： 再转 N-1 步，把各自那份传遍全环</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 每张卡的发送量（接收量相同）= 2 × (N-1)/N × 数据量 ≈ 2 × 数据量</span></div><div class="vb-flow-row"><span class="vb-flow-step">【和卡数几乎无关】—— 这是它的关键性质</span></div></div></section>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>通信量对比（8 卡，1GB 梯度）：</p><p>朴素：0 号卡要收 7GB、发 7GB 💀</p><p>Ring：每卡发送约 1.75GB ✅ 且完全并行</p></div></section>
-<blockquote>
-<p>🔑 <strong>但注意 Ring 的代价</strong>：<strong>延迟随卡数线性增长</strong>（要转 2(N−1) 步）。
-所以超大规模会用<strong>分层 AllReduce</strong>：
-<strong>先在机内 NVLink 做一次，再跨机做一次，最后机内广播</strong> ——
-把慢的跨机通信量降到 1/8。</p>
-</blockquote>
+<p>先把相同位置的数加起来，再决定结果放在哪儿。<strong>ReduceScatter</strong> 让每个参与进程（rank）只留下自己负责的一段和。紧接着 <strong>AllGather</strong> 把所有段拼回给每个 rank，得到求和型 <strong>AllReduce</strong> 的结果。它描述的是两步得到的结果，并不规定所有实现都走相同路径。<a href="https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/collectives.html">NCCL 集合通信定义</a></p>
+<p><a href="11-ZeRO与FSDP.html">ZeRO-2</a> 也利用分片。把它和数据并行比较时，要先对齐每步同步次数、数据类型及逻辑通信量，再看实际运行时间。</p>
+<h3 id="ring-allreduce">⭐ Ring AllReduce：数据分到各卡，轮次依然要等</h3>
+<p>有 8 张卡各持有 1 GB 梯度。如果都发到 0 号卡求和，再由 0 号发回，它要接收 7 × 1 = 7 GB，再发 7 GB，容易集中在同一张卡上。环形算法把通信摊到每个参与者。</p>
+<section class="visual-block visual-block-flow" aria-label="Ring AllReduce 的两个阶段">
+<p class="visual-block-title">逻辑环上每轮只和邻居交换一段</p>
+<div class="vb-flow">
+<div class="vb-flow-row"><span class="vb-flow-step">先分块：每张卡的输入切成等长的 N 段</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step">ReduceScatter：N − 1 轮，每张卡留下一个归约后的段</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step">AllGather：再用 N − 1 轮，传齐所有已归约的段</span></div>
+</div></section>
+<p>设 <var>N</var> 是参与的卡数（至少 2 张），<var>S</var> 是每张卡的输入字节数。每轮发送 <var>S</var> ÷ <var>N</var> 字节，两个阶段共 2 × (<var>N</var> − 1) 轮，因此<strong>每卡发送</strong> 2 × (<var>N</var> − 1) ÷ <var>N</var> × <var>S</var> 字节，接收同样多。上例每段 1 ÷ 8 = 0.125 GB，14 轮合计每卡发 14 × 0.125 = 1.75 GB。</p>
+<p>卡数增加时，每卡发送量趋近于 2 × <var>S</var>，但每个阶段需要的轮数随卡数增长。即使逻辑上每卡同轮发数据，多个流仍可能争用同一物理链路。分层方案可以先在机内归约，把分片交给各节点之间继续归约，再在机内拼齐；跨机省多少取决于分组、分片与网卡映射。环上的分块和数值过程见<a href="10-数据并行与AllReduce.html">第 10 章</a>。</p>
 <hr />
 <h2 id="_5">🧮 五、通信量估算：决定并行策略的那个数</h2>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>数据并行：每步同步一次梯度</p><p>通信量 = 2 × 参数量（Ring AllReduce）</p><p>→ 7B 模型 BF16 = 14GB × 2 = 28GB/步</p><p>→ 跨机 25GB/s：约 1.1 秒/步 ⚠️ 如果计算只要 0.5 秒，通信就是瓶颈</p><p>张量并行：每层前向和反向各要 AllReduce 一次激活</p><p>通信量 = 层数 × batch × seq × hidden × 2 × 2</p><p>→ 【每一层都要通信】，频率极高</p><p>→ ⭐ 通常优先放在高速互联域内；也能跨机，收益取决于有效带宽、延迟、消息大小及通信计算比</p><p>流水线并行：只在切分点传递激活</p><p>通信量 = 切分点数 × batch × seq × hidden</p><p>→ ⭐ 通信量小得多，可以跨机</p></div></section>
+<p>放置前先列通信账：这条消息装多少字节、每一步发多少次、经过哪些共享段。以下是三个简化场景，前后向和实现不同，需重列消息。</p>
+<ul>
+<li><strong>数据并行（DP）。</strong>假设 8 张卡各有 70 亿个 BF16 梯度值，每个值 2 字节，所以每卡输入 14 GB。用上面的 Ring，每卡发 2 × 7 ÷ 8 × 14 = 24.5 GB，也收 24.5 GB。若各 rank 发与收可同时进行，且最慢 rank 的有效单向速率是 25 GB/s，单算连续搬运需 24.5 ÷ 25 = 0.98 秒。这里还没加轮次开销、共享和等待，也没减被计算覆盖的时间。</li>
+<li><strong>张量并行（TP）。</strong>把同一层切给多张卡算，许多实现要在层内同步中间结果。若一个 BF16 激活张量含 2 条序列、每条 1,024 个位置、每位置 4,096 个数，消息大小是 2 × 1,024 × 4,096 × 2 = 16,777,216 字节。若教学模型有 32 层，每层每个训练步调用两次同尺寸的集合操作，共有 32 × 2 = 64 次；实际字节还要按集合算法和各路径计算。</li>
+<li><strong>流水线并行（PP）。</strong>把相邻层组放在不同设备，通常在边界传激活或梯度。若一次只过一个边界，且一批前向激活和反向梯度都与上例同尺寸，则正向发送 16,777,216 字节，反向再发送同样多。切分点、微批次数、激活形状与等待都要计入。</li>
+</ul>
+<section class="visual-block visual-block-calc" id="interconnect-placement" aria-label="十条小消息和一条大消息怎样放置">
+<p class="visual-block-title">用前面的机内和跨机用时，试两种放法</p>
+<div class="vb-calc">
+<p>假设一轮有两组独立通信，其中一组只能跨机。一组串行发 10 条 1 kB，另一组发 1 条 1 MB。下面假设通信不重叠，其他工作都相同。</p>
+<p><strong>小消息放机内：</strong>10 × 2.005 + 50 = <strong>70.05 μs</strong>。</p>
+<p><strong>大消息放机内：</strong>10 × 10.04 + 7 = <strong>107.4 μs</strong>。</p>
+<p>这组数字下优先让频繁交换的一组留在机内。把小消息次数改成 1，两个方案分别为 52.005 和 17.04 μs，结论反过来。实际划分还得核对吞吐、计算、等待与通信重叠。</p>
+</div></section>
+<p>下列 Python 只复算教学模型。<code>message_us</code> 接收启动时间、有效带宽和载荷字节数，把 GB/s 转成字节/μs 后返回一次用时。最后按消息次数求和；运行输出依次是 70.050、107.400 μs。</p>
+<div class="codehilite" data-code-language="python" id="interconnect-placement-code"><pre><code>def message_us(startup_us, bandwidth_gb_s, payload_bytes):
+    bytes_per_us = bandwidth_gb_s * 1_000
+    return startup_us + payload_bytes / bytes_per_us
+
+local_small = message_us(2, 200, 1_000)
+remote_small = message_us(10, 25, 1_000)
+local_large = message_us(2, 200, 1_000_000)
+remote_large = message_us(10, 25, 1_000_000)
+
+small_count = 10
+print(f"小消息放机内：{small_count * local_small + remote_large:.3f} μs")
+print(f"大消息放机内：{small_count * remote_small + local_large:.3f} μs")
+</code></pre></div>
 <blockquote>
-<p>⭐ <strong>这三行直接推出了<a href="14-并行策略怎么组合.html">第 14 章</a>的黄金法则</strong>：</p>
+<p>⭐ <strong>先给<a href="14-并行策略怎么组合.html">第 14 章</a>一个常见放置起点</strong>：</p>
 <div class="codehilite"><pre><span></span><code>   张量并行 → 放在【机器内部】（NVLink）
    流水线并行 → 跨【机器】
    数据并行 → 最外层
@@ -528,15 +571,12 @@ ibstat<span class="w">                                 </span><span class="c1">#
 </code></pre></div>
 
 <blockquote>
-<p>⚠️ <strong>常见的性能陷阱</strong>：
-- <strong>NCCL 走错网卡</strong>（走了管理网口而不是 IB）→ 用 <code>NCCL_SOCKET_IFNAME</code> 指定
-- <strong>NUMA 亲和性错</strong>（GPU 和网卡不在同一个 socket）→ 用 <code>numactl</code> 绑定
-- <strong>没开 GPUDirect</strong> → 数据绕道 CPU 内存，带宽腰斩</p>
+<p>先用拓扑确认 GPU、网卡与共享段，再用相同 rank 数和消息大小实测。<code>all_reduce_perf</code> 的 <code>-g 8</code> 是每个测试线程用 8 张 GPU；上面的单机调用不代表已测跨机。对小消息先看用时，对大消息再看 <code>algbw</code> 与 <code>busbw</code>。前者用每 rank 的逻辑数据大小除以耗时，后者按集合操作归一化，均不是硬件计数器读出的字节。<a href="https://github.com/NVIDIA/nccl-tests/blob/master/doc/PERFORMANCE.md">NCCL Tests 口径</a></p>
+<p>若日志显示 Socket/IP 选错接口，核对 <code>NCCL_SOCKET_IFNAME</code>；若走 IB/RoCE，查 <code>NCCL_IB_HCA</code> 对应的 RDMA 设备选择。拓扑和 <code>ibstat</code> 可帮助核对候选路径与端口状态，不能单凭它们确认本次已启用 GPUDirect。还要核对 NUMA 亲和性、GPU 与网卡的 PCIe 路径，以及是否退回主机缓冲。</p>
 <div class="codehilite"><pre><span></span><code>export NCCL_DEBUG=INFO       # ⭐ 启动时打印它实际选了哪条路径
 </code></pre></div>
 
-<p><strong><code>NCCL_DEBUG=INFO</code> 是排查通信问题的第一步</strong> —— 它会告诉你 NCCL 实际用的是
-NVLink 还是 PCIe、走的哪张网卡。</p>
+<p><code>NCCL_DEBUG=INFO</code> 可提供初始化、网络与拓扑线索。具体输出随版本和子系统而变；把日志与拓扑、消息大小和测速对照，再决定要查哪一段。<a href="https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/env.html">NCCL 环境变量说明</a></p>
 </blockquote>
 <hr />
 <h2 id="_7">🔗 和站内其他章的关系</h2>
@@ -566,54 +606,50 @@ NVLink 还是 PCIe、走的哪张网卡。</p>
 </tr>
 <tr>
 <td><a href="../Kaggle竞赛方法论/04_超参数调优与工程实践.html">《Kaggle竞赛方法论》04 超参数调优与工程实践</a> 分布式训练选型表</td>
-<td>那张 DP / DDP / DeepSpeed / FSDP 的表<strong>没说前提</strong> —— <strong>前提就是本章的带宽层级</strong> ⭐</td>
+<td>把其中的训练选型与通信消息、显存和实际连接路径一起核对。</td>
 </tr>
 <tr>
 <td><a href="../强化学习基础/12-RLHF全流程.html">《强化学习基础》12 RLHF 全流程</a> PPO 要同时装四个模型</td>
-<td>四个模型每步都要互相传数据，<strong>装不进一台机器时，本章的 NVLink/PCIe 断层决定怎么摆</strong></td>
+<td>模型分到不同设备时，先查实际数据依赖，再按消息大小和频率核对放置。</td>
 </tr>
 </tbody>
 </table></div>
 <hr />
 <h2 id="_8">✅ 检查点</h2>
 <ol>
-<li>四个层级的带宽大概各是多少？最重要的断层在哪？</li>
-<li>为什么延迟也重要？什么场景下延迟比带宽更致命？</li>
-<li>NVSwitch 解决了什么问题？为什么不能假设"8 卡机器"都有它？</li>
+<li>单端口标称 400 Gb/s 是多少 GB/s？能直接和 900 GB/s 的 NVLink 规格比较吗？</li>
+<li>跨机参数仍用 10 μs、25 GB/s。若消息改成 500 kB，启动和搬运分别多久？</li>
+<li>NVSwitch 解决什么问题？为什么八卡机器要先确认实际拓扑？</li>
 <li>怎么查拓扑？<code>SYS</code> 和 <code>NV8</code> 分别代表什么？</li>
-<li>RDMA 相比 TCP 好在哪？什么是 GPUDirect RDMA？</li>
-<li>AllReduce = ? + ?  这个恒等式解释了什么？</li>
-<li>Ring AllReduce 的关键性质是什么？它的代价是什么？</li>
-<li>为什么 TP 通常优先使用高速互联？TP 与 PP 跨机时各需核对什么？</li>
-<li>排查 NCCL 通信问题的第一步是什么？</li>
+<li>普通 RDMA 与 GPUDirect RDMA 的区别在哪段路径？</li>
+<li>AllReduce 怎样拆成两步？每步的结果放哪？</li>
+<li>8 卡环上每卡输入 1 GB，要发多少？卡数变多时，轮数怎样变化？</li>
+<li>为什么频繁同步的 TP 常先试机内？只比较 TP 与 PP 的字节总数够吗？</li>
+<li>拓扑命令、NCCL 日志和测速分别提供什么证据？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>HBM ~2000-3350 GB/s、<strong>NVLink ~450-900</strong>、PCIe ~32-64、InfiniBand ~25-50、以太网 ~1-12 GB/s。最重要的断层在 NVLink 和 PCIe 之间，差 15 倍以上。</li>
-<li>带宽决定"搬 1GB 要多久"，延迟决定"搬 1KB 要多久"。<strong>小消息频繁通信时延迟更致命</strong>——以太网 TCP 延迟 20-100μs 比 RDMA 的 1-3μs 差一个数量级，所以大规模训练必须用 RDMA。</li>
-<li>解决早期 NVLink 点对点连接下<strong>有些卡对之间要绕路</strong>的问题，让任意两卡全带宽直连。不能假设是因为八卡也可能仅通过 PCIe 连接；TP 效率需结合模型实现、batch／消息量和路径带宽／延迟测量，不能直接判成不可用。</li>
-<li><code>nvidia-smi topo -m</code>。<strong>NV8/NV12 = NVLink 直连（最好）</strong>，SYS = 跨 NUMA/跨 CPU socket（最慢）。</li>
-<li>RDMA <strong>绕过 CPU 和内核协议栈，零拷贝</strong>，延迟低得多。GPUDirect RDMA 是 GPU 显存直接和网卡对接，连 CPU 内存都不经过。</li>
-<li><strong>AllReduce = ReduceScatter + AllGather</strong>。解释了为什么 ZeRO-2 的通信量和普通数据并行一样——它只是把一次 AllReduce 拆成两半，中间插入参数分片。</li>
-<li>关键性质：<strong>每卡收发的数据量 ≈ 2×数据量，和卡数几乎无关</strong>。代价：延迟随卡数线性增长（要转 2(N−1) 步），所以超大规模用分层 AllReduce（先机内 NVLink 再跨机）。</li>
-<li>经典 TP 分解在层内频繁同步，通常优先放入高速互联域；这不是禁止跨机。PP 主要在切分点传递激活，常对较慢链路更宽容；两者都应按实际拓扑和负载比较效率。<strong></strong></li>
-<li><strong><code>export NCCL_DEBUG=INFO</code></strong>——它会打印 NCCL 实际选了哪条路径（NVLink 还是 PCIe、哪张网卡）。</li>
+<li>400 ÷ 8 = 50 GB/s，是单端口单方向线速的换算。900 GB/s 是特定 H100 SXM 的每卡多链路双向合计，方向和对象要先对齐。</li>
+<li>启动 10 μs，搬运 500,000 ÷ 25,000 = 20 μs，总计约 30 μs。相同路径下，载荷增大后搬运项会更突出。</li>
+<li>它让接入交换域的 GPU 可以经交换网络互通；八卡也可能只接 PCIe，链路还可能共享。</li>
+<li>用 <code>nvidia-smi topo -m</code>。<code>NV8</code> 经过一组绑定的 8 条 NVLink；<code>SYS</code> 经过 PCIe 和跨 NUMA 节点的处理器互联。两者都是路径标签。</li>
+<li>普通 RDMA 可访问远端主机内存。GPUDirect RDMA 让兼容的网卡直接访问 GPU 缓冲区，省掉这段主机内存中转。</li>
+<li>ReduceScatter 给每卡一段归约结果；AllGather 把所有段拼回给每卡。</li>
+<li>2 × (8 − 1) ÷ 8 × 1 = 1.75 GB 发送，接收也为 1.75 GB。轮数为 2 × (N − 1)，随卡数 N 增大。</li>
+<li>层内调用频繁时，启动等待可能叠加。还要核对消息大小、实际路径、计算与通信重叠，以及 PP 的切分和空等。</li>
+<li>拓扑给候选路径，日志给库实际选择的线索，测速给特定消息大小和负载下的运行数据。三者需要结合。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_9">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
-<blockquote>
-<p>⭐ <strong>卡怎么连，决定了你能用哪种并行策略。</strong></p>
-<p>带宽有四层，从显存到卡间高速互联、到 PCIe、到机间网络逐级下降。⭐⭐ <strong>高速互联与机间网络的带宽和延迟差异，会影响并行策略的效率；TP、PP 和 DP 都可以跨机，需按通信频率、消息大小和负载比较。</strong></p>
-<p>⚠️ 延迟也要看：<strong>小消息频繁通信时，延迟比带宽更致命</strong>——所以大规模训练必须上 RDMA。</p>
-<p>⚠️ <strong>不是所有「八卡机器」都一样</strong>：很多便宜实例是八张卡挂在 PCIe 上。⭐ <strong>开机第一件事就是打印拓扑表看看谁和谁是直连的。</strong></p>
-<p>集合通信原语里有一个恒等式值得单记：⭐ <strong>AllReduce = ReduceScatter + AllGather</strong>——<strong>它直接解释了为什么某一级的显存切分方案通信量和普通数据并行一样。</strong></p>
-<p>⭐ <strong>Ring AllReduce 的关键性质</strong>：每张卡收发的数据量<strong>几乎和卡数无关</strong>；⚠️ 代价是<strong>延迟随卡数线性增长</strong>——所以超大规模要用分层方案，先在机内高速域内做、再跨机。</p>
-<p>⭐⭐ <strong>通信量估算提供候选策略：经典张量并行在层内频繁同步，通常先试高速互联域，也可跨机；流水线并行在切分点传递激活，常更适合较慢链路。数据并行可放最外层；最终要按有效带宽、延迟、计算和重叠比较效率。</strong><strong></strong><strong></strong><strong></strong></p>
-<p>⭐ 排查的第一步是打开通信库的调试日志；常见陷阱是<strong>走错网卡、NUMA 亲和性配错、没开 GPU 直连</strong>。</p>
-</blockquote>
+<ul>
+<li>比较速率先对齐 b/B、方向、端点和聚合范围，再沿真实拓扑找共享段。</li>
+<li>从「每条消息的启动 + 搬运」出发，按大小和次数估时间。优先保留哪组通信，随负载而变。</li>
+<li>RDMA 可以访问远端内存，GPU 缓冲区直通还要看 GPUDirect RDMA 及兼容路径。</li>
+<li>环形通信把流量摊到各卡，轮次和物理链路争用仍要计入。拓扑、日志和实测应一起看。</li>
+</ul>
 <p><strong>下一节</strong> 👉 <a href="06-混合精度.html">06-混合精度.md</a></p>
 <details class="g05-content-note"><summary>条件与依据</summary><p>NVLink 公布的每 GPU 双向聚合带宽，不等于任意一对卡可用的单向吞吐。RDMA 可访问远端内存，GPU 直通还需 GPUDirect RDMA、驱动与拓扑支持。AllReduce=ReduceScatter+AllGather 是求和结果的分解；ZeRO-2 在等精度、理想调度下通信字节数可与 DDP 相当，运行时间并非因此相等。</p><p><a href="https://docs.nvidia.com/deeplearning/performance/dl-performance-gpu-background/index.html">官方文档</a>；<a href="https://www.deepspeed.ai/tutorials/zero/">官方文档</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
