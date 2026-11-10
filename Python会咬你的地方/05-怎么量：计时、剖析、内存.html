@@ -311,7 +311,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <aside class="mg-remaining-entry" aria-label="本页问题与阅读路径"><p class="mg-remaining-question">改完以后感觉更快，测量证据够了吗？</p><p class="mg-remaining-outcome">先选时钟和重复方法，再用原剖析与峰值内存例子核测量口径。</p><nav aria-label="原文阅读停靠点"><a href="#_2">一、三个时钟，各管各的</a><a href="#cprofile">五、cProfile：时间花在哪一行</a><a href="#_7">七、内存：要量的是峰值，不是结束时</a><a href="#mg-python-pitfalls-remaining-start">直接进入完整原文</a></nav></aside><span id="mg-python-pitfalls-remaining-start" aria-hidden="true"></span>
 
 <details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
-<p>⏱ <strong>90 分钟</strong> ｜ ⭐ <strong>全站到处在教「怎么提速」，没有一章教「怎么知道快没快」——同一处改动，单次计时量出 6.7 倍和 1.5 倍两个矛盾结论，重复测量取最小值才稳定在 2.0 倍</strong></p>
+<p>⏱ <strong>90 分钟</strong> ｜ ⭐ <strong>全站到处在教「怎么提速」，没有一章教「怎么知道快没快」——同一处改动，单次计时量出 6.7 倍和 1.5 倍两个矛盾结论，原环境重复测量后观察到约 2.0 倍</strong></p>
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>「我觉得这里慢」是没有信息量的，改完之后「我觉得快了」同样没有。</strong>
 这一章给三样工具和它们各自的脾气：<strong>计时</strong>回答「一共多久」，剖析回答「时间花在哪个函数」，内存量峰值回答「会不会被 OOM 杀掉」。⚠️ 三样都有能把你骗到的地方，本章一半篇幅在讲那些地方。</p>
@@ -401,8 +401,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>改之前（调函数） 108.6 ms</p><p>改之后（算式内联） 16.1 ms ← 快了 6.7 倍</p><p>结果一样吗: True</p></div></section>
 <section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>改之前（调函数） 69.8 ms</p><p>改之后（算式内联） 46.9 ms ← 快了 1.5 倍</p><p>结果一样吗: True</p></div></section>
 <p>⭐ <strong>同一处改动，两次运行给出「6.7 倍」和「1.5 倍」两个结论。</strong> 如果你只跑了第一次，会去汇报「优化了 6.7 倍」；只跑了第二次，可能觉得「不值得改」。<strong>两个结论都是噪声。</strong></p>
-<p>⚠️ 那个 <code>try / finally</code> 不是装饰：没有它，被计时的代码一抛异常，<code>timed</code> 就不会打印任何东西——<strong>你会以为程序卡住了，其实是计时器把异常吞在半路</strong>。</p>
-<p>换成重复测量取最小值，结论立刻稳定：</p>
+<p>⚠️ <code>finally</code> 保证被计时代码抛异常时也尝试打印计时记录。去掉这层清理后，异常仍会传播，只是写在 <code>yield</code> 后的打印可能被跳过。</p>
+<p>改成重复测量，下面用每轮的平均单次耗时做比较，报告最快的那轮。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 同一处改动，用 timeit 重复测量取最小值</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">timeit</span>
 
@@ -419,9 +419,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>连跑三次：</p>
 <section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>改之前 21.9 ms ｜ 改之后 9.5 ms ｜ 快了 2.3 倍</p><p>改之前 22.5 ms ｜ 改之后 11.4 ms ｜ 快了 2.0 倍</p><p>改之前 23.8 ms ｜ 改之后 12.1 ms ｜ 快了 2.0 倍</p></div></section>
-<p>⭐ <strong>2 倍上下才是真实答案</strong>，而它需要重复 9 轮才浮出来。（⚠️ 这台机器当时还跑着别的活，你那里的绝对毫秒数一定不同——<strong>要看的是三次运行给出的是同一个结论</strong>。）</p>
+<p>⭐ 上面是原环境的三次运行记录。每次对两种写法分别测 9 轮，再比较各自最快的一轮。结果约为 2 倍，<strong>只描述这组输入与测量条件</strong>。</p>
 <h2 id="_4">⭐ 三、为什么取最小值，不取平均</h2>
-<p>看一眼分布就明白了：</p>
+<p>先看每一轮的耗时怎样分布。下面保留原实验。注释里「噪声只会往上加」描述的是调度等待这类开销；输入状态、缓存或负载变动也会改变被测工作。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># timeit.repeat 为什么看最小值：噪声只会往上加，不会往下减</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">statistics</span><span class="o">,</span><span class="w"> </span><span class="nn">timeit</span>
 
@@ -439,8 +439,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;最大值比最小值大 </span><span class="si">%.0f%%</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="p">((</span><span class="nb">max</span><span class="p">(</span><span class="n">per</span><span class="p">)</span> <span class="o">/</span> <span class="nb">min</span><span class="p">(</span><span class="n">per</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="mi">100</span><span class="p">))</span>
 </code></pre></div>
 
-<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>15 轮，每轮 20 次，单次耗时（毫秒）：</p><p>0.86 1.09 1.14 1.18 1.22 1.28 1.33 1.38 1.43 1.47 1.61 1.95 2.00 2.25 3.86</p><p>最小值 0.86 ms ｜ 中位数 1.38 ms ｜ 平均 1.60 ms ｜ 最大值 3.86 ms</p><p>最大值比最小值大 347%</p></div></section>
-<p>⭐ <strong>这个分布是单边的</strong>：左边被一堵墙挡住（0.86 ms 是这段代码在这台机器上真正需要的时间，物理上不可能更快），右边拖着一条长尾（3.86 ms 那次是被别的进程抢了 CPU、或者赶上一次 GC、或者缓存被别人挤掉了）。</p>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>15 轮，每轮 20 次，单次耗时（毫秒）：</p><p>0.86 1.09 1.14 1.18 1.22 1.28 1.33 1.38 1.43 1.47 1.61 1.95 2.00 2.25 3.86</p><p>最小值 0.86 ms ｜ 中位数 1.38 ms ｜ 平均 1.60 ms ｜ 最大值 3.86 ms</p><p>原记录给出涨幅 347%，上面显示的毫秒值已舍入。</p></div></section>
+<p>⭐ 这次记录的较慢样本拉出了右侧长尾。调度等待、缓存状态等都可能影响耗时，单凭计时表无法确定原因。<strong>0.86 ms 是这一批里最快一轮的平均单次耗时</strong>，更换条件或继续测量都可能得到更小的值。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -452,22 +452,23 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td>⭐ <strong>最小值</strong></td>
-<td><strong>这段代码最好能有多快</strong></td>
-<td>比较两种写法哪个更优——你要的是<strong>代码本身</strong>的差别，不是当天机器的忙闲</td>
+<td><strong>相同输入和起始状态下，测到的最快样本</strong></td>
+<td>比较两种做同样工作的写法。先统一计时范围和环境，判断长尾是否主要来自外部等待。</td>
 </tr>
 <tr>
 <td>中位数 / 平均</td>
-<td>在<strong>当前这台机器的当前负载下</strong>，典型一次要多久</td>
+<td>中位数（P50）描述典型位置，平均值描述样本总耗时均摊到每项的值。</td>
 <td>估算「跑完全量要几小时」这类容量问题</td>
 </tr>
 <tr>
-<td>⚠️ 最大值 / P99</td>
-<td>最差情况</td>
+<td>P95 / P99</td>
+<td>排序后靠近慢端的位置，反映尾部延迟。</td>
 <td><strong>线上服务的延迟指标</strong>——那是另一件事，见文末链接</td>
 </tr>
 </tbody>
 </table></div>
-<p>⚠️ <strong>这不代表最小值就是「真实性能」</strong>。它是<strong>下界</strong>：你的代码在生产环境里只会更慢。最小值适合做 A / B 比较，不适合做容量规划。</p>
+<p>⚠️ 微基准是对一小段代码的受控计时。使用最小值时先确认每次工作和状态可比，并一起看样本分布。估总耗时要结合代表性负载，了解用户等待则要看实际请求延迟的分位数。</p>
+<p>例如一组<strong>演示用</strong>的 100 次请求，94 次各用 12 ms，6 次各用 180 ms。先按耗时排序，按本例采用的最近秩取法，P50 取第 50 项，等于 12 ms。P95 取第 95 项，已经进入慢请求，等于 180 ms。P50 描述典型延迟，P95 帮你看到尾部延迟，最大值则只是这组样本中最慢的一项。真实服务比较时，用相近的请求组成、负载和观测时段，并说明失败或超时怎么统计。<a href="https://sre.google/sre-book/monitoring-distributed-systems/#worrying-about-your-tail-or-instrumentation-and-performance">Google SRE 的尾延迟示例</a></p>
 <p><code>timeit</code> 自己也是这个立场——命令行版本直接把结论写在输出里：</p>
 <div class="codehilite"><pre><span></span><code>&gt; python -m timeit -s &quot;data=list(range(20000))&quot; &quot;sum(x*x for x in data)&quot;
 500 loops, best of 5: 793 usec per loop
@@ -496,12 +497,48 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><code>setup</code></td>
-<td>准备工作，<strong>不计入时间</strong></td>
-<td>造数据、import、定义函数全放这里</td>
+<td>每轮计时前准备一次，<strong>不计入时间</strong></td>
+<td>只把不在本次计时目标里的准备放这里。</td>
 </tr>
 </tbody>
 </table></div>
 <p>⚠️ <strong><code>number</code> 和 <code>repeat</code> 是两件事，最容易混</strong>：<code>repeat(..., repeat=15, number=20)</code> 返回 <strong>15 个数</strong>，每个数是 20 次的总和。要换算成「单次」得自己除以 <code>number</code>——上面那段的 <code>r / 20</code> 就是干这个的。⚠️ 忘了除，你的所有数字会整整大 20 倍，而且看起来毫无破绽。</p>
+<h3 id="equivalent-benchmark-input">先核每次做了多少工作，再看秒表</h3>
+<p>一个任务每次都应该读四个数并求平方和。如果两次调用共用第 02 章讲过的一次性迭代器，第一遍读完，第二遍虽然还能返回，却一项也没处理。此时即使第二遍耗时更短，也是在给两种不同的工作计时。</p>
+<div class="tw"><table>
+<caption>用 [2, 3, 5, 7] 核对读了几项和算出的平方和</caption>
+<thead><tr><th scope="col">运行方式</th><th scope="col">第一次</th><th scope="col">第二次</th></tr></thead>
+<tbody>
+<tr><th scope="row">复用同一个迭代器</th><td>4 项，平方和 87</td><td>0 项，平方和 0</td></tr>
+<tr><th scope="row">每次创建新迭代器</th><td>4 项，平方和 87</td><td>4 项，平方和 87</td></tr>
+</tbody></table></div>
+<p>手算的参考结果是 4 + 9 + 25 + 49 = 87。下面先在计时外用断言核对项数和结果，再示范两种计时边界。两者都从已经准备好的同一列表出发。</p>
+<div class="codehilite" data-code-language="python"><pre><code class="language-python">from timeit import repeat
+
+def scan(items):
+    count, total = 0, 0
+    for value in items:
+        count += 1
+        total += value * value
+    return count, total
+
+data = [2, 3, 5, 7]
+used = iter(data)
+assert scan(used) == (4, 87)
+assert scan(used) == (0, 0)
+for _ in range(2):
+    assert scan(iter(data)) == (4, 87)
+
+scope = {"data": data, "scan": scan}
+scan_only = repeat("scan(items)", setup="items = iter(data)",
+                   globals=scope, repeat=3, number=1)
+with_iterator = repeat("scan(iter(data))", globals=scope,
+                       repeat=3, number=1)
+assert len(scan_only) == len(with_iterator) == 3
+print("工作量与结果已核验，两种计时范围各获得 3 个样本")
+</code></pre></div>
+<p>第一种只量 <code>scan()</code>，将创建迭代器放在 <code>setup</code> 里。<strong>每轮开始前 <code>setup</code> 只执行一次</strong>，随后才对这一轮里的 <code>number</code> 次调用计时。这里用 <code>number=1</code>，保证一轮内只消费一次。改成 <code>number=2</code> 就会把一次完整扫描和一次空扫描加在一起，除以 2 也得不到完整扫描的耗时。第二种把创建迭代器放进被计时的语句，按每次创建再扫描来量。四个数只用来演示计时边界，代码不比较速度倍数。<a href="https://docs.python.org/3.14/library/timeit.html#timeit.Timer.timeit">Python timeit 的 setup 和 number 规则</a></p>
+<p>原地修改也会改变起点。例如用同一个列表反复量 <code>sort()</code>，第一次接收未排序列表，第二次接收已排序列表。若要量排序本身，可以每轮先从同一未排序基线复制一份，再只量一次排序。若想知道调用者为「复制并排序」总共付多久，就把复制也放进计时范围。每次应核对输入状态和结果，并说明复制是否计入。</p>
 <h2 id="_5">⚠️ 四、三样会让你测出假数字的东西</h2>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 三样会让你测出假数字的东西</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">functools</span><span class="o">,</span><span class="w"> </span><span class="nn">time</span><span class="o">,</span><span class="w"> </span><span class="nn">timeit</span>
@@ -949,9 +986,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ol>
 <li>⚠️ 本章实测<strong>否定了「Windows 上 <code>time.time()</code> 精度只有 15.6 毫秒」这个流传很广的理由</strong> —— 在 CPython 3.13 / Windows 11 上 <code>get_clock_info</code> 显示四个时钟的精度都是 100 纳秒。真正的区别是 <code>adjustable</code>：<code>time.time()</code> 是会被调整的墙上日历钟（NTP 校时、夏令时、虚拟机挂起恢复、有人手动改时间），两次取值之间发生任何一件，结果就是垃圾甚至可能是负数；<code>perf_counter</code> 是单调的，专门用来量间隔。</li>
 <li>差值 ≈ <strong>花在等待上的时间</strong>（本章实测：墙上 0.747 s、CPU 0.172 s、差 0.575 s）。两者接近说明在真算，差得远说明在等——这正是 <a href="04-GIL：为什么多线程救不了你.html">04 章</a>选择表的入口条件：在等就上 async 或线程，在算才考虑进程。</li>
-<li>同一个脚本连跑两次，给出「快了 <strong>6.7 倍</strong>」（108.6 → 16.1 ms）和「快了 1.5 倍」（69.8 → 46.9 ms）两个矛盾结论。用 <code>timeit.repeat(repeat=9, number=5)</code> 取最小值之后，三次运行稳定给出 2.3 / 2.0 / 2.0 倍 —— 2.0 倍才是真实答案。</li>
-<li>因为<strong>分布是单边的</strong>：左边有一堵物理的墙（代码不可能比它真正需要的时间更快），右边拖着噪声长尾（被别的进程抢 CPU、赶上 GC、缓存被挤掉）。实测 15 个数排序后是 0.86 … 3.86 ms，最小 0.86、中位 1.38、平均 1.60、最大 3.86，最大值比最小值大 347%。取最小值就是把噪声剥掉，留下代码本身的差别。<code>timeit</code> 命令行自己也写着 <code>best of 5</code>，不是 average。</li>
-<li>⚠️ <strong>不适合做容量规划</strong>。最小值是下界——你的代码在生产环境里只会更慢。它适合做 A / B 比较（比两种写法），估「跑完全量要几小时」要用中位数或平均，线上延迟要看 P95 / P99。</li>
+<li>同一个脚本连跑两次，给出「快了 <strong>6.7 倍</strong>」（108.6 → 16.1 ms）和「快了 1.5 倍」（69.8 → 46.9 ms）两个矛盾结论。用 <code>timeit.repeat(repeat=9, number=5)</code> 取最小值之后，原环境的三次运行分别得到 2.3 / 2.0 / 2.0 倍，这些是当时条件下的观察。</li>
+<li>当工作量、输入状态和环境条件一致，且外部干扰主要增加等待时，最小值提供一个较少受拖慢的观察。原记录最小 0.86 ms、中位 1.38 ms、平均 1.60 ms、最大 3.86 ms。<code>best of 5</code> 指最快的一轮，仍须检查整组结果。</li>
+<li>容量估算要在代表性负载下测量，考虑吞吐、请求组成与资源余量。微基准最小值只描述本次最快样本。线上请求还要用 P50 看典型位置，用 P95 或 P99 看慢端。</li>
 <li>返回 <strong>15 个数</strong>，每个数是连着跑 20 次的总和。⚠️ 忘了除以 <code>number</code>，所有数字会整整大 20 倍，而且看起来毫无破绽。</li>
 <li>① <strong>一次性的钱混进来</strong>：<code>import numpy</code> 一次就要 0.174 s，而被测的 <code>a.sum()</code> 只有 2 毫秒（藏了个慢 80 倍的东西）；② 缓存：加了 <code>lru_cache</code> 的函数第二次「快了 80076 倍」，因为它根本没执行；③ <code>timeit</code> 默认关掉了 GC：同一段代码 2.21 ms → 2.69 ms，差 22%。另外那行「同一句 <code>a.sum()</code> 连测 5 次，最大是最小的 2.1 倍」说明2 倍的抖动是本底噪声，只测一次的「快了 30%」基本没意义。</li>
 <li><strong><code>tottime</code> 是这个函数自己用掉的时间（不含它调用的别人）</strong>，<code>cumtime</code> 是从进去到出来总共过去多久（含所有子调用）。报告里 <code>pipeline</code> 这一行是 tottime 0.001 / cumtime 0.127 —— 它自己几乎什么都没干，整个程序的时间都挂在它下面。找热点排 <code>tottime</code>，找该砍掉的整块排 <code>cumtime</code>。另外 <code>ncalls</code> 常常更有用：<code>normalize</code> 单次只要 0.1 微秒，问题是它被调了 20 万次。</li>
@@ -960,13 +997,23 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>① <strong>定基线并写下来</strong>；② 用 <code>cProfile</code> 定位（<code>tottime</code> 和 <code>cumtime</code> 各排一次）；③ 一次只改一处；④ 用和①同一把尺再量一次。⚠️ 第 ④ 步最容易犯的错是换了尺——①用 <code>timeit</code>、④用单次计时，那就回到第二节那个「6.7 倍 vs 1.5 倍」的笑话。补充两条：先确认结果没变（<code>out1 == out2</code>，优化最常见的失败模式是「快了但算错了」且不报错），以及别优化不在热点上的东西（占 2% 的函数优化到 0 也只快 2%）。</li>
 </ol>
 </details>
+<p>把新例第一种计时改为 <code>repeat=3, number=2</code>，仍把 <code>items = iter(data)</code> 放在 <code>setup</code>。每轮两次扫描各读几项？</p>
+<details>
+<summary>👀 看答案</summary>
+<p>第一次读 4 项，第二次读 0 项。每轮都重复这个错误，因为 <code>setup</code> 只在一轮开始时建一次迭代器。要把创建移出计时并保证每次都读 4 项，可保持 <code>number=1</code>。</p>
+</details>
+<p>两组服务请求的 P50 都是 12 ms，一组 P95 是 25 ms，另一组是 180 ms。在请求组成与负载相近时，这两个统计量分别告诉你什么？</p>
+<details>
+<summary>👀 看答案</summary>
+<p>典型请求耗时相近，但在第 95 百分位附近，后一组请求明显更慢。单看最小值或 P50 会漏掉这个差别。</p>
+</details>
 <h2 id="_11">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
 <p>⭐ <strong>「我觉得这里慢」和「我觉得快了」都是零信息。</strong> 三样工具各管一件事：计时回答「一共多久」、剖析回答「时间花在哪个函数」、内存峰值回答「会不会被 OOM 杀掉」。</p>
 <p>时钟只用 <code>time.perf_counter()</code>。⚠️ 「Windows 上 <code>time.time()</code> 只有 15.6 ms 精度」那条流传很广的理由<strong>在新版本上已经不成立</strong>；真正的区别是 <strong><code>time.time()</code> 会被调整</strong>——NTP 校时、夏令时、虚拟机挂起恢复发生在两次取值之间，结果就是垃圾甚至负数。⭐ <code>perf_counter</code> 和 <code>process_time</code> 的差值就是<strong>花在等待上的时间</strong>，那正是「选线程还是选进程」的入口条件。</p>
 <p>⚠️⚠️ <strong>本章最重要的一条：单次测量没有信息。</strong> 同一个脚本连跑两次，同一处改动量出「快了 6.7 倍」和「快了 1.5 倍」两个<strong>互相矛盾</strong>的结论；换成 <code>timeit.repeat</code> 取最小值，三次都稳定在 2 倍出头。</p>
-<p>⭐ <strong>为什么取最小不取平均</strong>：分布是单边的——<strong>左边有物理的墙、右边全是噪声长尾</strong>，实测最大值能比最小值大三倍多。⚠️ 但最小值是下界，只适合 A/B 比代码，<strong>不适合做容量规划</strong>。</p>
+<p>⭐ <strong>先核每次的起点和工作量</strong>。同一迭代器跑空了，要先恢复等价输入。条件可比时，最小值描述本次最快样本。服务的典型和尾部延迟分别用 P50 和 P95 等分位数观察。</p>
 <p>⚠️ <code>repeat=15, number=20</code> 返回的是 <strong>15 个数，每个是 20 次的总和</strong>，忘了除会整整大 20 倍。</p>
 <p>三样让你测出假数字的东西：<strong>一次性的开销</strong>（import 比被测代码贵一个数量级）、⭐ <strong>缓存</strong>（第二次「快了几万倍」是因为它根本没执行）、<code>timeit</code> 默认关了 GC。</p>
 <p>⭐ 剖析：<strong><code>tottime</code> 是函数自己用掉的、<code>cumtime</code> 是含子调用的</strong>——找热点排 tottime，找该砍的整块排 cumtime；而 <code>ncalls</code> 常常更有用（单次 0.1 微秒不是问题，被调二十万次才是）。⚠️ <strong>剖析器自己要钱，而且对小函数收费格外重</strong>。</p>
