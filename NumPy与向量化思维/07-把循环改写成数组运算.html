@@ -328,6 +328,40 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⚠️ 第 ③ 条不是玩笑。下面所有倍数都是在 <strong>N = 200,000</strong> 上测的；N = 100 时数组版经常<strong>更慢</strong>，因为你花在建临时数组上的时间比省下来的还多。</p>
 <div class="nm-takeaway"><button type="button" class="nm-save-note" data-nm-save="_1" data-nm-enhance disabled>记住这一段</button></div></section><section class="nm-section nm-prose" data-nm-section="2"><p class="nm-kicker">02 / 完整解释</p><h2>六种关系，六个数组入口。</h2><h3 id="1-cumsum-cumprod-accumulate" data-nm-stop="">🧩 二、① 累积：<code>cumsum</code> / <code>cumprod</code> / <code>accumulate</code></h3>
 <p>长什么样：循环里有一个「累加变量」，每轮更新它并记下来。</p>
+<h4>先跟着两行数据累加</h4>
+<p>两家门店各记录三天的售出件数。甲店是 <code>[60, 70, 10]</code>，乙店是 <code>[20, 30, 40]</code>。现在要知道每家店到每天结束时一共卖了多少件，最后一天的总数只是三个答案中的一个。</p>
+<div class="tw"><table>
+<caption>同一行的累计值会传到下一天</caption>
+<thead><tr><th scope="col">门店</th><th scope="col">第 1 天</th><th scope="col">第 2 天</th><th scope="col">第 3 天</th></tr></thead>
+<tbody>
+<tr><th scope="row">甲</th><td>0 + 60 = 60</td><td>60 + 70 = 130</td><td>130 + 10 = 140</td></tr>
+<tr><th scope="row">乙</th><td>0 + 20 = 20</td><td>20 + 30 = 50</td><td>50 + 40 = 90</td></tr>
+</tbody>
+</table></div>
+<p><strong>累积和（Cumulative Sum）</strong>保留每一步的合计。循环版每到一行就把合计清零，读一格，加一格，存一格。<code>axis=1</code> 指定沿列方向推进，保留 <code>(2, 3)</code> 形状。改成 <code>axis=0</code> 会沿门店方向推进，第二行变为 <code>[60+20, 70+30, 10+40] = [80, 100, 50]</code>。省略 <code>axis</code> 则会把两行接成一条长度为 6 的序列，读到乙店第一天时会从甲店的 140 继续加，得到 160。</p>
+<div class="codehilite" data-code-language="python"><pre><code class="language-python">import numpy as np
+
+sales = np.array([[60, 70, 10], [20, 30, 40]], dtype=np.int8)
+loop_rows = []
+for row in sales:
+    total = 0
+    running = []
+    for value in row:
+        total += int(value)
+        running.append(total)
+    loop_rows.append(running)
+
+wide = np.cumsum(sales, axis=1, dtype=np.int64)
+narrow = np.cumsum(sales, axis=1, dtype=np.int8)
+assert wide.tolist() == loop_rows
+print("逐行", wide.shape, wide.tolist())
+print("沿门店", np.cumsum(sales, axis=0, dtype=np.int64).tolist())
+print("摊平", np.cumsum(sales, dtype=np.int64).tolist())
+print("窄类型", narrow.tolist())
+</code></pre></div>
+<p>四行输出依次是 <code>(2, 3) [[60, 130, 140], [20, 50, 90]]</code>、<code>[[60, 70, 10], [80, 100, 50]]</code>、<code>[60, 130, 140, 160, 190, 230]</code> 和 <code>[[60, -126, -116], [20, 50, 90]]</code>。</p>
+<p><code>int8</code> 能存每一笔售出件数，但累加器（保存当前合计的变量）只能表示 −128 到 127。甲店第二天的 130 按 256 回绕成 <code>130 − 256 = −126</code>，第三天再加 10 得到 −116。<code>dtype=np.int64</code> 让这次运算用较宽的累加器，结果也用该类型存储。选型时要覆盖累计值可能达到的范围，见 <a href="08-整数dtype的真相.html">第 08 章</a>和 <a href="https://numpy.org/doc/2.4/reference/generated/numpy.cumsum.html">NumPy 的 cumsum 文档</a>。</p>
+<p>下面用同一个一维循环思路测量较大输入，先比较结果，再比较耗时。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">timeit</span>
 
@@ -351,7 +385,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>最大差 0.0</p><p>循环 25.59 ms | np.cumsum 1.103 ms | 23x</p></div></section>
-<p>⭐ <strong><code>cumsum</code> 只是一个特例</strong>。任何二元 ufunc 都有 <code>.accumulate</code>：</p>
+<p>常见的逐元素二元运算也可以用 <code>.accumulate</code> 沿一根轴保留中间结果。下表以一维输入为例。换成多维输入时，<code>np.add.accumulate</code> 默认沿轴 0，<code>np.cumsum</code> 默认摊平，比较时应指定相同的轴。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -378,9 +412,39 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>⚠️ <strong><code>cumsum</code> 的误差会累积</strong>。它是顺序相加的，N 很大且量级差异大时，末尾几位和「先排序再加」不同。要求高时用 <code>math.fsum</code>（慢但精确），或者分块加。</p>
+<p><strong>浮点累积也有舍入。</strong> <code>cumsum</code> 保存顺次相加的每一步，末值可能和采用不同加法顺序的 <code>sum</code> 不同。只需要最终合计时，可以考虑精度更高的 <code>math.fsum</code>；如果要每个前缀的合计，需要逐个核对允许的误差。</p>
 <h3 id="2-npbincount">🧩 三、② 分组求和：<code>np.bincount</code></h3>
 <p>长什么样：循环里有个 <code>dict</code>，按某个 key 往里 <code>+=</code>。</p>
+<h4>先把三笔记录放进四个组</h4>
+<p>沿用甲店的三笔销售记录 <code>x=[60, 70, 10]</code>。假设每笔各属于一个商品组，按相同顺序标记 <code>g=[2, 0, 2]</code>。报表约定固定列出 0 到 3 四组，即使某组本次没有记录也留一格。</p>
+<div class="tw"><table>
+<caption>先把四格清零，再按组号更新对应的格</caption>
+<thead><tr><th scope="col">当前操作</th><th scope="col">组 0</th><th scope="col">组 1</th><th scope="col">组 2</th><th scope="col">组 3</th></tr></thead>
+<tbody>
+<tr><th scope="row">初始值</th><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+<tr><th scope="row">60 件 → 组 2</th><td>0</td><td>0</td><td>0 + 60 = 60</td><td>0</td></tr>
+<tr><th scope="row">70 件 → 组 0</th><td>0 + 70 = 70</td><td>0</td><td>60</td><td>0</td></tr>
+<tr><th scope="row">10 件 → 组 2</th><td>70</td><td>0</td><td>60 + 10 = 70</td><td>0</td></tr>
+</tbody>
+</table></div>
+<p><code>np.bincount</code> 以组号作为结果的下标。只传 <code>g</code> 时每遇到一笔就加 1，得到各组记录数。再传入同长度的 <code>weights=x</code> 时，每笔加的是售出件数。这里最大组号是 2，默认结果有 3 格，缺少中间的组 1 会填 0，末尾的组 3 要由 <code>minlength=4</code> 补齐。</p>
+<div class="codehilite" data-code-language="python"><pre><code class="language-python">import numpy as np
+
+g = np.array([2, 0, 2], dtype=np.intp)
+x = np.array([60, 70, 10], dtype=np.int64)
+loop_totals = [0] * 4
+for group, units in zip(g, x):
+    loop_totals[group] += int(units)
+
+totals = np.bincount(g, weights=x, minlength=4)
+counts = np.bincount(g, minlength=4)
+assert totals.tolist() == loop_totals
+print("各组总量", totals.tolist(), totals.dtype)
+print("各组笔数", counts.tolist())
+print("长度下限设为 2", np.bincount(g, minlength=2).tolist())
+</code></pre></div>
+<p>输出依次是 <code>[70.0, 0.0, 70.0, 0.0] float64</code>、<code>[1, 0, 2, 0]</code> 和 <code>[1, 0, 2]</code>。<code>minlength=2</code> 仍要给组 2 留位置。这个非空示例中，即使用整数权重也得到浮点和；需要精确保留大整数时，应改用容量足够的整数累加器。</p>
+<p>下面的计时例把固定长度的累加表换成字典循环对照，数组版仍按组号更新一格。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">timeit</span>
 
@@ -407,7 +471,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>最大差 0.0</p><p>循环 35.18 ms | np.bincount 0.283 ms | 124x</p></div></section>
-<p>⭐ <strong>这是六个套路里倍数最大的一个</strong>，因为循环版每轮都在做哈希、装箱、字典查找三件事，而 <code>bincount</code> 只是一趟顺序写内存。</p>
+<p>在这次测量里，数组版省掉了 Python 循环中的字典查找，按组号更新结果数组。组号越稀疏，空格越多，也要把结果数组的空间算进账单。</p>
 <p>三个必须知道的细节：</p>
 <div class="tw"><table>
 <thead>
@@ -419,19 +483,19 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td><strong><code>minlength</code></strong></td>
-<td>不写的话，输出长度只到「实际出现过的最大组号 + 1」。某一批数据里最后几组没出现，输出就短一截，后面广播直接报错</td>
+<td>非空输入的输出长度是 <code>max(minlength, 最大组号 + 1)</code>。固定报表时可传入约定的组数，并另外验证组号没有超出报表范围。</td>
 </tr>
 <tr>
 <td><strong>组号必须是非负整数</strong></td>
-<td>是字符串 / 稀疏 ID 的话，先 <code>np.unique(keys, return_inverse=True)</code> 映射成 0..G−1</td>
+<td>组号必须是一维非负整数，负组号会报错。结果长度取决于最大组号，两条组号为 0 和 1000000 的记录也要容纳 1000001 格。遇到字符串或稀疏 ID，可用 <code>np.unique(keys, return_inverse=True)</code> 得到原标签和连续的组号。</td>
 </tr>
 <tr>
 <td><strong>不带 <code>weights</code> 就是计数</strong></td>
-<td><code>np.bincount(g)</code> = 每组多少个。⭐ 组均值 = <code>bincount(g, weights=x) / bincount(g)</code></td>
+<td><code>np.bincount(g)</code> 得到每组记录数。算组均值时让加权和与计数使用同一组号和长度，只对计数大于 0 的组做除法。空组没有均值。</td>
 </tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>和上一章的关系</strong>：<code>np.bincount</code> 处理的正是 06 章那个「重复索引」问题。<code>b[[1,1,1]] += 1</code> 只加一次，<code>np.add.at(b, [1,1,1], 1)</code> 才加三次——而 <code>bincount</code> 是同一件事的<strong>专用快速通道</strong>（<code>np.add.at</code> 通用但慢）。</p>
+<p><strong>和上一章的关系。</strong> <code>b[[1,1,1]] += 1</code> 只加一次，<code>np.add.at(b, [1,1,1], 1)</code> 才加三次。组号是一维非负整数时，<code>bincount</code> 可以一次返回各组的计数或加权和。更多输入条件见 <a href="https://numpy.org/doc/stable/reference/generated/numpy.bincount.html">NumPy 的 bincount 文档</a>。</p>
 <h3 id="3-top-knpargpartition">🧩 四、③ Top-K：<code>np.argpartition</code></h3>
 <p><strong>长什么样</strong>：<code>np.argsort(-x)[:k]</code>。⚠️ 它不是循环，但它是<strong>站内出现频率最高的一个「多做了很多功」的写法</strong>——为了拿前 10 个，把 20 万个全排了一遍。</p>
 <div class="codehilite" data-code-language="python"><pre><code class="language-python">import numpy as np
@@ -460,7 +524,19 @@ print(f"argsort {t_sort*1e3:.2f} ms | argpartition {t_part*1e3:.3f} ms | {t_sort
 </code></pre></div>
 
 <section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>集合一致 True</p><p>argsort 9.50 ms | argpartition 2.148 ms | 4.4x</p></div></section>
-<p><code>argpartition</code> 的 <code>kth</code> 是<strong>从 0 开始</strong>的位置；分区内不保证有序。对有限的一维实数取最大的 k 个，可用 <code>np.argpartition(-x, k - 1)[:k]</code>（1 ≤ k ≤ len(x)），再对选中元素排序。k=0 应直接返回空结果；先确定 NaN 的处理规则。</p>
+<p><code>argpartition</code> 的 <code>kth</code> 从 0 数起，分区内部不保证顺序。对能够安全取负的有限一维数组，可用 <code>np.argpartition(-x, k - 1)[:k]</code> 取最大的 <code>k</code> 个元素的下标（<code>1 ≤ k ≤ len(x)</code>），再只对这些元素排序。<code>k=0</code> 直接返回空结果。若可能出现 NaN 或第 <code>k</code> 大的分数并列，先定义选择规则。</p>
+<p>本节计时样本是可安全取负的浮点数。若 <code>x</code> 是 <code>uint8</code>，<code>250</code> 取负后回绕成 6，最小值不再对应原数组的最大值。固定宽度有符号整数的最小值也有取负溢出风险。可以直接在原值上以 <code>len(x) - k</code> 分区，取右侧 <code>k</code> 个，再按原值排序。</p>
+<div class="codehilite" data-code-language="python"><pre><code class="language-python">import numpy as np
+
+values = np.array([0, 250, 2], dtype=np.uint8)
+k = 1
+negated = -values
+wrong = np.argpartition(negated, k - 1)[:k]
+right = np.argpartition(values, len(values) - k)[-k:]
+right = right[np.argsort(values[right])[::-1]]
+print(negated.tolist(), values[wrong].tolist(), values[right].tolist())
+# [0, 6, 254] [0] [250]
+</code></pre></div>
 <h3 id="4-sliding_window_view">🧩 五、④ 滑窗：<code>sliding_window_view</code></h3>
 <p>长什么样：<code>for i in range(N-w+1): out[i] = f(x[i:i+w])</code>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -748,8 +824,9 @@ print(f"argsort {t_sort*1e3:.2f} ms | argpartition {t_part*1e3:.3f} ms | {t_sort
 <ol>
 <li>判断一个循环该不该改写，本章给了哪三个问题？</li>
 <li>「第 i 次要用第 i−1 次的结果」是不是就一定不能改写？举一个反例。</li>
-<li><code>np.bincount</code> 不写 <code>minlength</code> 会出什么问题？</li>
-<li><code>np.argpartition(-x, k)[:k]</code> 拿到的前 k 个是有序的吗？要有序该怎么补？</li>
+<li>甲店用 <code>axis=1</code> 累计到第 2 天是多少？如果误把累加器设为 <code>int8</code>，结果是多少？</li>
+<li>四组报表中只有组 0 和组 2 有记录。不写 <code>minlength</code> 时结果几格？如果出现组 4，只设 <code>minlength=4</code> 能挡住它吗？</li>
+<li>对可安全取负的一维数组，<code>np.argpartition(-x, k - 1)[:k]</code> 拿到的前 <code>k</code> 个下标是有序的吗？要按值降序该怎么补？</li>
 <li><code>sliding_window_view(x, 50)</code> 在 N=200,000 上展开成 <code>(199951, 50)</code>，这一步占多少内存？为什么？</li>
 <li>本章六个套路里，倍数最小的是哪个？大概多少？为什么它最小？</li>
 <li>Top-K 的倍数从 N=200,000 到 N=5,000,000 是怎么变的？原因是什么？</li>
@@ -761,7 +838,8 @@ print(f"argsort {t_sort*1e3:.2f} ms | argpartition {t_part*1e3:.3f} ms | {t_sort
 <ol>
 <li>① 有没有顺序依赖 ② 中间体有多大 ③ 一次跑几个元素（几十个就别改，本章倍数全部在 <strong>N = 200,000</strong> 上测）。</li>
 <li><strong>不一定</strong>。前缀和就是顺序依赖，但 <code>np.cumsum</code> 一行搞定。真正的判据是「这个顺序依赖有没有现成的 ufunc accumulate」——<code>np.add.accumulate</code> / <code>np.maximum.accumulate</code> / <code>np.logical_and.accumulate</code> 都算。没有对应函数（比如每步结果决定下一步读哪个下标）才必须写循环。</li>
-<li>输出长度只到「<strong>实际出现过的最大组号 + 1</strong>」。某批数据里最后几组恰好没出现，输出就短一截，后面广播直接报错。</li>
+<li><code>60 + 70 = 130</code>。<code>int8</code> 的上限是 127，这一步按 256 回绕，得到 <code>130 − 256 = −126</code>。</li>
+<li>最大组号是 2，默认只有 3 格，组 1 的计数为 0。组 4 出现后输出会扩成 5 格。<code>minlength</code> 只保证至少 4 格，验证组号范围需要另做检查。</li>
 <li><strong>无序</strong>。<code>kth</code> 从 0 开始；在 <code>-x</code> 上分区时，左侧值不大于分区点，对应原数组较大的元素。要有序就 <code>idx[np.argsort(-x[idx])]</code> 再对这 k 个排一次，k 小时几乎不花钱。</li>
 <li><strong>不占</strong>（0 额外内存）。实测 <code>np.shares_memory(v, x)</code> 是 True ——它没复制，只是给同一块内存换了套 stride 读法。「如果真复制」是 76.3 MiB，而 <code>x</code> 本身只有 1.5 MiB。为什么能这样见 05 章。</li>
 <li><strong>③ Top-K，只有 3.5–5.7x</strong>。因为 <code>argsort</code> 和 <code>argpartition</code> 都是 C 实现的数组操作，两边都没有 Python 循环开销，差的只是 O(n log n) 和 O(n) 这个算法复杂度；其余五个是「Python 循环 vs C 循环」，差的是一整层解释器开销。</li>
@@ -775,7 +853,7 @@ print(f"argsort {t_sort*1e3:.2f} ms | argpartition {t_part*1e3:.3f} ms | {t_sort
 <blockquote>
 <p>这一章只做一件事：<strong>给「拿到一个循环，手怎么动」列一张对照表。</strong> 动手前先过三个问题——<strong>有没有顺序依赖、中间体多大、一次跑几个元素</strong>（只有几十个就别改）。</p>
 <p>⭐ <strong>第一个问题最容易判错：「要用上一次的结果」不等于「必须写循环」</strong>——前缀和就是顺序依赖，而一个 <code>cumsum</code> 就够。<strong>真正的判据是这个依赖有没有现成的 ufunc accumulate。</strong></p>
-<p>六个套路里最值得记的四条：<strong>分组求和</strong>用 <code>bincount</code> 最猛（循环版每轮都在做哈希、装箱、字典查找），⚠️ <strong>必须写 <code>minlength</code>，否则某批数据末尾几组没出现，输出就短一截</strong>；<strong>Top-K</strong> 用 <code>argpartition</code> 而不是全排序，⚠️ <strong>结果无序</strong>；<strong>滑窗</strong>用 <code>sliding_window_view</code>——⭐ <strong>它展开成一个大得多的形状却和原数组共享内存，「如果真复制」会是几十倍的内存</strong>；<strong>分桶</strong>用 <code>searchsorted</code>，⚠️ <code>side</code> 决定等值归左还是归右。</p>
+<p>六个套路里最值得记的四条：<strong>分组求和</strong>用 <code>bincount</code> 最猛（循环版每轮都在做哈希、装箱、字典查找），⚠️ <strong>固定报表宽度时用 <code>minlength</code> 补末尾空组，并另查组号上界</strong>；<strong>Top-K</strong> 用 <code>argpartition</code> 而不是全排序，⚠️ <strong>结果无序</strong>；<strong>滑窗</strong>用 <code>sliding_window_view</code>——⭐ <strong>它展开成一个大得多的形状却和原数组共享内存，「如果真复制」会是几十倍的内存</strong>；<strong>分桶</strong>用 <code>searchsorted</code>，⚠️ <code>side</code> 决定等值归左还是归右。</p>
 <p>⭐⭐ <strong>全章最该带走的一条不是任何一个函数，是「倍数是规模的函数」</strong>：同一个改写在小规模上只快几倍、在大规模上快十几倍，因为比值里含一个 log。<strong>所以「X 比 Y 快 N 倍」不写清 N 就没有意义。</strong> ⚠️ 同理，同一台笔记本三次独立跑，同一个倍数能差近一倍——<strong>那是热降频不是测错，看量级不看绝对值。</strong></p>
 <p>最后四种情况<strong>直接停手不要改</strong>：真正的顺序依赖、中间体爆炸（⭐ <strong>这时外层留一个循环是正常写法</strong>）、n 很小（每次调用有固定开销）、可读性崩了。</p>
 <p>⭐ <strong>顺序永远是先改对再测</strong>——本章每段代码都先打印「最大差 / 是否完全一致」再打印耗时。<strong>改快了但改错了不报错，是最难查的一类 bug。</strong></p>
