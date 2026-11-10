@@ -321,284 +321,162 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="24">24 · 实战与挑战项目</h1>
-<p>⏱ <strong>项目 1–2 天 / 挑战 4–7 天</strong> ｜ ⭐ <strong>这个领域不动手等于没学</strong></p>
+<p>⏱ <strong>先做 60 分钟最小版，再决定是否进入完整挑战</strong> ｜ ⭐ <strong>目标不是跑出漂亮数字，而是留下别人能复查的证据</strong></p>
 <hr>
 <h2 id="_1">🎯 一句话</h2>
-<p>这一章的项目和别的教程不同：<strong>产出不是模型，是一张"我把它从 X 优化到 Y"的表格。</strong>
-<strong>每个任务都有一个可以量化的、二元的成功判据 —— 数字动了还是没动。</strong></p>
+<p>这一章把前 23 章收成一个工程闭环：<strong>固定问题与工作负载 → 建立基线 → 只改一个因素 → 复测质量、速度与资源 → 注入失败 → 回滚或恢复 → 保存证据。</strong></p>
 <blockquote>
-<p>💡 <strong>设计上为什么使用清楚的反馈</strong>：不像调模型那样"好像好了一点"，
-这里每一步都有明确的数字反馈。<strong>这是阅读与实验组织意图，不是临床或学习效果证据。</strong></p>
+<p>⭐ 最终产出不是一句“快了”，也不只是一张结果表，而是一个<strong>可复现证据包</strong>：配置、版本、原始记录、计算过程、失败证据和复现步骤都在。结果持平或变慢也可以通关，只要证据解释得通。</p>
 </blockquote>
 <hr>
-<h2 id="_2">🧰 开工前：三条纪律</h2>
-<section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>每次只改一件事，改完立刻测 （第 23 章）</li><li>每个数字记进表格，带上配置 （不记的话两小时后你会忘）</li><li>先建立基线，再优化 （没基线就只有"感觉变快了"）</li></ol></section>
-<blockquote>
-<p>⭐ <strong>还有一件 30 分钟的热身，做了下面几个项目会顺很多</strong>：
-<a href="%E9%99%84%E5%BD%95A-%E9%80%9F%E6%9F%A5.html">附录 A 的「🧮 十道计算题」</a>——显存、KV Cache、最大 batch、算术强度、Roofline、MFU、吞吐上限、量化后的账，各一道，全部只用本板块给过的公式。
-</p>
-</blockquote>
-<p><strong>为什么值得先做</strong>：下面每个项目的第一步都是「测出基线」，而<strong>基线要不要信，取决于你能不能先手算出它大概该是多少</strong>。</p>
-<blockquote></blockquote>
-<p>⚠️ 不会估的人最典型的两种翻车：<strong>基线 MFU 只有 8% 却以为正常</strong>（其实是数据管线卡着，不是模型的问题）、</p>
-<blockquote>
-<p><strong>OOM 了就无脑减 batch</strong>（其实是 KV Cache 按 max_len 预分配吃掉的，减 batch 治标不治本）。
-</p>
-</blockquote>
-<p>算过一遍之后，<strong>你会先知道数字该落在哪个区间，再去跑</strong>——这就是项目二、三里"数字动没动"能不能被判读的前提。</p>
-<p>没有 GPU 怎么办：</p>
+<h2 id="_2">🧰 开工前：先写实验合同</h2>
+<section class="visual-block visual-block-steps" aria-label="实验闭环"><p class="visual-block-title">实验闭环</p><ol class="vb-steps"><li>冻结比较条件：代码、模型、数据、请求长度、精度、硬件和随机种子</li><li>预先写通过条件：质量门、SLO、资源上限，以及哪些状态允许标为 NOT_EXECUTED</li><li>至少重复三轮，保存原始值；每次只改一个因素</li><li>注入一次可恢复故障，证明结果不是“正常路径恰好跑通”</li><li>按同一合同复测；失败就回滚，并保留失败证据</li></ol></section>
+<p>“目标提升 30%”不能凭感觉填写。阈值来自两处：<strong>产品必须满足的约束</strong>（例如 TPOT P95 不超过 50 ms）和<strong>基线重复测量暴露的波动</strong>。如果没有产品 SLO，就只能报告比较结果，不能把某个倍数包装成通用通关线。</p>
+<h3 id="project-contract">先手算一遍：为什么单看吞吐会判错</h3>
+<p>假设同一份请求集、同一模型和同一两秒测量窗口下，基线输出 600 token，候选输出 760 token：</p>
+<ul>
+<li>基线吞吐：<code>600 ÷ 2 = 300 token/s</code>。</li>
+<li>候选吞吐：<code>760 ÷ 2 = 380 token/s</code>。</li>
+<li>相对提升：<code>(380 − 300) ÷ 300 × 100% = 26.7%</code>。</li>
+</ul>
+<p>但合同还写着“TPOT P95 ≤ 50 ms，质量集至少答对 92/100”。若候选的 TPOT P95 是 55 ms，即使吞吐提高 26.7%，结论仍是 <strong>FAIL：违反延迟 SLO</strong>。若质量只有 89/100，也同样不能发布。性能、质量和资源是并列的门，不是拿一个好数字抵消另一个坏数字。</p>
 <div class="tw"><table>
-<thead>
-<tr>
-<th>资源</th>
-<th>说明</th>
-</tr>
-</thead>
+<thead><tr><th>必须冻结或记录</th><th>最少内容</th><th>不记录会怎样</th></tr></thead>
 <tbody>
-<tr>
-<td><strong>Colab / Kaggle</strong></td>
-<td>免费 T4 或 P100，够做项目一、二的大部分</td>
-</tr>
-<tr>
-<td><strong>云上按需 A100</strong></td>
-<td>约 $1-2/小时，做完挑战项目花不了多少</td>
-</tr>
-<tr>
-<td><strong>本地消费级卡</strong></td>
-<td>3060/4090 都能做，只是模型要小一号</td>
-</tr>
-</tbody>
-</table></div>
+<tr><td>版本</td><td>代码提交、模型与 tokenizer 版本、容器或依赖清单</td><td>无法重放同一实现</td></tr>
+<tr><td>工作负载</td><td>数据快照/校验值、输入/输出长度分布、并发和请求顺序</td><td>“优化”可能只是换了容易样本</td></tr>
+<tr><td>硬件与运行条件</td><td>设备、驱动/运行时、精度、功耗或频率策略、预热轮数</td><td>不同环境的数字被错误比较</td></tr>
+<tr><td>质量门</td><td>任务指标、样本和允许误差；人工判断需版本化规则</td><td>只看速度，功能已经变了也不知道</td></tr>
+<tr><td>测量口径</td><td>开始/结束点、重复次数、P50/P95/P99、峰值资源</td><td>平均值掩盖尾延迟和 OOM</td></tr>
+<tr><td>证据状态</td><td><code>PASS</code> / <code>FAIL</code> / <code>NOT_EXECUTED</code> / <code>UNKNOWN</code></td><td>离线模拟被误报成真实硬件验收</td></tr>
+</tbody></table></div>
+<blockquote><p>没有 GPU 也能继续：用纯 Python 复算公式、回放已有 trace、模拟调度/块分配、检查配置和报告模板。但这些证据必须标为 <strong>OFFLINE_ONLY / NOT_EXECUTED（真实 GPU）</strong>。模拟能验证逻辑和计算，不能证明 CUDA 内核、显存峰值、多卡通信或线上 SLO。</p></blockquote>
 <hr>
-<h1 id="mfu-15-401">🥉 项目一：把一个模型的 MFU 从 15% 提到 40%+（1 天）</h1>
-<p>练什么：第 3、4、6、7、9、22 章。</p>
+<h1 id="mfu-15-401">🥉 项目一：建立一条可解释的训练性能证据链</h1>
+<p>练什么：第 3、4、6、7、9、21、22、23 章。你不需要把 MFU 提到某个固定百分比；你需要证明瓶颈在哪里、改动影响了什么，以及训练状态能否恢复。</p>
 <h3 id="_3">任务清单</h3>
 <ul class="reading-task-list">
-<li class="reading-task" data-reading-task="1"><label class="reading-task-title"><input type="checkbox" data-task-key="1"><span>任务 T1</span></label><p class="reading-task-time">参考用时 · 45 分钟</p><div class="reading-task-body"> 搭一个故意没优化的训练脚本
-      （FP32、<code>num_workers=0</code>、没有 <code>torch.compile</code>、朴素 attention）
-      <strong>测出基线 MFU</strong> ⭐</div></li>
-<li class="reading-task" data-reading-task="2"><label class="reading-task-title"><input type="checkbox" data-task-key="2"><span>任务 T2</span></label><p class="reading-task-time">参考用时 · 30 分钟</p><div class="reading-task-body"> 换 <strong>BF16 混合精度</strong> → 记录 MFU 变化</div></li>
-<li class="reading-task" data-reading-task="3"><label class="reading-task-title"><input type="checkbox" data-task-key="3"><span>任务 T3</span></label><p class="reading-task-time">参考用时 · 30 分钟</p><div class="reading-task-body"> 修数据管线（<code>num_workers</code>、<code>pin_memory</code>、<code>persistent_workers</code>）
-      → 先做<a href="22-%E6%95%B0%E6%8D%AE%E7%AE%A1%E7%BA%BF%E4%B8%8E%E5%AD%98%E5%82%A8.html">第 22 章</a>那个"换随机张量"的诊断实验</div></li>
-<li class="reading-task" data-reading-task="4"><label class="reading-task-title"><input type="checkbox" data-task-key="4"><span>任务 T4</span></label><p class="reading-task-time">参考用时 · 30 分钟</p><div class="reading-task-body"> 换成 <code>F.scaled_dot_product_attention</code>（走 FlashAttention 后端）</div></li>
-<li class="reading-task" data-reading-task="5"><label class="reading-task-title"><input type="checkbox" data-task-key="5"><span>任务 T5</span></label><p class="reading-task-time">参考用时 · 30 分钟</p><div class="reading-task-body"> 加 <code>torch.compile</code>，<strong>用 <code>TORCH_LOGS="graph_breaks"</code> 确认没断图</strong></div></li>
-<li class="reading-task" data-reading-task="6"><label class="reading-task-title"><input type="checkbox" data-task-key="6"><span>任务 T6</span></label><p class="reading-task-time">参考用时 · 30 分钟</p><div class="reading-task-body"> 调 batch size，找到 MFU 的甜点</div></li>
-<li class="reading-task" data-reading-task="7"><label class="reading-task-title"><input type="checkbox" data-task-key="7"><span>任务 T7</span></label><p class="reading-task-time">参考用时 · 30 分钟</p><div class="reading-task-body"> 画一张"每一步的 MFU 演进"表</div></li>
+<li class="reading-task" data-reading-task="1"><label class="reading-task-title"><input type="checkbox" data-task-key="1"><span>任务 T1</span></label><p class="reading-task-time">停靠点 · 合同</p><div class="reading-task-body">冻结模型、数据快照、序列长度、global/local batch、精度、硬件、随机种子和测量窗口；保存未优化基线的 step time、tokens/s、MFU、峰值显存和 loss。</div></li>
+<li class="reading-task" data-reading-task="2"><label class="reading-task-title"><input type="checkbox" data-task-key="2"><span>任务 T2</span></label><p class="reading-task-time">停靠点 · 计算</p><div class="reading-task-body">用第 4 章公式手算本配置的 FLOP 与 MFU；把 <strong>理论估计、profiler 原始值、最终计算</strong>分三列记录。</div></li>
+<li class="reading-task" data-reading-task="3"><label class="reading-task-title"><input type="checkbox" data-task-key="3"><span>任务 T3</span></label><p class="reading-task-time">停靠点 · 数据</p><div class="reading-task-body">用第 22 章“真实数据 vs 内存中的合成张量”实验定位供给瓶颈；记录 GPU 等待、data time 和 step time，而不是直接调 worker 数。</div></li>
+<li class="reading-task" data-reading-task="4"><label class="reading-task-title"><input type="checkbox" data-task-key="4"><span>任务 T4</span></label><p class="reading-task-time">停靠点 · 单变量</p><div class="reading-task-body">只选择一个有证据支持的候选改动：混合精度、SDPA 后端、编译、batch 或数据管线。先写预测，再改动和复测。</div></li>
+<li class="reading-task" data-reading-task="5"><label class="reading-task-title"><input type="checkbox" data-task-key="5"><span>任务 T5</span></label><p class="reading-task-time">停靠点 · 正确性</p><div class="reading-task-body">比较前若干步 loss、梯度是否有限、更新步数和有效样本数；低精度或编译结果用预先声明的容差判定，不要求位级相同。</div></li>
+<li class="reading-task" data-reading-task="6"><label class="reading-task-title"><input type="checkbox" data-task-key="6"><span>任务 T6</span></label><p class="reading-task-time">停靠点 · 故障</p><div class="reading-task-body">在可控副本中断一次训练；验证 checkpoint 是否包含模型、优化器、调度器、scaler、随机状态和数据游标，并从同一逻辑位置继续。</div></li>
+<li class="reading-task" data-reading-task="7"><label class="reading-task-title"><input type="checkbox" data-task-key="7"><span>任务 T7</span></label><p class="reading-task-time">停靠点 · 结论</p><div class="reading-task-body">至少重复三轮，报告中位数和每轮原始值；若改动无收益，保留 FAIL 结果并解释瓶颈为何不在这里。</div></li>
 </ul>
-<h3 id="_4">🎯 该看到的数字</h3>
-<p>下表保留本练习的参考数字，帮助你组织记录；它们不是所有硬件与模型都能达到的性能保证。请把自己的测量值填进实验表。</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>累积改动</th>
-<th>MFU 参考区间</th>
-<th>这一行看什么</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>基线：FP32 + 朴素实现</td>
-<td>约 12–18%</td>
-<td>先确认比较起点</td>
-</tr>
-<tr>
-<td>+ BF16</td>
-<td>约 25–30%</td>
-<td>原示例中最大的一跳</td>
-</tr>
-<tr>
-<td>+ 修数据管线</td>
-<td>约 30–35%</td>
-<td>数据供给的影响</td>
-</tr>
-<tr>
-<td>+ FlashAttention</td>
-<td>约 35–40%</td>
-<td>注意力实现的影响</td>
-</tr>
-<tr>
-<td>+ torch.compile</td>
-<td>约 40–48%</td>
-<td>编译带来的变化</td>
-</tr>
-<tr>
-<td>+ 调 batch</td>
-<td>约 45–52%</td>
-<td>原示例的最终结果</td>
-</tr>
-</tbody>
-</table></div>
-<h3 id="_5">✅ 通关标准</h3>
+<h3 id="_4">✅ 这一项目怎样通关</h3>
 <ul>
-<li>MFU <strong>翻 3 倍以上</strong></li>
-<li>能说出<strong>每一步的收益来自哪个物理原因</strong>（Tensor Core？带宽？kernel 启动？）</li>
-<li>有一步的收益<strong>低于预期</strong>，且你能解释为什么 ⭐</li>
+<li>基线与候选使用同一实验合同；任何差异都能在配置差异表中找到。</li>
+<li>质量/训练行为没有越过预先声明的容差，且性能变化大于基线自然波动；否则结论是“不足以证明”。</li>
+<li>至少一次失败注入后能从记录的逻辑位置恢复；只加载模型权重不算训练恢复。</li>
+<li>能把观察到的变化连接到物理原因，同时说明还没有验证的部分。</li>
 </ul>
-<details>
-<summary>⚠️ <b>三个常见卡点（卡住了再点）</b></summary>
-<ol>
-<li><strong>BF16 没提升</strong> → 矩阵维度不是 8 的倍数（<a href="06-%E6%B7%B7%E5%90%88%E7%B2%BE%E5%BA%A6.html">第 6 章</a>），把 hidden 改成 4096 这类整数</li>
-<li><strong><code>torch.compile</code> 没提升</strong> → 有 graph break，<code>TORCH_LOGS="graph_breaks"</code> 查；训练循环里有 <code>.item()</code> 或 <code>print</code></li>
-<li><strong>MFU 算出来 &gt;100%</strong> → 公式错了。检查是不是把 6N 写成了 2N，或者峰值算力用错了精度那一列</li>
-</ol>
-</details>
+<details><summary>⚠️ 卡住时按这个顺序排查</summary><ol><li>MFU 异常高：重查 FLOP 模型、有效 token 数、测量窗口和精度峰值口径。</li><li>改精度没有收益：先确认硬件、形状和算子是否支持目标内核，再看瓶颈是否根本不在计算。</li><li>编译没有收益：检查断图、重编译和动态形状，但不要预设编译一定更快。</li><li>恢复后 loss 跳变：核对优化器、调度器、随机状态、scaler 和数据游标是否一起恢复。</li></ol></details>
 <hr>
-<h1 id="12">🥈 项目二：推理服务的完整调优（1–2 天）</h1>
-<p>练什么：第 15–20 章。</p>
+<h1 id="12">🥈 项目二：给推理服务建立多指标发布门</h1>
+<p>练什么：第 15–20、23 章。目标不是追求固定的十倍吞吐，而是在给定 SLO、质量和资源预算下找到可解释的配置。</p>
 <h3 id="_6">任务清单</h3>
 <ul class="reading-task-list">
-<li class="reading-task" data-reading-task="8"><label class="reading-task-title"><input type="checkbox" data-task-key="8"><span>任务 T1</span></label><p class="reading-task-time">参考用时 · 45 分钟</p><div class="reading-task-body"> 用 HuggingFace <code>model.generate()</code> 起一个服务，压测出基线吞吐</div></li>
-<li class="reading-task" data-reading-task="9"><label class="reading-task-title"><input type="checkbox" data-task-key="9"><span>任务 T2</span></label><p class="reading-task-time">参考用时 · 45 分钟</p><div class="reading-task-body"> 换成 <strong>vLLM</strong>，同样压测 → 感受第一跳有多大 ⭐</div></li>
-<li class="reading-task" data-reading-task="10"><label class="reading-task-title"><input type="checkbox" data-task-key="10"><span>任务 T3</span></label><p class="reading-task-time">参考用时 · 45 分钟</p><div class="reading-task-body"> 画出<strong>延迟-吞吐曲线</strong>（<a href="20-%E6%8E%A8%E7%90%86%E6%9C%8D%E5%8A%A1%E5%8C%96.html">第 20 章</a>）
-      —— 并发从 1 扫到 256，记录吞吐和 TPOT P95</div></li>
-<li class="reading-task" data-reading-task="11"><label class="reading-task-title"><input type="checkbox" data-task-key="11"><span>任务 T4</span></label><p class="reading-task-time">参考用时 · 45 分钟</p><div class="reading-task-body"> 开 <strong>前缀缓存</strong>，用带长系统提示词的请求测收益</div></li>
-<li class="reading-task" data-reading-task="12"><label class="reading-task-title"><input type="checkbox" data-task-key="12"><span>任务 T5</span></label><p class="reading-task-time">参考用时 · 60 分钟</p><div class="reading-task-body"> 上 <strong>AWQ 或 FP8 量化</strong>，对比：吞吐、显存、以及质量</div></li>
-<li class="reading-task" data-reading-task="13"><label class="reading-task-title"><input type="checkbox" data-task-key="13"><span>任务 T6</span></label><p class="reading-task-time">参考用时 · 45 分钟</p><div class="reading-task-body"> 开 <strong>KV Cache 量化</strong>，看最大并发数变化</div></li>
-<li class="reading-task" data-reading-task="14"><label class="reading-task-title"><input type="checkbox" data-task-key="14"><span>任务 T7</span></label><p class="reading-task-time">参考用时 · 30 分钟</p><div class="reading-task-body"> 算出每百万 token 成本，对比基线</div></li>
+<li class="reading-task" data-reading-task="8"><label class="reading-task-title"><input type="checkbox" data-task-key="8"><span>任务 T1</span></label><p class="reading-task-time">停靠点 · 工作负载</p><div class="reading-task-body">保存一份含输入/输出长度、共享前缀比例、到达时间和质量标签的请求清单；固定模型、tokenizer、采样参数和版本。</div></li>
+<li class="reading-task" data-reading-task="9"><label class="reading-task-title"><input type="checkbox" data-task-key="9"><span>任务 T2</span></label><p class="reading-task-time">停靠点 · 基线</p><div class="reading-task-body">在同一负载上记录 TTFT、TPOT/ITL、端到端延迟、输出吞吐、失败率、峰值显存和质量结果；保存原始逐请求记录。</div></li>
+<li class="reading-task" data-reading-task="10"><label class="reading-task-title"><input type="checkbox" data-task-key="10"><span>任务 T3</span></label><p class="reading-task-time">停靠点 · 曲线</p><div class="reading-task-body">逐级增加并发，直到先触碰一个预先声明的 SLO 或资源上限；不要固定扫到 256，也不要只报告最大吞吐。</div></li>
+<li class="reading-task" data-reading-task="11"><label class="reading-task-title"><input type="checkbox" data-task-key="11"><span>任务 T4</span></label><p class="reading-task-time">停靠点 · 缓存</p><div class="reading-task-body">只有工作负载确实包含严格相同前缀时才测试前缀缓存；同时记录命中率、TTFT 和新增缓存占用。</div></li>
+<li class="reading-task" data-reading-task="12"><label class="reading-task-title"><input type="checkbox" data-task-key="12"><span>任务 T5</span></label><p class="reading-task-time">停靠点 · 量化</p><div class="reading-task-body">量化后重跑同一质量集和性能负载；记录权重/KV 精度、校准数据版本、质量差异和每项性能差异。</div></li>
+<li class="reading-task" data-reading-task="13"><label class="reading-task-title"><input type="checkbox" data-task-key="13"><span>任务 T6</span></label><p class="reading-task-time">停靠点 · 故障</p><div class="reading-task-body">注入超时、取消或 worker 退出中的一种；确认请求状态、资源释放、重试边界和指标能说明发生了什么。</div></li>
+<li class="reading-task" data-reading-task="14"><label class="reading-task-title"><input type="checkbox" data-task-key="14"><span>任务 T7</span></label><p class="reading-task-time">停靠点 · 成本</p><div class="reading-task-body">用实际计费时长和已完成 token 口径计算成本；预留、失败和取消请求如何计入必须单独写明。</div></li>
 </ul>
-<h3 id="7b-a100">🎯 该看到的数字（7B 模型，单卡 A100 量级）</h3>
-<p>这里混合了吞吐、首字延迟和最大并发三种指标，不能把所有数字连成同一条性能曲线。下列数字是原练习的量级参考；比较时还要固定请求长度、并发、硬件与质量要求。</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>设置</th>
-<th>对应指标</th>
-<th>原练习参考</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>HF generate()，无批处理</td>
-<td>吞吐</td>
-<td>约 100–200 tok/s</td>
-</tr>
-<tr>
-<td>vLLM 默认</td>
-<td>吞吐</td>
-<td>约 2000–3500 tok/s；原示例标注提升 10–20 倍</td>
-</tr>
-<tr>
-<td>+ 前缀缓存，长系统提示词</td>
-<td>TTFT（首字延迟）</td>
-<td>降低 50% 以上</td>
-</tr>
-<tr>
-<td>+ INT4/FP8 量化</td>
-<td>吞吐</td>
-<td>约 5000–7000 tok/s</td>
-</tr>
-<tr>
-<td>+ KV Cache 量化</td>
-<td>最大并发</td>
-<td>原示例中翻倍</td>
-</tr>
-</tbody>
-</table></div>
-<h3 id="_7">✅ 通关标准</h3>
+<h3 id="7b-a100">✅ 这一项目怎样通关</h3>
 <ul>
-<li>吞吐<strong>提升 10 倍以上</strong></li>
-<li>有一张完整的延迟-吞吐曲线，<strong>并据此定出了 <code>max_num_seqs</code></strong></li>
-<li>量化做了<strong>质量评估</strong>（<a href="18-%E9%87%8F%E5%8C%96.html">第 18 章</a>：不能只看 PPL，要测业务能力）⭐</li>
-<li>能算出<strong>每百万 token 成本</strong></li>
+<li>延迟—吞吐曲线来自同一请求分布，并显示哪个约束先到达；配置由证据选择，不由框架默认值决定。</li>
+<li>候选同时通过质量门、SLO 和资源/成本上限；任何一项失败，发布结论就是 FAIL。</li>
+<li>量化、缓存或调度的收益都绑定命中率、精度、长度分布、并发和版本，不写成通用倍数。</li>
+<li>失败注入能在日志、指标和追踪里关联到同一请求，并能说明哪些费用仍是 UNKNOWN。</li>
 </ul>
-<blockquote>
-<p>⭐ <strong>T5 是这个项目最有价值的一步</strong>：
-大多数人量化完只看速度，<strong>不看质量</strong>。
-你要做的是拿 200 条真实样本，对比量化前后的输出 ——
-<strong>尤其测数学和代码，那是量化伤害最大的地方。</strong></p>
-</blockquote>
 <hr>
-<h1 id="a-mini-45">🥇 挑战项目 A：手写一个 mini 推理引擎（4–5 天）</h1>
-<p><strong>难度 ★★★★☆</strong> ｜ 把<a href="16-KV-Cache.html">第 16、17 章</a>真正变成你的</p>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>目标：从零实现一个支持【连续批处理】和【分页 KV Cache】的推理引擎</p><p>—— 不追求快，追求【正确且你完全理解】</p></div></section>
-<h3 id="day-1">阶段一：能跑（Day 1）</h3>
+<h1 id="a-mini-45">🥇 挑战项目 A：手写可验证的 mini 推理调度器</h1>
+<p><strong>先做 CPU/纯 Python 状态机，再选择是否接小模型。</strong> 这个项目验证第 16、17 章的缓存和调度逻辑；离线模拟不等于真实 GPU 性能。</p>
+<section class="visual-block visual-block-compare" aria-label="验证层级"><p class="visual-block-title">验证层级</p><div class="vb-compare"><p>离线层：状态机、块表、引用计数、调度顺序与不变量</p><p>运行层：真实模型的 logits/token、显存、TTFT、TPOT 与吞吐</p></div></section>
+<h3 id="day-1">阶段一：正确性基线</h3>
 <ul class="reading-task-list">
-<li class="reading-task" data-reading-task="15"><label class="reading-task-title"><input type="checkbox" data-task-key="15"><span>核对项 15</span></label><div class="reading-task-body">加载一个小模型（如 TinyLlama-1.1B），实现朴素的自回归生成</div></li>
-<li class="reading-task" data-reading-task="16"><label class="reading-task-title"><input type="checkbox" data-task-key="16"><span>核对项 16</span></label><div class="reading-task-body">加 <strong>KV Cache</strong>，对比有无缓存的速度 → <strong>区分投影复用与注意力累计计算，分别记录耗时</strong> ⭐</div></li>
-<li class="reading-task" data-reading-task="17"><label class="reading-task-title"><input type="checkbox" data-task-key="17"><span>核对项 17</span></label><div class="reading-task-body">测出单请求的 tokens/秒，<strong>和"带宽÷模型大小"的理论上限对比</strong>（<a href="04-Roofline%E4%B8%8EMFU.html">第 4 章</a>）</div></li>
+<li class="reading-task" data-reading-task="15"><label class="reading-task-title"><input type="checkbox" data-task-key="15"><span>核对项 15</span></label><div class="reading-task-body">实现朴素自回归或确定性的 toy model；保存固定输入、参考 logits/token 和终止条件。</div></li>
+<li class="reading-task" data-reading-task="16"><label class="reading-task-title"><input type="checkbox" data-task-key="16"><span>核对项 16</span></label><div class="reading-task-body">加入 KV Cache；同一实现内比较缓存前后 logits，并用声明的绝对/相对容差判断，而不是只看最终文本。</div></li>
+<li class="reading-task" data-reading-task="17"><label class="reading-task-title"><input type="checkbox" data-task-key="17"><span>核对项 17</span></label><div class="reading-task-body">若接真实模型，记录投影复用、注意力累计计算和权重读取分别花多少时间；离线版标为 NOT_EXECUTED（GPU 性能）。</div></li>
 </ul>
-<h3 id="day-2">阶段二：批处理（Day 2）</h3>
+<h3 id="day-2">阶段二：调度</h3>
 <ul class="reading-task-list">
-<li class="reading-task" data-reading-task="18"><label class="reading-task-title"><input type="checkbox" data-task-key="18"><span>核对项 18</span></label><div class="reading-task-body">实现<strong>静态批处理</strong>，测吞吐</div></li>
-<li class="reading-task" data-reading-task="19"><label class="reading-task-title"><input type="checkbox" data-task-key="19"><span>核对项 19</span></label><div class="reading-task-body">实现<strong>连续批处理</strong>：每步检查完成/加入新请求</div></li>
-<li class="reading-task" data-reading-task="20"><label class="reading-task-title"><input type="checkbox" data-task-key="20"><span>核对项 20</span></label><div class="reading-task-body">用<strong>长度方差很大</strong>的请求集对比两者 ⭐
-      → 方差越大，连续批处理赢得越多</div></li>
+<li class="reading-task" data-reading-task="18"><label class="reading-task-title"><input type="checkbox" data-task-key="18"><span>核对项 18</span></label><div class="reading-task-body">实现静态批处理，并输出每个时间槽的活跃请求和空槽。</div></li>
+<li class="reading-task" data-reading-task="19"><label class="reading-task-title"><input type="checkbox" data-task-key="19"><span>核对项 19</span></label><div class="reading-task-body">实现连续批处理：完成请求退出，新请求只在明确的调度边界进入。</div></li>
+<li class="reading-task" data-reading-task="20"><label class="reading-task-title"><input type="checkbox" data-task-key="20"><span>核对项 20</span></label><div class="reading-task-body">回放至少两种长度分布；报告空槽、等待时间和完成时间，不预设连续批处理必须提高固定倍数。</div></li>
 </ul>
-<h3 id="day-34">阶段三：分页（Day 3–4）</h3>
+<h3 id="day-34">阶段三：块管理</h3>
 <ul class="reading-task-list">
-<li class="reading-task" data-reading-task="21"><label class="reading-task-title"><input type="checkbox" data-task-key="21"><span>核对项 21</span></label><div class="reading-task-body">实现<strong>块管理器</strong>：固定大小的块池 + 每请求一张块表</div></li>
-<li class="reading-task" data-reading-task="22"><label class="reading-task-title"><input type="checkbox" data-task-key="22"><span>核对项 22</span></label><div class="reading-task-body">实现分页版的 attention（可以先用朴素实现，正确优先）</div></li>
-<li class="reading-task" data-reading-task="23"><label class="reading-task-title"><input type="checkbox" data-task-key="23"><span>测量 KV Cache 利用率</span></label><div class="reading-task-body">：分页前 vs 分页后 ⭐</div></li>
-<li class="reading-task" data-reading-task="24"><label class="reading-task-title"><input type="checkbox" data-task-key="24"><span>核对项 24</span></label><div class="reading-task-body">实现<strong>前缀共享</strong>（引用计数 + 写时复制）</div></li>
+<li class="reading-task" data-reading-task="21"><label class="reading-task-title"><input type="checkbox" data-task-key="21"><span>核对项 21</span></label><div class="reading-task-body">实现固定块池和每请求块表；定义“已用 token 槽 / 已分配 token 槽”的利用率。</div></li>
+<li class="reading-task" data-reading-task="22"><label class="reading-task-title"><input type="checkbox" data-task-key="22"><span>核对项 22</span></label><div class="reading-task-body">验证跨块读取、最后一块未填满、释放后复用和容量耗尽四种边界。</div></li>
+<li class="reading-task" data-reading-task="23"><label class="reading-task-title"><input type="checkbox" data-task-key="23"><span>核对项 23</span></label><div class="reading-task-body">比较连续预留与分页的内部碎片；保存每个请求的块表，而不是只报一个最终百分比。</div></li>
+<li class="reading-task" data-reading-task="24"><label class="reading-task-title"><input type="checkbox" data-task-key="24"><span>核对项 24</span></label><div class="reading-task-body">若做前缀共享，加入引用计数和写时复制测试：一个请求写入不能改变另一个请求看到的前缀。</div></li>
 </ul>
-<h3 id="day-5">阶段四：验证（Day 5）</h3>
+<h3 id="day-5">阶段四：失败与复现</h3>
 <ul class="reading-task-list">
-<li class="reading-task" data-reading-task="25"><label class="reading-task-title"><input type="checkbox" data-task-key="25"><span>核对项 25</span></label><div class="reading-task-body">和 HuggingFace 的输出<strong>逐 token 对比</strong>（贪心解码下应完全一致）⭐</div></li>
-<li class="reading-task" data-reading-task="26"><label class="reading-task-title"><input type="checkbox" data-task-key="26"><span>核对项 26</span></label><div class="reading-task-body">和 vLLM 对比吞吐，<strong>分析差距来自哪里</strong></div></li>
-<li class="reading-task" data-reading-task="27"><label class="reading-task-title"><input type="checkbox" data-task-key="27"><span>核对项 27</span></label><div class="reading-task-body">写报告</div></li>
+<li class="reading-task" data-reading-task="25"><label class="reading-task-title"><input type="checkbox" data-task-key="25"><span>核对项 25</span></label><div class="reading-task-body">固定权重、tokenizer、dtype、设备与解码设置；对照 logits/token。不同后端数值差异必须先调查，不能把文本相同当唯一正确性证据。</div></li>
+<li class="reading-task" data-reading-task="26"><label class="reading-task-title"><input type="checkbox" data-task-key="26"><span>核对项 26</span></label><div class="reading-task-body">在块不足或请求取消时注入失败，证明块不会泄漏、重复释放或被仍在使用的请求复用。</div></li>
+<li class="reading-task" data-reading-task="27"><label class="reading-task-title"><input type="checkbox" data-task-key="27"><span>核对项 27</span></label><div class="reading-task-body">提交 trace、断言、原始结果和复现命令；与成熟引擎的差距只在同一硬件/负载实际测过后陈述。</div></li>
 </ul>
-<h3 id="_8">✅ 通关标准</h3>
-<ol>
-<li>贪心解码下输出和 HF <strong>完全一致</strong>（这是正确性的硬标准）⭐</li>
-<li>连续批处理相比静态批处理，在高方差请求集上<strong>吞吐提升 ≥ 3 倍</strong></li>
-<li>分页把 KV Cache 利用率从 <strong>&lt;50% 提到 &gt;85%</strong></li>
-<li>报告里说清楚<strong>你和 vLLM 的差距来自哪几个具体的地方</strong></li>
-</ol>
+<h3 id="_8">✅ 这一项目怎样通关</h3>
+<ol><li>调度、块表、引用计数和释放路径都有可重复的自动断言。</li><li>缓存与非缓存路径在声明的数值容差内一致；最终 token 只是额外检查。</li><li>性能只按实际执行层级报告：离线模拟不能声明 GPU 吞吐、显存或内核收益。</li><li>失败注入后没有块泄漏或跨请求污染，并留下重放 trace。</li></ol>
 <hr>
-<h1 id="b34">🥇 挑战项目 B：多卡并行策略的实测扫描（3–4 天）</h1>
-<p><strong>难度 ★★★★★</strong> ｜ 需要至少 4 张卡（云上按小时租）</p>
-<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>目标：亲手验证[第 14 章]的黄金法则，并找出你的硬件上的最优配置</p></div></section>
-<h3 id="day-1_1">阶段一：摸清你的硬件（Day 1）</h3>
+<h1 id="b34">🥇 挑战项目 B：并行策略的受控扫描与恢复</h1>
+<p><strong>有多卡时做实测；没有时做配置枚举和通信模型复算，并标记 OFFLINE_ONLY。</strong></p>
+<section class="visual-block visual-block-note" aria-label="目标"><p class="visual-block-title">目标</p><div class="vb-note"><p>不是证明某条“黄金法则”，而是找出在你的拓扑、模型、batch 和目标下，哪种配置先撞上显存、通信或气泡约束。</p></div></section>
+<h3 id="day-1_1">阶段一：冻结硬件与模型</h3>
 <ul class="reading-task-list">
-<li class="reading-task" data-reading-task="28"><label class="reading-task-title"><input type="checkbox" data-task-key="28"><span>核对项 28</span></label><div class="reading-task-body"><code>nvidia-smi topo -m</code> 画出拓扑图</div></li>
-<li class="reading-task" data-reading-task="29"><label class="reading-task-title"><input type="checkbox" data-task-key="29"><span>核对项 29</span></label><div class="reading-task-body">用 <code>all_reduce_perf</code> 实测<strong>各种规模下的卡间带宽</strong></div></li>
-<li class="reading-task" data-reading-task="30"><label class="reading-task-title"><input type="checkbox" data-task-key="30"><span>核对项 30</span></label><div class="reading-task-body">对比实测和标称值，<strong>差距在哪</strong> ⭐</div></li>
+<li class="reading-task" data-reading-task="28"><label class="reading-task-title"><input type="checkbox" data-task-key="28"><span>核对项 28</span></label><div class="reading-task-body">保存拓扑、设备型号、运行时/通信库版本和可见设备映射；命令不可用时记录 NOT_EXECUTED。</div></li>
+<li class="reading-task" data-reading-task="29"><label class="reading-task-title"><input type="checkbox" data-task-key="29"><span>核对项 29</span></label><div class="reading-task-body">在多个消息大小上测通信，保留每轮原始值；区分单向/双向、算法/总线带宽口径。</div></li>
+<li class="reading-task" data-reading-task="30"><label class="reading-task-title"><input type="checkbox" data-task-key="30"><span>核对项 30</span></label><div class="reading-task-body">用第 5、10 章模型预测通信时间，再比较实测；偏差本身就是要解释的证据。</div></li>
 </ul>
-<h3 id="day-2_1">阶段二：单维度实验（Day 2）</h3>
+<h3 id="day-2_1">阶段二：一次只扫一个维度</h3>
 <ul class="reading-task-list">
-<li class="reading-task" data-reading-task="31"><label class="reading-task-title"><input type="checkbox" data-task-key="31"><span>核对项 31</span></label><div class="reading-task-body">纯 <strong>DDP</strong>：扫 1/2/4/8 卡，画<strong>扩展效率曲线</strong></div></li>
-<li class="reading-task" data-reading-task="32"><label class="reading-task-title"><input type="checkbox" data-task-key="32"><span>核对项 32</span></label><div class="reading-task-body">纯 <strong>FSDP</strong>：对比 ZeRO-2 和 ZeRO-3 的显存和速度</div></li>
-<li class="reading-task" data-reading-task="33"><label class="reading-task-title"><input type="checkbox" data-task-key="33"><span>核对项 33</span></label><div class="reading-task-body">纯 <strong>TP</strong>：扫 TP=2/4/8，<strong>验证"通信量和 TP 度无关"</strong> ⭐</div></li>
-<li class="reading-task" data-reading-task="34"><label class="reading-task-title"><input type="checkbox" data-task-key="34"><span>核对项 34</span></label><div class="reading-task-body">纯 <strong>PP</strong>：扫 micro-batch 数，<strong>验证气泡公式 (P−1)/(M+P−1)</strong> ⭐</div></li>
+<li class="reading-task" data-reading-task="31"><label class="reading-task-title"><input type="checkbox" data-task-key="31"><span>核对项 31</span></label><div class="reading-task-body">DP/DDP：固定 global batch 或固定 local microbatch 二选一，并明确选择；两种比较回答不同问题。</div></li>
+<li class="reading-task" data-reading-task="32"><label class="reading-task-title"><input type="checkbox" data-task-key="32"><span>核对项 32</span></label><div class="reading-task-body">FSDP/ZeRO：记录静态模型状态、训练峰值、通信和 step time；平均分片值不能代替峰值。</div></li>
+<li class="reading-task" data-reading-task="33"><label class="reading-task-title"><input type="checkbox" data-task-key="33"><span>核对项 33</span></label><div class="reading-task-body">TP：按第 12 章具体切分推导每卡通信；不要把某个层的近似写成“与 TP 度永远无关”。</div></li>
+<li class="reading-task" data-reading-task="34"><label class="reading-task-title"><input type="checkbox" data-task-key="34"><span>核对项 34</span></label><div class="reading-task-body">PP：在阶段均衡、忽略额外通信的简化条件下计算气泡，再用真实时间线找出不平衡造成的额外等待。</div></li>
 </ul>
-<h3 id="day-3">阶段三：组合扫描（Day 3）</h3>
+<h3 id="day-3">阶段三：组合扫描</h3>
 <ul class="reading-task-list">
-<li class="reading-task" data-reading-task="35"><label class="reading-task-title"><input type="checkbox" data-task-key="35"><span>核对项 35</span></label><div class="reading-task-body">固定总卡数，扫所有可行的 (TP, PP, DP) 组合</div></li>
-<li class="reading-task" data-reading-task="36"><label class="reading-task-title"><input type="checkbox" data-task-key="36"><span>核对项 36</span></label><div class="reading-task-body">每组记录：MFU、单步时间、峰值显存</div></li>
-<li class="reading-task" data-reading-task="37"><label class="reading-task-title"><input type="checkbox" data-task-key="37"><span>画出热力图，找到最优配置</span></label><div class="reading-task-body"></div></li>
-<li class="reading-task" data-reading-task="38"><label class="reading-task-title"><input type="checkbox" data-task-key="38"><span>验证黄金法则</span></label><div class="reading-task-body">：TP 跨机 vs TP 机内，差多少？⭐</div></li>
+<li class="reading-task" data-reading-task="35"><label class="reading-task-title"><input type="checkbox" data-task-key="35"><span>核对项 35</span></label><div class="reading-task-body">固定总设备数，先用显存和整除条件删去不可行的 (TP, PP, DP) 组合，再测剩余组合。</div></li>
+<li class="reading-task" data-reading-task="36"><label class="reading-task-title"><input type="checkbox" data-task-key="36"><span>核对项 36</span></label><div class="reading-task-body">每组记录 step time、有效 tokens/s、峰值显存、通信时间、质量/训练状态和失败状态。</div></li>
+<li class="reading-task" data-reading-task="37"><label class="reading-task-title"><input type="checkbox" data-task-key="37"><span>核对项 37</span></label><div class="reading-task-body">画热力图，但把 OOM、超时和 NOT_EXECUTED 画成状态，不要从图里删掉。</div></li>
+<li class="reading-task" data-reading-task="38"><label class="reading-task-title"><input type="checkbox" data-task-key="38"><span>核对项 38</span></label><div class="reading-task-body">比较机内/跨机放置时保持其他条件不变；结论只绑定当前拓扑和消息大小。</div></li>
 </ul>
-<h3 id="day-4">阶段四：分析（Day 4）</h3>
+<h3 id="day-4">阶段四：故障与复现</h3>
 <ul class="reading-task-list">
-<li class="reading-task" data-reading-task="39"><label class="reading-task-title"><input type="checkbox" data-task-key="39"><span>核对项 39</span></label><div class="reading-task-body">用<a href="05-%E4%BA%92%E8%81%94%E4%B8%8E%E9%9B%86%E7%BE%A4%E6%8B%93%E6%89%91.html">第 5 章</a>的通信量公式，<strong>预测</strong>每种配置的通信时间</div></li>
-<li class="reading-task" data-reading-task="40"><label class="reading-task-title"><input type="checkbox" data-task-key="40"><span>核对项 40</span></label><div class="reading-task-body">和实测对比 —— <strong>预测准吗？不准的地方为什么？</strong> ⭐</div></li>
-<li class="reading-task" data-reading-task="41"><label class="reading-task-title"><input type="checkbox" data-task-key="41"><span>核对项 41</span></label><div class="reading-task-body">写报告</div></li>
+<li class="reading-task" data-reading-task="39"><label class="reading-task-title"><input type="checkbox" data-task-key="39"><span>核对项 39</span></label><div class="reading-task-body">中断一个可控训练副本或模拟一个 rank 失败；验证超时、失败记录和资源清理。</div></li>
+<li class="reading-task" data-reading-task="40"><label class="reading-task-title"><input type="checkbox" data-task-key="40"><span>核对项 40</span></label><div class="reading-task-body">从 checkpoint 恢复，核对模型、优化器、调度器、随机状态、数据游标和全局 step；比较恢复前后连续性。</div></li>
+<li class="reading-task" data-reading-task="41"><label class="reading-task-title"><input type="checkbox" data-task-key="41"><span>核对项 41</span></label><div class="reading-task-body">让另一环境按报告复跑一个配置；无法复跑的依赖或证据明确写成 UNKNOWN。</div></li>
 </ul>
-<h3 id="_9">✅ 通关标准</h3>
-<ol>
-<li>气泡公式的<strong>预测和实测吻合</strong>（误差 &lt; 20%）</li>
-<li>找到的最优配置<strong>比朴素配置（纯 DDP 或纯 TP）快 30% 以上</strong></li>
-<li><strong>验证了"TP 跨机的代价需按拓扑实测"</strong> —— 给出具体的性能数字</li>
-<li>报告里有一段<strong>"我原本以为 <strong><em>，实际上 </em></strong>"</strong> ⭐</li>
-</ol>
-<h3 id="_10">🏆 加分</h3>
-<ul>
-<li>测出你的硬件上 TP 的<strong>实际甜点</strong>（是不是真的是 8？）</li>
-<li>对比 <code>HYBRID_SHARD</code> 和 <code>FULL_SHARD</code> 在多机下的差距</li>
-<li>加上序列并行，看长序列下的收益</li>
-</ul>
+<h3 id="_9">✅ 这一项目怎样通关</h3>
+<ol><li>每个结论都绑定当前拓扑、版本、工作负载和比较口径，不写成跨硬件定律。</li><li>不可行、失败和无收益的组合也保留；“最优”只指通过质量与资源门后的候选集合。</li><li>至少一次故障恢复能继续同一训练轨迹；只重新启动一个新任务不算恢复。</li><li>另一人可从证据包复跑至少一个配置，并得到同方向结果；否则标记待审核。</li></ol>
+<h3 id="_10">🏆 可选加分</h3>
+<ul><li>把测量脚本做成读取同一份实验合同的自动化入口。</li><li>为每次运行生成不可变的 run ID，并关联代码、配置、数据和原始指标。</li><li>把失败注入和恢复检查纳入回归，而不是只在报告中手动描述。</li></ul>
 <hr>
 <h2 id="_11">📝 报告模板</h2>
 <div class="codehilite" data-code-language="markdown"><pre><span></span><code><span class="gh"># 优化目标：____</span>
-<span class="gu">## 基线</span>
-| 指标 | 值 | 配置 |
-<span class="gu">## 优化步骤</span>
-| 步骤 | 改了什么 | MFU/吞吐 | 变化 | 物理原因 |
-|------|---------|---------|------|---------|
-| 1    | BF16    | 15%→28% | +87% | 用上了 Tensor Core |
-<span class="gu">## 遇到的瓶颈和排查过程</span>
-<span class="gu">## 我原本以为 ___，实际上 ___      ← 最有价值的一节 </span>
-<span class="gu">## 还剩多少空间（用 Roofline 论证）</span>
+<span class="gu">## 证据身份</span>
+- run_id / git commit / 配置文件 / 数据或请求集校验值
+- 模型与 tokenizer / 容器或依赖 / 硬件与运行时
+<span class="gu">## 实验合同（运行前写）</span>
+- 固定条件：____
+- 质量门：____
+- SLO 与资源上限：____
+- 重复次数、预热和测量窗口：____
+<span class="gu">## 基线原始值</span>
+| run | 质量 | P50/P95/P99 或 step time | 吞吐 | 峰值资源 | 状态 |
+<span class="gu">## 单变量改动与预测</span>
+| 改了什么 | 为什么改 | 预测影响 | 实际结果 | PASS/FAIL/UNKNOWN |
+<span class="gu">## 失败注入、恢复与回滚</span>
+- 注入点 / 观察信号 / 恢复位置 / 回滚结果 / 遗留 UNKNOWN
+<span class="gu">## 复现命令与原始证据位置</span>
+<span class="gu">## 我原本以为 ___，证据显示 ___</span>
+<span class="gu">## 没有执行的检查（NOT_EXECUTED）</span>
 </code></pre></div>
 
 <blockquote>
@@ -637,35 +515,37 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr>
 <h2 id="_13">✅ 检查点</h2>
 <ol>
-<li>这一章的项目产出是什么？为什么让每步都有可检查的反馈？</li>
-<li>开工前的三条纪律是什么？</li>
-<li>项目一里，哪一步的收益通常最大？为什么？</li>
-<li>"BF16 没提升"最可能是什么原因？</li>
-<li>项目二 T5 最有价值的地方在哪？</li>
-<li>挑战 A 的正确性硬标准是什么？</li>
-<li>挑战 B 要验证的两个公式/法则是什么？</li>
-<li>报告模板里最有价值的是哪一节？为什么？</li>
+<li>为什么吞吐提高 26.7% 仍可能判定 FAIL？</li>
+<li>实验合同最少要冻结哪几类条件？为什么必须在运行前写质量门和 SLO？</li>
+<li>没有 GPU 时哪些工作仍可执行？哪些结论必须标为 NOT_EXECUTED？</li>
+<li>训练性能项目为什么要保存 loss、有效样本数和恢复状态，而不只看 MFU？</li>
+<li>推理服务为什么必须保存逐请求记录，而不只报平均吞吐？</li>
+<li>mini 调度器的正确性为什么不能只看最终文本？</li>
+<li>并行扫描中，为什么 OOM、超时和无收益的配置不能从热力图中删掉？</li>
+<li>什么才算“恢复训练”，什么只是重新启动了一个新任务？</li>
+<li>报告中至少要有哪些证据，另一人才可能复现一个结果？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>产出是<strong>"我把它从 X 优化到 Y"的表格</strong>，不是模型。友好是因为每个任务都有可量化的、二元的成功判据——数字动了还是没动，反馈清晰。</li>
-<li>①每次只改一件事，改完立刻测 ②每个数字记进表格带上配置 ③<strong>先建立基线再优化</strong>（没基线就只有"感觉变快了"）。</li>
-<li><strong>换 BF16</strong>（~12-18% → ~25-30%）。因为匹配的低精度内核可能提高吞吐；Tensor Core 也有其他格式（第 2、6 章），算力差 16 倍。</li>
-<li><strong>矩阵维度不是 8 的倍数</strong>，没走上 Tensor Core。把 hidden 改成 4096 这类整数。</li>
-<li>因为<strong>大多数人量化完只看速度不看质量</strong>。要拿 200 条真实样本对比量化前后，尤其测数学和代码——那是量化伤害最大的地方。</li>
-<li><strong>贪心解码下输出和 HuggingFace 逐 token 完全一致</strong>。</li>
-<li>①<strong>气泡公式 (P−1)/(M+P−1)</strong> ②黄金法则"TP 跨机的代价需按拓扑实测"（还有"通信量和 TP 度无关"）。</li>
-<li><strong>"我原本以为 <strong><em>，实际上 </em></strong>"</strong>。因为这个领域的直觉极容易出错，记录直觉在哪被推翻比记录结论有用十倍。</li>
+<li>因为性能、质量和 SLO 是并列的门。例子里候选吞吐提高 26.7%，但 TPOT P95 为 55 ms，超过 50 ms 的合同，所以仍是 FAIL。</li>
+<li>至少冻结版本、工作负载、硬件/运行条件、质量门和测量口径。先写门槛是为了避免看到结果后再移动标准或挑基线。</li>
+<li>可以复算公式、回放 trace、模拟调度/块表和检查报告。真实 GPU 的内核性能、显存峰值、多卡通信和线上 SLO 仍是 NOT_EXECUTED，不能由模拟替代。</li>
+<li>MFU 只说明一部分硬件利用。loss、有效样本数和更新步数用于确认训练语义没变；完整 checkpoint 与数据游标用于证明中断后能继续同一轨迹。</li>
+<li>平均吞吐看不到 TTFT/TPOT 的尾部、失败请求和长度差异。逐请求记录才能重算 P95/P99、关联故障并确认比较的是同一分布。</li>
+<li>最终文本可能在中间 logits 已不同的情况下碰巧一致。应固定模型、tokenizer、dtype 和解码条件，并在声明的数值容差内比较缓存前后的 logits/token。</li>
+<li>删掉失败点会制造幸存者偏差，让“最优配置”看起来比实际更可靠。它们应作为 OOM、TIMEOUT、FAIL 或 NOT_EXECUTED 保留。</li>
+<li>恢复训练要恢复模型、优化器、调度器、scaler、随机状态、数据游标和全局 step，并检查轨迹连续性。只加载权重重新跑是新任务。</li>
+<li>至少需要 run ID、代码与环境版本、数据/请求集身份、完整配置、原始日志或 CSV、计算脚本、失败/回滚证据和复现命令；未执行项要明确标记。</li>
 </ol>
 </details>
 <hr>
 <h2 id="_14">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
-<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>先建基线，再优化；每次只改一件事，把速度、资源用量和质量变化记进同一张表。</li><li>训练项目检查计算、数据管线和编译；推理项目同时看吞吐、延迟与输出质量。</li><li>mini 推理引擎先验证输出正确，再测试缓存、批处理与分页带来的收益。</li><li>并行策略先单独测，再组合比较；用实测解释哪些直觉被推翻了。</li></ul></section>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>先写实验合同，再建基线；每次只改一件事，性能、质量、资源和失败状态一起记录。</li><li>阈值来自产品约束和基线波动，不来自教程给出的固定倍数；持平或变慢也可以形成有效证据。</li><li>mini 调度器先验证 logits、状态机和块表不变量，再讨论性能；离线模拟不能证明 GPU 收益。</li><li>并行策略结论只属于当前拓扑、版本和工作负载；失败配置也必须保留。</li><li>能重放、能失败、能恢复、能说明 NOT_EXECUTED，才算一个可维护的项目结果。</li></ul></section>
 
 <p><strong>下一节</strong> 👉 <a href="%E9%99%84%E5%BD%95A-%E9%80%9F%E6%9F%A5.html">附录A-速查.md</a></p>
-<details class="g05-content-note"><summary>条件与依据</summary><p>项目时间、百分比和通关倍数用于组织练习，不是所有设备都可达到的性能门槛。结果持平或变慢也应记录并解释；不为达成预设倍数挑选基线。MFU 跨精度比较要同步峰值口径，真实训练、模型下载和多卡压测均需在自己的环境另行执行。</p><p><a href="https://docs.nvidia.com/deeplearning/performance/dl-performance-gpu-background/index.html">官方文档</a></p></details>
+<details class="g05-content-note"><summary>条件与依据</summary><p>本章中的数字只用于演示计算与判定方法，不是任何硬件或模型的性能承诺。真实训练、模型下载、多卡通信、GPU 峰值和线上服务均需在自己的环境执行；离线复算与模拟必须和真实运行证据分开。MFU 跨精度比较要同步峰值算力口径，推理比较要固定请求分布与质量门。</p><p><a href="https://docs.nvidia.com/deeplearning/performance/dl-performance-gpu-background/index.html">NVIDIA GPU 性能背景资料</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="23-可观测性与成本.html"><div class="dir">← 上一节</div>⭐ 可观测性与成本</a><a class="next" href="附录A-速查.html"><div class="dir">下一节 →</div> 速查</a></nav>
