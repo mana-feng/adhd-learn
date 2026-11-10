@@ -284,6 +284,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 /* Bound only this added prose table; preserve its scroll wrapper and all content. */
 body main table.g04-reading-close-states { table-layout:fixed; width:100%; min-width:36rem; max-width:none; }
 body main table.g04-reading-close-states :is(th,td) { white-space:normal; overflow-wrap:anywhere; word-break:normal; vertical-align:top; }
+body main table.stream-example { table-layout:fixed; width:100%; }
+body main table.stream-example :is(th,td) { min-width:0; padding-inline:8px; white-space:normal; overflow-wrap:anywhere; }
 </style>
 <link rel="stylesheet" href="../assets/magazine-reading-v1.css">
 <link rel="stylesheet" href="../assets/magazine-rollout/ai-fullstack/pilot.css">
@@ -336,7 +338,7 @@ body main table.g04-reading-close-states :is(th,td) { white-space:normal; overfl
 本章管<strong>后端 → HTTP</strong> 这一段：怎么吐、怎么在流里报错、怎么在用户关掉页面时停止烧钱。浏览器那一半在第 10 章。</p>
 <hr />
 <h2 id="_2">🌊 一、为什么必须流式（一节就够）</h2>
-<p>一次长回答生成几十秒是常态。<strong>非流式</strong>下用户从点发送到看见任何东西，等于整段生成时长；<strong>流式</strong>下这个时间被压到接近一次网络往返。⭐ 总时长一模一样，差别只在用户有没有在等待期间获得反馈——很多人等 5 秒就会重刷，而重刷会再烧一次钱。</p>
+<p>一次长回答生成几十秒是常态。<strong>非流式</strong>下，页面等整段生成并返回后才能显示内容；<strong>流式</strong>下，第一段内容到了就能显示。首段仍要等排队、模型生成和链路转发，不能按一次网络往返来估算。流式改善的是等待中的反馈，整段生成耗时仍需单独测量。用户因长时间没反馈而重发时，还可能多触发一次生成。</p>
 <blockquote>
 <p>⭐ 「为什么要流式」「护栏怎么和流式配合」在 <a href="../智能体工程教程/16c-接进真实产品.html">智能体工程 16c</a> 讲过，那边是产品视角。
 <strong>这一章接着往下讲工程链路：报文怎么编、被谁吃掉了、错了怎么办、断了怎么办。</strong></p>
@@ -561,9 +563,9 @@ A等待后:CLOSED</code></pre></div>
 </details>
 <hr />
 <h2 id="sse">📦 三、SSE 报文长什么样</h2>
-<p>先记住本章用到的三点：<strong><code>data:</code> 是内容</strong>、<strong>空行结束一帧</strong>、冒号开头的行是注释（前端会忽略，正好拿来做心跳）。</p>
+<p>服务端发送事件（Server-Sent Events，SSE）为持续到来的响应体规定了事件边界。先记住本章用到的三点：<strong><code>data:</code> 是内容</strong>、<strong>空行结束一帧</strong>、冒号开头的行是注释（前端会忽略，正好拿来做心跳）。</p>
 <p>⭐ <strong>本板块的统一帧格式：每帧一行 <code>data: {JSON}</code>，帧间空一行，帧的类型放在 JSON 负载的 <code>type</code> 字段里。</strong></p>
-<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>data: {&quot;type&quot;:&quot;delta&quot;,&quot;text&quot;:&quot;你&quot;}</p><p>data: {&quot;type&quot;:&quot;delta&quot;,&quot;text&quot;:&quot;好&quot;}</p><p>data: {&quot;type&quot;:&quot;usage&quot;,&quot;in&quot;:120,&quot;out&quot;:8}</p><p>data: {&quot;type&quot;:&quot;error&quot;,&quot;message&quot;:&quot;upstream timeout&quot;,&quot;trace_id&quot;:&quot;a1b2c3d4e5f6&quot;}</p><p>data: {&quot;type&quot;:&quot;done&quot;}</p></div></section>
+<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>data: {&quot;type&quot;:&quot;delta&quot;,&quot;text&quot;:&quot;你&quot;}</p><p>data: {&quot;type&quot;:&quot;delta&quot;,&quot;text&quot;:&quot;好&quot;}</p><p>data: {&quot;type&quot;:&quot;usage&quot;,&quot;in&quot;:120,&quot;out&quot;:8}</p><p>失败分支用 <code>error</code> 报错，仍可用 <code>done</code> 结束发送，完整轨迹见第五节。</p><p>data: {&quot;type&quot;:&quot;done&quot;}</p></div></section>
 <p>⚠️ <strong>SSE 协议本身还有一个 <code>event:</code> 行可以给帧起名字，但本板块不用它</strong> —— 这是「跟着消费方走」的选择。第 10 章会讲：浏览器原生的 <code>EventSource</code> <strong>带不了 <code>Authorization</code> header</strong>，所以前端一律用 <code>fetch</code> + <code>ReadableStream</code> 手动解析。手动解析器也可以支持 <code>event:</code>、多行 <code>data:</code>、<code>id:</code> 和 <code>retry:</code>，只是本板块选择单行 JSON 的子集，不能把它称为完整 SSE 解析器。原生 <code>EventSource</code> 按规范自动重连，并可携带 <code>Last-Event-ID</code>；<code>fetch</code> 手动消费不会自动获得这些行为，补发还要求服务端保留事件。详见 <a href="https://html.spec.whatwg.org/multipage/server-sent-events.html">HTML 标准 §9.2</a> 与 <a href="10-把流式接到界面上.html#fetch-readablestream">第 10 章的消费约定</a>。</p>
 <blockquote>
 <p>⭐ <strong>把类型放进 JSON 负载，换来的是「一行 <code>JSON.parse</code> 拿到全部信息」</strong>：解析路径只有一条。</p>
@@ -571,6 +573,7 @@ A等待后:CLOSED</code></pre></div>
 <p>⚠️ 错误帧的字段名统一用 <strong><code>message</code></strong>（不是 <code>code</code>）：前端拿它是要<strong>显示给人看</strong>的，需要一句话，不是一个枚举值。</p>
 <p>⭐ <strong>但错误帧必须多带一个 <code>trace_id</code></strong> —— 第 3 章立的原则是「每个错误带 <code>trace_id</code> 并同时写进日志」，⚠️ <strong>流式这条路上最容易把它漏掉</strong>：非流式出错时 <code>trace_id</code> 在那个 500 的 JSON 里，而流式的状态码早已是 200、那个 JSON 根本不会发出来。<strong>漏了的后果很具体</strong>：用户说「刚才回答到一半崩了」，你手上什么都没有 —— 而这恰恰是本板块最常见的一种失败。</p>
 </blockquote>
+<p><strong><code>done</code> 是应用约定的结束标记。</strong>客户端要结合此前的事件判断结果，有 <code>error</code> 的回复仍然失败。注释心跳、用量事件和 HTTP 响应体结束都不能代替这项判断。</p>
 <p>⚠️ <strong>注意 <code>message</code> 和 <code>trace_id</code> 的分工，两者缺一不可</strong>：<code>message</code> 是<strong>给人看</strong>的一句人话（⚠️ 别塞异常原文，上游报错常带着密钥前缀、内网 IP、SQL 片段）；<code>trace_id</code> 是给你查的，它在日志里对应着完整细节。一句人话 + 一个能报的号，就是这一对的全部用意。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># sse.py —— SSE 报文自己编一遍。看清楚字节长什么样，坑就少一半</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
@@ -593,13 +596,54 @@ A等待后:CLOSED</code></pre></div>
                     <span class="n">comment</span><span class="p">(</span><span class="s2">&quot;ping&quot;</span><span class="p">),</span>
                     <span class="n">sse</span><span class="p">({</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;delta&quot;</span><span class="p">,</span> <span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="s2">&quot;第一行</span><span class="se">\n</span><span class="s2">第二行&quot;</span><span class="p">}),</span>   <span class="c1"># ⭐ 内容里带换行</span>
                     <span class="n">sse</span><span class="p">({</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;usage&quot;</span><span class="p">,</span> <span class="s2">&quot;in&quot;</span><span class="p">:</span> <span class="mi">120</span><span class="p">,</span> <span class="s2">&quot;out&quot;</span><span class="p">:</span> <span class="mi">340</span><span class="p">}),</span>
-                    <span class="n">sse</span><span class="p">({</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;upstream timeout&quot;</span><span class="p">}),</span>
                     <span class="n">sse</span><span class="p">({</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;done&quot;</span><span class="p">})])</span>
     <span class="nb">print</span><span class="p">(</span><span class="n">wire</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;</span><span class="se">\\</span><span class="s2">n</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">))</span>       <span class="c1"># 把换行显示出来才看得清帧边界</span>
     <span class="c1"># ⭐ 看第三帧：换行已被 json.dumps 转义成 \n 两个字符，所以它仍然只占【一帧】</span>
 </code></pre></div>
 
-<p>⚠️ <strong>两个必踩的坑，都在「换行」上</strong>：<strong>① 内容里的换行会把一帧劈成两帧</strong>——模型输出里有换行是家常便饭，所以正文永远用 JSON 包一层（<code>json.dumps</code> 会把换行转义成 <code>\n</code> 两个字符），别直接 <code>data: 模型原文</code>。② 少一个 <code>\n</code>，帧就永远不完整，前端一直等下一批——症状是「全部内容在最后一瞬间才出现」，和被缓冲一模一样。</p>
+<p>⚠️ <strong>两个换行问题要分开。</strong>① 模型正文里的原始换行会破坏单行 JSON 约定，用 <code>json.dumps</code> 把它转义成 <code>\n</code> 两个字符。② SSE 的两个真实换行用来结束数据行和事件。少了最后的空行，客户端会继续等，甚至在读到响应末尾时丢掉这个未完成事件。</p>
+<h3 id="chat-stream-trace">跟一遍请求：从「我要退货」到完整回复</h3>
+<p>用第 04 章讲过的请求与响应，来跟一遍退货对话。用户点发送后，如果第一段单独到达，页面可以先显示「请」，稍后补成「请提供订单号。」。两段也可能在同一次读取里到达。如果把整段攒在一个 JSON 里，客户端得等生成完才有完整的 JSON 可读。现在把同一条回答分成多次可独立解析的<strong>增量事件（delta）</strong>，每段到达就能更新这条回答。</p>
+<section class="visual-block visual-block-note" aria-labelledby="chat-stream-route">
+<p class="visual-block-title" id="chat-stream-route">这条回复经过哪几站</p>
+<div class="vb-note"><ol>
+<li><strong>浏览器 → 应用后端。</strong>用 <code>POST</code> 发送消息列表，并声明想接收事件流。</li>
+<li><strong>应用后端 ↔ 上游模型。</strong>校验请求，通过后启动上游生成。后端把上游的文本片段包装成本章的事件。</li>
+<li><strong>应用后端 → 浏览器。</strong>客户端从同一个 HTTP 响应体持续读字节，按事件顺序追加文本，最后根据结束和错误标记决定界面状态。</li>
+</ol></div></section>
+<p>下面展示这个接口在应用层看到的方法、头和正文，凭证是占位值。Host、长度和传输分帧由 HTTP 实现处理。输入为一条用户消息，输出和用量数字都为演示设定。</p>
+<div class="codehilite" data-code-language="text" data-code-title="请求 · POST /api/chat"><pre><code>POST /api/chat
+Authorization: Bearer DEMO_TOKEN
+Content-Type: application/json
+Accept: text/event-stream
+
+{"messages":[{"role":"user","content":"我要退货"}]}</code></pre></div>
+<p>请求头的 <code>Content-Type</code> 描述送去的 JSON，<code>Accept</code> 描述希望收到的格式。下面是校验通过后的响应。<code>usage</code> 的 <code>in</code> 和 <code>out</code> 分别是输入、输出 token 数，单独记账。页面只把两条 <code>delta.text</code> 接成「请提供订单号。」。</p>
+<div class="codehilite" data-code-language="text" data-code-title="成功响应 · 200 与事件流"><pre><code>200 OK
+Content-Type: text/event-stream
+Cache-Control: no-cache
+
+data: {"type":"delta","text":"请"}
+
+data: {"type":"delta","text":"提供订单号。"}
+
+data: {"type":"usage","in":120,"out":8}
+
+data: {"type":"done"}
+
+</code></pre></div>
+<h3 id="chat-stream-boundaries">浏览器读到半个字、半个事件怎么办？</h3>
+<p>HTTP/1.1 的 chunk 和 HTTP/2 的 DATA 帧由 HTTP 实现拆装。浏览器的 <code>reader.read()</code> 拿到响应体的一段<strong>字节</strong>，每次读到的范围可以跨过这些传输边界。之后还有两层边界需要处理。</p>
+<div class="tw"><table class="stream-example" aria-label="分批读取后怎样还原事件">
+<thead><tr><th scope="col">读到的内容</th><th scope="col">解码后怎样处理</th><th scope="col">界面文本</th></tr></thead>
+<tbody>
+<tr><td>第 1 次：直到「请」的前两个字节 <code>E8 AF</code></td><td>UTF-8 用 <code>E8 AF B7</code> 编码「请」。解码器先留住未凑齐的两个字节。</td><td>空</td></tr>
+<tr><td>第 2 次：补到 <code>B7</code>，再读到 <code>"}\n</code></td><td>解出「请」。文本缓冲已有完整数据行，但还缺结束事件的空行。</td><td>空</td></tr>
+<tr><td>第 3 次：一个 <code>\n</code>，紧接完整的第二个 <code>delta</code></td><td>补齐第一条的空行。循环取出两条完整事件，各解析一次 JSON。</td><td>请提供订单号。</td></tr>
+<tr><td>第 4 次：完整的 <code>usage</code> 和 <code>done</code></td><td>记用量，收到结束标记。此前没有错误，可以标记完成。</td><td>请提供订单号。</td></tr>
+</tbody></table></div>
+<p>这里 <code>\n</code> 代表一个 LF 换行。每次读到字节，用同一个 <code>TextDecoder</code> 以 <code>{stream: true}</code> 解码，结果拼进文本缓冲，再按 <code>\n\n</code> 取出所有完整事件。读完时结束解码，未遇到空行的最后一条事件仍不能交给应用。这个切法限于本章的 LF、单行 <code>data:</code> JSON 子协议。完整 SSE 另支持其他换行形式和多行 <code>data:</code>。</p>
+<p class="muted">对照 <a href="https://www.rfc-editor.org/rfc/rfc9112.html#section-7.1">HTTP/1.1 分块编码</a>、<a href="https://encoding.spec.whatwg.org/#interface-textdecoder">UTF-8 流式解码</a>、<a href="https://html.spec.whatwg.org/multipage/server-sent-events.html#parsing-an-event-stream">SSE 事件边界</a>。浏览器代码见 <a href="10-把流式接到界面上.html#fetch-readablestream">第 10 章</a>。</p>
 <hr />
 <h2 id="_3" data-mg-stop>⚠️⚠️ 四、一路上吃掉流式的三个地方</h2>
 <p><strong>本章最贵的一节。</strong> 症状永远是同一句话：<strong>本地逐字正常，一上线就变成「憋很久，然后一次性全出现」</strong>——而你的代码一个字都没错。</p>
@@ -631,7 +675,7 @@ A等待后:CLOSED</code></pre></div>
 </table></div>
 <p>⚠️ <strong>三个凶手的共同点，才是它们难查的原因</strong>：① <strong>不报错</strong>——没有任何日志说「我缓冲了」；② 本地永远复现不了——本地没有代理、没有 CDN；③ 症状完全一样——三个凶手长得一模一样，光看症状分不出是谁。</p>
 <h3 id="_4">🔍 怎么定位：一个探针 + 从里往外逐层测</h3>
-<p>⭐ <strong>别去读代码找 bug，代码没 bug。</strong> 做法：部署一个<strong>每秒吐一帧</strong>的探针端点，从最里面往外一层层测——直连应用进程 → 容器端口 → 反向代理 → 公网域名，第一处「帧间隔塌成 0」的那层就是凶手。⭐ 判据是帧间隔，不是总时长：被缓冲时总时长完全不变（还是 5 秒），变的是「5 帧在第 5 秒一起到」。</p>
+<p>⭐ <strong>别去读代码找 bug，代码没 bug。</strong> 做法：部署一个<strong>每秒吐一帧</strong>的探针端点，从最里面往外一层层测——直连应用进程 → 容器端口 → 反向代理 → 公网域名，对照同一探针的到达间隔，优先检查最先开始成批交付的那一段。比如应用每秒产生一帧，5 帧却在第 5 秒一起到，即使总时长与直连相近，流式体验也已经变了。实际缓冲也可能拉长总时长。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># probe.py —— 流式探针：每秒吐一帧，再自己量【帧间隔】。只用标准库，可直接跑</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">http.server</span><span class="o">,</span><span class="w"> </span><span class="nn">socketserver</span><span class="o">,</span><span class="w"> </span><span class="nn">threading</span><span class="o">,</span><span class="w"> </span><span class="nn">time</span><span class="o">,</span><span class="w"> </span><span class="nn">urllib.request</span>
 
@@ -684,70 +728,69 @@ A等待后:CLOSED</code></pre></div>
 </blockquote>
 <hr />
 <h2 id="_5">🚨 五、流式下的错误处理：头已经发出去了</h2>
-<p><strong>非流式</strong>出错很简单：返回 500，前端显示「失败，请重试」。<strong>流式</strong>下你已经回了 200、还吐了三百个字，这时上游断了——⭐ 状态码在第一帧发出去的那一刻就定死了，改不了。</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>问题</th>
-<th>处理</th>
-</tr>
-</thead>
+<p>第三节的「我要退货」如果只吐出「请」就卡住，页面仍可能已经收到 <code>200 OK</code>。<strong>一旦最终响应头发出，状态码就已确定</strong>，即使正文还没开始。先查响应头，再看流里最后真正收到的事件。</p>
+<div class="tw"><table class="stream-example" aria-label="同一请求的成功与失败分支">
+<thead><tr><th scope="col">观察到什么</th><th scope="col">怎么显示与处理</th></tr></thead>
 <tbody>
-<tr>
-<td>状态码用不了了</td>
-<td>⭐ 错误必须走<strong>流内错误帧</strong>（<code>data: {"type":"error","message":"…"}</code>），前端要接住「<strong>200 + 半截内容 + error 帧</strong>」</td>
-</tr>
-<tr>
-<td>生成器直接抛异常</td>
-<td>⚠️ 连接<strong>当场断开</strong>，前端只看到「流没了」——<strong>和网络抖动、和正常结束都分不出来</strong>。必须自己 <code>try/except</code> 转成错误帧</td>
-</tr>
-<tr>
-<td>怎么区分「正常结束」</td>
-<td>⭐ 结尾必须有明确的结束帧（<code>data: {"type":"done"}</code>），<strong>否则前端分不出「说完了」和「断了」</strong></td>
-</tr>
-<tr>
-<td>半截内容怎么办</td>
-<td>追加「以上回答未完成」或整块置灰。<strong>最糟的是什么都不做</strong>——用户会把半句话当成完整答案</td>
-</tr>
-</tbody>
-</table></div>
-<p>⭐ <strong>由此推出一条设计铁律：所有可能失败的事，必须全部挤在第一个字之前做完。</strong> 鉴权、取历史、检索、输入校验——<strong>一旦开始吐字，你就失去了「假装什么都没发生」的权利</strong>（这也是 04 章那条「首字之后不能静默重试」的来源）。</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🗓️ 未实跑 —— 需要 FastAPI 和真实模型。要看的是【三件事的位置】。</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">json</span><span class="o">,</span><span class="w"> </span><span class="nn">logging</span><span class="o">,</span><span class="w"> </span><span class="nn">uuid</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastAPI</span><span class="p">,</span> <span class="n">Request</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">fastapi.responses</span><span class="w"> </span><span class="kn">import</span> <span class="n">StreamingResponse</span>
+<tr><td><code>401</code> + 普通 JSON 错误</td><td>鉴权在开流前失败。按 HTTP 错误处理，不进 SSE 解析。</td></tr>
+<tr><td><code>200</code> → 两条 <code>delta</code> → <code>usage</code> → <code>done</code></td><td>拼成完整文本，独立记用量，标为完成。</td></tr>
+<tr><td><code>200</code> → <code>delta</code>「请」 → <code>error</code> → <code>done</code></td><td>保留「请」并标记回答失败、内容未完成。<code>done</code> 结束接收状态，先前的错误仍有效。</td></tr>
+<tr><td><code>200</code> → <code>delta</code>「请」 → 读到末尾或读取失败，未收到 <code>done</code></td><td>保留「请」并标为中断。只凭 EOF（响应体读完）或读取异常，无法断定是上游、网络还是代理导致。</td></tr>
+<tr><td>收到「请」后，用户点「停止生成」</td><td>浏览器用 <code>AbortController.abort()</code> 中止本次请求并标为已停止。后端收到断连或取消通知后，按第六节清理上游。</td></tr>
+</tbody></table></div>
+<p>第三行的失败分支仍用同一个 <code>200</code> 和 <code>Content-Type</code>。它的完整事件序列如下，假设链路还允许发出错误与结束事件。</p>
+<div class="codehilite" data-code-language="text" data-code-title="失败响应体 · error 后仍有 done"><pre><code>data: {"type":"delta","text":"请"}
 
-<span class="n">log</span><span class="p">,</span> <span class="n">app</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">&quot;api&quot;</span><span class="p">),</span> <span class="n">FastAPI</span><span class="p">()</span>
+data: {"type":"error","message":"生成超时，请重试","trace_id":"a1b2c3d4e5f6"}
 
+data: {"type":"done"}
 
-<span class="nd">@app</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/api/chat&quot;</span><span class="p">)</span>
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">chat</span><span class="p">(</span><span class="n">req</span><span class="p">:</span> <span class="n">Request</span><span class="p">,</span> <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;hi&quot;</span><span class="p">):</span>
-    <span class="c1"># ⭐ 鉴权、取历史、检索、输入校验全在这里做完 —— 此刻还能好好地返回 4xx/5xx</span>
-    <span class="n">tid</span> <span class="o">=</span> <span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">()</span><span class="o">.</span><span class="n">hex</span><span class="p">[:</span><span class="mi">12</span><span class="p">]</span>                           <span class="c1"># ⭐ 就是 03 章那个 trace_id</span>
-
-    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">gen</span><span class="p">():</span>
-        <span class="k">try</span><span class="p">:</span>
-            <span class="k">async</span> <span class="k">for</span> <span class="n">piece</span> <span class="ow">in</span> <span class="n">call_model</span><span class="p">(</span><span class="n">prompt</span><span class="p">):</span>        <span class="c1"># 你的调用层（04 章）</span>
-                <span class="k">if</span> <span class="k">await</span> <span class="n">req</span><span class="o">.</span><span class="n">is_disconnected</span><span class="p">():</span>           <span class="c1"># ⭐ 客户端走了就别再烧钱</span>
-                    <span class="k">break</span>
-                <span class="k">yield</span> <span class="s2">&quot;data: </span><span class="si">%s</span><span class="se">\n\n</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span>
-                    <span class="p">{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;delta&quot;</span><span class="p">,</span> <span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="n">piece</span><span class="p">},</span> <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>                                 <span class="c1"># ⭐ 状态码早是 200 了，错误只能顺流走</span>
-            <span class="n">log</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="s2">&quot;stream failed trace=</span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">tid</span><span class="p">)</span>  <span class="c1"># ⚠️ 细节只进日志，不进帧</span>
-            <span class="k">yield</span> <span class="s2">&quot;data: </span><span class="si">%s</span><span class="se">\n\n</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span>            <span class="c1"># ⚠️ message 是给人看的一句话</span>
-                <span class="p">{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;上游调用失败，请重试&quot;</span><span class="p">,</span>
-                 <span class="s2">&quot;trace_id&quot;</span><span class="p">:</span> <span class="n">tid</span><span class="p">},</span> <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>    <span class="c1"># ⭐ 用户能报给你的那个号</span>
-        <span class="k">yield</span> <span class="s1">&#39;data: {&quot;type&quot;:&quot;done&quot;}</span><span class="se">\n\n</span><span class="s1">&#39;</span>                 <span class="c1"># ⭐ 无论如何都要有结束帧</span>
-
-    <span class="k">return</span> <span class="n">StreamingResponse</span><span class="p">(</span><span class="n">gen</span><span class="p">(),</span> <span class="n">media_type</span><span class="o">=</span><span class="s2">&quot;text/event-stream&quot;</span><span class="p">,</span>
-                             <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;Cache-Control&quot;</span><span class="p">:</span> <span class="s2">&quot;no-cache&quot;</span><span class="p">,</span>
-                                      <span class="s2">&quot;X-Accel-Buffering&quot;</span><span class="p">:</span> <span class="s2">&quot;no&quot;</span><span class="p">})</span>
 </code></pre></div>
+<p>把<strong>可以预先检查的事</strong>放在提交响应头前，例如鉴权、读取历史、检索和输入校验。开流后仍可能遇到上游超时，链路还可写时用 <code>try/except</code> 转成流内错误。已有内容到达用户后，不在同一回答里静默重试。即使服务端尝试发送了结束事件，客户端也要以实际收到的事件判断结果。</p>
+<p>下面的接入片段沿用第三节的 <code>sse()</code>。真实调用层需把供应商的正常结束和异常中断区分开。示例突出预检、转译和取消，省略用量事件。第六节再用可运行的模拟检查上游收尾。</p>
+<div class="codehilite" data-code-language="python"><pre><code># FastAPI 接入示意，需自行提供 validate_and_prepare 和 open_model_stream。
+# 使用第三节的 sse.py 编码事件。此片段不会直接连接供应商。
+import asyncio
+import logging
+import uuid
 
-<p>⚠️ <strong><code>message</code> 里别塞异常原文</strong>——它会直接显示在用户屏幕上，可能带出上游地址、栈帧甚至 key 片段。给用户一句人话，把真正的异常记进日志（15 章），两边靠 <code>request_id</code> 对上。</p>
+from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
+from sse import sse
+
+log, app = logging.getLogger("api"), FastAPI()
+
+
+@app.post("/api/chat")
+async def chat(req: Request):
+    tid = uuid.uuid4().hex[:12]
+    # 在提交响应头前鉴权、读 JSON、校验 messages 并准备上下文。
+    messages = await validate_and_prepare(req, trace_id=tid)
+
+    async def gen():
+        try:
+            # 该上下文管理器负责退出时关闭本次上游流。
+            # 上游异常结束应抛错，不能当作正常遍历完成。
+            async with open_model_stream(messages) as upstream:
+                async for piece in upstream:
+                    yield sse({"type": "delta", "text": piece})
+        except asyncio.CancelledError:
+            raise  # 保留取消信号，不伪装成模型报错
+        except Exception:
+            log.exception("stream failed trace=%s", tid)
+            yield sse({"type": "error", "message": "生成失败，请重试",
+                       "trace_id": tid})
+        # 能发到这里时，done 只表示应用结束发送。
+        yield sse({"type": "done"})
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache",
+                                      "X-Accel-Buffering": "no"})</code></pre></div>
+
+<p>⚠️ <strong><code>message</code> 里别塞异常原文</strong>——它会直接显示在用户屏幕上，可能带出上游地址、栈帧甚至 key 片段。给用户一句人话，把真正的异常记进日志（15 章），两边靠同一个 <code>trace_id</code> 对上。</p>
 <hr />
 <h2 id="_6" data-mg-stop>🔌 六、断连：用户关了页面，你还在烧钱</h2>
-<p>浏览器关页或取消请求后，后端可能收到断连/取消通知，但这不等于底层共享连接必然关闭。⚠️ <strong>客户端请求与上游生成的生命周期需要分别管理</strong>：本次请求没人再读，上游仍可能继续工作。两件事必须做：① 感知——处理框架的取消通知，发送时检查 <code>is_disconnected()</code>；② 收尾——在 <code>finally</code> 中关闭本次上游流。下面用假上游验证本地任务是否停止；真实供应商的停止时点与计费结果还需查其接口和用量记录，不能从此模拟推出。</p>
+<p>浏览器关页或取消请求后，后端可能收到断连/取消通知，但这不等于底层共享连接必然关闭。⚠️ <strong>客户端请求与上游生成的生命周期需要分别管理</strong>：本次请求没人再读，上游仍可能继续工作。两件事必须做。① 感知框架的取消/断连通知。如果仅在发送下一段前轮询，等待上游时可能迟迟发现不了断连。② 在 <code>finally</code> 或上下文管理器退出时关闭本次上游流，释放本次生成占用的资源。下面用假上游验证本地任务是否停止；真实供应商的停止时点与计费结果还需查其接口和用量记录，不能从此模拟推出。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># cancel.py —— 客户端断开后，上游那条流会不会跟着停？（可直接跑，对照看得见）</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
 
@@ -810,7 +853,7 @@ A等待后:CLOSED</code></pre></div>
 </code></pre></div>
 
 <p>示例输出（具体计数随调度变化）：<strong>没有 <code>finally</code> 的那版，断开时 5 段、半秒后变成 13 段</strong>——⭐ <strong>多出来的 8 段是模拟后台任务继续产出的证据，不是实际计费证据</strong>；有 <code>finally</code> 的那版停在 5 段。⚠️ 具体数字取决于你机器的调度（每段 0.05 秒，半秒的理论上限是 10 段），要看的是方向不是数字：一边继续涨，一边不动。</p>
-<p>⚠️ <strong>还要把「谁断的」分清楚并分开记</strong>：<strong>客户端断开</strong>是用户行为，要立刻停止一切工作，它多不多是产品问题；上游断开是故障，要重试或降级。两者混在一个错误计数里，你会以为服务在抖，其实只是大家看完就关。</p>
+<p>⚠️ <strong>分开记录客户端断开与上游故障。</strong>客户端断开可能来自用户操作或网络中断。后端应回收本次资源，只凭断连通知无法知道用户有没有点「停止生成」。上游故障在开流前可按第 04 章的约定决定是否重试；已有输出时，保留部分内容并明确展示错误或中断。真实供应商用量的核对方法见 <a href="12-限流配额与成本护栏.html">第 12 章</a>。</p>
 <hr />
 <h2 id="_7">🔄 七、换个栈怎么对应</h2>
 <div class="tw"><table>
@@ -894,8 +937,9 @@ A等待后:CLOSED</code></pre></div>
 <li>吃掉流式的三个地方分别是什么？它们的共同点是什么？</li>
 <li>定位缓冲问题的判据为什么是「帧间隔」而不是「总时长」？具体怎么一层层测？</li>
 <li>流式下为什么不能用状态码报错？错误该怎么传、字段叫什么？没有结束帧会怎样？</li>
-<li>「所有可能失败的事必须挤在第一个字之前」——为什么？</li>
+<li>哪些检查能放在响应头发出之前？发出之后又为什么仍需要流内错误？</li>
 <li>上游流不在 <code>finally</code> 里关会怎样？本章那段对照跑出了什么数字？「客户端断开」和「上游断开」又为什么必须分开记？</li>
+<li>先预测再看答案。第一次读到「请」的前两个字节，第二次补齐该字并读到行尾，第三次才读到空行。哪一次能显示「请」？随后收到 <code>error</code> 和 <code>done</code> 时，这条回答该标为什么状态？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
@@ -904,10 +948,11 @@ A等待后:CLOSED</code></pre></div>
 <li>因为 LLM 输出是<strong>单向</strong>的，上行只有「用户又发了一条消息」，一个普通 POST 就够。上 WebSocket 等于把心跳、重连、鉴权、代理兼容四件事全揽到自己身上。</li>
 <li>模型输出里有换行是家常便饭，而本章单行 <code>data:</code> JSON 约定中，未转义换行会破坏 JSON 行；<strong>SSE 的事件结束符是空行</strong>，规范也支持多行 <code>data:</code> 合并。<code>json.dumps</code> 把换行转义成两个字符，帧就安全了。类型放进负载是跟着消费方走：前端用 <code>fetch</code> 手动解析（<code>EventSource</code> 带不了 <code>Authorization</code>），手动解析器也能支持 <code>event:</code>，只是本课程选择忽略它、限定为单行 JSON 子集；放进负载则一行 <code>JSON.parse</code> 拿到全部信息，解析路径只有一条。⚠️ 同理 <code>[DONE]</code> 不是合法 JSON，会让统一的 <code>JSON.parse</code> 抛 <code>SyntaxError</code>，所以结束帧写成 <code>{"type":"done"}</code>。</li>
 <li><strong>反向代理缓冲</strong>（<code>proxy_buffering on</code>）、压缩中间件（攒够一个压缩块才输出）、云平台/网关/CDN 的响应缓冲。共同点：不报错、本地复现不了、三者症状完全一样。</li>
-<li>因为被缓冲时<strong>总时长完全不变</strong>，变的是「所有帧在最后一起到」。测法：部署一个每秒吐一帧的探针，从里往外测——直连应用进程 → 容器端口 → 反向代理 → 公网域名，第一处帧间隔塌成 0 的那层就是凶手。</li>
-<li><strong>状态码在第一帧发出去时就定死成 200 了</strong>。错误要走流内错误帧——<code>data: {"type":"error","message":"…","trace_id":"…"}</code>，⚠️ 字段名是 <code>message</code> 不是 <code>code</code>（前端拿它是要显示给人看的），而且必须带 <code>trace_id</code>：非流式出错时它在那个 500 的 JSON 里，流式的状态码早已是 200、那个 JSON 根本不会发出来，漏了用户就只能告诉你「回答到一半崩了」。前端要接住「200 + 半截内容 + error 帧」。没有结束帧（<code>{"type":"done"}</code>），前端分不出「说完了」和「断了」。</li>
-<li>因为<strong>一旦开始吐字，你就失去了「假装什么都没发生」的权利</strong>——不能改状态码，也不能静默重试。</li>
-<li>上游会继续生成、继续计费，<strong>而这些字没有任何人看到</strong>。对照结果（本机跑三次一致）：断开时都是 5 段，半秒后没有 <code>finally</code> 的那版变成 13 段（多烧 8 段），有 <code>finally</code> 的停在 5 段；⚠️ 具体数字随机器调度浮动，要看的是「一边继续涨、一边不动」。分开记是因为：客户端断开是用户行为（要立刻停工，多不多是产品问题），上游断开是故障（要重试或降级）；混在一个计数里，你会以为服务在抖，其实只是大家看完就关。</li>
+<li>总时长相近时，帧也可能从每秒到一条变成最后成批到达。用每秒产生一帧的探针从里往外测：直连应用进程 → 容器端口 → 反向代理 → 公网域名，优先检查到达间隔首次明显缩短、出现成批交付的那一段。</li>
+<li><strong>最终响应头发出后状态码就确定了。</strong>如果流还能写，发送 <code>error</code>，其中 <code>message</code> 给用户看，<code>trace_id</code> 用于查日志。收到 <code>done</code> 可以结束等待，但出现过 <code>error</code> 时内容仍不完整。缺少 <code>done</code> 时同样不能标记成功。</li>
+<li>鉴权、输入校验、读取历史等可以在提交响应头前进行。这时还能用普通 HTTP 错误；开流后上游仍可能失败，只能在可写的流中报错，已有输出后不能静默重试。</li>
+<li>没有清理逻辑时，模拟上游在消费者取消后仍继续产出。示例中从 5 段涨到 13 段；有 <code>finally</code> 的一侧停在 5 段。真实上游可能继续生成并计费，计费要以供应商用量为准。客户端断开与上游故障应分开记，单凭断开也不能判断用户是否主动取消。</li>
+<li>第三次才能显示「请」。字符完整只是解码成功，空行齐了才有一条可消费的事件。随后收到 <code>error</code> 再收到 <code>done</code>，保留「请」并标为失败、内容未完成。</li>
 </ol>
 </details>
 <hr />
@@ -922,7 +967,7 @@ A等待后:CLOSED</code></pre></div>
 <blockquote>
 <p>⚠️⚠️ <strong>最贵的一节：三个地方会吃掉流式</strong>——反向代理的缓冲、压缩中间件、云平台或 CDN 的响应缓冲。难查的原因是共同的：<strong>不报错、本地永远复现不了、三者症状完全一样</strong>，都是「憋很久然后一次性全出现」，而你的代码一个字都没错。</p>
 <p>⭐ <strong>定位法：部署一个每秒吐一帧的探针端点，从里往外逐层测</strong>（应用进程 → 容器 → 反向代理 → 公网域名），判据是<strong>帧间隔</strong>不是总时长，第一处间隔塌成 0 的那层就是凶手。⚠️ 别信浏览器开发者工具的时序。</p>
-<p>⭐ 由「状态码在第一帧发出的那一刻就定死成 200」推出一条铁律：<strong>所有可能失败的事必须挤在第一个字之前做完。</strong></p>
+<p>⭐ <strong>可提前做的检查放在响应头发出之前。</strong>开流后，即使状态是 200，也要结合 <code>error</code> 与 <code>done</code> 判定结果。已有片段但未收到 <code>done</code>，就不能将回答标为完整。</p>
 <p>💸 <strong>断连</strong>：用户关页或取消请求后，上游可能继续生成。应处理取消/断连并在 <code>finally</code> 里关上游；模拟只证明本地任务停止，真实计费需另验。⚠️ 最后，<strong>客户端断开和上游断开要分开记</strong>，否则你会把「大家看完就关」当成「服务在抖」。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="06-关系数据库.html">06-关系数据库.md</a></p>
