@@ -297,15 +297,15 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <header class="mg-cover mg-remaining-cover" aria-label="本页问题与阅读入口">
 <div class="mg-cover-copy">
 <p class="mg-kicker">AI基础设施 · 09</p>
-<p class="mg-question">这次 OOM 增长的是激活，还是优化器状态？</p>
-<p class="mg-dek">模型参数、梯度、优化器状态、激活和临时空间可能在不同阶段形成峰值。先分类，再选择愿意支付的计算或通信代价。</p>
-<p class="mg-outcome">读完能判断：先分类显存占用再选检查点、分片或其他方法，而非把优化项全部打开。</p>
+<p class="mg-question">这次 OOM 的峰值，究竟是哪一项在什么时候还活着？</p>
+<p class="mg-dek">参数、梯度、优化器状态、激活、临时工作区、推理 KV Cache 与其他运行时占用可能在不同阶段形成峰值。先做账本，再选择愿意支付的计算、通信或传输代价。</p>
+<p class="mg-outcome">读完能做一张可复算的峰值账本，并只针对主要占用评估检查点、低精度、分片、Offload 或其他方法。</p>
 <nav class="mg-actions" aria-label="本页阅读入口">
 <a class="mg-primary" href="#oom">一、先诊断：你的 OOM 属于哪一类</a>
 <a href="#mg-ai-infra-09-reading-start">直接进入完整正文</a>
 <a href="#mg-ai-infra-09-figure-1">对照本章原图与图注</a>
 </nav>
-<nav class="mg-reading-map" aria-label="本章其他定位"><a href="#_2">🧰 二、七件武器（按性价比排序）</a><a href="#_3">🧭 三、决策树（照着走）</a></nav>
+<nav class="mg-reading-map" aria-label="本章其他定位"><a href="#_2">🧰 二、七件武器（按账本选择）</a><a href="#_3">🧭 三、决策树（照着走）</a></nav>
 </div>
 </header>
 <span id="mg-ai-infra-09-reading-start"></span>
@@ -314,7 +314,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#oom">🩺 一、先诊断：你的 OOM 属于哪一类</a></li>
-<li><a href="#_2">🧰 二、七件武器（按性价比排序）</a></li>
+<li><a href="#_2">🧰 二、七件武器（按账本选择）</a></li>
 <li><a href="#_3">🧭 三、决策树（照着走）</a></li>
 <li><a href="#oom_1">🧩 四、显存碎片：那个"明明还有显存却 OOM"</a></li>
 <li><a href="#_4">📋 五、一张速查表</a></li>
@@ -325,13 +325,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="09">09 · 显存优化全家桶</h1>
-<p>⏱ <strong>28 分钟</strong> ｜ ⭐ <strong>OOM 时按这个顺序试</strong></p>
+<p>⏱ <strong>35 分钟</strong> ｜ ⭐ <strong>OOM 时先做账本，再按峰值主因选手段</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>OOM 先分别核算四类张量，并检查工作区与分配器</strong> —— 参数、梯度、优化器状态、激活，
-<strong>每一块的解法完全不同。</strong>
+<p><strong>OOM 先做峰值账本，再决定优化哪一块</strong> —— 训练时要区分参数、梯度、优化器状态、激活和临时张量；推理时还要单列随上下文与并发增长的 KV Cache。
+<strong>每一块的增长条件、生命周期和解法都不同。</strong>
 <a href="03-显存与带宽墙.html">第 3 章</a>教你算它们各占多少，这一章教你怎么把每一块压下去。</p>
-<figure class="dia" data-fig="grad_checkpoint" id="mg-ai-infra-09-figure-1"><svg viewBox="0 0 700 388" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="梯度检查点的时间换空间"><defs><marker id="a8__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker><marker id="a8l__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--link)"/></marker><marker id="a8g__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--done)"/></marker></defs><text class="dia-t" x="76" y="112" font-size="12" text-anchor="end" fill="var(--accent)" font-weight="700">不用检查点</text><text class="dia-t" x="76" y="130" font-size="11" text-anchor="end" fill="var(--muted)" font-weight="normal">全部激活都存着</text><rect x="96" y="96" width="54" height="40" rx="6" fill="var(--accent)" opacity=".55" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="123.0" y="121" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L1</text><rect x="158" y="96" width="54" height="40" rx="6" fill="var(--accent)" opacity=".55" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="185.0" y="121" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L2</text><rect x="220" y="96" width="54" height="40" rx="6" fill="var(--accent)" opacity=".55" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="247.0" y="121" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L3</text><rect x="282" y="96" width="54" height="40" rx="6" fill="var(--accent)" opacity=".55" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="309.0" y="121" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L4</text><rect x="344" y="96" width="54" height="40" rx="6" fill="var(--accent)" opacity=".55" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="371.0" y="121" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L5</text><rect x="406" y="96" width="54" height="40" rx="6" fill="var(--accent)" opacity=".55" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="433.0" y="121" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L6</text><rect x="468" y="96" width="54" height="40" rx="6" fill="var(--accent)" opacity=".55" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="495.0" y="121" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L7</text><rect x="530" y="96" width="54" height="40" rx="6" fill="var(--accent)" opacity=".55" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="557.0" y="121" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L8</text><text class="dia-t" x="76" y="212" font-size="12" text-anchor="end" fill="var(--done)" font-weight="700">用检查点</text><text class="dia-t" x="76" y="230" font-size="11" text-anchor="end" fill="var(--muted)" font-weight="normal">只存这几个</text><rect x="96" y="196" width="54" height="40" rx="6" fill="var(--done)" opacity=".55" stroke="var(--done)" stroke-width="1.8"/><text class="dia-t" x="123.0" y="221" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L1</text><rect x="158" y="196" width="54" height="40" rx="6" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="1"/><text class="dia-t" x="185.0" y="221" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="500">L2</text><rect x="220" y="196" width="54" height="40" rx="6" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="1"/><text class="dia-t" x="247.0" y="221" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="500">L3</text><rect x="282" y="196" width="54" height="40" rx="6" fill="var(--done)" opacity=".55" stroke="var(--done)" stroke-width="1.8"/><text class="dia-t" x="309.0" y="221" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L4</text><rect x="344" y="196" width="54" height="40" rx="6" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="1"/><text class="dia-t" x="371.0" y="221" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="500">L5</text><rect x="406" y="196" width="54" height="40" rx="6" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="1"/><text class="dia-t" x="433.0" y="221" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="500">L6</text><rect x="468" y="196" width="54" height="40" rx="6" fill="var(--done)" opacity=".55" stroke="var(--done)" stroke-width="1.8"/><text class="dia-t" x="495.0" y="221" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L7</text><rect x="530" y="196" width="54" height="40" rx="6" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="1"/><text class="dia-t" x="557.0" y="221" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="500">L8</text><text class="dia-t" x="185" y="258" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">重算</text><text class="dia-t" x="247" y="258" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">重算</text><text class="dia-t" x="371" y="258" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">重算</text><text class="dia-t" x="433" y="258" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">重算</text><text class="dia-t" x="557" y="258" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">重算</text><text class="dia-t" x="340" y="32" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">反向传播需要前向的激活值 —— 存不下就重新算一遍</text><rect x="80" y="286" width="240" height="58" rx="9" fill="var(--card)" stroke="var(--done)" stroke-width="1.8"/><text class="dia-t" x="200" y="310" font-size="12.5" text-anchor="middle" fill="var(--done)" font-weight="700">显存省 60~70%</text><text class="dia-t" x="200" y="330" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">换来训练慢 20~30%</text><rect x="356" y="286" width="264" height="58" rx="9" fill="var(--card)" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="488" y="310" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">什么时候用</text><text class="dia-t" x="488" y="330" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">显存不够 / 想把 batch 开大时</text><text class="dia-t" x="340" y="372" font-size="12" text-anchor="middle" fill="var(--muted)" font-weight="normal">⭐ 这是显存优化里最直白的一个权衡：拿时间买空间，没有免费的部分</text></svg><figcaption>只存少数几层的激活，其余的<b>反向时重新算一遍</b>。⭐ 显存省 60~70%，代价是训练慢 20~30% —— 这是显存优化里最直白的一个权衡：拿时间买空间，没有免费的部分。</figcaption></figure>
+<figure class="dia" data-fig="grad_checkpoint" id="mg-ai-infra-09-figure-1"><svg viewBox="0 0 700 388" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="梯度检查点的时间换空间"><defs><marker id="a8__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker><marker id="a8l__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--link)"/></marker><marker id="a8g__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--done)"/></marker></defs><text class="dia-t" x="76" y="112" font-size="12" text-anchor="end" fill="var(--accent)" font-weight="700">不用检查点</text><text class="dia-t" x="76" y="130" font-size="11" text-anchor="end" fill="var(--muted)" font-weight="normal">全部激活都存着</text><rect x="96" y="96" width="54" height="40" rx="6" fill="var(--accent)" opacity=".55" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="123.0" y="121" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L1</text><rect x="158" y="96" width="54" height="40" rx="6" fill="var(--accent)" opacity=".55" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="185.0" y="121" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L2</text><rect x="220" y="96" width="54" height="40" rx="6" fill="var(--accent)" opacity=".55" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="247.0" y="121" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L3</text><rect x="282" y="96" width="54" height="40" rx="6" fill="var(--accent)" opacity=".55" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="309.0" y="121" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L4</text><rect x="344" y="96" width="54" height="40" rx="6" fill="var(--accent)" opacity=".55" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="371.0" y="121" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L5</text><rect x="406" y="96" width="54" height="40" rx="6" fill="var(--accent)" opacity=".55" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="433.0" y="121" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L6</text><rect x="468" y="96" width="54" height="40" rx="6" fill="var(--accent)" opacity=".55" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="495.0" y="121" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L7</text><rect x="530" y="96" width="54" height="40" rx="6" fill="var(--accent)" opacity=".55" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="557.0" y="121" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L8</text><text class="dia-t" x="76" y="212" font-size="12" text-anchor="end" fill="var(--done)" font-weight="700">用检查点</text><text class="dia-t" x="76" y="230" font-size="11" text-anchor="end" fill="var(--muted)" font-weight="normal">只存这几个</text><rect x="96" y="196" width="54" height="40" rx="6" fill="var(--done)" opacity=".55" stroke="var(--done)" stroke-width="1.8"/><text class="dia-t" x="123.0" y="221" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L1</text><rect x="158" y="196" width="54" height="40" rx="6" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="1"/><text class="dia-t" x="185.0" y="221" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="500">L2</text><rect x="220" y="196" width="54" height="40" rx="6" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="1"/><text class="dia-t" x="247.0" y="221" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="500">L3</text><rect x="282" y="196" width="54" height="40" rx="6" fill="var(--done)" opacity=".55" stroke="var(--done)" stroke-width="1.8"/><text class="dia-t" x="309.0" y="221" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L4</text><rect x="344" y="196" width="54" height="40" rx="6" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="1"/><text class="dia-t" x="371.0" y="221" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="500">L5</text><rect x="406" y="196" width="54" height="40" rx="6" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="1"/><text class="dia-t" x="433.0" y="221" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="500">L6</text><rect x="468" y="196" width="54" height="40" rx="6" fill="var(--done)" opacity=".55" stroke="var(--done)" stroke-width="1.8"/><text class="dia-t" x="495.0" y="221" font-size="11" text-anchor="middle" fill="var(--fg)" font-weight="700">L7</text><rect x="530" y="196" width="54" height="40" rx="6" fill="var(--card)" opacity="1" stroke="var(--border)" stroke-width="1"/><text class="dia-t" x="557.0" y="221" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="500">L8</text><text class="dia-t" x="185" y="258" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">重算</text><text class="dia-t" x="247" y="258" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">重算</text><text class="dia-t" x="371" y="258" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">重算</text><text class="dia-t" x="433" y="258" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">重算</text><text class="dia-t" x="557" y="258" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">重算</text><text class="dia-t" x="340" y="32" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">反向传播需要前向的激活值 —— 存不下就重新算一遍</text><rect x="80" y="286" width="240" height="58" rx="9" fill="var(--card)" stroke="var(--done)" stroke-width="1.8"/><text class="dia-t" x="200" y="310" font-size="12.5" text-anchor="middle" fill="var(--done)" font-weight="700">少存激活</text><text class="dia-t" x="200" y="330" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">反向需要额外重算</text><rect x="356" y="286" width="264" height="58" rx="9" fill="var(--card)" stroke="var(--accent)" stroke-width="1.8"/><text class="dia-t" x="488" y="310" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">什么时候用</text><text class="dia-t" x="488" y="330" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">显存不够 / 想把 batch 开大时</text><text class="dia-t" x="340" y="372" font-size="12" text-anchor="middle" fill="var(--muted)" font-weight="normal">⭐ 这是显存优化里最直白的一个权衡：拿时间买空间，没有免费的部分</text></svg><figcaption>只存边界激活，其余部分在反向传播时从最近边界重算。它只直接减少激活常驻量，并增加重算；节省和耗时取决于模型图、分段、输入形状与实现，必须以同一输入实测。</figcaption></figure>
 
 <hr />
 <h2 id="oom">🩺 一、先诊断：你的 OOM 属于哪一类</h2>
@@ -353,10 +353,28 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⚠️ <strong><code>reserved−allocated 包括可复用缓存，不能直接等同碎片</code><code></code></strong>。
 不能用固定 20% 差值诊断碎片，应结合快照、分配失败和 inactive split blocks，见文末。</p>
 </blockquote>
+<h3 id="peak-ledger">先做一张峰值账本：别把“显存”当成同一种东西</h3>
+<p>为什么先算账？因为“省 4 GiB”只有在省掉<strong>峰值时仍然活着</strong>的张量时才有用。训练和推理的账本也不同：训练通常有梯度与优化器状态；自回归推理通常没有这两项，却会积累 KV Cache。</p>
+<div class="tw"><table>
+<thead><tr><th>账本项</th><th>符号</th><th>什么时候出现</th><th>常见对应手段</th></tr></thead>
+<tbody>
+<tr><td>参数</td><td><code>M_param</code></td><td>训练与推理</td><td>低精度存储、分片、量化、PEFT</td></tr>
+<tr><td>梯度</td><td><code>M_grad</code></td><td>训练反向传播</td><td>分片、PEFT、融合更新</td></tr>
+<tr><td>优化器状态与可能的主权重</td><td><code>M_opt</code></td><td>训练更新</td><td>低精度优化器、ZeRO/FSDP、Offload</td></tr>
+<tr><td>激活</td><td><code>M_act</code></td><td>训练前向到反向；也受 batch/序列长度影响</td><td>检查点、低精度、缩短/打包序列</td></tr>
+<tr><td>临时张量与算子工作区</td><td><code>M_temp</code></td><td>特定算子执行期间</td><td>注意力/算子实现、形状与算法选择</td></tr>
+<tr><td>KV Cache</td><td><code>M_KV</code></td><td>自回归推理，随层数、KV 头数、上下文和并发增长</td><td>容量规划、KV 精度、分页与前缀复用；见第 16–17 章</td></tr>
+<tr><td>分配器缓存及其他常驻开销</td><td><code>M_other</code></td><td>运行时与框架</td><td>快照、稳定形状、匹配后端的分配器设置</td></tr>
+</tbody></table></div>
+<p>用于<strong>容量预算</strong>的保守近似是：</p>
+<p><code>M_peak ≈ M_param + M_grad + M_opt + M_act + M_temp + M_KV + M_other</code></p>
+<p><code>M_peak</code> 是要容纳的峰值；右侧七项分别对应上表。这里用 <code>≈</code> 而不是等号，因为它们未必在同一时刻全部达到各自峰值，框架还可能复用缓冲区。这个式子用来防止漏项，最终仍要用同一输入、同一阶段的峰值统计和快照核对。</p>
+<section class="visual-block visual-block-flow" aria-label="一十亿参数训练的显存预算算例"><p class="visual-block-title">完整数字例：为什么 24 GiB 卡仍可能 OOM</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">演示条件：10 亿参数，BF16 参数与梯度；Adam 保留 FP32 主权重、m、v；训练时没有 KV Cache</span></div><div class="vb-flow-row"><span class="vb-flow-step">参数：10⁹ × 2 B ÷ 2³⁰ = 1.86 GiB</span></div><div class="vb-flow-row"><span class="vb-flow-step">梯度：10⁹ × 2 B ÷ 2³⁰ = 1.86 GiB</span></div><div class="vb-flow-row"><span class="vb-flow-step">主权重 + m + v：10⁹ × (4+4+4) B ÷ 2³⁰ = 11.18 GiB</span></div><div class="vb-flow-row"><span class="vb-flow-step">实测激活峰值 6.00 GiB；临时工作区 2.00 GiB；其他常驻/缓存 1.50 GiB</span></div><div class="vb-flow-row"><span class="vb-flow-step">保守合计：1.86 + 1.86 + 11.18 + 6.00 + 2.00 + 0 + 1.50 = 24.40 GiB</span></div></div></section>
+<p>结论不是“Adam 永远每参数 12 字节”，而是：<strong>本例的这套实现</strong>有三份 FP32 数组。若框架不保留 FP32 主权重、使用分片或量化状态，<code>M_opt</code> 会改变；反过来，主权重、状态、梯度的 dtype 与副本口径没写清，就不能把“字节/参数”直接相加。</p>
 <hr />
-<h2 id="_2">🧰 二、七件武器（按性价比排序）</h2>
+<h2 id="_2">🧰 二、七件武器（按账本选择，不要全部打开）</h2>
 <h3 id="1">① 梯度检查点 —— 最常用</h3>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">正常：前向时保存【每一层】的激活，反向时用</span></div><div class="vb-flow-row"><span class="vb-flow-step">检查点：只保存【少数几个】节点的激活</span></div><div class="vb-flow-row"><span class="vb-flow-step">反向时从最近的节点【重新前向计算】出中间激活</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 显存：O(L)</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">O(√L)</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 时间：+20~35%（多一次前向）</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">正常：前向保存反向需要的激活</span></div><div class="vb-flow-row"><span class="vb-flow-step">检查点：只保留边界，反向时重算区间内激活</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 省的是 M_act，不会直接减少参数、梯度或优化器状态</span></div><div class="vb-flow-row"><span class="vb-flow-step">理想顺序链、均匀分段时可从 O(L) 降到约 O(√L)</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 真实收益取决于保存边界、算子、形状和实现，必须实测峰值与 step time</span></div></div></section>
 
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：`model` 来自你自己的代码，这一段只看写法</span>
 <span class="c1"># 整个模型</span>
@@ -372,48 +390,47 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <blockquote>
-<p>💡 <strong>选择性检查点值得一提</strong>：全量重算掉 30% 速度，
-但<strong>只重算那些"算起来便宜、存起来贵"的操作</strong>，
-常常能用 5–10% 的时间换到大部分的显存收益。</p>
+<p>💡 <strong>选择性检查点值得一提</strong>：它尝试只重算“存储代价高、重算代价相对低”的操作，并保留重算昂贵的结果。
+这不是固定的“5% 或 30%”承诺；要在同一 batch、序列长度和硬件上比较峰值显存、每步时间与数值结果。</p>
 </blockquote>
 <h3 id="2-zero-fsdp">② ZeRO / FSDP —— 切分优化器状态</h3>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">[第 3 章]算过：优化器状态是最大的一块（12 字节/参数）</span></div><div class="vb-flow-row"><span class="vb-flow-step">ZeRO 把它切开分给 N 张卡：</span></div><div class="vb-flow-row"><span class="vb-flow-step">Stage 1：切优化器状态</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">按 N 与状态口径计算</span></div><div class="vb-flow-row"><span class="vb-flow-step">Stage 2：+ 切梯度</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">按 N 与状态口径计算</span></div><div class="vb-flow-row"><span class="vb-flow-step">Stage 3：+ 切参数</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">省 Nx ⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">🔗 第 11 章详讲</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">先用账本确认状态、梯度或参数是否真是峰值主因</span></div><div class="vb-flow-row"><span class="vb-flow-step">Stage 1：分片优化器状态</span></div><div class="vb-flow-row"><span class="vb-flow-step">Stage 2：再分片梯度</span></div><div class="vb-flow-row"><span class="vb-flow-step">Stage 3 / FSDP：再分片参数，并在需要时聚合</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 理想分片项可接近 ÷N；峰值还包含未分片项、通信缓冲与临时聚合</span></div><div class="vb-flow-row"><span class="vb-flow-step">🔗 第 11 章详讲</span></div></div></section>
 <h3 id="3">③ 激活值量化 / 更低精度</h3>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">BF16 激活</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">FP8 激活：显存再减半</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 需要 H100 且要处理 scaling（第 6 章）</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">更低位宽只会缩小实际采用该 dtype 保存的张量</span></div><div class="vb-flow-row"><span class="vb-flow-step">例：同样 10⁹ 个激活元素，BF16 约 1.86 GiB，FP8 约 0.93 GiB</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 不会自动减半整个 M_peak；主权重、状态、工作区可能仍是高精度</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 硬件、框架、算子与 scaling/溢出处理需按目标版本验证（第 6 章）</span></div></div></section>
 <h3 id="4">④ 换优化器</h3>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>优化器</th>
-<th>字节/参数</th>
+<th>主要额外状态口径</th>
 <th>说明</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><strong>Adam（FP32 状态）</strong></td>
-<td>12</td>
-<td>标准</td>
+<td><code>m+v</code> 通常 8 B/参数；若另存 FP32 主权重再加 4 B</td>
+<td>必须与参数、梯度分开记账</td>
 </tr>
 <tr>
 <td><strong>8-bit Adam</strong></td>
-<td>~4</td>
-<td>⭐ <code>bitsandbytes</code>，<strong>质量损失很小</strong></td>
+<td>量化 <code>m/v</code>，另有分块统计与可能的高精度副本</td>
+<td>⭐ 省的是状态；质量、速度和支持算子需实测</td>
 </tr>
 <tr>
 <td><strong>Adafactor</strong></td>
-<td>~1–2</td>
-<td>分解二阶矩，大模型常用</td>
+<td>矩阵参数可分解二阶矩，向量参数口径不同</td>
+<td>节省量取决于参数形状与实现</td>
 </tr>
 <tr>
 <td><strong>SGD + momentum</strong></td>
-<td>4</td>
-<td>省但大模型效果差</td>
+<td>动量常为 4 B/参数（若 FP32）</td>
+<td>优化行为与 Adam 不同，不能只凭显存替换</td>
 </tr>
 <tr>
 <td><strong>LOMO / 融合更新</strong></td>
-<td>~0</td>
-<td>边算梯度边更新，不存梯度</td>
+<td>尝试融合反向与更新，降低完整梯度常驻</td>
+<td>仍有参数、状态、激活与工作区；依实现与支持范围</td>
 </tr>
 </tbody>
 </table></div>
@@ -422,15 +439,15 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <h3 id="5-cpu-offload">⑤ CPU Offload</h3>
-<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">把优化器状态 / 参数放到 CPU 内存，需要时搬过来</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 走 PCIe（第 3 章：比 HBM 慢约 40 倍）</span></div><div class="vb-flow-row"><span class="vb-flow-step">只在【实在装不下】时用，会显著拖慢</span></div><div class="vb-flow-row"><span class="vb-flow-step">💡 例外：推理时 offload 不常用的专家（MoE）是划算的</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">把状态、参数或激活移到 CPU/NVMe，需要时再搬回设备</span></div><div class="vb-flow-row"><span class="vb-flow-step">省的是被卸载项的设备常驻显存；会新增主机内存占用和传输缓冲</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 代价取决于 PCIe/NVLink、NUMA、分块、预取与计算重叠，不能用固定“慢 40 倍”代替测量</span></div><div class="vb-flow-row"><span class="vb-flow-step">只有传输能被计算遮住或容量比延迟更重要时，才可能划算</span></div><div class="vb-flow-row"><span class="vb-flow-step">验证：同时记录峰值显存、主机内存、step time、传输量与吞吐</span></div></div></section>
 <h3 id="6-peft">⑥ 参数高效微调（PEFT）</h3>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⭐ 如果你只是【微调】而不是预训练，这是最省的路：</span></div><div class="vb-flow-row"><span class="vb-flow-step">LoRA：冻结原权重，只训练低秩增量 A·B</span></div><div class="vb-flow-row"><span class="vb-flow-step">可训练参数降到 0.1~1%</span></div><div class="vb-flow-row"><span class="vb-flow-step">梯度和优化器状态跟着降到 1% ⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">QLoRA：base 模型用 4-bit 量化 + LoRA</span></div><div class="vb-flow-row"><span class="vb-flow-step">单张 24GB 卡能微调 33B 模型</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⭐ 如果你只是【微调】而不是预训练，这是最省的路：</span></div><div class="vb-flow-row"><span class="vb-flow-step">LoRA：冻结原权重，只训练低秩增量 A·B</span></div><div class="vb-flow-row"><span class="vb-flow-step">可训练参数量由 rank 与目标层决定</span></div><div class="vb-flow-row"><span class="vb-flow-step">只为可训练增量保存梯度与状态</span></div><div class="vb-flow-row"><span class="vb-flow-step">QLoRA：base 模型用 4-bit 量化 + LoRA</span></div><div class="vb-flow-row"><span class="vb-flow-step">容量是否足够取决于量化口径、序列、batch、优化器与实现</span></div></div></section>
 <blockquote>
 <p>🔑 <strong>这是显存问题最容易被忽略的解法</strong>：
 <strong>很多人在硬啃全量微调的显存，而任务本身用 LoRA 就够了。</strong></p>
 </blockquote>
 <h3 id="7-batch">⑦ 减小 batch + 梯度累积</h3>
-<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">micro_batch=1，累积 32 步</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">等效 batch=32</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 但要知道代价：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· micro batch 太小</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">GPU 利用率下降（第 2 章：warp 不够）</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 通信次数不变但计算变少</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">通信占比上升</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 所以这是【最后手段】，不是第一手段</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">micro_batch=1，累积 32 步</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">等效 batch=32</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 但要知道代价：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· micro batch 太小</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">GPU 利用率下降（第 2 章：warp 不够）</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 通信次数不变但计算变少</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">通信占比上升</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 是否采用取决于峰值主因与吞吐、收敛目标</span></div></div></section>
 
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：`loader` 来自你自己的代码，这一段只看写法</span>
 <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">batch</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">loader</span><span class="p">):</span>
@@ -440,10 +457,14 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
         <span class="n">opt</span><span class="o">.</span><span class="n">step</span><span class="p">();</span> <span class="n">opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">(</span><span class="n">set_to_none</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </code></pre></div>
 
+<h3 id="combination-order">组合顺序：一次只改一项，重新画峰值</h3>
+<section class="visual-block visual-block-flow" aria-label="显存优化组合顺序"><p class="visual-block-title">从可比较基线到组合方案</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">① 固定模型、输入形状、micro-batch、随机种子与测量阶段，记录峰值、step time、吞吐和任务指标</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 单独评估目标硬件支持的注意力内核与混合精度；先确认真的启用，再查数值质量</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 重画账本：M_act 主导才加检查点/序列策略；M_opt/M_grad/M_param 主导才比较 PEFT、低精度状态或分片</span></div><div class="vb-flow-row"><span class="vb-flow-step">④ 容量仍不足时再评估 Offload，同时测主机内存与传输是否压住计算</span></div><div class="vb-flow-row"><span class="vb-flow-step">⑤ 每加一项都复测；不要一次打开四个开关后只看“终于不 OOM”</span></div></div></section>
+<p>为什么要重画？这些手段会互相改变峰值：FlashAttention 可能移除注意力中间矩阵，检查点会增加重算，分片会新增聚合/通信缓冲，Offload 又会新增传输缓冲。旧账本不能直接代表组合后的新峰值。</p>
+<blockquote><p>⚠️ <strong>失败边界：</strong>“不再 OOM”只证明容量暂时够，不证明吞吐、收敛或任务质量可接受。验收至少比较：峰值设备显存、主机内存、每步时间/TTFT、吞吐、损失或任务指标；推理还要固定上下文长度与并发。</p></blockquote>
 <hr />
 <h2 id="_3">🧭 三、决策树（照着走）</h2>
 <figure class="dia reading-diagram repair-diagram" id="relationship-aimd-09-1" style="--diagram-width:720px"><svg viewBox="0 0 720 403" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="从上往下读问题；满足条件走右边，不满足再往下。右侧是选择入口，具体限制与原有说明保留在图下。"><title>从上往下读问题；满足条件走右边，不满足再往下。右侧是选择入口，具体限制与原有说明保留在图下。</title><text x="20" y="30" font-size="20" text-anchor="start" fill="var(--fg)">按问题逐步判断</text><rect x="20" y="65" width="300" height="48" rx="10" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/><text x="170.0" y="93" font-size="18" text-anchor="middle" fill="var(--fg)">batch = 1 仍然 OOM？</text><rect x="395" y="65" width="300" height="48" rx="10" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/><text x="545.0" y="93" font-size="18" text-anchor="middle" fill="var(--fg)">核对状态、激活与工作区</text><line x1="320" y1="101" x2="395" y2="101" stroke="var(--muted)" stroke-width="2"/><polygon fill="var(--muted)" points="395.0,101.0 386.0,106.0 386.0,96.0"/><text x="356" y="87" font-size="16" text-anchor="middle" fill="var(--fg)">是</text><line x1="170" y1="113" x2="170" y2="195" stroke="var(--muted)" stroke-width="2"/><polygon fill="var(--muted)" points="170.0,195.0 165.0,186.0 175.0,186.0"/><text x="187" y="138" font-size="16" text-anchor="start" fill="var(--fg)">否</text><rect x="20" y="195" width="300" height="48" rx="10" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/><text x="170.0" y="223" font-size="18" text-anchor="middle" fill="var(--fg)">时好时坏，容量看似够？</text><rect x="395" y="195" width="300" height="48" rx="10" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/><text x="545.0" y="223" font-size="18" text-anchor="middle" fill="var(--fg)">检查碎片与分配</text><line x1="320" y1="231" x2="395" y2="231" stroke="var(--muted)" stroke-width="2"/><polygon fill="var(--muted)" points="395.0,231.0 386.0,236.0 386.0,226.0"/><text x="356" y="217" font-size="16" text-anchor="middle" fill="var(--fg)">是</text><line x1="170" y1="243" x2="170" y2="325" stroke="var(--muted)" stroke-width="2"/><polygon fill="var(--muted)" points="170.0,325.0 165.0,316.0 175.0,316.0"/><text x="187" y="289" font-size="16" text-anchor="start" fill="var(--fg)">否</text><rect x="20" y="325" width="675" height="48" rx="10" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/><text x="357.5" y="353" font-size="18" text-anchor="middle" fill="var(--fg)">结合快照核对激活、状态与分配</text></svg><figcaption>从上往下读问题；满足条件走右边，不满足再往下。右侧是选择入口，具体限制与原有说明保留在图下。</figcaption></figure>
-<section class="reading-information"><p class="reading-information-title">图下说明</p><ul><li><span>OOM 了</span></li><li><span>batch=1 仍 OOM？不能仅凭这一点定因</span></li><li><span>是 → 先看状态、激活、工作区和分配器；确认状态占主要峰值时再比较下列方案</span></li><li><span>① 是微调吗？→ 【LoRA / QLoRA】⭐ 最省事</span></li><li><span>② 换 8-bit Adam / Adafactor</span></li><li><span>③ 上 ZeRO-2 → ZeRO-3（第 11 章）</span></li><li><span>④ 还不行 → 张量并行 / 流水线并行（第 12-13 章）</span></li><li><span>⑤ 最后 → CPU offload（慢）</span></li><li><span>否 → 峰值与 batch 设置有关，仍需定位激活或工作区，再比较下列方案</span></li><li><span>① 【梯度检查点】⭐ 先试这个</span></li><li><span>② FlashAttention（第 8 章，把 O(n²) 降到 O(n)）</span></li><li><span>③ 序列长度能不能减？能不能 packing？</span></li><li><span>④ 序列并行（超长序列时）</span></li><li><span>⑤ 减小 micro batch + 梯度累积</span></li><li><span>时好时坏 / 显存看似够但报 OOM？ → 检查峰值、工作区及分配快照；碎片只是候选原因</span></li></ul></section>
+<section class="reading-information"><p class="reading-information-title">图下说明</p><ul><li><span>OOM 了</span></li><li><span>batch=1 仍 OOM？不能仅凭这一点定因</span></li><li><span>是 → 先看状态、激活、工作区和分配器；确认状态占主要峰值时再比较下列方案</span></li><li><span>① 任务允许参数高效微调吗？→ 比较 LoRA / QLoRA 与全量微调目标</span></li><li><span>② 状态占主要峰值？→ 比较低精度状态、Adafactor 与分片</span></li><li><span>③ 上 ZeRO-2 → ZeRO-3（第 11 章）</span></li><li><span>④ 还不行 → 张量并行 / 流水线并行（第 12-13 章）</span></li><li><span>⑤ 容量仍不足且传输可接受？→ 评估 CPU/NVMe Offload，并测主机内存与吞吐</span></li><li><span>否 → 峰值与 batch 设置有关，仍需定位激活或工作区，再比较下列方案</span></li><li><span>① M_act 占主要峰值？→ 评估梯度检查点并测重算代价</span></li><li><span>② FlashAttention（第 8 章：减少注意力中间矩阵的额外保存与 HBM 搬运，主计算仍是 O(n²d)）</span></li><li><span>③ 序列长度能不能减？能不能 packing？</span></li><li><span>④ 序列并行（超长序列时）</span></li><li><span>⑤ 减小 micro batch + 梯度累积</span></li><li><span>时好时坏 / 显存看似够但报 OOM？ → 检查峰值、工作区及分配快照；碎片只是候选原因</span></li></ul></section>
 <hr />
 <h2 id="oom_1">🧩 四、显存碎片：那个"明明还有显存却 OOM"</h2>
 <section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>以下只是排查线索，不能单独证明碎片：</p><p>· 报错说&quot;tried to allocate 2GB，free 8GB&quot;但还是失败</p><p>· 训练跑了几小时后突然 OOM</p><p>· reserved 与 allocated 差距较大；缓存本就可能造成差距，没有统一 20% 诊断阈值</p><p>一种可能：空闲块分布不适合当前分配请求，</p><p>但需结合快照、统计和失败请求确认，并排查活跃张量、工作区及其他占用</p></div></section>
@@ -452,12 +473,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;PYTORCH_CUDA_ALLOC_CONF&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;expandable_segments:True&quot;</span>
-<span class="c1">#                                        ↑ PyTorch 2.x，对碎片非常有效</span>
+<span class="c1"># ↑ 仅在目标 PyTorch/分配器支持且快照指向分配模式问题时尝试</span>
 
-<span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">empty_cache</span><span class="p">()</span>          <span class="c1"># 释放缓存（慢，别放在循环里）</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">empty_cache</span><span class="p">()</span>          <span class="c1"># 仅释放未使用缓存；别当作释放活跃张量</span>
 
-<span class="c1"># ⭐ 最有效的预防：让形状固定</span>
-<span class="c1">#    变长序列 → 分桶（bucketing）到固定几个长度</span>
+<span class="c1"># 候选措施：让形状更规律，例如把变长序列分桶</span>
+<span class="c1"># 是否有效要由快照、分配统计和峰值复测确认</span>
 </code></pre></div>
 
 <blockquote>
@@ -471,7 +492,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <th>手段</th>
 <th>省哪块</th>
-<th>省多少</th>
+<th>容量变化与边界</th>
 <th>代价</th>
 </tr>
 </thead>
@@ -479,57 +500,56 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td><strong>梯度检查点</strong></td>
 <td>激活</td>
-<td>O(L)→O(√L)</td>
-<td>+20~35% 时间</td>
+<td>只省激活；理想顺序链可到约 O(√L)</td>
+<td>重算增加；按峰值与 step time 实测</td>
 </tr>
 <tr>
 <td><strong>FlashAttention</strong></td>
 <td>激活</td>
-<td>O(n²)→O(n)</td>
-<td>✅ <strong>几乎无代价</strong> ⭐</td>
+<td>避免额外保存 O(n²) 中间矩阵，常降到 O(nd)</td>
+<td>精确注意力计算仍是 O(n²d)；受后端与形状限制</td>
 </tr>
 <tr>
 <td><strong>ZeRO-3 / FSDP</strong></td>
 <td>参数+梯度+优化器</td>
-<td>÷N</td>
-<td>通信增加</td>
+<td>被分片项理想接近 ÷N</td>
+<td>通信、聚合临时量与未分片峰值</td>
 </tr>
 <tr>
 <td><strong>8-bit Adam</strong></td>
 <td>优化器</td>
 <td>状态位宽与主权重分别核算</td>
-<td>极小的质量损失</td>
+<td>质量、速度与算子支持需评测</td>
 </tr>
 <tr>
 <td><strong>LoRA</strong></td>
 <td>梯度+优化器</td>
-<td>÷100</td>
-<td>只适用微调</td>
+<td>只缩小可训练梯度/状态，比例取决于 rank 与目标层</td>
+<td>只适用微调；能力与全量微调不等价</td>
 </tr>
 <tr>
 <td><strong>BF16</strong></td>
-<td>参数+激活</td>
-<td>÷2</td>
-<td>✅ 基本无代价</td>
+<td>实际采用 BF16 保存的参数/激活等</td>
+<td>FP32→BF16 的对应张量减半，不等于整个峰值减半</td>
+<td>硬件/算子支持、数值范围与精度需验证</td>
 </tr>
 <tr>
 <td><strong>CPU offload</strong></td>
-<td>任意</td>
-<td>大</td>
-<td>⚠️ 慢很多</td>
+<td>被卸载的参数/状态/激活</td>
+<td>按实际卸载集合核算</td>
+<td>主机内存与传输增加，是否变慢取决于重叠</td>
 </tr>
 <tr>
 <td><strong>减小 batch</strong></td>
 <td>激活</td>
-<td>线性</td>
-<td>MFU 下降</td>
+<td>常降低随 micro-batch 增长的激活；并非所有项线性</td>
+<td>利用率与通信占比可能变差，需实测</td>
 </tr>
 </tbody>
 </table></div>
 <blockquote>
-<p>⭐ <strong>注意 FlashAttention 和 BF16 这两行</strong>：
-<strong>它们收益与硬件、形状和数值行为有关，应先验证兼容性与质量</strong>，不算"优化手段"。
-如果你还没开这两个就在纠结 offload，<strong>顺序错了</strong>。</p>
+<p>⭐ <strong>注意 FlashAttention 和混合精度这两行</strong>：
+它们往往应在目标硬件与框架上<strong>优先评估</strong>，但不是免费开关。先确认支持的后端、实际 dtype、数值质量与峰值变化，再决定是否继续叠加检查点、分片或 Offload。</p>
 </blockquote>
 <hr />
 <h2 id="_5">🔗 和站内其他章的关系</h2>
@@ -542,8 +562,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </thead>
 <tbody>
 <tr>
-<td><a href="03-显存与带宽墙.html">第 3 章</a> 显存四大块</td>
-<td><strong>本章是每一块的解法</strong> ⭐</td>
+<td><a href="03-显存与带宽墙.html">第 3 章</a> 容量、带宽与显存分项</td>
+<td><strong>本章把分项扩成训练/推理峰值账本，再为每项选择手段</strong> ⭐</td>
 </tr>
 <tr>
 <td><a href="03-显存与带宽墙.html">第 3 章</a> 激活与工作区可能随 batch 变化</td>
@@ -551,15 +571,15 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><a href="06-混合精度.html">第 6 章</a> 混合精度</td>
-<td>省激活的基础手段</td>
+<td>只缩小实际采用低精度保存的张量；硬件、算子和数值质量另行验证</td>
 </tr>
 <tr>
 <td><a href="08-FlashAttention.html">第 8 章</a> FlashAttention</td>
-<td>省激活最划算的一个</td>
+<td>减少注意力中间矩阵的额外保存与 HBM 搬运；不改变精确注意力的 O(n²d) 主计算</td>
 </tr>
 <tr>
 <td><a href="11-ZeRO与FSDP.html">第 11 章</a> ZeRO</td>
-<td>省优化器状态</td>
+<td>按 stage 分片状态、梯度或参数，并引入通信/聚合边界</td>
 </tr>
 <tr>
 <td><a href="../机器学习与深度学习基础/10-正则化全家桶.html">ML 基础第 10 章</a></td>
@@ -580,42 +600,48 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ol>
 <li>减小 batch 能提供什么线索，为什么还需要快照与峰值统计？</li>
 <li><code>allocated</code> 和 <code>reserved</code> 的差距说明什么？</li>
-<li>梯度检查点的显存和时间各是什么量级？</li>
+<li>峰值账本的七项分别是什么？为什么总式只能写近似号？</li>
+<li>梯度检查点省的是哪一项？为什么不能承诺固定的省显存与变慢百分比？</li>
 <li>什么是选择性检查点？它好在哪？</li>
-<li>8-bit Adam 能省多少？代价是什么？</li>
+<li>为什么不能把 Adam、8-bit Adam 的“字节/参数”脱离状态口径直接比较？</li>
 <li>为什么说 LoRA 是"最容易被忽略的解法"？</li>
-<li>为什么"减小 batch"是最后手段而不是第一手段？</li>
+<li>为什么不能把“减小 batch”固定写成第一手段或最后手段？</li>
 <li>哪些现象提示需要检查分配器？如何核实并选择措施？</li>
-<li>速查表里哪两个手段"几乎无代价"？这意味着什么？</li>
+<li>FlashAttention 到底降低了什么，没有降低什么？为什么混合精度也不是免费开关？</li>
+<li>为什么组合优化时要一次只改一项，并在每一步重画账本？</li>
+<li>CPU Offload 省了什么，又新增了哪些资源与验证项？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
 <li><strong>将 batch 调为 1 可观察峰值是否随它变化。仍 OOM 时，参数状态、长序列激活、工作区和分配器都需检查；不再 OOM 也不能唯一归因于激活。结合快照和峰值统计定位，再选优化方法。</strong></li>
 <li><strong>同一时刻 reserved−allocated 包含未使用的可复用缓存，不能直接等同碎片，也没有统一 20% 诊断阈值。需结合内存快照、分配器统计、失败请求和所用 backend 判断。</strong></li>
-<li>显存 <strong>O(L) → O(√L)</strong>，时间 +20~35%（多一次前向）。</li>
-<li><strong>只重算那些"算起来便宜、存起来贵"的操作</strong>（LayerNorm、激活函数），保留贵的（矩阵乘）。好在常常用 5-10% 的时间就换到大部分显存收益，而全量重算要掉 30%。</li>
-<li>优化器状态从 <strong>12 字节/参数降到约 4</strong>。代价是极小的质量损失，<code>bitsandbytes</code> 一行换掉。</li>
-<li>因为<strong>很多人在硬啃全量微调的显存，而任务本身用 LoRA 就够了</strong>。LoRA 把可训练参数降到 0.1-1%，梯度和优化器状态跟着降到 1%。</li>
-<li>因为 <strong>micro batch 太小会让 GPU 利用率下降</strong>（warp 不够，第 2 章），而且通信次数不变但计算变少，通信占比上升 —— MFU 会明显变差。</li>
+<li><code>M_param</code>、<code>M_grad</code>、<code>M_opt</code>、<code>M_act</code>、<code>M_temp</code>、<code>M_KV</code>、<code>M_other</code>。它们的生命周期可能错开、缓冲可能复用，所以账本是防漏项的容量近似，最终要用峰值与快照核对。</li>
+<li>检查点只直接减少 <code>M_act</code>，用反向时重算换空间。理想顺序链、均匀分段可约从 O(L) 到 O(√L)，但真实节省和耗时取决于图结构、保存边界、算子、形状与实现。</li>
+<li><strong>选择性检查点</strong>优先重算存储代价高、重算代价相对低的操作，保留重算昂贵的结果；仍需在同一输入上比较峰值显存、step time 与数值结果。</li>
+<li>先写清比较口径：Adam 的 FP32 <code>m/v</code> 常是 8 B/参数，若另存 FP32 主权重再加 4 B；8-bit Adam 量化的是状态，还可能有分块统计和高精度副本。节省、质量和速度必须按实现实测。</li>
+<li>因为<strong>很多人在硬啃全量微调的显存，而任务本身可能只需要参数高效微调</strong>。LoRA 只为所选目标层的低秩增量保存可训练梯度与状态；比例由 rank、目标层和实现决定，能力也不等同于全量微调。</li>
+<li>若峰值确实由随 micro-batch 增长的激活主导，减小它可以快速止住 OOM；但参数/状态主导时作用有限。micro-batch 过小还可能降低利用率、提高通信占比，并改变归一化或收敛行为，所以位置由账本和训练目标决定。</li>
 <li>分配失败、运行一段时间后 OOM 或缓存差值变大，都只是调查入口。先核对活跃张量/工作区峰值、其他占用与分配快照；若证据支持分配模式问题，再比较分桶、稳定形状和匹配 backend 的配置。empty_cache() 不释放活跃张量，频繁调用还可能增加开销。<strong></strong><code></code><code></code></li>
-<li><strong>FlashAttention 和 BF16</strong>。意味着它们应该是默认开启的，不算"优化手段"——如果还没开这两个就在纠结 offload，顺序错了。</li>
+<li>FlashAttention 通过分块避免额外保存 O(n²) 注意力中间矩阵，常把额外保存量降到 O(nd)，但精确注意力的主要计算仍是 O(n²d)。混合精度只缩小真正采用低精度存储的张量，还需验证硬件/算子支持、缩放、溢出和任务质量。</li>
+<li>因为一个手段会改变另一个手段面对的峰值与代价：检查点增加重算，分片新增聚合/通信缓冲，Offload 新增传输缓冲。一次只改一项，才能知道哪项带来容量、速度或质量变化；每步都要重新记录账本和指标。</li>
+<li>Offload 减少被移出设备的参数、状态或激活常驻量，却增加主机内存、传输缓冲与通信。要同时记录设备峰值、主机峰值、传输量、step time 和吞吐，确认传输是否被计算遮住。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_7">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>⭐ <strong>OOM 不是一个问题，是四个</strong>（参数、梯度、优化器状态、激活），每块解法不同。</p>
+<p>⭐ <strong>OOM 不是一个单独问题</strong>：参数、梯度、优化器状态、激活、临时工作区、推理 KV Cache 与其他运行时占用，增长条件和解法不同。</p>
 <p>⭐⭐ <strong>减小 batch 是线索，不是分类证明。batch=1 仍 OOM，也要核对激活峰值、工作区和分配器，不能直接定因为参数或优化器。reserved 与 allocated 的差值还包含缓存，不等于碎片。</strong><strong></strong><code></code><code></code></p>
-<p>七件武器里最该记的四条：⭐ <strong>梯度检查点</strong>把激活显存降一个量级、代价是多花两三成时间（选择性检查点只重算「算起来便宜、存起来贵」的那部分，性价比更高）；⭐ <strong>切优化器状态</strong>（ZeRO/FSDP）按 stage 递进；⭐ <strong>换 8-bit 优化器</strong>几乎是白拿——一行的事、质量损失极小；⭐⭐ <strong>LoRA 是最容易被忽略的解法</strong>——<strong>很多人在硬啃全量微调的显存，而任务用 LoRA 就够</strong>，可训练参数掉到百分之一量级，梯度和优化器状态跟着掉。</p>
-<p>⚠️ 两个「最后手段」：<strong>CPU offload 要走 PCIe，慢一个量级</strong>，实在装不下才用；<strong>减小 micro batch</strong> 会让 warp 不够、通信占比上升，<strong>MFU 反而变差</strong>。</p>
+<p>七件武器的共同规则：先看账本。⭐ <strong>梯度检查点</strong>只省激活并增加重算；⭐ <strong>ZeRO/FSDP</strong>分片参数、梯度或状态但增加通信与临时聚合；⭐ <strong>低精度优化器</strong>只缩小对应状态，需验证质量与支持；⭐⭐ <strong>LoRA</strong>在任务允许参数高效微调时，才会连带缩小可训练梯度与状态。</p>
+<p>⚠️ <strong>CPU Offload</strong>用主机容量换设备容量，会增加主机内存和传输；<strong>减小 micro batch</strong>可能降低利用率并提高通信占比。两者都不是固定的“最后手段”，而是账本和实测约束下的选择。</p>
 <p>⭐ <strong>决策树提供排查入口，先按快照确认主要占用。状态占峰值时比较 LoRA、低精度优化器或分片；激活/工作区占峰值时比较检查点、注意力实现、序列长度与 micro-batch，逐项复测。</strong></p>
 <p>看似还有空闲容量却分配失败，需要继续检查峰值与分配状态，不能凭现象或缓存差值确诊碎片。稳定形状、分桶或分配器选项应在证据支持时尝试；empty_cache() 不能释放活跃张量。<strong></strong><strong></strong><strong><code></code></strong></p>
-<p>⭐ 最后一句是顺序问题：<strong>FlashAttention 和 BF16 几乎无代价，它们本来就该是默认开的——还没开就先纠结 offload，是把顺序搞反了。</strong></p>
+<p>⭐ 最后一句是顺序问题：先评估目标硬件上可用的注意力内核与混合精度，但把它们当作<strong>需要验证的候选基线</strong>，而不是免费开关；之后再按峰值主因叠加检查点、分片或 Offload，每次只改一项并复测。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="10-数据并行与AllReduce.html">10-数据并行与AllReduce.md</a></p>
-<details class="g05-content-note"><summary>条件与依据</summary><p>检查点与低精度的省显存/耗时百分比是示意，不能当固定承诺。8-bit Adam 两份矩的存储不应与包含 FP32 主权重的 12 字节直接混算。batch=1 仍 OOM 也可能是激活、工作区或碎片问题；梯度累积需处理不足整组的尾批，并在 DDP 中按需关闭中间同步。</p><p><a href="https://docs.pytorch.org/docs/stable/notes/cuda.html">官方文档</a>；<a href="https://www.deepspeed.ai/tutorials/zero/">官方文档</a></p></details>
+<details class="g05-content-note"><summary>条件与依据</summary><p>峰值账本是容量预算，不是假装所有分项同时到峰值。检查点、低精度、分片与 Offload 的节省/耗时取决于模型图、输入形状、硬件、互联和实现，不能当固定承诺。8-bit Adam 两份矩的存储不应与包含 FP32 主权重的 12 字节直接混算。batch=1 仍 OOM 也可能是激活、工作区或分配模式问题；梯度累积需处理不足整组的尾批，并在 DDP 中按需关闭中间同步。</p><p><a href="https://docs.pytorch.org/docs/stable/notes/cuda.html">PyTorch CUDA 内存说明</a>；<a href="https://docs.pytorch.org/docs/stable/checkpoint.html">PyTorch Activation Checkpointing</a>；<a href="https://www.deepspeed.ai/tutorials/zero/">DeepSpeed ZeRO</a>；<a href="08-FlashAttention.html">本站第 8 章：FlashAttention 的 I/O 与复杂度边界</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="08-FlashAttention.html"><div class="dir">← 上一节</div>⭐⭐ FlashAttention</a><a class="next" href="10-数据并行与AllReduce.html"><div class="dir">下一节 →</div>⭐ 数据并行</a></nav>
