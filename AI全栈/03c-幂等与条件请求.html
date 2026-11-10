@@ -344,9 +344,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </table></div>
 <blockquote>
 <p>⭐ <strong>根问题只有一句</strong>：出错时客户端<strong>分不出「没做成」和「做成了但回复没送到」</strong> —— 两者在它眼里都只是一个超时。
-它只能二选一：不重试（可能丢单）或重试（可能重复）。<strong>服务端的活，是让「重试」这个选项不再有代价。</strong></p>
+它只能二选一：不重试（可能丢单）或重试（可能重复）。<strong>服务端要给同一意图一个可查询、可核对的结果，减少重复副作用。</strong></p>
 </blockquote>
-<p>💀 一个没有幂等保护的 <code>POST /charges</code>：上游生成慢触发 04 章那条自动重试，而上游<strong>其实已经在生成</strong> —— 这一次请求扣了两次钱、烧了两份 token，⚠️ <strong>全程不报错</strong>，日志里是两条漂亮的 200。</p>
+<p>💀 一个没有幂等保护的 <code>POST /charges</code>：上游生成慢触发 04 章那条自动重试，而上游<strong>其实已经在生成</strong> —— 同一业务意图可能变成两次扣费或生成，⚠️ <strong>全程不报错</strong>，日志里是两条漂亮的 200。</p>
 <hr />
 <h2 id="_2" data-mg-stop>🧩 二、幂等 ≠ 安全 ≠ 相同响应</h2>
 <p>安全（safe）表示客户端没有请求改变资源状态；幂等（idempotent）表示重复相同请求的<strong>预期效果</strong>与一次相同。日志等附带记录可以改变，响应也可以不同。依据 <a href="https://www.rfc-editor.org/rfc/rfc9110.html#section-9.2.1">RFC 9110 §9.2.1–2</a>。</p>
@@ -401,13 +401,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ 这一节兑现的是一张欠条：<a href="04-调用层.html">04</a> 的重试白名单和 <a href="11-长任务与队列.html">11</a> 的死信规则都在讲「<strong>哪些错</strong>该重试」，<strong>没人讲过「哪些请求经得起被重试」</strong>。</p>
 <hr />
 <h2 id="idempotency-key" data-mg-stop>🧩 三、<code>Idempotency-Key</code>：服务端拿到这个头之后</h2>
-<p><a href="11-长任务与队列.html">11 章第四节</a>已经把<strong>队列侧</strong>做完了（由输入算 <code>sha256(user|kind|payload)</code> 当键、写进带唯一约束的表、和干活同一个事务，投三次账上 1 笔），末尾留了一句「更稳的是让客户端传 <code>Idempotency-Key</code> 头」。<strong>这一节是那句话的下半截。</strong></p>
+<p><a href="11-长任务与队列.html">第 11 章</a>演示了队列消费怎样用稳定任务号和同库事务去重。这一节把边界移到 HTTP 接口。客户端重发同一次业务意图时，接口要识别原操作，并返回它的状态或可重放结果。</p>
 <p>⭐ <strong>客户端传键和服务端算键，差在「谁来判断这是不是同一次意图」</strong>：</p>
 <blockquote>
 <p>同一个用户<strong>故意</strong>用完全相同的参数下两单（买两份一样的、把同一份文档再总结一版）——
 服务端算出的键<strong>一模一样</strong>，第二次被当成重试<strong>吞掉了</strong>。⚠️ 用户没收到任何错，只是东西没出现。</p>
 </blockquote>
-<p>⚠️ 客户端唯一的硬规矩：<strong>键在发起时生成一次、重试时原样带回</strong>，每次重试重新生成 = 等于没做。⭐ 这和 11 章「幂等键不能用 <code>uuid4()</code>」是同一个错的两副面孔，<strong>但结论相反</strong>：在这里 <code>uuid4()</code> 是对的，只要它在一串重试之间不变。</p>
+<p><strong>在发起业务操作时生成一次键，重试时复用。</strong>随机生成的 <code>uuid4()</code> 可以作键。每次重发都生成新键，服务端就无法把它关联到原操作。</p>
 <p>服务端要回答四个问题：</p>
 <div class="tw"><table>
 <thead>
@@ -456,8 +456,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p><strong>客户端之所以重试，恰恰是因为它没收到第一次的响应。</strong>
 你回它一句「这个做过了」，它拿不到订单号、拿不到 job id、拿不到那段结果 —— <strong>等于失败</strong>。</p>
 </blockquote>
-<p>所以要把第一次的<strong>状态码和响应体</strong>存下来原样重放，并让客户端能分辨这是重放（🗓️ 头的名字各家不统一）。⚠️ 代价是存储，以及响应体里可能有用户原话，<strong>留存期要和<a href="../数据这一关/19-隐私脱敏与留存.html">《数据这一关》19 章</a>对齐</strong>。⚠️ 流式重放不了：<a href="05-流式输出.html">05 章</a>讲过状态码在第一帧发出时就定死成 200，SSE 边生成边发，你手上没有一份「完整响应」可存 —— ⭐ 务实的形状是把花钱的那一步和流分开：先用一个带幂等键的普通 POST 创建 / 预扣，拿到 id 再去开流。</p>
-<p>⭐ <strong>键必须限定在租户内。</strong> 这是重放机制自己带来的安全洞：既然「拿着键就能拿到那次响应」，全局唯一的键就意味着 <strong>A 租户猜中 B 的键便能读到 B 的响应体</strong>。所以主键是 <code>(tenant_id, key)</code>，而那个 <code>tenant_id</code> ⚠️ 只能来自已验签的凭证（<a href="08-认证会话与多租户.html">08 章</a>）。</p>
+<p>服务端可以保存首次操作的状态码和业务结果，重放时给出同一个订单号。正文可能包含用户信息，留存按<a href="../数据这一关/19-隐私脱敏与留存.html">数据留存规则</a>设计。正在生成的流可能还没有完整结果可重放。响应头发出后也无法改状态码（<a href="05-流式输出.html">第 05 章</a>）。可把创建任务或预留预算与读取结果分开。先用幂等键创建，拿到任务号后再查状态或接收流。</p>
+<p>⭐ <strong>键要有业务作用域。</strong>本例只演示一个订单操作，用 <code>(tenant_id, key)</code> 作主键。真实服务要按租户、操作以及需要的用户边界限定键，每次请求与重放都重新核验访问权。租户范围来自已认证身份与服务端授权关系，幂等键本身不授予访问权。见 <a href="08-认证会话与多租户.html">第 08 章</a>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># idem_server.py —— Idempotency-Key 的服务端协议（sqlite3，直接可跑）</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span><span class="o">,</span><span class="w"> </span><span class="nn">hashlib</span><span class="o">,</span><span class="w"> </span><span class="nn">json</span>
 
@@ -471,8 +471,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="n">SEQ</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">fp_of</span><span class="p">(</span><span class="n">body</span><span class="p">):</span>   <span class="c1"># ⚠️ sort_keys —— 字段顺序一变指纹就变，会把正常重试误判成「不同 body」</span>
-    <span class="k">return</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">body</span><span class="p">,</span> <span class="n">sort_keys</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">())</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()[:</span><span class="mi">12</span><span class="p">]</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">fp_of</span><span class="p">(</span><span class="n">body</span><span class="p">):</span>   <span class="c1"># 固定字段顺序，避免把 JSON 对象的键顺序差异误判成内容变化</span>
+    <span class="k">return</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">body</span><span class="p">,</span> <span class="n">sort_keys</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">())</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">create_order</span><span class="p">(</span><span class="n">tenant</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">body</span><span class="p">):</span>
@@ -514,8 +514,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>实跑输出：</p>
 <section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>第一次 (201, {&#x27;order_id&#x27;: &#x27;ord_1&#x27;, &#x27;cents&#x27;: 3000})</li><li>原样重试 (201, {&#x27;order_id&#x27;: &#x27;ord_1&#x27;, &#x27;cents&#x27;: 3000, &#x27;replayed&#x27;: True})</li><li>同键换 body (409, {&#x27;code&#x27;: &#x27;idempotency_key_reused&#x27;, · })</li><li>别的租户同键 (201, {&#x27;order_id&#x27;: &#x27;ord_2&#x27;, &#x27;cents&#x27;: 3000})</li><li>换个键 (201, {&#x27;order_id&#x27;: &#x27;ord_3&#x27;, &#x27;cents&#x27;: 3000})</li><li>同键正在处理中 (409, {&#x27;code&#x27;: &#x27;request_in_progress&#x27;, · })</li><li>库里的订单： [(&#x27;ord_1&#x27;, &#x27;acme&#x27;, 3000), (&#x27;ord_2&#x27;, &#x27;globex&#x27;, 3000), (&#x27;ord_3&#x27;, &#x27;acme&#x27;, 3000)]</li></ol></section>
-<p>⭐ <strong>② 和 ⑤ 对着看</strong>：同一份 body，键相同就重放同一个 <code>ord_1</code>，键换了就真下了一单 <code>ord_3</code> —— <strong>「是不是同一次意图」的判断权在客户端手里</strong>。⭐ ④ 是那个安全洞的正面演示：<code>globex</code> 用了同一个字符串 <code>k-1</code>，拿到的是自己的 <code>ord_2</code>。
-（<code>code</code> / <code>message</code> 沿用 <a href="03-后端骨架.html">03 章</a>那套统一错误形状，真接进服务时还要带 <code>trace_id</code>。这一章不重新定义错误长什么样，只决定该返哪个码。）</p>
+<p>② 和 ⑤ 的正文相同，重用同一个键时返回原订单 <code>ord_1</code>，换键则创建 <code>ord_3</code>。④ 是租户隔离的正面用例，同样的键在 Globex 对应它自己的订单 <code>ord_2</code>。本例在重放 JSON 中附加 <code>replayed</code> 标记。实际接口也可使用自定义响应头。</p>
 <hr />
 <!--MIDSTOP-->
 <blockquote>
@@ -526,15 +525,42 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="304">🧱 四、条件请求：那个 304 是怎么来的</h2>
 <p>上面解决的是「写」。<strong>读</strong>这一侧也有重复：用户每隔几秒刷一次会话列表，内容一个字没变，你却把整段 JSON 又发了一遍。</p>
-<p>机制三步：① 响应带 <code>ETag: W/"c_42-v7"</code>（这个资源当前这一版的指纹）② 客户端下次带 <code>If-None-Match: W/"c_42-v7"</code> ③ 服务端一比对，一样就返 <strong><code>304 Not Modified</code></strong>，⭐ <strong>不带 body</strong>。</p>
-<p>⚠️ <strong>304 省的是 body，不是往返</strong> —— TLS、鉴权、以及你为了算 ETag 做的那次查库都还在。⭐ 判据：<strong>body 大、变化少</strong>的才值得做（会话列表、文档正文、前端配置），一个二十字节的小 JSON 别折腾。</p>
-<p>⭐ <strong>ETag 怎么算，两条路</strong>：<strong>内容哈希</strong>最准，但 ⚠️ 省不了计算，只省传输；⭐ 版本派生（<code>"{id}-v{version}"</code> 或 <code>"{id}-{updated_at}"</code>）便宜得多 —— <a href="06-关系数据库.html">06 章</a>那张表上本来就有 <code>updated_at</code>。</p>
-<p>⚠️ 强 ETag（<code>"abc"</code>）承诺字节级完全相同，弱 ETag（<code>W/"abc"</code>）只承诺语义等价，不同内容编码或表示应有对应验证器。<strong>If-None-Match 使用弱比较，If-Match 必须强比较；弱 ETag 不能用来通过 If-Match 的版本检查。</strong>依据 <a href="https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.1">RFC 9110 §13.1.1–2</a>。</p>
+<h3 id="conditional-read-headers">重看同一份会话，怎样省掉正文</h3>
+<p>第一次读取 <code>c_42</code> 时，浏览器会收到 JSON。服务器给这份表示附上实体标签（Entity Tag，<code>ETag</code>），这里的 <code>"c_42-v7"</code> 对应第 7 版。ETag 由服务器签发，客户端只需要记住并带回它。下列报文使用同一份 UTF-8 JSON 表示。为突出条件，省略了实际服务所需的身份凭证。</p>
+<div class="codehilite" data-code-language="text" data-code-title="读会话 · GET 200 与条件 GET 304"><pre><code>GET /conversations/c_42 HTTP/1.1
+Host: app.example.invalid
+
+
+HTTP/1.1 200 OK
+Date: Mon, 09 Nov 2026 12:00:00 GMT
+ETag: &quot;c_42-v7&quot;
+Cache-Control: private, no-cache
+Content-Type: application/json
+Content-Length: 45
+
+{&quot;id&quot;:&quot;c_42&quot;,&quot;title&quot;:&quot;旧标题&quot;,&quot;version&quot;:7}
+
+GET /conversations/c_42 HTTP/1.1
+Host: app.example.invalid
+If-None-Match: W/&quot;c_42-v7&quot;
+
+
+HTTP/1.1 304 Not Modified
+Date: Mon, 09 Nov 2026 12:00:01 GMT
+ETag: &quot;c_42-v7&quot;
+Cache-Control: private, no-cache
+
+</code></pre></div>
+<p>第二个 GET 带 <code>If-None-Match</code>。对 GET 而言，弱比较允许忽略标签前的 <code>W/</code>，所以 <code>W/"c_42-v7"</code> 与服务器的 <code>"c_42-v7"</code> 匹配。服务器只发 <code>304</code> 和相关响应头，客户端继续显示先前保存的正文。标签不匹配时，服务器正常返回 <code>200</code>、新的标签和正文。先完成身份与访问检查，再判断能否复用表示。</p>
+<p>本例的 <code>private, no-cache</code> 允许私有缓存存储，但每次复用前必须验证。下文用 <code>If-None-Match</code> 做 GET 缓存验证。它也能作为写入前置条件，例如用 <code>If-None-Match: *</code> 表达「仅当目标不存在时才创建」。<a href="https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.2">RFC 9110 §13.1.2</a> · <a href="https://www.rfc-editor.org/rfc/rfc9110.html#section-15.4.5">304 响应</a>。</p>
+<p><strong>304 省掉正文传输。</strong>浏览器仍发出请求，服务端仍要做鉴权和版本检查。正文大且更新少时更容易见到收益，实际成本要看验证方式。</p>
+<p>服务器可以按选定表示的内容生成标签，也可以用版本字段派生。用版本作强标签时，本示例固定表示格式，并约定会改变该表示的更新都会递增版本。若响应还会因格式、内容编码等变化，要保证强标签能区分不同表示。<code>updated_at</code> 的精度未必够区分每次更新。</p>
+<p><strong>强比较</strong>要求双方都是强标签，且引号内的值相同。<strong>弱比较</strong>只比较引号内的值。<code>If-Match</code> 使用强比较，<code>If-None-Match</code> 使用弱比较。<a href="https://www.rfc-editor.org/rfc/rfc9110.html#section-8.8.3.2">RFC 9110 §8.8.3.2</a>。</p>
 <p><code>Last-Modified</code> 精度只到秒，回滚还会让时间和内容对不上 —— 两个都能给就给 ETag。</p>
 <p>⚠️ <strong>两个必须点破的边界</strong>：</p>
 <ul>
-<li>⭐ <strong>它和 <a href="04-调用层.html">04 章</a>的 LLM 结果缓存是两件事</strong>：那一章问「同样的输入要不要<strong>再问一次模型</strong>」（省的是钱，判据是 <code>temperature=0</code>、不带工具、不流式），这一节问「同样的资源要不要再传一次字节」（省的是流量）。一个在调用层、一个在 HTTP 层，两层都做不冲突。</li>
-<li><strong>流式端点别做 ETag</strong>：发第一个字节的时候，你还不知道最终内容是什么。</li>
+<li>⭐ <strong>它和 <a href="04-调用层.html">04 章</a>的 LLM 结果缓存是两件事</strong>：那一章问「同样的输入要不要<strong>再问一次模型</strong>」（能否复用取决于上下文、权限、版本与产品要求），这一节问「同样的资源要不要再传一次字节」（省的是流量）。一个在调用层、一个在 HTTP 层，两层都做不冲突。</li>
+<li>即席生成的流未必有可事先验证的完整表示。若应用保存了一个已完成结果，可按普通资源提供独立的读取接口与验证器。</li>
 </ul>
 <details id="http-freshness"><summary>可跳过：先判断新鲜，再决定是否发起条件验证</summary>
 <p><strong>新鲜度回答“可否直接复用”，ETag验证回答“旧表示是否仍可用”。</strong>以允许存储的私有HTTP缓存为例，响应max-age给新鲜寿命；没有它时，显式Expires可用Expires−Date算寿命。共享缓存还须处理s-maxage等适用规则，不能把这个私有缓存算例不加条件照搬。Age是已经积累的年龄，不是“还剩几秒”。</p>
@@ -544,14 +570,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </details>
 <hr />
 <h2 id="if-match-http">🔍 五、<code>If-Match</code> 就是 HTTP 层的乐观锁</h2>
-<p>把方向反过来：<code>If-None-Match</code> 用于读（「没变就别给我」），<code>If-Match</code> 用于写（「<strong>没被别人改过我才写</strong>」）。它治的是<strong>丢更新</strong>：</p>
-<blockquote>
-<p>A 和 B 同时打开同一个会话的标题编辑框，都看到 <code>v7</code>。A 存了，B 十秒后也存了。
-⚠️ <strong>B 的 <code>PUT</code> 把 A 的改动整段覆盖，没有任何报错</strong> —— A 只是过一会儿发现自己改的东西没了。</p>
-</blockquote>
-<p>流程：<code>GET</code> 拿到 <code>ETag</code> → 改 → <code>PUT</code> 时带 <code>If-Match</code> → 服务端比对，对不上返 <strong><code>412 Precondition Failed</code></strong>。⭐ <strong>服务端实现只有一条 SQL，不需要任何锁</strong>：</p>
+<p>同一个会话还可以被改名。A 和 B 都打开第 7 版。A 保存后，B 仍拿着旧标题修改。如果后端只认会话号，B 的提交就可能覆盖 A 刚保存的标题。让客户端带上编辑所基于的版本，服务端就能识别这类丢更新。</p>
+<p><strong>先比较版本，再改数据。</strong>用 GET 取强 <code>ETag</code>，编辑完成后把它放进 <code>If-Match</code>。数据库必须把版本条件和写入放在同一次更新里。这里只演示已经通过授权且仍存在的会话，匹配失败时返回 <code>412 Precondition Failed</code>。数据库更新时仍会加写锁，这样做可以把锁限制在短事务内，避免跨模型调用持锁。</p>
 <div class="codehilite" data-code-language="sql"><pre><span></span><code><span class="k">UPDATE</span><span class="w"> </span><span class="n">docs</span><span class="w"> </span><span class="k">SET</span><span class="w"> </span><span class="n">title</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">?</span><span class="p">,</span><span class="w"> </span><span class="k">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">version</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span>
-<span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="k">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">?</span><span class="w">      </span><span class="c1">-- ⭐ 受影响行数 = 0 就是冲突，返 412</span>
+<span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="k">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">?</span><span class="w">      </span><span class="c1">-- 已确认记录存在时，版本不匹配导致 0 行更新</span>
 </code></pre></div>
 
 <div class="tw"><table>
@@ -572,9 +594,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><strong>409</strong></td>
-<td>请求和服务器<strong>当前状态</strong>打架，但你没提任何条件</td>
+<td>请求与服务器<strong>当前状态</strong>冲突</td>
 <td>同键不同 body、并发同键</td>
-<td>换个键 / 稍后重试</td>
+<td>查看业务 <code>code</code>。若同一操作处理中，按约定查询或等待</td>
 </tr>
 </tbody>
 </table></div>
@@ -582,50 +604,136 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong>记法：412 是「你提的条件不成立」，409 是「你和服务器现在的状态对不上」。</strong>
 412 的可贵之处是<strong>客户端知道下一步该干什么</strong>；409 往往只能告诉它「别再原样重试了」。</p>
 </blockquote>
-<p>⚠️ <strong>对多人可同时改的资源要强制带 <code>If-Match</code></strong>，不带就拒（🗓️ 正式做法是返 <code>428 Precondition Required</code>）—— 不强制的话，忘了带的那个客户端<strong>仍然在无声覆盖别人</strong>。想表达「我就是要覆盖，只要它还在」，标准写法是 <code>If-Match: *</code>。</p>
-<p>⭐ <strong>为什么这个板块尤其该用乐观锁</strong>：<a href="06-关系数据库.html">06 章第六节</a>警告过「别在 <code>SELECT ... FOR UPDATE</code> 之后调外部服务 —— 那是攥着一把行锁在等」（那节的可跑对照：池 5、并发 40、LLM 1 秒时 <strong>8.15 秒 vs 1.15 秒</strong>）。而 AI 应用最典型的写路径正是「读一份文档 → 调模型改写（几十秒） → 写回去」，悲观行锁在这段时间根本不能用，版本号则什么都不锁。⚠️ 代价是冲突处理被推给了客户端，所以 412 至少要带上当前版本，否则客户端只能盲目重 GET 再赌一次。</p>
-<p>💡 同一个形状后面还会再见到：<a href="11-长任务与队列.html">第 11 章</a>那条队列认领语句里的 <code>WHERE status='queued'</code>，本质就是拿状态当版本号的乐观锁。</p>
-<div class="codehilite" data-code-language="python"><pre><code># conditional.py —— 条件请求的两次比对（纯 stdlib 可直接跑；框架写法见文末对照表）
-DOC = {&quot;id&quot;: &quot;c_42&quot;, &quot;title&quot;: &quot;旧标题&quot;, &quot;version&quot;: 7}
+<p>这条编辑接口要求带具体的强标签。缺少 <code>If-Match</code> 时，本例返回 <code>428 Precondition Required</code>。协议还定义了 <code>If-Match: *</code>，它只检查是否存在当前表示。它无法证明版本没变，因此本例的编辑策略要求具体标签。<a href="https://www.rfc-editor.org/rfc/rfc6585.html#section-3">RFC 6585 §3</a> · <a href="https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.1">RFC 9110 §13.1.1</a>。</p>
+<h3 id="conditional-write-recovery">B 收到 412 后，怎样继续编辑</h3>
+<div class="flowchain" role="list" aria-label="用版本前置条件恢复编辑">
+<div class="fstep" role="listitem"><b>① A 保存</b><span>带 v7，更新成功，库里成为 v8。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>② B 的旧版本被拒</b><span>也带 v7，收到 412。A 的标题保持不变。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>③ B 重新读取并确认</b><span>对照自己的草稿与 A 的修改。确认新标题后，以 v8 提交。</span></div>
+</div>
+<p>本接口的 PUT 替换客户端可编辑的完整字段，这里只有标题。响应里的 <code>id</code> 和版本由服务端管理。成功用 <code>204</code>，省略响应正文，也不在这份 PUT 响应里发送新标签。下一次 GET 再取新表示和标签。<a href="https://www.rfc-editor.org/rfc/rfc9110.html#section-9.3.4">RFC 9110 §9.3.4</a>。</p>
+<div class="codehilite" data-code-language="text" data-code-title="条件写入 · A 成功，B 的旧版本被拒"><pre><code>PUT /conversations/c_42 HTTP/1.1
+Host: app.example.invalid
+If-Match: &quot;c_42-v7&quot;
+Content-Type: application/json
+Content-Length: 23
+
+{&quot;title&quot;:&quot;A 的标题&quot;}
+
+HTTP/1.1 204 No Content
+Date: Mon, 09 Nov 2026 12:00:02 GMT
 
 
-def etag():
-    return &#x27;&quot;%s-v%d&quot;&#x27; % (DOC[&quot;id&quot;], DOC[&quot;version&quot;])   # 固定表示、任何变化都递增 version 时，版本可派生强标签
+PUT /conversations/c_42 HTTP/1.1
+Host: app.example.invalid
+If-Match: &quot;c_42-v7&quot;
+Content-Type: application/json
+Content-Length: 23
+
+{&quot;title&quot;:&quot;B 的标题&quot;}
+
+HTTP/1.1 412 Precondition Failed
+Date: Mon, 09 Nov 2026 12:00:03 GMT
+Content-Type: application/json
+Content-Length: 34
+
+{&quot;error&quot;:{&quot;code&quot;:&quot;stale_version&quot;}}
+</code></pre></div>
+<p>收到 <code>412</code> 后，B 保留自己的草稿，重新 GET 取 v8。确认把两人的修改合并成一个标题后，再提交。如果又有人先保存，则再次显示冲突，让用户决定下一步。</p>
+<div class="codehilite" data-code-language="text" data-code-title="恢复编辑 · 读 v8，再提交确认后的标题"><pre><code>GET /conversations/c_42 HTTP/1.1
+Host: app.example.invalid
+
+
+HTTP/1.1 200 OK
+Date: Mon, 09 Nov 2026 12:00:04 GMT
+ETag: &quot;c_42-v8&quot;
+Cache-Control: private, no-cache
+Content-Type: application/json
+Content-Length: 47
+
+{&quot;id&quot;:&quot;c_42&quot;,&quot;title&quot;:&quot;A 的标题&quot;,&quot;version&quot;:8}
+
+PUT /conversations/c_42 HTTP/1.1
+Host: app.example.invalid
+If-Match: &quot;c_42-v8&quot;
+Content-Type: application/json
+Content-Length: 37
+
+{&quot;title&quot;:&quot;A 的标题 + B 的补充&quot;}
+
+HTTP/1.1 204 No Content
+Date: Mon, 09 Nov 2026 12:00:05 GMT
+
+</code></pre></div>
+<p><strong>动手核对。</strong>保存为 <code>conditional.py</code>，用 Python 3.11 或以上运行 <code>python conditional.py</code>。函数返回「状态码、响应头、正文」三项。程序只用标准库和 SQLite 内存数据库。它用一个合法标签演示比较规则，省略了认证、HTTP 传输和完整的标签列表解析。</p>
+<div class="codehilite" data-code-language="python" data-code-title="conditional.py · 读验证、写冲突与恢复"><pre><code>import sqlite3
+
+db = sqlite3.connect(&quot;:memory:&quot;)
+db.execute(&quot;CREATE TABLE docs (id TEXT PRIMARY KEY, title TEXT, version INTEGER)&quot;)
+db.execute(&quot;INSERT INTO docs VALUES (&#x27;c_42&#x27;, &#x27;旧标题&#x27;, 7)&quot;)
+db.commit()
+
+
+def current():
+    return db.execute(&quot;SELECT id, title, version FROM docs WHERE id=?&quot;, (&quot;c_42&quot;,)).fetchone()
+
+
+def tag_for(row):
+    # 表示固定，表示发生变化时递增版本。
+    return f&#x27;&quot;{row[0]}-v{row[2]}&quot;&#x27;
 
 
 def GET(if_none_match=None):
-    # 本示例只接收一个合法实体标签，不实现列表或 * 的完整解析。
-    candidate = if_none_match.removeprefix(&quot;W/&quot;) if if_none_match else None
-    if candidate == etag():
-        return 304, None                                # ⭐ 没变 → 不带 body
-    return 200, dict(DOC, etag=etag())
+    row = current()
+    tag = tag_for(row)
+    headers = {&quot;ETag&quot;: tag, &quot;Cache-Control&quot;: &quot;private, no-cache&quot;}
+    if if_none_match and if_none_match.removeprefix(&quot;W/&quot;) == tag:
+        return 304, headers, None
+    return 200, headers, {&quot;id&quot;: row[0], &quot;title&quot;: row[1], &quot;version&quot;: row[2]}
 
 
 def PUT(title, if_match=None):
-    if if_match is None or if_match.startswith(&quot;W/&quot;) or if_match != etag():                              # ⭐ 对不上 = 别人先改过了
-        return 412, {&quot;message&quot;: &quot;已被改过，请重新 GET 后再提交&quot;, &quot;now&quot;: etag()}  # ⭐ 带上当前版本
-    DOC.update(title=title, version=DOC[&quot;version&quot;] + 1)
-    return 200, dict(DOC, etag=etag())
+    if if_match is None:
+        return 428, {}, {&quot;error&quot;: {&quot;code&quot;: &quot;if_match_required&quot;}}
+    row = current()
+    stale = (412, {}, {&quot;error&quot;: {&quot;code&quot;: &quot;stale_version&quot;}})
+    if if_match != tag_for(row):
+        return stale
+    with db:
+        result = db.execute(
+            &quot;UPDATE docs SET title=?, version=version+1 WHERE id=? AND version=?&quot;,
+            (title, row[0], row[2]),
+        )
+    return (204, {}, None) if result.rowcount == 1 else stale
 
 
-tag = GET()[1][&quot;etag&quot;]                                  # A 和 B 都拿到 v7
-print(&quot;① 带 If-None-Match:&quot;, GET(tag))
-print(&quot;② A 写入:&quot;, PUT(&quot;A 的标题&quot;, tag))
-print(&quot;③ B 拿着旧 ETag 写:&quot;, PUT(&quot;B 的标题&quot;, tag))
+first = GET()
+v7 = first[1][&quot;ETag&quot;]
+unchanged = GET(&quot;W/&quot; + v7)
+assert unchanged == (304, first[1], None)
+assert PUT(&quot;缺少标签&quot;)[0] == 428
+assert PUT(&quot;弱标签&quot;, &quot;W/&quot; + v7)[0] == 412
+assert GET() == first
+assert PUT(&quot;A 的标题&quot;, v7) == (204, {}, None)
+assert PUT(&quot;B 的标题&quot;, v7)[0] == 412
+latest = GET(&quot;W/&quot; + v7)
+assert latest[0] == 200 and latest[2][&quot;title&quot;] == &quot;A 的标题&quot;
+assert PUT(&quot;A 的标题 + B 的补充&quot;, latest[1][&quot;ETag&quot;]) == (204, {}, None)
+assert GET()[2] == {&quot;id&quot;: &quot;c_42&quot;, &quot;title&quot;: &quot;A 的标题 + B 的补充&quot;, &quot;version&quot;: 9}
+print(&quot;读旧版 200 → 弱比较 304 → 缺条件 428 → 弱标签写 412&quot;)
+print(&quot;A 保存 204 → B 冲突 412 → 读取新版 200 → 确认合并 204&quot;)
+print(&quot;最终版本&quot;, GET()[1][&quot;ETag&quot;])
+db.close()
 </code></pre></div>
-
-<p>实跑输出：</p>
-<section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>带 If-None-Match: (304, None)</li><li>A 写入: (200, {&#x27;id&#x27;: &#x27;c_42&#x27;, &#x27;title&#x27;: &#x27;A 的标题&#x27;, &#x27;version&#x27;: 8, &#x27;etag&#x27;: &#x27;&quot;c_42-v8&quot;&#x27;})</li><li>B 拿着旧 ETag 写: (412, {&#x27;message&#x27;: &#x27;已被改过，请重新 GET 后再提交&#x27;, &#x27;now&#x27;: &#x27;&quot;c_42-v8&quot;&#x27;})</li></ol></section>
-<p>示例限定单个合法实体标签；生产请使用框架的条件请求解析，处理标签列表、通配符及原子版本更新。只在 Python 内做一次比较，不足以防住多个 worker 同时更新数据库。</p>
-<p>⭐ <strong>第 ③ 行是这一节的全部价值</strong>：没有 <code>If-Match</code> 时它会是 <code>200</code>、标题会变成「B 的标题」—— <strong>A 的改动被无声吃掉，全程零报错</strong>。</p>
+<p>预期输出依次为 <code>200 → 304 → 428 → 412</code>、<code>204 → 412 → 200 → 204</code>、最终 <code>"c_42-v9"</code>。弱标签能匹配读取条件，但无法通过强比较的写入条件。被拒的写入都没有改变当时的标题。正式应用还要在更新范围内核对租户和对象权限，并处理资源被删除的分支。</p>
+<p>同一种短事务思路也出现在 <a href="06-关系数据库.html#llm">第 06 章的事务边界</a>和<a href="11-长任务与队列.html">第 11 章的条件认领</a>中。先让数据库用一个条件决定能否更新，外部调用在事务之外执行。</p>
 <hr />
 <h2 id="_3">📋 六、把三件事拼起来</h2>
-<p>创建 / 扣费 / 提交任务（<code>POST</code>）用 <strong><code>Idempotency-Key</code> + 重放</strong>，冲突返 <code>409</code>；整体替换（<code>PUT</code>）天然幂等，<strong>再加 <code>If-Match</code></strong> 防丢更新，冲突返 <code>412</code>；局部修改（<code>PATCH</code>）⚠️ 先确认补丁是「绝对」的再加 <code>If-Match</code>；反复拉同一份大 body（<code>GET</code>）用 <code>ETag</code> + <code>If-None-Match</code>，命中返 <code>304</code>（这不是错）。</p>
-<blockquote>
-<p>⭐ <strong>一条能直接写进代码评审清单的规矩</strong>：
-<strong>每一个会花钱或改状态的 <code>POST</code>，要么带 <code>Idempotency-Key</code>，要么重新设计成 <code>PUT</code>。</strong>
-两条都不满足的，就是在等一次双倍扣款。</p>
-</blockquote>
+<p>创建任务时可以用 <code>Idempotency-Key</code> 关联同一意图。读已有表示时用 <code>ETag</code> 和 <code>If-None-Match</code> 验证缓存。基于旧版编辑时用强标签和 <code>If-Match</code> 保护写入。三种检查分别看业务操作、缓存表示和写入所基于的版本。</p>
+<p>接口设计时，先确认业务是创建新操作，还是替换已知资源，再选择方法与保护方式。会产生副作用且允许重发时，约定原操作的标识与可恢复结果。</p>
+
 <p>⚠️ 客户端也有三件事必须配合：① 键<strong>原样带回</strong>；② 尊重 <code>429</code> 带回来的 <code>Retry-After</code>（<a href="12-限流配额与成本护栏.html">12 章</a>讲它怎么从令牌桶算出来）；③ 退避<strong>加抖动</strong>。</p>
 <hr />
 <h2 id="_4">🔄 换个栈怎么对应</h2>
@@ -689,7 +797,7 @@ print(&quot;③ B 拿着旧 ETag 写:&quot;, PUT(&quot;B 的标题&quot;, tag))
 </tr>
 <tr>
 <td>⭐ <a href="04-调用层.html">04 · 调用层</a></td>
-<td>本章存在的直接原因：那一章的白名单会<strong>自动</strong>重发 <code>429</code>/<code>5xx</code>/超时，而它自己那张表就写着「读取超时时上游可能已在生成，重试 = 付两次钱」</td>
+<td>那一章先判断错误可否恢复，再判断原操作能否安全重放。发送后的超时可能需要查询原结果</td>
 </tr>
 <tr>
 <td><a href="10-把流式接到界面上.html">10 · 把流式接到界面上</a></td>
@@ -701,11 +809,11 @@ print(&quot;③ B 拿着旧 ETag 写:&quot;, PUT(&quot;B 的标题&quot;, tag))
 </tr>
 <tr>
 <td>⭐ <a href="03b-接口的形状.html">03b · 接口的形状</a></td>
-<td>那一章讲方法语义和状态码的<strong>整体</strong>选择，只点一句「<code>PUT</code> 幂等、<code>POST</code> 不幂等」；⭐ <strong>幂等的全部展开在本章</strong>，本章也只碰 <code>409</code> / <code>412</code> 两个码</td>
+<td>那一章讲资源、方法和状态码的整体选择。本章接着拆开业务重放、缓存验证与写入前置条件</td>
 </tr>
 <tr>
 <td><a href="08-认证会话与多租户.html">08 · 认证、会话与多租户</a></td>
-<td>幂等键必须限定在租户内，⚠️ 而那个 <code>tenant_id</code> 只能来自<strong>已验签的凭证</strong> —— 从请求参数里取就是一行越权</td>
+<td>幂等键需要限定在授权租户和业务范围内，重放前再查当前对象权限</td>
 </tr>
 <tr>
 <td><a href="16-上线前检查单.html">16 · 上线前检查单</a></td>
@@ -718,22 +826,24 @@ print(&quot;③ B 拿着旧 ETag 写:&quot;, PUT(&quot;B 的标题&quot;, tag))
 <ol>
 <li>「安全」「幂等」「相同响应」分别是什么？<code>DELETE</code> 第二次返 404，它还幂等吗？<code>PATCH</code> 幂不幂等取决于什么？</li>
 <li>客户端传 <code>Idempotency-Key</code> 比服务端自己算键好在哪？客户端唯一的硬规矩是什么？</li>
-<li>同键不同 body 为什么返 409 而不是 422？并发同键为什么不能挂着等？</li>
-<li>为什么「只去重、回一句 skipped」在接口侧不够用？流式路径上为什么重放不了？</li>
-<li>幂等键表的主键为什么必须是 <code>(tenant_id, key)</code>？键该存多久，判据是什么？</li>
+<li>同键不同 body 为什么返 409 而不是 422？本例遇到同键正在处理时，客户端下一步该做什么？</li>
+<li>为什么接口重放要给出原结果或查询入口？生成流还没完成时，如何分离创建与读取？</li>
+<li>本例为什么把租户加入幂等键表的主键？实际重放还要检查什么？</li>
 <li><code>304</code> 省掉的是什么、没省掉的是什么？它和 04 章的 LLM 结果缓存差在哪？</li>
 <li><code>412</code> 和 <code>409</code> 怎么分？为什么这个板块更该用乐观锁而不是 <code>SELECT ... FOR UPDATE</code>？</li>
+<li>服务器当前标签为 <code>"c_42-v7"</code>。若带 <code>W/"c_42-v7"</code>，条件 GET 与条件 PUT 各返回什么？写请求没带条件呢？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>安全</strong> = 不改变服务端状态；幂等 = 执行 N 次和 1 次服务端状态相同；响应相同不是幂等的要求 —— <code>DELETE</code> 第二次返 404 仍然幂等，两次之后那东西都没了。<code>PATCH</code> 取决于补丁语义：「绝对」的操作幂等（<code>{"title": "新标题"}</code>），「相对」的不幂等（<code>{"views": "+1"}</code>）。</li>
-<li>服务端算的键<strong>分不出「重试」和「用户故意再来一次」</strong> —— 同一个用户用相同参数下两单，算出的键一样，第二单被当成重试吞掉，用户还收不到任何错。客户端传键把「是不是同一次意图」的判断权交回发起方。硬规矩：发起时生成一次、重试时原样带回；这里用 <code>uuid4()</code> 反而是对的（11 章说不能用它，指的是服务端每次重算的场景）。</li>
-<li><code>422</code> 说的是「<strong>请求本身有毛病</strong>」，而这里的 body 可能完全合法，毛病在「它和这个键先前绑的那份对不上」—— 那是请求与当前状态的冲突，所以是 <code>409</code>。不能挂着等，是因为一次调用几十秒，挂等把两条连接一起占住，正是 06 章那个「持有时长才是瓶颈」。</li>
-<li><strong>客户端之所以重试，恰恰是因为它没收到第一次的响应</strong>；回它「做过了」，它拿不到订单号 / job id / 生成结果，等于失败。所以要存下第一次的状态码和响应体原样重放（队列侧返 <code>skipped</code> 够用，是因为投递方不关心结果）。⚠️ 流式重放不了：状态码在第一帧发出时就定死成 200，SSE 边生成边发，没有一份完整响应可存。</li>
-<li>因为<strong>重放意味着「拿着键就能拿到那次响应」</strong>，全局唯一的话 A 租户猜中 B 的键就能读到 B 的响应体（代码里 ④：<code>globex</code> 用同一个 <code>k-1</code> 拿到的是自己的 <code>ord_2</code>）。存多久由「客户端最长的重试窗口」定（🗓️ 常见 24 小时量级），而且必须写进 API 文档。</li>
-<li>省的是 <strong>body</strong>；⚠️ 没省往返 —— TLS、鉴权、为算 ETag 做的查库都还在，所以只有 body 大、变化少的接口值得做。和 LLM 结果缓存是两件事：那个问「要不要再问一次模型」（省钱），这个问「要不要再传一次字节」（省流量）。</li>
-<li><strong>412 = 你自己提的前置条件不成立</strong>（<code>If-Match</code> 对不上），客户端明确知道要重新 GET 再提交；409 = 请求和当前状态打架但你没提条件。该用乐观锁是因为写路径是「读 → 调模型（几十秒） → 写回」，悲观行锁会攥着锁等外部服务，正是 06 章明令禁止的（对照：池 5 / 并发 40 / LLM 1 秒，8.15 秒 vs 1.15 秒）；⚠️ 代价是冲突处理被推给客户端。</li>
+<li><strong>安全</strong>表示客户端没有请求改变资源状态。<strong>幂等</strong>看重复相同请求的预期效果是否与一次相同。附带日志和响应可以不同 —— <code>DELETE</code> 第二次返 404 仍然幂等，两次之后那东西都没了。<code>PATCH</code> 取决于补丁语义：「绝对」的操作幂等（<code>{"title": "新标题"}</code>），「相对」的不幂等（<code>{"views": "+1"}</code>）。</li>
+<li>服务端算的键<strong>分不出「重试」和「用户故意再来一次」</strong> —— 同一个用户用相同参数下两单，算出的键一样，第二单被当成重试吞掉，用户还收不到任何错。客户端传键把「是不是同一次意图」的判断权交回发起方。硬规矩：发起时生成一次、重试时原样带回；可以首次用 <code>uuid4()</code> 生成。</li>
+<li><code>422</code> 说的是「<strong>请求本身有毛病</strong>」，而这里的 body 可能完全合法，毛病在「它和这个键先前绑的那份对不上」—— 那是请求与当前状态的冲突，所以是 <code>409</code>。本接口约定同键处理中返回独立的错误码。客户端按约定查询状态，或在预算内稍后用原键重试。</li>
+<li>客户端需要原订单号或任务号，才能继续查询。可以先用幂等键创建任务，再按任务号读取状态或流。</li>
+<li>本例同一个键在不同租户可对应不同订单。重放前仍要检查当前访问权。保留时间按业务恢复和客户端重试窗口设计，并写进接口文档。</li>
+<li><code>304</code> 省正文传输，仍有请求往返和授权检查。模型结果缓存决定能否复用生成结果，条件 GET 则验证先前保存的 HTTP 表示是否还能使用。</li>
+<li><code>412</code> 表示前置条件不成立。重新 GET 后比对草稿与新表示，确认后再提交。<code>409</code> 表示请求与当前状态冲突，按业务错误码处理。用短事务检查版本，可把模型调用放在事务之外。</li>
+<li>条件 GET 用弱比较，返回 <code>304</code> 并继续用旧正文。条件 PUT 用强比较，返回 <code>412</code> 且不写入。没有提供写入条件时，本例返回 <code>428</code>。</li>
 </ol>
 </details>
 <hr />
@@ -741,14 +851,14 @@ print(&quot;③ B 拿着旧 ETag 写:&quot;, PUT(&quot;B 的标题&quot;, tag))
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
 <p><strong>根问题</strong>：出错时客户端<strong>分不出「没做成」和「做成了但回复没送到」</strong>，只能在丢单和重复之间二选一。服务端的活，是让「重试」不再有代价。</p>
-<p>⭐ 这在本板块是基础题，因为<strong>板块自己就在制造重复</strong>：调用层会自动重发超时和 5xx（上游可能已在生成，重试 = 付两次钱）、前端重发是一次真金白银的新调用、队列里任务可能重复执行。</p>
-<p>三个概念别混：安全 = 不改状态；⭐ <strong>幂等 = 执行 N 次和 1 次服务端状态相同</strong>；⚠️ 响应相同不是幂等的要求。⚠️ 幂等是你实现出来的承诺，不是写了 <code>PUT</code> 就自动有的。</p>
+<p>⭐ 这在本板块是基础题，因为<strong>板块自己就在制造重复</strong>：调用层必须检查超时后的结果和安全重放条件、前端重发是一次真金白银的新调用、队列里任务可能重复执行。</p>
+<p>安全表示客户端没有请求改变资源状态。幂等比较重复相同请求的预期效果，响应和附带日志可以不同。</p>
 <p>⭐ <strong><code>Idempotency-Key</code> 由客户端传，强过服务端自己算</strong>——差别在<strong>谁判断「是不是同一次意图」</strong>：服务端按内容算哈希，会把「用户故意再下一单」当成重试吞掉。</p>
-<p>服务端要答四问：同键不同 body 返 409（不是 422，body 完全合法）；并发同键靠唯一约束抢占，⚠️ <strong>绝不挂着等</strong>；⭐ <strong>必须重放第一次的响应</strong>而不是回一句「做过了」——客户端重试恰恰是因为没收到第一次的响应；存多久由客户端最长重试窗口定，并写进 API 文档。</p>
-<p>⭐ 主键必须是 <code>(tenant_id, key)</code>，全局唯一就是越权读。</p>
-<p>⭐ <strong><code>If-Match</code> 就是 HTTP 层的乐观锁</strong>，治丢更新：两个人都拿着同一版本，后存的无声覆盖先存的，<strong>全程零报错</strong>。服务端只要一条带版本条件的 <code>UPDATE</code>，受影响行数为 0 就是冲突，不用任何锁。⭐ <strong>412 是「你提的条件不成立」，409 是「你和服务器当前状态打架」。</strong></p>
+<p>本例对同键异体或同键处理中都用 409，但用不同错误码。已完成时给出原业务结果。键保留多久、如何查询状态和处理过期，都是接口合同的一部分。</p>
+<p>⭐ 本例按租户和键查记录，重放仍要通过当前授权检查。</p>
+<p>⭐ <strong><code>If-Match</code> 就是 HTTP 层的乐观锁</strong>，治丢更新：两个人都拿着同一版本，后存的无声覆盖先存的，<strong>全程零报错</strong>。服务端只要一条带版本条件的 <code>UPDATE</code>，将版本比较和写入放在同一个短事务内。⭐ <strong>412 是「你提的条件不成立」，409 是「你和服务器当前状态打架」。</strong></p>
 <p>⭐ 这个板块尤其该用乐观锁：写路径是「读 → 调模型几十秒 → 写回」，而攥着行锁调外部服务是明令禁止的。</p>
-<p>⭐ <strong>写进评审清单的一条：会花钱或改状态的 <code>POST</code>，要么带 <code>Idempotency-Key</code>，要么重新设计成 <code>PUT</code>。</strong></p>
+<p><strong>对会产生副作用的请求，写清重发能否安全，以及怎样查到原结果。</strong></p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="04-调用层.html">04-调用层.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
