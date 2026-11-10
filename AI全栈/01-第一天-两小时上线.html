@@ -336,9 +336,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <td>别人可访问、真实模型可用</td>
 </tr>
 <tr>
-<td>部署准备</td>
-<td>文件、依赖、启动命令与配置已检查</td>
-<td>平台服务已经运行</td>
+<td>真实模型接通</td>
+<td>显式选择真实模式后，能确认供应商接收了请求且返回内容</td>
+<td>公网可访问、回复质量已验证</td>
 </tr>
 <tr>
 <td>公网验收</td>
@@ -347,7 +347,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>内网穿透可以临时演示，但仍依赖本机进程。平台服务也可能休眠或中断，不能只凭“有网址”认定可靠。</p>
+<p>部署准备是检查文件、依赖、启动命令和配置的过程。公网验收需要独立环境实际完成请求。临时内网穿透仍依赖本机进程，平台服务也可能休眠或中断。</p>
 <p><strong>本页边界：</strong> 公网部分是准备与验收清单，不是已实跑的某平台操作教程；没有“两小时一定完成”的保证。</p>
 <hr />
 <h2 id="_3">🧩 二、最短路径的四个选择</h2>
@@ -385,100 +385,166 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="_4">🧩 三、后端：先说形状，再看代码</h2>
 <p><strong>① 密钥必须从环境变量读。</strong> 不只是安全洁癖——环境变量是常见配置入口；平台也可能支持挂载文件或密钥服务。写进代码意味着每换一次 Key 都要重新提交、重新部署，而且这份代码从此不能公开。</p>
-<p><strong>② 需要一个「能分批往外写、且连接保持打开」的返回方式。</strong> 浏览器要边收边显示，就不能等模型生成完再 <code>return</code>。FastAPI 里这东西叫 <code>StreamingResponse</code>，喂它一个<strong>生成器</strong>，<code>yield</code> 一次它就往连接里写一次。</p>
+<p><strong>② 需要一个「能分批往外写、且连接保持打开」的返回方式。</strong> 浏览器想边收边显示，后端就要能在生成完之前交出一部分内容。<code>StreamingResponse</code> 会逐步读取<strong>生成器</strong>产出的内容。<code>yield</code> 交出一段，浏览器可能分几次收到它，也可能一次收到几段。<a href="https://fastapi.tiangolo.com/advanced/custom-response/#streamingresponse">FastAPI 流式响应文档</a>。</p>
 <p><strong>③ 往外写的东西要分帧。</strong> 你迟早要往回送「不是正文」的东西——错误、用量、工具状态。<strong>先分帧，以后加东西不用重写前端</strong>。</p>
 <p>用 SSE：每帧一行 <code>data: {JSON}</code>，帧间空一行，帧的类型放在 JSON 负载的 <code>type</code> 字段里（<code>delta</code> / <code>usage</code> / <code>error</code> / <code>done</code>）。</p>
 <p>⭐ 类型不放进 SSE 的 <code>event:</code> 行，是因为前端用 <code>fetch</code> 手动解析（第四节说了为什么不用 <code>EventSource</code>），这里的简化解析器只读 data 行；完整解析器也能读 event 行。放进 JSON 是本例约定。</p>
 <p>⭐ 全板块统一这个格式，<a href="05-流式输出.html">05</a> / <a href="10-把流式接到界面上.html">10</a> 都照它来。</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># app.py —— 本地教学演示，公开前需补安全与稳定性</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">json</span><span class="o">,</span><span class="w"> </span><span class="nn">os</span><span class="o">,</span><span class="w"> </span><span class="nn">time</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastAPI</span><span class="p">,</span> <span class="n">Request</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">fastapi.responses</span><span class="w"> </span><span class="kn">import</span> <span class="n">StreamingResponse</span><span class="p">,</span> <span class="n">FileResponse</span><span class="p">,</span> <span class="n">JSONResponse</span>
+<div class="codehilite" data-code-language="python"><pre><code># app.py —— 本地教学演示，公开前需补安全与稳定性
+import json
+import os
+import time
+from pathlib import Path
 
-<span class="n">app</span> <span class="o">=</span> <span class="n">FastAPI</span><span class="p">()</span>
-<span class="n">API_KEY</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;ANTHROPIC_API_KEY&quot;</span><span class="p">)</span>      <span class="c1"># ⭐ 密钥从环境变量读</span>
-<span class="n">MODEL</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;MODEL&quot;</span><span class="p">)</span>                    <span class="c1"># 接真实服务时配置账号可用的模型 ID</span>
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
+app = FastAPI()
+MODE = os.environ.get(&quot;CHAT_MODE&quot;, &quot;mock&quot;)
+MOCK_CUT = os.environ.get(&quot;CHAT_MOCK_CUT&quot;) == &quot;1&quot;
+if MODE not in {&quot;mock&quot;, &quot;live&quot;}:
+    raise RuntimeError(&quot;CHAT_MODE 只能是 mock 或 live&quot;)
 
-<span class="k">def</span><span class="w"> </span><span class="nf">stream_from_model</span><span class="p">(</span><span class="n">prompt</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;一段一段产出文本。没配 Key 就用假模型，用于先验证本地链路。&quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="ow">not</span> <span class="n">API_KEY</span><span class="p">:</span>
-        <span class="k">for</span> <span class="n">ch</span> <span class="ow">in</span> <span class="s2">&quot;（假模型）我收到了：&quot;</span> <span class="o">+</span> <span class="n">prompt</span><span class="p">:</span>
-            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.02</span><span class="p">)</span>
-            <span class="k">yield</span> <span class="n">ch</span>
-        <span class="k">return</span>
-    <span class="k">if</span> <span class="ow">not</span> <span class="n">MODEL</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;接真实模型前，请设置账号可用的 MODEL&quot;</span><span class="p">)</span>
-    <span class="kn">import</span><span class="w"> </span><span class="nn">anthropic</span>                                <span class="c1"># pip install anthropic</span>
-    <span class="n">client</span> <span class="o">=</span> <span class="n">anthropic</span><span class="o">.</span><span class="n">Anthropic</span><span class="p">(</span><span class="n">api_key</span><span class="o">=</span><span class="n">API_KEY</span><span class="p">)</span>
-    <span class="k">with</span> <span class="n">client</span><span class="o">.</span><span class="n">messages</span><span class="o">.</span><span class="n">stream</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="n">MODEL</span><span class="p">,</span> <span class="n">max_tokens</span><span class="o">=</span><span class="mi">1024</span><span class="p">,</span>
-                                <span class="n">messages</span><span class="o">=</span><span class="p">[{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">prompt</span><span class="p">}])</span> <span class="k">as</span> <span class="n">s</span><span class="p">:</span>
-        <span class="k">for</span> <span class="n">piece</span> <span class="ow">in</span> <span class="n">s</span><span class="o">.</span><span class="n">text_stream</span><span class="p">:</span>                 <span class="c1"># ⭐ 生成一点就往外吐一点</span>
-            <span class="k">yield</span> <span class="n">piece</span>
+# 默认模式不读取模型凭证。切到真实模式才校验真实配置。
+if MODE == &quot;live&quot;:
+    API_KEY = os.environ.get(&quot;ANTHROPIC_API_KEY&quot;)
+    MODEL = os.environ.get(&quot;MODEL&quot;)
+    if not API_KEY or not MODEL:
+        raise RuntimeError(&quot;live 模式需要 ANTHROPIC_API_KEY 和 MODEL&quot;)
 
 
-<span class="nd">@app</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/api/chat&quot;</span><span class="p">)</span>
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">chat</span><span class="p">(</span><span class="n">req</span><span class="p">:</span> <span class="n">Request</span><span class="p">):</span>
-    <span class="n">prompt</span> <span class="o">=</span> <span class="p">(</span><span class="k">await</span> <span class="n">req</span><span class="o">.</span><span class="n">json</span><span class="p">())</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;prompt&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
-    <span class="k">if</span> <span class="ow">not</span> <span class="n">prompt</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">JSONResponse</span><span class="p">({</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;prompt 不能为空&quot;</span><span class="p">},</span> <span class="n">status_code</span><span class="o">=</span><span class="mi">400</span><span class="p">)</span>
+def stream_from_model(prompt):
+    if MODE == &quot;mock&quot;:
+        for ch in &quot;（假模型）我收到了：&quot; + prompt:
+            time.sleep(0.06)
+            yield ch
+        return
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">sse</span><span class="p">():</span>                                      <span class="c1"># ⭐ 每帧一行 data:，帧间空一行</span>
-        <span class="k">for</span> <span class="n">piece</span> <span class="ow">in</span> <span class="n">stream_from_model</span><span class="p">(</span><span class="n">prompt</span><span class="p">):</span>     <span class="c1"># ⭐ 类型放负载里，不用 event: 行</span>
-            <span class="k">yield</span> <span class="s2">&quot;data: &quot;</span> <span class="o">+</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">({</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;delta&quot;</span><span class="p">,</span> <span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="n">piece</span><span class="p">},</span>
-                                        <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n\n</span><span class="s2">&quot;</span>
-        <span class="k">yield</span> <span class="s1">&#39;data: {&quot;type&quot;:&quot;done&quot;}</span><span class="se">\n\n</span><span class="s1">&#39;</span>           <span class="c1"># ⭐ 结束帧也是一帧正常 JSON</span>
+    import anthropic  # 仅真实模式需要 pip install anthropic
 
-    <span class="k">return</span> <span class="n">StreamingResponse</span><span class="p">(</span><span class="n">sse</span><span class="p">(),</span> <span class="n">media_type</span><span class="o">=</span><span class="s2">&quot;text/event-stream&quot;</span><span class="p">,</span>
-                             <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;Cache-Control&quot;</span><span class="p">:</span> <span class="s2">&quot;no-cache&quot;</span><span class="p">,</span>
-                                      <span class="s2">&quot;X-Accel-Buffering&quot;</span><span class="p">:</span> <span class="s2">&quot;no&quot;</span><span class="p">})</span>   <span class="c1"># ⭐ 请代理别缓冲</span>
+    client = anthropic.Anthropic(api_key=API_KEY)
+    with client.messages.stream(
+        model=MODEL,
+        max_tokens=1024,
+        messages=[{&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: prompt}],
+    ) as stream:
+        yield from stream.text_stream
 
 
-<span class="nd">@app</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">index</span><span class="p">():</span>
-    <span class="k">return</span> <span class="n">FileResponse</span><span class="p">(</span><span class="s2">&quot;index.html&quot;</span><span class="p">)</span>
+def frame(data):
+    return &quot;data: &quot; + json.dumps(data, ensure_ascii=False) + &quot;\n\n&quot;
+
+
+@app.post(&quot;/api/chat&quot;)
+async def chat(req: Request):
+    try:
+        data = await req.json()
+    except ValueError:
+        data = None
+    raw = data.get(&quot;prompt&quot;) if isinstance(data, dict) else None
+    if not isinstance(raw, str) or not raw.strip():
+        return JSONResponse({&quot;error&quot;: &quot;prompt 必须是非空文本&quot;}, status_code=400)
+    prompt = raw.strip()
+
+    def sse():
+        try:
+            for i, piece in enumerate(stream_from_model(prompt), start=1):
+                yield frame({&quot;type&quot;: &quot;delta&quot;, &quot;text&quot;: piece})
+                if MODE == &quot;mock&quot; and MOCK_CUT and i == 5:
+                    return  # 故障演练：直接收流，不发 done
+        except Exception:
+            # 响应已经开始。用流内消息报错，不回显上游原始异常。
+            yield frame({&quot;type&quot;: &quot;error&quot;, &quot;message&quot;: &quot;生成失败&quot;})
+        yield frame({&quot;type&quot;: &quot;done&quot;})
+
+    return StreamingResponse(
+        sse(),
+        media_type=&quot;text/event-stream&quot;,
+        headers={&quot;Cache-Control&quot;: &quot;no-cache&quot;, &quot;X-Accel-Buffering&quot;: &quot;no&quot;},
+    )
+
+
+@app.get(&quot;/&quot;)
+def index():
+    return FileResponse(Path(__file__).with_name(&quot;index.html&quot;))
 </code></pre></div>
 
-<p>⚠️ <strong>两个细节</strong>：<strong>没 Key 就走假模型</strong>——第一天最怕「装了半天环境卡在 401」，把「链路通不通」和「Key 对不对」分开排查（<code>import anthropic</code> 也因此放在函数里）；<code>X-Accel-Buffering: no</code> 是发给中间层的请求，Nginx 那类代理默认攒够一批再转发，那样流式就白做了。</p>
+<p><strong>先看三处。</strong> <code>chat()</code> 检查输入，错误发生在开流前时返回 HTTP 400。<code>stream_from_model()</code> 默认逐字产出模拟回复，真实模式要主动开启。<code>sse()</code> 给每段文本加上类型，最后发 <code>done</code>。开流后发生异常时，若响应还能继续写，先发 <code>error</code>，再用 <code>done</code> 收尾。<code>X-Accel-Buffering: no</code> 提示支持该响应头的代理关闭缓冲，代理实际怎样转发仍需验收。</p>
 <hr />
 <h2 id="_5">🧩 四、前端：核心就是「读流 + 拼帧」</h2>
-<p>⚠️ <strong>别用 <code>EventSource</code>。</strong> 它只能发 GET，问题就得塞进 URL——长文本超限、换行要转义、还进浏览器历史。用 <code>fetch</code> 拿到 <code>response.body</code> 自己读，也就多五行。</p>
-<div class="codehilite" data-code-language="html"><pre><span></span><code><span class="cp">&lt;!doctype html&gt;</span>
-<span class="p">&lt;</span><span class="nt">meta</span> <span class="na">charset</span><span class="o">=</span><span class="s">&quot;utf-8&quot;</span><span class="p">&gt;</span>
-<span class="p">&lt;</span><span class="nt">textarea</span> <span class="na">id</span><span class="o">=</span><span class="s">&quot;q&quot;</span> <span class="na">rows</span><span class="o">=</span><span class="s">&quot;3&quot;</span> <span class="na">style</span><span class="o">=</span><span class="s">&quot;width:100%&quot;</span><span class="p">&gt;&lt;/</span><span class="nt">textarea</span><span class="p">&gt;</span>
-<span class="p">&lt;</span><span class="nt">button</span> <span class="na">id</span><span class="o">=</span><span class="s">&quot;go&quot;</span><span class="p">&gt;</span>发送<span class="p">&lt;/</span><span class="nt">button</span><span class="p">&gt;</span>
-<span class="p">&lt;</span><span class="nt">div</span> <span class="na">id</span><span class="o">=</span><span class="s">&quot;out&quot;</span> <span class="na">style</span><span class="o">=</span><span class="s">&quot;white-space:pre-wrap&quot;</span><span class="p">&gt;&lt;/</span><span class="nt">div</span><span class="p">&gt;</span>
-<span class="p">&lt;</span><span class="nt">script</span><span class="p">&gt;</span>
-<span class="kd">const</span><span class="w"> </span><span class="nx">out</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;out&#39;</span><span class="p">);</span>
-<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;go&#39;</span><span class="p">).</span><span class="nx">onclick</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
-<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">prompt</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s1">&#39;q&#39;</span><span class="p">).</span><span class="nx">value</span><span class="p">.</span><span class="nx">trim</span><span class="p">();</span>
-<span class="w">  </span><span class="nx">out</span><span class="p">.</span><span class="nx">textContent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
-<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">resp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">fetch</span><span class="p">(</span><span class="s1">&#39;/api/chat&#39;</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="nx">method</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;POST&#39;</span><span class="p">,</span>
-<span class="w">    </span><span class="nx">headers</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s1">&#39;Content-Type&#39;</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;application/json&#39;</span><span class="p">},</span>
-<span class="w">    </span><span class="nx">body</span><span class="o">:</span><span class="w"> </span><span class="nb">JSON</span><span class="p">.</span><span class="nx">stringify</span><span class="p">({</span><span class="nx">prompt</span><span class="p">})});</span>
-<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">resp</span><span class="p">.</span><span class="nx">ok</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">out</span><span class="p">.</span><span class="nx">textContent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;出错了：HTTP &#39;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">resp</span><span class="p">.</span><span class="nx">status</span><span class="p">;</span><span class="w"> </span><span class="k">return</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<p>点「发送」时，浏览器用 <code>fetch</code> 发送 <code>POST /api/chat</code>，把问题放进请求体。浏览器原生 <code>EventSource</code> 不支持自定义 POST 请求体，因此本例通过 <code>response.body</code> 逐段读取。</p>
+<div class="codehilite" data-code-language="html"><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;zh-CN&quot;&gt;
+&lt;meta charset=&quot;utf-8&quot;&gt;
+&lt;title&gt;本地聊天演示&lt;/title&gt;
+&lt;label for=&quot;q&quot;&gt;输入问题&lt;/label&gt;
+&lt;textarea id=&quot;q&quot; rows=&quot;3&quot; style=&quot;width:100%&quot;&gt;&lt;/textarea&gt;
+&lt;button id=&quot;go&quot; type=&quot;button&quot;&gt;发送&lt;/button&gt;
+&lt;p id=&quot;status&quot; role=&quot;status&quot;&gt;&lt;/p&gt;
+&lt;div id=&quot;out&quot; style=&quot;white-space:pre-wrap&quot;&gt;&lt;/div&gt;
+&lt;script&gt;
+const q = document.getElementById(&#x27;q&#x27;);
+const go = document.getElementById(&#x27;go&#x27;);
+const status = document.getElementById(&#x27;status&#x27;);
+const out = document.getElementById(&#x27;out&#x27;);
 
-<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">reader</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">resp</span><span class="p">.</span><span class="nx">body</span><span class="p">.</span><span class="nx">getReader</span><span class="p">();</span>
-<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">decoder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">TextDecoder</span><span class="p">();</span><span class="w">   </span><span class="c1">// ⭐ 整个流复用同一个，才能拼回被切断的中文</span>
-<span class="w">  </span><span class="kd">let</span><span class="w"> </span><span class="nx">buf</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">;</span>
-<span class="w">  </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="kc">true</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="p">{</span><span class="nx">done</span><span class="p">,</span><span class="w"> </span><span class="nx">value</span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">reader</span><span class="p">.</span><span class="nx">read</span><span class="p">();</span>
-<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">done</span><span class="p">)</span><span class="w"> </span><span class="k">break</span><span class="p">;</span>
-<span class="w">    </span><span class="nx">buf</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="nx">decoder</span><span class="p">.</span><span class="nx">decode</span><span class="p">(</span><span class="nx">value</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="nx">stream</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="p">});</span><span class="w">   </span><span class="c1">// ⭐ stream:true 是关键</span>
-<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">frames</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">buf</span><span class="p">.</span><span class="nx">split</span><span class="p">(</span><span class="s1">&#39;\n\n&#39;</span><span class="p">);</span>
-<span class="w">    </span><span class="nx">buf</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">frames</span><span class="p">.</span><span class="nx">pop</span><span class="p">();</span><span class="w">                             </span><span class="c1">// ⭐ 最后一段可能是半个帧，留下</span>
-<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kd">const</span><span class="w"> </span><span class="nx">f</span><span class="w"> </span><span class="k">of</span><span class="w"> </span><span class="nx">frames</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">f</span><span class="p">.</span><span class="nx">startsWith</span><span class="p">(</span><span class="s1">&#39;data: &#39;</span><span class="p">))</span><span class="w"> </span><span class="k">continue</span><span class="p">;</span>
-<span class="w">      </span><span class="kd">const</span><span class="w"> </span><span class="nx">frame</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">JSON</span><span class="p">.</span><span class="nx">parse</span><span class="p">(</span><span class="nx">f</span><span class="p">.</span><span class="nx">slice</span><span class="p">(</span><span class="mf">6</span><span class="p">));</span><span class="w">        </span><span class="c1">// ⭐ 每帧都是合法 JSON，解析路径只有一条</span>
-<span class="w">      </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">frame</span><span class="p">.</span><span class="nx">type</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s1">&#39;done&#39;</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span><span class="w">           </span><span class="c1">// ⭐ 正常收尾的标志</span>
-<span class="w">      </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">frame</span><span class="p">.</span><span class="nx">type</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s1">&#39;delta&#39;</span><span class="p">)</span><span class="w"> </span><span class="nx">out</span><span class="p">.</span><span class="nx">textContent</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="nx">frame</span><span class="p">.</span><span class="nx">text</span><span class="p">;</span>
-<span class="w">    </span><span class="p">}</span>
-<span class="w">  </span><span class="p">}</span>
-<span class="p">};</span>
-<span class="p">&lt;/</span><span class="nt">script</span><span class="p">&gt;</span>
+go.onclick = async () =&gt; {
+  go.disabled = true;
+  out.textContent = &#x27;&#x27;;
+  status.textContent = &#x27;等待响应…&#x27;;
+  let reader;
+  let failed = false;
+  try {
+    const resp = await fetch(&#x27;/api/chat&#x27;, {
+      method: &#x27;POST&#x27;,
+      headers: {&#x27;Content-Type&#x27;: &#x27;application/json&#x27;},
+      body: JSON.stringify({prompt: q.value.trim()})
+    });
+    if (!resp.ok) {
+      status.textContent = &#x27;出错了：HTTP &#x27; + resp.status;
+      return;
+    }
+    reader = resp.body.getReader();
+    const decoder = new TextDecoder(&#x27;utf-8&#x27;, {fatal: true});
+    let buf = &#x27;&#x27;;
+    status.textContent = &#x27;接收中…&#x27;;
+
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) {
+        decoder.decode();  // 检查末尾是否截断了 UTF-8 字符
+        status.textContent = failed ? &#x27;响应失败&#x27; : &#x27;响应未完成&#x27;;
+        return;
+      }
+      buf += decoder.decode(value, {stream: true});
+      const frames = buf.split(&#x27;\n\n&#x27;);
+      buf = frames.pop();  // 留住尚未收到分隔符的最后一段
+      for (const f of frames) {
+        if (!f.startsWith(&#x27;data: &#x27;)) continue;
+        const frame = JSON.parse(f.slice(6));
+        if (frame.type === &#x27;delta&#x27; &amp;&amp; !failed) out.textContent += frame.text;
+        if (frame.type === &#x27;error&#x27;) {
+          failed = true;
+          status.textContent = &#x27;响应失败&#x27;;
+        }
+        if (frame.type === &#x27;done&#x27;) {
+          status.textContent = failed ? &#x27;响应失败&#x27; : &#x27;接收完成&#x27;;
+          return;
+        }
+      }
+    }
+  } catch {
+    status.textContent = failed ? &#x27;响应失败&#x27; : &#x27;响应未完成&#x27;;
+  } finally {
+    if (reader) await reader.cancel().catch(() =&gt; {});
+    go.disabled = false;
+  }
+};
+&lt;/script&gt;
+&lt;/html&gt;
 </code></pre></div>
 
-<p>⭐ <strong>这两处缓冲分别处理“半个字符”和“半条消息”。</strong> 一次网络读取不保证恰好得到完整字符或完整 SSE 帧。</p>
+<p><strong>回复区只追加文本，状态行单独显示进度。</strong> <code>delta</code> 追加到回复区，<code>error</code> 保留已收到的字并显示失败。收到 <code>done</code> 且此前无错误，才显示「接收完成」。网络读取返回的 <code>done</code> 只表示响应体读完，和应用发的 <code>{"type":"done"}</code> 属于不同层。一次网络读取也可能落在字符或帧的中间，所以有下面两处缓冲。</p>
 <ul>
 <li><code>decoder.decode(value, {stream: true})</code>：先保留不完整的 UTF-8 字节。常见汉字通常占 3 字节，也有 4 字节字符；如果切片从字符中间断开，直接逐片解码可能出现 <code>�</code>。只测 ASCII 文本不容易发现这个问题。</li>
 <li><code>frames.pop()</code>：先保留最后一段，等下一批数据补齐。例如刚收到 <code>data: {"te</code> 时还不能解析 JSON；遇到帧分隔符后再处理完整消息。</li>
@@ -487,37 +553,31 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="stack-local-run" data-mg-stop>🧩 五、先跑通本地模拟响应</h2>
 <p><strong>准备：</strong> 已安装的 Python、终端和浏览器。新建文件夹，把第三节保存为 app.py，第四节保存为 index.html；在这个文件夹打开终端。</p>
-<p>第一次使用没有配置 ANTHROPIC_API_KEY 的环境，避免意外调用收费 API。下面只安装本地 Web 服务依赖：</p>
+<p>第一次明确使用 <code>mock</code>。在同一终端执行 <code>$env:CHAT_MODE = 'mock'</code>（PowerShell）或 <code>export CHAT_MODE=mock</code>（Bash），再启动。下列命令安装本地 Web 服务依赖，然后启动服务。已经装好依赖时，只执行第二行。</p>
 <div class="codehilite" data-code-language="bash"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>fastapi<span class="w"> </span>uvicorn
 python<span class="w"> </span>-m<span class="w"> </span>uvicorn<span class="w"> </span>app:app<span class="w"> </span>--reload<span class="w"> </span>--port<span class="w"> </span><span class="m">8000</span>
 </code></pre></div>
 
-<p>保持终端运行，在浏览器打开 http://127.0.0.1:8000。不是双击 index.html，也不是把这个地址发给朋友。</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>做什么</th>
-<th>应观察到什么</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>输入“你好”，点击发送</td>
-<td>“（假模型）我收到了：你好”逐步出现；分批可能受缓冲影响</td>
-</tr>
-<tr>
-<td>输入中文</td>
-<td>文字完整，没有替换字符 �</td>
-</tr>
-<tr>
-<td>空输入发送</td>
-<td>“出错了：HTTP 400”</td>
-</tr>
-</tbody>
-</table></div>
+<p>保持终端运行，在浏览器打开 <code>http://127.0.0.1:8000</code>。这个地址指向正在运行服务的本机，由服务返回 <code>index.html</code>。从文件夹双击页面会绕过这一步。</p>
+<h3 id="day-one-check-stream">按三步验收这次聊天</h3>
+<p>输入「你好」后，浏览器会发出 <code>POST /api/chat</code>，请求体是 <code>{"prompt":"你好"}</code>。如需核对，可在浏览器开发者工具的「网络」面板找到 <code>chat</code> 这一项，检查请求、状态码及响应。</p>
+<div class="flowchain" role="list" aria-label="一条本地聊天请求的三个观测点">
+<div class="fstep" role="listitem"><b>① 发问题</b><span>请求体带上 prompt。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>② 收到片段</b><span>HTTP 200 后，delta 一段段补进回复区。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>③ 看结束状态</b><span>无 error 且收到 done，状态才变成「接收完成」。</span></div>
+</div>
+<div class="panels" role="group" aria-label="三个可重复的本地验收">
+<div class="panel"><div class="ph">正常发送</div><p>输入「你好」。回复是「（假模型）我收到了：你好」，中文完整，状态为「接收完成」。若文字一次出现，记下「整段到达」，再检查传输是否缓冲。</p></div>
+<div class="panel"><div class="ph">空输入</div><p>清空输入后点发送。服务返回 HTTP 400，页面显示「出错了：HTTP 400」，回复区为空。修改输入后可再次发送。</p></div>
+<div class="panel"><div class="ph">少了结束帧</div><p>按下文开启断流演练，再输入「你好」。这次仍收到 HTTP 200，页面只保留开头「（假模型）」，状态为「响应未完成」。</p></div>
+</div>
+<p>要复现第三种情况，先在终端按 Ctrl+C 停止服务。保持 <code>CHAT_MODE</code> 为 <code>mock</code>，再设置 <code>CHAT_MOCK_CUT</code> 为 <code>1</code>。PowerShell 用 <code>$env:CHAT_MOCK_CUT = '1'</code>，Bash 用 <code>export CHAT_MOCK_CUT=1</code>。然后原样执行上面的启动命令并刷新网页。</p>
+<p>测完后再次停止服务。PowerShell 用 <code>Remove-Item Env:CHAT_MOCK_CUT</code>，Bash 用 <code>unset CHAT_MOCK_CUT</code>。重启后重新发送「你好」，确认又能完成。这项演练主动让模拟流提前结束，适合重复核对界面状态。</p>
 <p>找不到 app，先检查终端目录；缺 fastapi 或 uvicorn，确认安装与启动使用同一个 Python。停止服务后页面不能继续请求，说明它仍依赖本机进程。</p>
-<p><strong>本地验证记录（2026-09-08）：</strong> 本页原样代码在 FastAPI 0.141.1、Uvicorn 0.52.4 下通过浏览器测试：中文模拟回复完整显示，空输入返回 HTTP 400。记录仅覆盖无密钥的本地路径，不代表其他版本、真实模型或公网部署已通过。</p>
-<p><strong>接真实模型是另一步：</strong> 安装 anthropic SDK，配置 ANTHROPIC_API_KEY 与账号可用的 MODEL。接口、模型名和费用需查服务商当前文档；本页本地测试不验证外部调用。</p>
+<p><strong>验收记录。</strong> 记下浏览器看到的状态码、回复区内容和状态行。开发者工具里出现 200 只确认响应已开始；流是否完成还要看最后一项。若页面没有发出请求，先检查是否从本地服务打开，再看终端是否仍在运行。</p>
+<p><strong>接真实模型是另一步。</strong> 准备好账号后安装 anthropic SDK，配置 <code>ANTHROPIC_API_KEY</code> 和账号可用的 <code>MODEL</code>，再设置 <code>CHAT_MODE=live</code> 并重启。此时请求可能产生费用。模型、权限和费用以供应商文档为准。<a href="https://platform.claude.com/docs/en/build-with-claude/streaming">Anthropic 流式接口文档</a>。</p>
 <hr />
 <h2 id="stack-deploy-boundary">🧩 六、部署准备：暂不算公网验收</h2>
 <p><strong>此处没有完成外部平台实跑。</strong> 先准备，再部署，最后做跨网络验收：</p>
@@ -606,7 +666,7 @@ python<span class="w"> </span>-m<span class="w"> </span>uvicorn<span class="w"> 
 <tr>
 <td>6</td>
 <td>未明确应用的超时、重试与缓存策略</td>
-<td>上游失败时可能中断响应；SDK 默认行为不等于应用已有完整恢复策略</td>
+<td>界面会提示流未完成；SDK 默认行为不等于应用已有完整恢复策略</td>
 <td><a href="04-调用层.html">04 章 调用层</a></td>
 </tr>
 <tr>
@@ -617,8 +677,8 @@ python<span class="w"> </span>-m<span class="w"> </span>uvicorn<span class="w"> 
 </tr>
 <tr>
 <td>8</td>
-<td>流式取消与中途失败尚未验收</td>
-<td>要确认关页面后上游是否停止，以及部分回复出错时如何提示</td>
+<td>真实上游取消与中途失败尚未验收</td>
+<td>本地已能演练不带结束帧的部分回复；还要验证关页面后真实上游是否停止</td>
 <td><a href="05-流式输出.html">05</a> / <a href="10-把流式接到界面上.html">10 章</a></td>
 </tr>
 <tr>
@@ -751,6 +811,7 @@ python<span class="w"> </span>-m<span class="w"> </span>uvicorn<span class="w"> 
 <li>本地跑通与公网验收有什么区别？</li>
 <li>模拟响应能验证什么，不能验证什么？</li>
 <li>流式返回有什么要求？为什么前端要保留半帧？</li>
+<li>HTTP 200 后只看到「（假模型）」且状态为「响应未完成」。还能把这次记作接收完成吗？</li>
 <li>event 行是否只能被 EventSource 理解？</li>
 <li>判断平台能否使用，要检查什么？</li>
 <li>公开真实模型接口前还缺什么？</li>
@@ -761,6 +822,7 @@ python<span class="w"> </span>-m<span class="w"> </span>uvicorn<span class="w"> 
 <li>本地只证明本机链路；公网还需另一网络的实际请求，且不依赖本机服务。</li>
 <li>可验证收发链路，不能验证真实 API、权限、模型能力或公网部署。</li>
 <li>应用与代理都需及时转发；流式解码保护跨分片字符，保留半帧避免 JSON 未收全就解析。Go 中还要注意刷新缓冲。</li>
+<li>不能。HTTP 200 表示响应已开始；这条流缺少应用发出的 <code>done</code>。应保留部分文字，标记未完成。</li>
 <li>不是。完整 SSE 解析器也能读它；本例把类型放在 JSON，是简化解析的约定。</li>
 <li>流式支持、资源与时限、启动和端口、HTTPS、配置、安全与成本，不能只看平台类别。</li>
 <li>访问控制、配额、密钥保护、超时与错误处理、日志和部署检查；环境变量不等于完整安全体系。</li>
@@ -772,10 +834,10 @@ python<span class="w"> </span>-m<span class="w"> </span>uvicorn<span class="w"> 
 <ul>
 <li>先做本地模拟响应，不把它当成真实模型或公网上线。</li>
 <li>两个文件同一目录，安装与启动使用同一个 Python。</li>
-<li>流式解码保住多字节字符，缓冲区保住尚未收齐的帧。</li>
+<li>流式解码保住多字节字符，缓冲区保住尚未收齐的帧。收到正常结束帧后才记为完成。</li>
 <li>外部 API 与公网分别验证，公开前补安全护栏。</li>
 </ul>
-<p><strong>下一节</strong> 👉 <a href="02-一个AI产品的解剖.html">02-一个AI产品的解剖.md</a></p>
+<p><strong>下一节</strong> 👉 <a href="02-一个AI产品的解剖.html">02-一个AI产品的解剖.md</a>。先保留这次请求的观测记录。下一章会沿着同一条路径看清各个组件的分工。</p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="00-怎么用这份教程.html"><div class="dir">← 上一节</div>🧭 00 · 怎么用这份教程</a><a class="next" href="02-一个AI产品的解剖.html"><div class="dir">下一节 →</div>🫀 02 · 一个 AI 产品的解剖</a></nav>
