@@ -495,9 +495,72 @@ RadixAttention 是它在<strong>数据结构上</strong>的推进，而且各家
 </blockquote>
 <hr />
 <h2 id="slo">📏 二、先定 SLO，再谈优化</h2>
-<p id="nc-sli-slo-sla"><strong>三个词别混用：</strong>SLI 是有口径和统计窗口的观测量；SLO 是给它设定的目标；SLA 是服务约定及未达约定时的后果，须由具体业务确定，不能拿教程示意值代替。下列延迟/可用性数字是目标示例，不是统一标准；还要说明请求范围、输入/输出长度、分位数或成功比例及统计窗口。</p>
+<h3 id="request-time-ledger">先拿一次请求对表</h3>
+<p>同样是「回复慢」，有时屏幕一开始就是空的，有时第一段很快、后面却卡住。沿用<a href="15-推理和训练是两回事.html">第 15 章</a>的两阶段模型：Prefill 读完提示、建立 KV Cache 并产出首个 token 所需的分数，后续 Decode 沿着已有序列继续生成。服务还要接收、排队和发送结果。先对齐客户端与服务端观测的事件，才知道该调哪一段。</p>
+<div class="flowchain" role="group" aria-label="请求 A 的时间线，从发送到收到末 token">
+  <div class="fstep"><b>0 → 10 ms</b><span>客户端发出请求，网关在 10 ms 入队</span></div>
+  <div class="farrow" aria-hidden="true">→</div>
+  <div class="fstep"><b>10 → 40 ms</b><span>等待执行槽位</span></div>
+  <div class="farrow" aria-hidden="true">→</div>
+  <div class="fstep"><b>40 → 90 ms</b><span>Prefill 与首 token 采样</span></div>
+  <div class="farrow" aria-hidden="true">→</div>
+  <div class="fstep"><b>100 → 190 ms</b><span>客户端在 100、120、180、190 ms 收到 4 个输出 token</span></div>
+</div>
+<p>这是教学用的对齐时间线，假设每个内容事件只交付一个 token。线上没有统一时钟时，各侧用自己的单调时钟算区间，再用请求 ID 关联；实际流可能把多个 token 合并在一个块里，空块、角色字段或流结束标记也不能当成输出 token。</p>
+<div class="tw"><table>
+<caption>请求 A：把三个计时起止点写清楚</caption>
+<thead><tr><th scope="col">想知道什么</th><th scope="col">取哪些时刻，怎么算</th></tr></thead>
+<tbody>
+<tr><th scope="row">首 token 时间（Time To First Token，TTFT）</th><td>从发出请求到收到首个输出 token：100 − 0 = <strong>100 ms</strong>。本例分成 10 ms 接收、30 ms 排队、50 ms Prefill 与采样、10 ms 首 token 发送。</td></tr>
+<tr><th scope="row">输出 token 间隔（Inter-Token Latency，ITL）</th><td>相邻到达时刻之差：120 − 100 = 20 ms，180 − 120 = 60 ms，190 − 180 = 10 ms。中间卡了 60 ms。</td></tr>
+<tr><th scope="row">平均每输出 token 时间（Time Per Output Token，TPOT）</th><td>按本章每请求口径，把首个 token 之后的时长摊给剩余输出。输出数 <var>N</var> = 4，一共有 <var>N</var> − 1 = 3 个间隔：(190 − 100) ÷ 3 = (20 + 60 + 10) ÷ 3 = <strong>30 ms/token</strong>。</td></tr>
+</tbody>
+</table></div>
+<p>从发送到末 token 用了 100 + 3 × 30 = <strong>190 ms</strong>。如果流结束标记在 200 ms 到达，则完整流耗时是 <strong>200 ms</strong>。只有一个输出 token 时可以算 TTFT，却没有可平均的间隔；没有输出就超时的请求要记失败。压测工具可能把 ITL 定义成每块归一化的间隔，比较前先确认输出口径和聚合方法。</p>
 
-<section class="visual-block visual-block-flow" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 最常见的错误：不定目标就开始调优</span></div><div class="vb-flow-row"><span class="vb-flow-step">你不知道调到什么程度算够，也不知道该牺牲什么</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 一个推理服务的 SLO 至少要包含：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· TTFT P95 &lt; 500ms （首字延迟）</span></div><div class="vb-flow-row"><span class="vb-flow-step">· TPOT P95 &lt; 50ms （每字延迟</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">20 tok/s，比阅读速度快）</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 可用性 99.9%</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 吞吐 ≥ X tokens/秒</span></div></div></section>
+<h3 id="serving-slo-window">再给达标率一个分母</h3>
+<p>只看 A 会以为用户都等得起。假设统计窗口从 0 到 1,000 ms，同一个流式问答入口的四个合规请求全部在窗内得到终态。先设演示判定：成功完成、TTFT ≤ 150 ms，且对至少输出两个 token 的响应要求 TPOT ≤ 40 ms/token。</p>
+<div class="tw"><table>
+<caption>同一秒内的到达、完成和达标</caption>
+<thead><tr><th scope="col">请求</th><th scope="col">客户端观察</th><th scope="col">完成／达标</th></tr></thead>
+<tbody>
+<tr><th scope="row">A</th><td>0 ms 发出；100、120、180、190 ms 收到 4 token；成功结束。</td><td>是／是</td></tr>
+<tr><th scope="row">B</th><td>0 ms 发出；210、240、270、300 ms 收到 4 token；成功结束。TTFT = 210 − 0 = 210 ms，TPOT = (300 − 210) ÷ 3 = 30 ms/token。</td><td>是／否</td></tr>
+<tr><th scope="row">C</th><td>25 ms 发出，排队至 150 ms 时超时，未收到 token。</td><td>否／否</td></tr>
+<tr><th scope="row">D</th><td>50 ms 发出，入口过载，当即拒绝，未进入队列。</td><td>否／否</td></tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>并发</strong>是同时在途的请求数。按服务已接纳且未结束的口径，D 被拒绝后有 A、B、C 共 <strong>3 个</strong>，包含等待中的请求，不能从这个数直接读出 GPU 上的 batch 大小。</li>
+<li><strong>到达率</strong>是 4 ÷ 1 = <strong>4 请求/s</strong>，<strong>完成吞吐</strong>是 2 ÷ 1 = <strong>2 请求/s</strong>，<strong>可见输出吞吐</strong>是 (4 + 4) ÷ 1 = <strong>8 token/s</strong>。输入 token、引擎实际计算但没发出的 token 分开记。</li>
+<li><strong>达标吞吐</strong>是 1 ÷ 1 = <strong>1 达标请求/s</strong>；<strong>达标率</strong>是 1 ÷ 4 = <strong>25%</strong>。合规请求被过载拒绝或排队超时仍在分母里。只挑完成的两条，会把 25% 错报成 50%。</li>
+</ul>
+<p id="nc-sli-slo-sla"><strong>服务水平指标（Service Level Indicator，SLI）</strong>是带口径和窗口的观测量，例如上面的达标率。<strong>服务水平目标（Service Level Objective，SLO）</strong>给指标定目标，例如「过去 30 天至少 95% 的合规请求达标」。<strong>服务水平协议（Service Level Agreement，SLA）</strong>是服务承诺，说明未达到约定时如何处理。此处一秒只是算例，实际要先写清按到达还是终态归窗、仍在途的请求怎么处理，以及取消和各类拒绝的计数规则。</p>
+<p>也可以为各指标分别设目标，例如 TTFT 的 P95 小于 500 ms、TPOT 的 P95 小于 50 ms/token、可用性 99.9%。吞吐目标还要写清在什么负载下测。分开的两个延迟目标各自达标，不能直接推出同一批请求同时满足两个条件的比例。</p>
+<p>下面用同一批演示记录复算。每行存「发出毫秒时刻、终态、收到的 token 时刻」。循环先数可见 token，再对成功响应计算延迟；一 token 的成功响应只查首 token 时间。代码只需 Python 3，不启动推理引擎。</p>
+<pre data-code-language="python"><code>requests = [
+    (0, "completed", [100, 120, 180, 190]),
+    (0, "completed", [210, 240, 270, 300]),
+    (25, "timeout", []),
+    (50, "rejected", []),
+]
+window_seconds = 1
+completed = met = visible_tokens = 0
+for sent, status, arrivals in requests:
+    visible_tokens += len(arrivals)
+    if status != "completed":
+        continue
+    completed += 1
+    ttft = arrivals[0] - sent
+    intervals = len(arrivals) - 1
+    tpot = (arrivals[-1] - arrivals[0]) / intervals if intervals else None
+    met += ttft &lt;= 150 and (tpot is None or tpot &lt;= 40)
+
+print(f"完成 {completed / window_seconds:.0f} 请求/s，输出 {visible_tokens / window_seconds:.0f} token/s")
+print(f"达标 {met / window_seconds:.0f} 请求/s，达标率 {met / len(requests):.0%}")</code></pre>
+<p>输出为「完成 2 请求/s，输出 8 token/s」和「达标 1 请求/s，达标率 25%」。把 B 的发出时刻改成 70 ms、保持收包时刻不变，再预测达标率；B 的 TTFT 会变成 140 ms，达标率会变成 2 ÷ 4 = 50%。真实日志还需检查成功响应是否具有内容和合法时序，缺测单独记账。</p>
+<p class="dia-note">术语与计时口径可参照 <a href="https://developer.nvidia.com/blog/llm-benchmarking-fundamental-concepts/">NVIDIA 推理基准说明</a>、<a href="https://arxiv.org/abs/2401.09670">DistServe 的 SLO 与容量分析</a>和 <a href="https://sre.google/sre-book/service-level-objectives/">Google SRE 的服务水平目标</a>。本章把窗口内达标的请求数除以窗口长度，比较研究结果时需重新对齐定义。</p>
+
 <p><strong>不同场景的教学目标示例（须按实际需求验证）</strong>：</p>
 <div class="tw"><table>
 <thead>
@@ -543,19 +606,20 @@ RadixAttention 是它在<strong>数据结构上</strong>的推进，而且各家
 </table></div>
 <blockquote>
 <p>🔑 <strong>定 SLO 的意义</strong>：它把"越快越好"变成一个<strong>可以做取舍的工程问题</strong>。
-知道 TPOT 只要 &lt; 50ms，你就可以放心地把 batch 调大去换吞吐 ——
-<strong>在不定 SLO 的情况下，你会盲目地优化延迟到远超需求的程度，白白损失吞吐。</strong></p>
+如果提高 batch 后 TPOT 仍在目标内，继续对照 TTFT、达标率和显存余量，再决定能不能用延迟换吞吐。<strong>目标来自用户等得起多久，选哪组参数还要看同负载下的结果。</strong></p>
 </blockquote>
 <hr />
 <h2 id="-">📊 三、压测：画出你的延迟-吞吐曲线</h2>
 <section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">教学示意：用同一请求分布与配置下的延迟/吞吐曲线作为容量依据之一：</span></div><div class="vb-flow-row"><span class="vb-flow-step">并发数</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">吞吐(tok/s) TPOT P95 是否满足 SLO</span></div><div class="vb-flow-row"><span class="vb-flow-step">1 140 7ms ✅</span></div><div class="vb-flow-row"><span class="vb-flow-step">8 1000 12ms ✅</span></div><div class="vb-flow-row"><span class="vb-flow-step">32 3500 28ms ✅</span></div><div class="vb-flow-row"><span class="vb-flow-step">64 5200 45ms ✅ 仅在本示例所设 TPOT 目标内</span></div><div class="vb-flow-row"><span class="vb-flow-step">128 6800 95ms ❌ 超了</span></div><div class="vb-flow-row"><span class="vb-flow-step">256 7500 210ms ❌</span></div><div class="vb-flow-row"><span class="vb-flow-step">本示例候选并发上限为 64；还需检查 TTFT、错误与资源余量</span></div><div class="vb-flow-row"><span class="vb-flow-step">ceil(峰值并发 / 本示例容量) 仅作静态起点；弹性还要看就绪、排队与启动时间</span></div></div></section>
 
+<p>实际压测还应记录固定的模型、精度与质量要求、输入/输出长度、到达模式和测试时长。固定并发测的是同时挂着多少请求；按到达率发请求才看得出指定流量下如何积压。两种测试都要报成功、超时、拒绝和取消；吞吐上涨但达标吞吐下降时，不能把吞吐峰值当可用容量。</p>
+<p>下列是历史命令结构示例，需按已安装 vLLM 版本查对应压测入口与数据集参数。</p>
 <div class="codehilite" data-code-language="bash"><pre><span></span><code><span class="c1"># vLLM 自带的压测工具</span>
 python<span class="w"> </span>-m<span class="w"> </span>vllm.entrypoints.openai.api_server<span class="w"> </span>--model<span class="w"> </span>&lt;model&gt;<span class="w"> </span><span class="p">&amp;</span>
 
 python<span class="w"> </span>benchmarks/benchmark_serving.py<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--model<span class="w"> </span>&lt;model&gt;<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--dataset-name<span class="w"> </span>sharegpt<span class="w"> </span><span class="se">\ </span><span class="w">       </span><span class="c1"># ⭐ 用真实分布的数据集，别用固定长度</span>
+<span class="w">  </span>--dataset-name<span class="w"> </span>sharegpt<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--request-rate<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--num-prompts<span class="w"> </span><span class="m">1000</span>
 </code></pre></div>
@@ -563,8 +627,8 @@ python<span class="w"> </span>benchmarks/benchmark_serving.py<span class="w"> </
 <blockquote>
 <p>⚠️ <strong>压测最常见的错误：用固定长度的输入输出。</strong>
 真实流量的长度分布方差极大（<a href="17-连续批处理与PagedAttention.html">第 17 章</a>），
-<strong>固定长度会让连续批处理的收益被严重高估。</strong>
-一定要用 ShareGPT 这类真实分布，或者你自己的线上日志回放。</p>
+<strong>固定长度适合做对照，却可能错估连续批处理的收益和尾延迟。</strong>
+容量测试要重放接近目标业务的长度、到达间隔和突发比例；可用经过脱敏的线上记录，或用公开数据验证分布是否相近。</p>
 </blockquote>
 <hr />
 <h2 id="_4">🏗️ 四、部署架构</h2>
@@ -692,7 +756,7 @@ python<span class="w"> </span>benchmarks/benchmark_serving.py<span class="w"> </
 </tr>
 <tr>
 <td><strong>超时与取消</strong></td>
-<td>客户端断开要<strong>立刻停止生成并释放 KV Cache</strong> ⭐</td>
+<td>客户端断开时向调度器传递取消，确认后续不再为它派发工作、正在执行的轮次按实现结束、请求持有的 KV 资源随后释放。⭐</td>
 </tr>
 <tr>
 <td><strong>优雅关闭</strong></td>
@@ -714,6 +778,18 @@ python<span class="w"> </span>benchmarks/benchmark_serving.py<span class="w"> </
 <strong>占着 KV Cache 槽位不放</strong> —— 高并发下这会显著吃掉容量。
 <strong>确认你的框架真的处理了 disconnect。</strong></p>
 </blockquote>
+<h3 id="queue-deadline-tradeoff">队列优先级让谁更快，又让谁等得更久？</h3>
+<p>同一个问答服务也接后台评测。后台任务正在跑，前台用户突然发来一条短请求。优先级决定谁先拿到可用的执行机会；抢占（preemption）是在调度边界暂停在跑的请求，把机会让给别人。两者是不同的策略选择。</p>
+<div class="tw"><table>
+<caption>单执行槽的教学示意。后台 B 在 0 ms 到达，需 80 ms 执行，截止于 110 ms；前台 F 在 20 ms 到达，需 40 ms，截止于 70 ms。截止时刻以同一时钟表示。</caption>
+<thead><tr><th scope="col">策略</th><th scope="col">时间线</th><th scope="col">谁能完成</th></tr></thead>
+<tbody>
+<tr><th scope="row">运行中的任务继续</th><td>B 从 0 跑到 80 ms。F 到 70 ms 仍在等，取消排队；如果继续等，最早 80 + 40 = 120 ms 才能完成。</td><td>B 完成，F 排队超时。</td></tr>
+<tr><th scope="row">20 ms 恰逢轮次边界，抢占</th><td>B 先跑 20 ms，剩 80 − 20 = 60 ms。F 在 20 + 40 = 60 ms 完成。B 即使无恢复开销，也要到 60 + 60 = 120 ms 才能完成。</td><td>F 完成，B 恢复后在 110 ms 超时。若能预测赶不上，可提前终止并记明原因。</td></tr>
+</tbody>
+</table></div>
+<p>这是单槽算例，实际引擎可连续批处理；抢占时 KV 可能被释放，恢复需要重算或搬运。前台流量持续到达时，严格优先可能让后台长期等不到。可为后台保留一部分执行预算，或随等待时间提高优先级，再分组看等待时间、超时和拒绝。已经赶不上截止时间的新请求应按入口策略及时返回，而非让无效工作一直占队列。具体调度能力要核对引擎版本。<a href="https://docs.vllm.ai/en/stable/api/vllm/config/scheduler/">vLLM 调度配置</a></p>
+<p>服务还可以在接纳时给请求设<strong>输出 token 预算</strong>，用来约束最多生成多少内容；截止时间另算。一个评测任务的总预算若为 120 token，可以给单个候选最多 120，也可以给两个候选各 50、留 20 给一次模型判定，合计 50 + 50 + 20 = 120。已通过预定质量检查时可以提前停止；预算用完应记录截断。调用工具的等待时间也占截止时间，不能用 token 上限替代超时。用同一批样例比较任务通过率、实际 token 数、耗时与超时比例，再判断哪种分配划算。</p>
 <hr />
 <h2 id="_7">📈 七、该监控什么</h2>
 <section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>⭐ 必须有的指标：</p><p>【延迟】TTFT / TPOT 的 P50、P95、P99；同窗口看分布，不只看平均</p><p>【吞吐】tokens/秒（输入和输出分开统计）⭐</p><p>【容量】正在运行的请求数 / 排队长度</p><p>【显存】KV Cache 使用率；与排队、抢占/重算及资源余量一起看</p><p>【异常】抢占次数、OOM 次数、超时率</p><p>【业务】每租户的 token 消耗</p></div></section>
@@ -721,10 +797,18 @@ python<span class="w"> </span>benchmarks/benchmark_serving.py<span class="w"> </
 <p>⭐ <strong><code>KV Cache 使用率是容量相关信号之一</code></strong>：
 持续高占用提示风险，但 90% 不是通用抢占阈值。是否抢占/重算及延迟变化还取决于引擎、缓存策略和请求分布；与排队、错误、实际抢占次数一起核对，不能只据一个百分比决定扩容。<strong></strong><strong></strong></p>
 </blockquote>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>教学示意：为什么不能只看平均：</p><p>推理延迟的分布是【长尾】的（长请求、抢占、排队）</p><p>平均值 30ms 可能对应 P99 = 800ms</p><p>→ 提示部分请求的体验可能被平均值掩盖；还需结合分布、窗口和业务目标</p></div></section>
+<section class="visual-block visual-block-calc" aria-label="尾延迟算例">
+<p class="visual-block-title">同一个窗口，均值 41 ms，P95 却是 160 ms</p>
+<div class="vb-calc">
+<p>假设采到 20 个有首 token 的 TTFT 样本，排序后第 1～18 个都是 20 ms，第 19 个为 160 ms，第 20 个为 300 ms。</p>
+<p><strong>平均值</strong>是 (18 × 20 + 160 + 300) ÷ 20 = 820 ÷ 20 = <strong>41 ms</strong>。</p>
+<p>按最近秩法，<strong>P95</strong>取排序后第 ⌈0.95 × 20⌉ = 19 个，为 <strong>160 ms</strong>。⌈ ⌉ 表示向上取整，排名从 1 开始。<strong>P99</strong>取第 ⌈0.99 × 20⌉ = 20 个，为 <strong>300 ms</strong>。</p>
+<p>若目标是 P95 ≤ 150 ms，这批样本超了 10 ms。20 个样本只适合手算；线上要保留样本数和算法口径，分窗口、分请求类别观察，并单列未收到首 token 的失败。</p>
+</div>
+</section>
 <hr />
 <h2 id="_8">🧭 八、上线检查清单</h2>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>□ 引擎选过了（不是&quot;团队一直用的那个&quot;，是按第一节四个问题选的）</p><p>□ SLO 定义清楚了（TTFT/TPOT/吞吐/可用性）</p><p>□ 用【真实分布】的数据压测过，画出了延迟-吞吐曲线</p><p>□ 根据曲线设了 max_num_seqs 上限（第 17 章）</p><p>□ 开了：连续批处理、前缀缓存、chunked prefill</p><p>□ 量化方案经过【业务数据】质量评估（第 18 章）</p><p>□ 客户端断开会取消生成</p><p>□ 限流和降级路径测试过</p><p>□ 监控里有 KV Cache 使用率和 P99 延迟告警</p><p>□ 做过一次故障演练（杀掉一个实例，看会怎样）</p></div></section>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>□ 引擎选过了（不是&quot;团队一直用的那个&quot;，是按第一节四个问题选的）</p><p>□ SLO 写清了测量起止点、达标分母、统计窗口与失败口径</p><p>□ 用【真实分布】的数据压测过，画出了延迟-吞吐曲线</p><p>□ 根据曲线设了 max_num_seqs 上限（第 17 章）</p><p>□ 开了：连续批处理、前缀缓存、chunked prefill</p><p>□ 量化方案经过【业务数据】质量评估（第 18 章）</p><p>□ 客户端断开会取消生成</p><p>□ 分请求类别测过限流、降级、抢占、排队超时和取消后的资源清理</p><p>□ 监控里有 KV Cache 使用率和 P99 延迟告警</p><p>□ 做过一次故障演练（杀掉一个实例，看会怎样）</p></div></section>
 <hr />
 <h2 id="_9">🔗 和站内其他章的关系</h2>
 <div class="tw"><table>
@@ -815,6 +899,8 @@ python<span class="w"> </span>benchmarks/benchmark_serving.py<span class="w"> </
 <li>扩缩决策需要结合哪些监控信号？为什么不能只用 KV 使用率或 GPU 利用率？</li>
 <li>为什么不能只看平均，还要看尾延迟、统计窗口和请求分布？</li>
 <li>SLI/SLO/SLA 怎样区分？desired=3、ready=2 时为何不能按 3 个副本承诺容量？缩容先做什么？</li>
+<li>请求 A 四个 token 为什么只有三个间隔？如果首 token 仍在 100 ms 收到，末 token 改为 220 ms，TPOT 变成多少？</li>
+<li>时间线里的抢占如果额外消耗 10 ms 才能恢复后台 B，B 最早何时能完成？F 的结果变不变？假设 10 ms 开销在 F 完成后才发生。</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
@@ -826,14 +912,16 @@ python<span class="w"> </span>benchmarks/benchmark_serving.py<span class="w"> </
 <li>看<strong>你的请求之间到底有多少共享前缀</strong>——不是"哪个框架有这个功能"。一点都不共享，两者都白搭；而这件事在换引擎之前就能自己统计出来。</li>
 <li>因为<strong>不定目标就不知道调到什么程度算够、该牺牲什么</strong>。不定 SLO 会盲目优化延迟到远超需求的程度，白白损失吞吐。</li>
 <li><strong>代码补全 TTFT 极敏感</strong>（&lt;200ms，用户等不了）；Agent 输出很长，TPOT 是决定性的，TTFT 反而宽松。</li>
-<li><strong>用固定长度的输入输出</strong>。真实流量长度方差极大，固定长度会让连续批处理的收益被严重高估。要用 ShareGPT 这类真实分布或线上日志回放。</li>
+<li>把固定长度对照当成线上容量测试。真实流量的输入/输出长度和到达间隔会变化，容量测试要重现这些分布，才能比较排队、尾延迟和达标吞吐。</li>
 <li>在固定模型/硬件/配置和请求长度分布下，延迟-吞吐曲线支持一个容量候选；64 只是示例，还需核对其他目标和余量。ceil(峰值并发/候选容量) 只是静态起点，扩缩要另看排队、就绪副本与冷启动时间。<strong></strong></li>
 <li><strong>前缀感知路由</strong>——把可复用前缀尽量送到同一实例，增加复用机会；也要防止黏性热点造成负载倾斜，按同负载的排队延迟与 SLO 验证，不预设命中率或提速幅度。</li>
 <li>因为<strong>大部分服务的平均负载只有峰值的 30-60%</strong>（夜间几乎没流量）。按峰值算容量、按平均算成本，两个数不能混。</li>
 <li>用户关掉页面后服务器还在生成 2000 个 token，<strong>占着 KV Cache 槽位不放</strong>——高并发下会显著吃掉容量。</li>
 <li><strong>结合待处理请求/token、排队时间、TTFT/TPOT 分位数、错误与实际抢占/重算、KV 和资源余量；要保持相同窗口和负载口径。90% 不是通用抢占阈值，一个百分比或 GPU 利用率都不能单独决定扩容。</strong></li>
-<li>平均值可能掩盖长请求、抢占和排队的尾部影响。30ms/800ms 只是教学示意；同时看分位数、分布、窗口和失败请求，按业务目标判定，不能用一个 P99 代替全部体验。<strong></strong></li>
+<li>均值 41 ms 的教学窗口仍有 160 ms 的 P95 和 300 ms 的 P99，个别长等待被大多数快请求摊薄了。要同时看样本数、统计窗口、分位数口径，以及没有延迟样本的失败请求。</li>
 <li>SLI 是带口径/窗口的观测，SLO 是目标，SLA 是服务约定及后果。desired 是目标而非已可服务的副本；新副本加载/预热/就绪后才放流量。缩容先摘除新请求并按超时/取消策略排空与清理，再回收。模型副本和副本内 TP 度数也不是同一个扩容维度。</li>
+<li>首 token 是起点，后续三个 token 各贡献一个间隔。新的 TPOT = (220 − 100) ÷ (4 − 1) = 40 ms/token。</li>
+<li>F 仍在 60 ms 完成。B 到 60 + 10 = 70 ms 才能恢复，尚需 60 ms，最早 70 + 60 = 130 ms；110 ms 就会超时。恢复成本会影响容量，即便前台延迟没有变化。</li>
 </ol>
 </details>
 <hr />
@@ -844,7 +932,7 @@ python<span class="w"> </span>benchmarks/benchmark_serving.py<span class="w"> </
 <p>⭐ <strong>选引擎只要四个问题</strong>：跑起来还是扛流量 → 有没有 N 卡 → 模型和硬件会不会变 → 请求之间前缀重合度高不高。<strong>vLLM 是默认答案</strong>；SGLang 适合前缀重合度高的负载；TensorRT-LLM 的支持与准备成本需按具体版本/后端核对，不能一概写成更换配置必重编；llama.cpp 管没有 N 卡的场景。</p>
 <p>⚠️⭐ <strong>反直觉但最重要：先别挑性能最高的。</strong> 引擎之间通常只差两三成，而<strong>有没有开对连续批处理、前缀缓存、量化差的是几倍</strong>——💥 大部分「框架 A 快 3 倍」的评测拆开看都是配置没对齐。</p>
 <p>⭐ RadixAttention 该不该在意，<strong>看的不是「哪个框架有这功能」，而是你的请求之间到底有多少共享前缀</strong>——不共享就都白搭。</p>
-<p>⭐ <strong>先定 SLO 再优化</strong>：不定目标就会<strong>盲目把延迟压到远超需求、白白损失吞吐</strong>。同负载与配置下的「并发→吞吐→延迟」曲线支持容量候选，还须核对资源、错误和启动余量，⚠️ <strong>最常见的错误是用固定长度输入输出</strong>——真实流量方差极大，固定长度会严重高估连续批处理的收益。</p>
+<p>⭐ <strong>先定义谁算达标，再看能接多少流量</strong>。TTFT 看首 token，TPOT 看首 token 之后的平均间隔。分位数显示谁在等得更久，超时和过载拒绝按规则进入达标分母。压测要复现目标业务的请求分布与到达模式，再核对容量候选、资源与启动余量。</p>
 <p>路由用<strong>前缀感知</strong>（同租户固定到同一实例，命中率能从三成提到九成）。⭐ 算成本别忘了利用率：<strong>按峰值算容量、按平均算成本</strong>。</p>
 <p>生产五件事里最贵的一条：💥 <strong>客户端断开不取消是真实且昂贵的 bug</strong>——用户关了页面，你还在生成并占着 KV Cache 槽位。⭐ 监控<strong>把 KV、排队、实际抢占/重算、错误与尾延迟一起看；百分比和分位数要有负载口径/窗口，不能把 90% 或一个 P99 当通用通过标准。</strong><strong></strong></p>
 </blockquote>
