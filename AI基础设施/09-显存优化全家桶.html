@@ -369,7 +369,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>用于<strong>容量预算</strong>的保守近似是：</p>
 <p><code>M_peak ≈ M_param + M_grad + M_opt + M_act + M_temp + M_KV + M_other</code></p>
 <p><code>M_peak</code> 是要容纳的峰值；右侧七项分别对应上表。这里用 <code>≈</code> 而不是等号，因为它们未必在同一时刻全部达到各自峰值，框架还可能复用缓冲区。这个式子用来防止漏项，最终仍要用同一输入、同一阶段的峰值统计和快照核对。</p>
-<section class="visual-block visual-block-flow" aria-label="一十亿参数训练的显存预算算例"><p class="visual-block-title">完整数字例：为什么 24 GiB 卡仍可能 OOM</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">演示条件：10 亿参数，BF16 参数与梯度；Adam 保留 FP32 主权重、m、v；训练时没有 KV Cache</span></div><div class="vb-flow-row"><span class="vb-flow-step">参数：10⁹ × 2 B ÷ 2³⁰ = 1.86 GiB</span></div><div class="vb-flow-row"><span class="vb-flow-step">梯度：10⁹ × 2 B ÷ 2³⁰ = 1.86 GiB</span></div><div class="vb-flow-row"><span class="vb-flow-step">主权重 + m + v：10⁹ × (4+4+4) B ÷ 2³⁰ = 11.18 GiB</span></div><div class="vb-flow-row"><span class="vb-flow-step">实测激活峰值 6.00 GiB；临时工作区 2.00 GiB；其他常驻/缓存 1.50 GiB</span></div><div class="vb-flow-row"><span class="vb-flow-step">保守合计：1.86 + 1.86 + 11.18 + 6.00 + 2.00 + 0 + 1.50 = 24.40 GiB</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="一十亿参数训练的显存预算算例"><p class="visual-block-title">完整数字例：为什么 24 GiB 卡仍可能 OOM</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">教学假设（不是本机实测）：10 亿参数，BF16 参数与梯度；Adam 保留 FP32 主权重、m、v；训练时没有 KV Cache</span></div><div class="vb-flow-row"><span class="vb-flow-step">参数：10⁹ × 2 B ÷ 2³⁰ = 1.86 GiB</span></div><div class="vb-flow-row"><span class="vb-flow-step">梯度：10⁹ × 2 B ÷ 2³⁰ = 1.86 GiB</span></div><div class="vb-flow-row"><span class="vb-flow-step">主权重 + m + v：10⁹ × (4+4+4) B ÷ 2³⁰ = 11.18 GiB</span></div><div class="vb-flow-row"><span class="vb-flow-step">假设同一候选峰值快照中：激活 6.00 GiB；临时工作区 2.00 GiB；其他常驻/缓存 1.50 GiB</span></div><div class="vb-flow-row"><span class="vb-flow-step">教学预算合计：1.86 + 1.86 + 11.18 + 6.00 + 2.00 + 0 + 1.50 = 24.40 GiB</span></div></div></section>
+<p>上面的 <code>6.00 / 2.00 / 1.50 GiB</code> 是为了演示完整账本而设定的<strong>教学假设</strong>，不是在某张 GPU 上采集的性能证据。实际规划时要用自己的模型、输入形状和训练阶段采集峰值与内存快照，再替换这三项；不能把教学数字当作模型的固定占用。</p>
 <p>结论不是“Adam 永远每参数 12 字节”，而是：<strong>本例的这套实现</strong>有三份 FP32 数组。若框架不保留 FP32 主权重、使用分片或量化状态，<code>M_opt</code> 会改变；反过来，主权重、状态、梯度的 dtype 与副本口径没写清，就不能把“字节/参数”直接相加。</p>
 <hr />
 <h2 id="_2">🧰 二、七件武器（按账本选择，不要全部打开）</h2>
@@ -447,14 +448,46 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <strong>很多人在硬啃全量微调的显存，而任务本身用 LoRA 就够了。</strong></p>
 </blockquote>
 <h3 id="7-batch">⑦ 减小 batch + 梯度累积</h3>
-<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">micro_batch=1，累积 32 步</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">等效 batch=32</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 但要知道代价：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· micro batch 太小</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">GPU 利用率下降（第 2 章：warp 不够）</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 通信次数不变但计算变少</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">通信占比上升</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 是否采用取决于峰值主因与吞吐、收敛目标</span></div></div></section>
+<p>先把“等效 batch”说完整。一个<strong>完整累积窗口</strong>中，如果每个进程、每个微步的样本数都相同：</p>
+<p><code>B_global = B_micro × K × W</code></p>
+<p><code>B_micro</code> 是每个进程每个微步的样本数，<code>K</code> 是累积步数，<code>W</code> 是进程数（<code>world_size</code>）。例如 <code>B_micro=2</code>、<code>K=4</code>、<code>W=3</code>，完整窗口处理 <code>2 × 4 × 3 = 24</code> 个样本。最后不足 <code>K</code> 步的尾窗口不能丢掉；若各进程对应微步仍等长，它实际处理的是 <code>W × Σ b_j</code> 个样本，必须按这个窗口的真实样本数归一化。</p>
+<section class="visual-block visual-block-flow" aria-label="梯度累积和分布式同步边界"><p class="visual-block-title">一个窗口怎样走</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">每个微步计算逐样本损失之和，并累计真实样本数</span></div><div class="vb-flow-row"><span class="vb-flow-step">DDP 中间微步：前向与反向都放进 no_sync()</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">暂不做梯度通信</span></div><div class="vb-flow-row"><span class="vb-flow-step">第 K 步或最后一个尾步</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">退出 no_sync，让该步触发同步</span></div><div class="vb-flow-row"><span class="vb-flow-step">按本窗口真实样本数归一化</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">optimizer.step()</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 各进程样本数不相等时，默认 DDP 等权平均不等于全局逐样本平均</span></div></div></section>
+<p>最容易犯的两个错误是：每个微步都固定除以 <code>K</code>，导致尾窗口梯度偏小；或者只在整除 <code>K</code> 时更新，直接漏掉最后几个微步。下面的骨架用逐样本损失之和累积梯度，再按窗口真实样本数归一化。它假设 <code>loader</code> 有有限长度，并且 DDP 各进程在每个窗口得到相同的本地样本数；若不能保证，需要汇总全局样本数并做相应权重缩放，而不能照搬默认等权平均。</p>
 
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：`loader` 来自你自己的代码，这一段只看写法</span>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：per_sample_loss(...) 必须返回每个样本各自的损失</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">nullcontext</span>
+
+<span class="n">accum_steps</span> <span class="o">=</span> <span class="mi">32</span>
+<span class="n">local_samples</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">total_micro_steps</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">loader</span><span class="p">)</span>
+<span class="n">opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">(</span><span class="n">set_to_none</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
 <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">batch</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">loader</span><span class="p">):</span>
-    <span class="n">loss</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">batch</span><span class="p">)</span> <span class="o">/</span> <span class="n">accum_steps</span>        <span class="c1"># ⭐ 别忘了除</span>
-    <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
-    <span class="k">if</span> <span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">%</span> <span class="n">accum_steps</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-        <span class="n">opt</span><span class="o">.</span><span class="n">step</span><span class="p">();</span> <span class="n">opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">(</span><span class="n">set_to_none</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">batch_size</span> <span class="o">=</span> <span class="n">batch</span><span class="p">[</span><span class="s2">"input_ids"</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">is_boundary</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">%</span> <span class="n">accum_steps</span> <span class="o">==</span> <span class="mi">0</span>
+        <span class="ow">or</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">1</span> <span class="o">==</span> <span class="n">total_micro_steps</span>  <span class="c1"># 尾窗口也必须更新</span>
+    <span class="p">)</span>
+    <span class="n">sync_context</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">nullcontext</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">is_boundary</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="s2">"no_sync"</span><span class="p">)</span>
+        <span class="k">else</span> <span class="n">model</span><span class="o">.</span><span class="n">no_sync</span><span class="p">()</span>
+    <span class="p">)</span>
+
+    <span class="k">with</span> <span class="n">sync_context</span><span class="p">:</span>  <span class="c1"># DDP 要把前向和反向都放在 no_sync 内</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">batch</span><span class="p">)</span>
+        <span class="n">loss_sum</span> <span class="o">=</span> <span class="n">per_sample_loss</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">batch</span><span class="p">[</span><span class="s2">"labels"</span><span class="p">])</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
+        <span class="n">loss_sum</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+
+    <span class="n">local_samples</span> <span class="o">+=</span> <span class="n">batch_size</span>
+    <span class="k">if</span> <span class="n">is_boundary</span><span class="p">:</span>
+        <span class="c1"># DDP 默认在边界步平均各进程梯度；这里要求各进程 local_samples 相同</span>
+        <span class="k">for</span> <span class="n">parameter</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">parameter</span><span class="o">.</span><span class="n">grad</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">parameter</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">div_</span><span class="p">(</span><span class="n">local_samples</span><span class="p">)</span>
+        <span class="n">opt</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+        <span class="n">opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">(</span><span class="n">set_to_none</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">local_samples</span> <span class="o">=</span> <span class="mi">0</span>
 </code></pre></div>
 
 <h3 id="combination-order">组合顺序：一次只改一项，重新画峰值</h3>
@@ -605,7 +638,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>什么是选择性检查点？它好在哪？</li>
 <li>为什么不能把 Adam、8-bit Adam 的“字节/参数”脱离状态口径直接比较？</li>
 <li>为什么说 LoRA 是"最容易被忽略的解法"？</li>
-<li>为什么不能把“减小 batch”固定写成第一手段或最后手段？</li>
+<li>完整累积窗口的全局 batch 怎样计算？尾窗口与 DDP 同步边界怎样处理？</li>
 <li>哪些现象提示需要检查分配器？如何核实并选择措施？</li>
 <li>FlashAttention 到底降低了什么，没有降低什么？为什么混合精度也不是免费开关？</li>
 <li>为什么组合优化时要一次只改一项，并在每一步重画账本？</li>
@@ -621,7 +654,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>选择性检查点</strong>优先重算存储代价高、重算代价相对低的操作，保留重算昂贵的结果；仍需在同一输入上比较峰值显存、step time 与数值结果。</li>
 <li>先写清比较口径：Adam 的 FP32 <code>m/v</code> 常是 8 B/参数，若另存 FP32 主权重再加 4 B；8-bit Adam 量化的是状态，还可能有分块统计和高精度副本。节省、质量和速度必须按实现实测。</li>
 <li>因为<strong>很多人在硬啃全量微调的显存，而任务本身可能只需要参数高效微调</strong>。LoRA 只为所选目标层的低秩增量保存可训练梯度与状态；比例由 rank、目标层和实现决定，能力也不等同于全量微调。</li>
-<li>若峰值确实由随 micro-batch 增长的激活主导，减小它可以快速止住 OOM；但参数/状态主导时作用有限。micro-batch 过小还可能降低利用率、提高通信占比，并改变归一化或收敛行为，所以位置由账本和训练目标决定。</li>
+<li>仅在各进程、各微步样本数相同且窗口完整时，<code>B_global = B_micro × K × W</code>。不足 <code>K</code> 步的尾窗口也要更新，并按实际样本数而不是固定 <code>K</code> 归一化。DDP 的中间微步可将前向与反向放入 <code>no_sync()</code>，但第 <code>K</code> 步和最后一个尾步必须退出它以触发同步；若各进程样本数不等，还要汇总全局计数并修正权重，默认等权平均并不等于全局逐样本平均。</li>
 <li>分配失败、运行一段时间后 OOM 或缓存差值变大，都只是调查入口。先核对活跃张量/工作区峰值、其他占用与分配快照；若证据支持分配模式问题，再比较分桶、稳定形状和匹配 backend 的配置。empty_cache() 不释放活跃张量，频繁调用还可能增加开销。<strong></strong><code></code><code></code></li>
 <li>FlashAttention 通过分块避免额外保存 O(n²) 注意力中间矩阵，常把额外保存量降到 O(nd)，但精确注意力的主要计算仍是 O(n²d)。混合精度只缩小真正采用低精度存储的张量，还需验证硬件/算子支持、缩放、溢出和任务质量。</li>
 <li>因为一个手段会改变另一个手段面对的峰值与代价：检查点增加重算，分片新增聚合/通信缓冲，Offload 新增传输缓冲。一次只改一项，才能知道哪项带来容量、速度或质量变化；每步都要重新记录账本和指标。</li>
@@ -636,12 +669,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐⭐ <strong>减小 batch 是线索，不是分类证明。batch=1 仍 OOM，也要核对激活峰值、工作区和分配器，不能直接定因为参数或优化器。reserved 与 allocated 的差值还包含缓存，不等于碎片。</strong><strong></strong><code></code><code></code></p>
 <p>七件武器的共同规则：先看账本。⭐ <strong>梯度检查点</strong>只省激活并增加重算；⭐ <strong>ZeRO/FSDP</strong>分片参数、梯度或状态但增加通信与临时聚合；⭐ <strong>低精度优化器</strong>只缩小对应状态，需验证质量与支持；⭐⭐ <strong>LoRA</strong>在任务允许参数高效微调时，才会连带缩小可训练梯度与状态。</p>
 <p>⚠️ <strong>CPU Offload</strong>用主机容量换设备容量，会增加主机内存和传输；<strong>减小 micro batch</strong>可能降低利用率并提高通信占比。两者都不是固定的“最后手段”，而是账本和实测约束下的选择。</p>
+<p>⭐ <strong>梯度累积别只记“除以步数”：</strong>完整等长窗口才有 <code>B_global = B_micro × K × W</code>；尾窗口按真实样本数归一化并照常更新。DDP 中间微步可用 <code>no_sync()</code>，第 <code>K</code> 步或最后一个尾步必须同步。</p>
 <p>⭐ <strong>决策树提供排查入口，先按快照确认主要占用。状态占峰值时比较 LoRA、低精度优化器或分片；激活/工作区占峰值时比较检查点、注意力实现、序列长度与 micro-batch，逐项复测。</strong></p>
 <p>看似还有空闲容量却分配失败，需要继续检查峰值与分配状态，不能凭现象或缓存差值确诊碎片。稳定形状、分桶或分配器选项应在证据支持时尝试；empty_cache() 不能释放活跃张量。<strong></strong><strong></strong><strong><code></code></strong></p>
 <p>⭐ 最后一句是顺序问题：先评估目标硬件上可用的注意力内核与混合精度，但把它们当作<strong>需要验证的候选基线</strong>，而不是免费开关；之后再按峰值主因叠加检查点、分片或 Offload，每次只改一项并复测。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="10-数据并行与AllReduce.html">10-数据并行与AllReduce.md</a></p>
-<details class="g05-content-note"><summary>条件与依据</summary><p>峰值账本是容量预算，不是假装所有分项同时到峰值。检查点、低精度、分片与 Offload 的节省/耗时取决于模型图、输入形状、硬件、互联和实现，不能当固定承诺。8-bit Adam 两份矩的存储不应与包含 FP32 主权重的 12 字节直接混算。batch=1 仍 OOM 也可能是激活、工作区或分配模式问题；梯度累积需处理不足整组的尾批，并在 DDP 中按需关闭中间同步。</p><p><a href="https://docs.pytorch.org/docs/stable/notes/cuda.html">PyTorch CUDA 内存说明</a>；<a href="https://docs.pytorch.org/docs/stable/checkpoint.html">PyTorch Activation Checkpointing</a>；<a href="https://www.deepspeed.ai/tutorials/zero/">DeepSpeed ZeRO</a>；<a href="08-FlashAttention.html">本站第 8 章：FlashAttention 的 I/O 与复杂度边界</a></p></details>
+<details class="g05-content-note"><summary>条件与依据</summary><p>峰值账本是容量预算，不是假装所有分项同时到峰值。检查点、低精度、分片与 Offload 的节省/耗时取决于模型图、输入形状、硬件、互联和实现，不能当固定承诺。8-bit Adam 两份矩的存储不应与包含 FP32 主权重的 12 字节直接混算。batch=1 仍 OOM 也可能是激活、工作区或分配模式问题。梯度累积需处理不足整组的尾窗口，按实际样本数归一化；DDP 中间微步只有在前向和反向都位于 <code>no_sync()</code> 内时才跳过同步，窗口边界和尾窗口最后一步必须同步。</p><p><a href="https://docs.pytorch.org/docs/stable/notes/cuda.html">PyTorch CUDA 内存说明</a>；<a href="https://docs.pytorch.org/docs/stable/checkpoint.html">PyTorch Activation Checkpointing</a>；<a href="https://www.deepspeed.ai/tutorials/zero/">DeepSpeed ZeRO</a>；<a href="08-FlashAttention.html">本站第 8 章：FlashAttention 的 I/O 与复杂度边界</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="08-FlashAttention.html"><div class="dir">← 上一节</div>⭐⭐ FlashAttention</a><a class="next" href="10-数据并行与AllReduce.html"><div class="dir">下一节 →</div>⭐ 数据并行</a></nav>
