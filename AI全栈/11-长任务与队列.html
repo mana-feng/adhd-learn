@@ -315,7 +315,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>只要一个请求可能超过几十秒，它就不该在请求里做完；但「扔到后台」有三档做法，绝大多数人直接跳到了最重的那一档。</strong>
-真正难的也不是把活扔出去，是<strong>扔出去之后怎么保证它只被干一次、失败了不会把队列堵死</strong>。</p>
+把任务交给后台后，还要<strong>能追查它的状态、处理重复投递，并让失败有明确的出口</strong>。</p>
 <hr />
 <h2 id="_2" data-mg-stop>🧩 一、什么时候必须异步</h2>
 <p>别凭感觉。<strong>满足任意一条，就不要在请求里做完</strong>：</p>
@@ -508,6 +508,104 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>父任务按冻结的子任务清单核对：全部succeeded才成功，任何dead则标失败/部分完成，needs_review单独显式暴露；重复完成不能重复加计数。轮询/SSE只改变展示，断线后按权威状态恢复。验收应注入认领后崩溃、代次切换、完成确认丢失，核对旧代次拒写、重复结果只记一次、attempt重启不重置与父子状态一致。</p>
 <p class="muted">依据：<a href="https://www.postgresql.org/docs/17/tutorial-transactions.html">PostgreSQL17事务</a>、<a href="https://www.postgresql.org/docs/17/explicit-locking.html">行锁</a>与<a href="https://www.postgresql.org/docs/17/sql-select.html#SQL-FOR-UPDATE-SHARE">SKIP LOCKED</a>。这是有限参考设计；百万调度、真实跨机故障与5秒状态/启动lag的SLO均未实测。</p>
 </details>
+
+<h3 id="queue-accepted-outbox">一份长文档从已接收到已完成</h3>
+<p>用户提交长文档摘要，页面立即显示「已接收」。如果服务器刚返回就重启，重新打开页面还能查到这份任务吗？答案取决于返回前已经保存了什么。先沿着同一个任务号 <code>job-17</code> 看一遍。</p>
+<div class="flowchain" role="list" aria-label="长文档摘要任务的四个确认边界">
+<div class="fstep" role="listitem"><b>① 应用提交</b><span>同一事务保存任务和待发布记录，再返回 202。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>② 队列接收</b><span>转发进程发布任务号，按中间件的确认约定记录已发。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>③ Worker 保存结果</b><span>事务提交摘要与完成状态后，才确认本次投递（ACK）。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>④ 页面查询</b><span>按同一任务号查看排队、运行、完成或失败的状态。</span></div>
+</div>
+<p><code>POST /api/summary-jobs</code> 接收 <code>{"doc_id":"doc-17"}</code>。本例在认证与文档授权后，按当前租户、操作和幂等键确定任务号，保存后返回 <code>202 Accepted</code> 与 <code>{"job_id":"job-17","status":"queued","status_url":"/api/jobs/job-17"}</code>。页面从收到 202 起就可查询，轮询与 worker 并行，服务端每次查询都检查读取权限。<code>202</code> 表示请求已被接收处理，HTTP 状态码本身没有承诺落盘或最终完成。本接口额外承诺<strong>数据库提交后才返回接收</strong>。若响应在路上丢失，用同一个幂等键重试可取回原任务；同键对应不同内容应拒绝。</p>
+<p><strong>如果用数据库当队列</strong>，worker 直接在 <code>jobs</code> 表认领，任务记录本身就可以作为待办。<strong>如果还要发给外部消息中间件</strong>，只写任务表后就可能在发布前崩溃，先发布则可能让 worker 收到尚未提交的任务。将任务记录与待发布记录写进<strong>同一个数据库事务</strong>，一起提交或一起回滚，这叫<strong>事务发件箱（Transactional Outbox）</strong>。转发进程稍后读取已提交的发件箱，把任务号送进队列。任务已入库、消息中间件已接收、摘要已完成是三个分别可查的状态。</p>
+<p>发布后若还没标记已发就中断，恢复后同一个任务号可能发布两次。worker 保存结果后若还没发出 ACK 就断线，也可能再次收到消息。下面的 SQLite 示例用结果表的任务号唯一约束防止重复保存，且将保存结果和更新成功状态放在同一事务。用 Python 3 运行这段标准库代码。内存数据库模拟同库事务，列表模拟已送达的消息，运行期间没有真实队列或模型调用。</p>
+<div class="codehilite" data-code-language="python" data-code-title="一次摘要任务 · 提交、重复发布、重复消费"><pre><code>import sqlite3
+from contextlib import closing
+
+
+def accept(db, job_id, doc_id, fail=False):
+    with db:
+        created = db.execute(
+            "INSERT INTO jobs VALUES (?, ?, 'queued') "
+            "ON CONFLICT(job_id) DO NOTHING", (job_id, doc_id),
+        ).rowcount
+        if created:
+            if fail:
+                raise RuntimeError("模拟提交前中断")
+            db.execute("INSERT INTO outbox VALUES (?, 0)", (job_id,))
+        elif db.execute(
+            "SELECT doc_id FROM jobs WHERE job_id = ?", (job_id,),
+        ).fetchone()[0] != doc_id:
+            raise ValueError("同一任务号对应了不同文档")
+
+
+def relay(db, deliveries, mark_sent):
+    pending = db.execute("SELECT job_id FROM outbox WHERE sent = 0")
+    for (job_id,) in pending.fetchall():
+        deliveries.append(job_id)  # 模拟中间件已接收
+        if mark_sent:
+            with db:
+                db.execute("UPDATE outbox SET sent = 1 WHERE job_id = ?", (job_id,))
+
+
+def consume(db, job_id):
+    doc_id, = db.execute("SELECT doc_id FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+    with db:
+        created = db.execute(
+            "INSERT INTO results VALUES (?, ?) ON CONFLICT(job_id) DO NOTHING",
+            (job_id, f"{doc_id} 的模拟摘要"),
+        ).rowcount
+        if created:
+            db.execute("UPDATE jobs SET status = 'succeeded' WHERE job_id = ?", (job_id,))
+    return bool(created)  # 此后才允许确认投递
+
+
+with closing(sqlite3.connect(":memory:")) as db:
+    db.executescript("""
+        CREATE TABLE jobs (job_id TEXT PRIMARY KEY, doc_id TEXT, status TEXT);
+        CREATE TABLE outbox (job_id TEXT PRIMARY KEY, sent INTEGER);
+        CREATE TABLE results (job_id TEXT PRIMARY KEY, summary TEXT);
+    """)
+    try:
+        accept(db, "job-failed", "doc-17", fail=True)
+    except RuntimeError:
+        pass
+    assert db.execute("SELECT COUNT(*) FROM jobs").fetchone() == (0,)
+    assert db.execute("SELECT COUNT(*) FROM outbox").fetchone() == (0,)
+    print("提交前失败：任务 0，待发布 0")
+
+    accept(db, "job-17", "doc-17")
+    accept(db, "job-17", "doc-17")  # 模拟 202 丢失后的同意图重试
+    try:
+        accept(db, "job-17", "doc-99")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("同一任务号改用其他文档时应拒绝")
+    assert db.execute("SELECT COUNT(*) FROM jobs").fetchone() == (1,)
+    assert db.execute("SELECT COUNT(*) FROM outbox").fetchone() == (1,)
+    print("已接收：queued")
+
+    deliveries = []
+    relay(db, deliveries, mark_sent=False)  # 发出后中断，没标记已发
+    relay(db, deliveries, mark_sent=True)
+    assert deliveries == ["job-17", "job-17"]
+    print("发布记录：", deliveries)
+
+    assert consume(db, deliveries[0])
+    # 第一次结果已提交，ACK 前断线；先重投，再处理重复发布的另一份。
+    assert not consume(db, deliveries[0])
+    assert not consume(db, deliveries[1])
+    assert db.execute("SELECT COUNT(*) FROM results").fetchone() == (1,)
+    assert db.execute("SELECT status FROM jobs").fetchone() == ("succeeded",)
+    print("任务成功：保存摘要 1 条")</code></pre></div>
+<p>依次看到「提交前失败：任务 0，待发布 0」、「已接收：queued」、「发布记录：<code>['job-17', 'job-17']</code>」和「任务成功：保存摘要 1 条」。同一个任务号两次发布、三次模拟消费，数据库中仍只有一条完成结果。</p>
+<p>实际系统可在调用模型前先检查任务是否完成，减少重复工作；并发时还要用上文的认领和下文的租约控制。SQLite 示例只证明<strong>本地结果提交</strong>的去重，模型调用与计费不会随数据库事务一起回滚。若外部尝试是否成功无法确定，先按稳定操作号查询或进入待核对，按 <a href="04-调用层.html">第 04 章</a>的重试条件和<a href="12-限流配额与成本护栏.html">第 12 章</a>的账本规则决定下一步。</p>
+<p class="muted">协议与模式依据见 <a href="https://www.rfc-editor.org/rfc/rfc9110.html#section-15.3.3">RFC 9110 的 202</a>、<a href="https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html">事务发件箱</a>及 <a href="https://www.rabbitmq.com/docs/4.1/confirms">RabbitMQ 的发布确认与消费确认</a>。</p>
 <hr />
 <h2 id="_4" data-mg-stop>🧩 三、状态怎么让前端知道</h2>
 <div class="tw"><table>
@@ -609,7 +707,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong>抖动不是可选项</strong>：一次上游抖动会让 200 个任务同时失败，没有抖动它们会在<strong>同一秒</strong>一起回来，把刚恢复的上游再打挂一次。</p>
 </blockquote>
 <p>⭐ <strong>死信是待办箱，不是垃圾桶</strong> —— 要看得见（后台页面或告警），并且能改完 payload 重新入队。没人看的死信队列 = 静默丢数据。</p>
-<p>⚠️ <strong>还要分清能不能重试</strong>：<code>400 参数错</code>、<code>401 没权限</code>、内容被安全策略拒绝，重试一万次也是同样结果，直接进死信；只有 <code>429</code>、<code>500</code>、超时才值得退避重试。</p>
+<p><strong>先决定错误能否恢复，再决定能否安全重做。</strong>参数有误或策略拒绝时，当前任务直接记为终态失败，必要时转死信供排查。凭证无效先修复凭证。暂时限流或服务故障可以在预算内退避，遵守适用的等待约定；若超时发生在外部操作发出之后，结果可能未知，先查原操作号，确认可安全重放再重试。需要改动输入时，通过新的或经审批的操作重新提交。</p>
 <details id="queue-depth"><summary>可选深入：认领之后，谁还有权完成任务？</summary>
 <p>数据库行锁保护认领事务；任务通常在提交后才慢慢执行，此时行锁早已释放。下面的时间线是手工可复核的模型，未启动 Redis、PostgreSQL、RabbitMQ 或 Kafka 服务。</p>
 <h3 id="queue-lease">从两个 worker 到一份有期限的租约</h3>
@@ -741,7 +839,8 @@ processing → 租约失效/失联 → 按策略重新queued（同一业务ID）
 <li>为什么不能每次重试重新调用 <code>uuid4()</code> 生成幂等键？首次生成并持久化复用又如何？那段示例投递三次，账上有几笔、多少钱？</li>
 <li>什么是毒药消息？防住它要一起做的三件事是哪三件？</li>
 <li>退避为什么必须加抖动？</li>
-<li>哪几类错误<strong>不该</strong>重试？</li>
+<li>哪些失败应停止自动重试？外部调用超时又要先确认什么？</li>
+<li>队列已接收摘要消息，但转发进程来不及写「已发」就重启。恢复后会怎样？此时页面能把 202 当作完成吗？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
@@ -753,7 +852,8 @@ processing → 租约失效/失联 → 按策略重新queued（同一业务ID）
 <li>幂等键应稳定标识同一次业务意图；每次重试新生成UUID会破坏去重，首次生成后持久化复用则可以。服务端还需拒绝同键不同内容，不能把相同内容的两次合法意图永久合并。示例结果是 <code>['charged','skipped','skipped']</code>，账上 1 笔、30 分。</li>
 <li><strong>永远会失败的任务</strong>，没有上限就无限循环、堵死队列。三件事：重试上限（示例 <code>MAX_ATTEMPTS = 5</code>）、指数退避加抖动、死信（要有人看、能重新入队）。</li>
 <li>一次上游抖动会让一批任务同时失败，<strong>没抖动它们会在同一秒一起回来</strong>，把刚恢复的上游再打挂。代码里是 <code>base * (0.5 + random())</code>，跑出 2.69 / 5.03 / 7.36 / 12.14 秒。</li>
-<li><strong><code>400</code>、<code>401</code>、内容被安全策略拒绝</strong> —— 重试一万次结果一样，直接进死信。只有 <code>429</code> / <code>500</code> / 超时值得退避重试。</li>
+<li>参数错、凭证无效或被策略拒绝时，停止原样自动重试。暂时故障还要核对预算和可安全重放条件；外部结果未知时先查询原操作，或进入待核对。</li>
+<li>发件箱还显示待发布，所以恢复后可能重复发布同一个任务号。消费端按任务号去重，保存结果并提交成功状态后才确认投递。页面按状态地址查到 <code>succeeded</code> 才显示完成。</li>
 </ol>
 </details>
 <hr />
@@ -763,6 +863,7 @@ processing → 租约失效/失联 → 按策略重新queued（同一业务ID）
 <p>这一章讲「一个请求做不完的活怎么扔到后台」。<strong>判据</strong>：可能超过网关默认硬超时（那个量级就是几十秒，超时后用户看到 504、<strong>后端还在烧钱</strong>）、批量处理、入库加 embedding、定时任务、需要重试的活——任意一条就别在请求里做完。⚠️ 单次对话生成<strong>不算</strong>，那是流式解决的问题。</p>
 <p>三档做法，⭐ <strong>关键是别直接跳到第三档</strong>。进程内后台任务有三个限制（抢 worker、重启全丢、状态在内存里导致多进程查不到）。⭐ <strong>数据库当队列覆盖中小规模的绝大多数场景</strong>，还能让任务状态和业务数据在同一个事务里改。</p>
 <p>⚠️⚠️ 认领必须原子，但<strong>「写成一条语句」本身并不保证正确，也不是唯一原子认领方式</strong>：外层 <code>WHERE</code> 只比对 id、不再检查状态时，并发下要么重复认领要么空转——<strong>必须把锁写进子查询</strong>（当场锁行 + 让别人跳过去拿下一条）。⚠️ 某些数据库上示例能跑通是<strong>因为整库一把写锁，理由完全不同</strong>，别照抄结论。</p>
+<p><strong>接收与完成分开查。</strong>接收时保存任务和所需的待发布记录。队列接收确认只表示到达中间件，页面仍查任务的持久状态；消费端提交结果后才确认投递。</p>
 <p><strong>状态怎么让前端知道</strong>：默认轮询（无状态、哪台机器都能答）。⚠️ 别把间隔写成几百毫秒——三分钟的任务会发出上千个「好了没」。⭐ <strong>进度报阶段不报百分比</strong>（LLM 时长不可预测，百分比可能长时间停在同一数值），而且<strong>进度要写在表里不是 worker 内存里</strong>，否则它一崩前端永远停在 40%。</p>
 <p>⭐ <strong>幂等不是可选项：任务可能重复执行。</strong> 键应标识同一次业务意图；随机 UUID 也能当业务幂等键，条件是首次生成后持久化，并在同一请求的重试中复用；不能每次重试重新生成。</p>
 </blockquote>
