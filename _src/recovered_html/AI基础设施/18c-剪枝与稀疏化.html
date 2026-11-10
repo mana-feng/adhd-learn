@@ -330,11 +330,23 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>剪枝要分别验三件事：质量还行吗、实际存储变小了吗、目标硬件上的服务更快了吗？</strong></p>
 <p>把权重设成 0 只是改变数值。要省存储和运算，还要看保存格式、执行算子与负载；这些条件匹配时，非结构化剪枝也可能有收益。</p>
+<p>想象一个线性层原来要用四个输入特征算两个输出。把一些权重设成零后，程序可以照原样处理四个特征，也可以换成只读非零权重的算子。若删除的是两个完整通道，还可以把层实际改小。下面用同一层算清三条路分别改变了什么。</p>
 <hr />
 <h2 id="_2">✂️ 一、非结构化剪枝：先区分置零与压缩</h2>
 <h3 id="_3">⭐ 本章最重要的一条</h3>
 <p>非结构化剪枝可以逐个选择权重置零，不要求它们构成完整的行、列或层。</p>
 <p><strong>同样形状、同样 dtype 的稠密张量，置零后元素存储字节数不变。</strong> 这不等于任何稀疏实现都不能省空间，也不保证剪掉 90% 后质量仍能保持。</p>
+<p>设输入 <var>x</var> = [1, 2, 3, 4]，权重矩阵 <var>W</var> 有 2 行（输出通道）、4 列（输入通道），这里不加偏置。每个输出等于对应行与输入逐项相乘再相加。<var>W</var> 的两行分别是 [2, 1, 3, 4] 和 [1, −2, 1, 3]，原结果是 [2×1＋1×2＋3×3＋4×4, 1×1−2×2＋1×3＋3×4] = [29, 12]。以下保留位置只用于教学，不代表最优剪枝方案。</p>
+<div class="tw" id="pruning-shape-ledger"><table style="width:100%;min-width:0;table-layout:fixed;overflow-wrap:anywhere">
+<caption>同一层，三种去掉一半权重的方式</caption>
+<thead><tr><th scope="col">方式</th><th scope="col">权重两行</th><th scope="col">执行形状</th></tr></thead>
+<tbody>
+<tr><th scope="row">逐权重置零</th><td>[2, 1, 3, 0]<br>[0, 0, 0, 3]</td><td>仍是 2×4</td></tr>
+<tr><th scope="row">按 2:4 置零</th><td>[0, 0, 3, 4]<br>[0, −2, 0, 3]</td><td>逻辑上 2×4</td></tr>
+<tr><th scope="row">实际删通道</th><td>[3, 4]<br>[1, 3]</td><td>裁成 2×2</td></tr>
+</tbody></table></div>
+<p>第一行方案的零值数为 4，原位置数为 2×4 = 8，所以<strong>零值稀疏率</strong>是 4÷8 = 50%。若仍用 FP32 稠密表示，每个位置占 4 字节，仍是 8×4 = 32 字节。仍调用原尺寸的普通稠密内核时，计算量账也是 2×4 = 8 次乘加。这里用每次「乘一个权重并加到累加器」计 2 次浮点运算（FLOP），共 8×2 = 16 FLOP。零值已经变多，但分配的槽位和走的内核都没变。</p>
+<p>换成 <strong>CSR（Compressed Sparse Row，压缩稀疏行）</strong> 时，存下 4 个非零值 [2, 1, 3, 3]，列下标 [0, 1, 2, 3]（从 0 数），以及行偏移 [0, 3, 4]，用相邻两项圈出每行在列表里的范围。若值用 FP32，两类索引都用 64 位（8 字节），单算数组就是 4×4＋4×8＋3×8 = 72 字节，比 32 字节还大。小矩阵或零不够多时，光省数值可能抵不过索引。</p>
 <p>下面的 PyTorch 实验在 <strong>CPU</strong> 上进行，不是 GPU 显存或完整 LLM 的性能测试。它比较稠密表示和 CSR（压缩稀疏行）表示，需要安装 PyTorch；运行时会分配数个较大的矩阵。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">time</span><span class="o">,</span><span class="w"> </span><span class="nn">torch</span>
 
@@ -470,6 +482,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>表中的 w0、w1、w2、w3 均表示非零数。<strong>看非零数是否超过两个，不是要求恰好两个零。</strong> 只有一个非零时，编码仍可使用两个值槽位。对照 <a href="https://pytorch.org/blog/accelerating-neural-network-training/">PyTorch 的 2:4 说明</a>。</p>
+<p>在本章的乘法中，<strong>归约轴</strong>是每行与输入相乘后再求和的四列。第一节的逐权重方案两行分别有 3、1 个非零，虽然全层也是 50% 零值，第一组仍不合格。第二个方案每行各留 2 个非零，才符合此分组。若实际矩阵转置、存储布局变动，按目标算子所用的归约轴重新查组。<a href="https://developer.nvidia.com/docs/drive/drive-os/7.0.3/public/drive-os-tensorrt-developer-guide/advanced.html#sparsity">TensorRT 矩阵乘的分组要求</a>。</p>
+<p>再单算这个布局的存储账。以 <a href="https://docs.pytorch.org/docs/2.15/sparse.html#sparse-semi-structured-tensors">PyTorch 2.15 的 2:4 FP16 格式说明</a>为例，每组保留两个 16 位值，位置元数据为两个槽各 2 位。每组从稠密的 4×16 = 64 位变成 2×16＋2×2 = 36 位；两组是 72 位，按 8 位一字节得 9 字节，稠密为 16 字节，比例 9÷16 = 56.25%。这里只算格式账，不含对齐等额外开销。这个 2×4 小矩阵也达不到该接口 FP16 二维张量的形状要求，两维须为 64 的正整数倍。</p>
 <p>Ampere 等支持相应模式的稀疏 Tensor Core 提供了专门路径，但<strong>硬件具备能力不等于任意模型自动加速</strong>；仍需转换格式并满足算子限制。</p>
 <ul>
 <li>峰值计算吞吐的“2 倍”不等于完整服务时延减半。</li>
@@ -481,6 +495,27 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h2 id="_4">🪓 三、结构化剪枝：缩小可执行的模型结构</h2>
 <p>整头、整通道、整层地删，并正确重连依赖后，可以得到更小的稠密计算结构，通常更容易利用现有稠密算子。</p>
 <p><strong>更少参数或 FLOPs 不是确定的等比例加速。</strong> 固定开销、内存读写、维度对齐、算子融合和其他瓶颈可能限制收益。</p>
+<p>仍用上面的矩阵。若删掉前两个<strong>输入通道</strong>，要让上一层实际只产出保留的后两个特征 [3, 4]，本层权重也要同步裁成 2×2。于是输出是 [3×3＋4×4, 1×3＋3×4] = [25, 15]。裁完只剩 2×2 = 4 个参数，FP32 权重是 4×4 = 16 字节，普通稠密内核也只需 2×2 = 4 次乘加（8 FLOP）。这里是<strong>删去原来 8 个位置中的 4 个</strong>，新 2×2 矩阵本身没有零值。若被删通道还被残差或其他分支使用，也要一起处理依赖。</p>
+<p>2:4 小例同样只需 4 次有效乘加，但要用能跳过该模式的稀疏内核，否则仍走原来的 8 次稠密乘加。它的输出是 [3×3＋4×4, −2×2＋3×4] = [25, 8]。假设任务规定「第二个输出至少为 10」才通过，原结果 12 通过，这次 2:4 的 8 却失败。裁通道的 15 在这个样本通过，也只能说明这一次判断相同。上线前要重新评估目标任务和容易受影响的样本。</p>
+<p>这段 Python 只复算小矩阵、非零个数和输出，可用标准库运行。四个输出依次是 [29, 12]、[13, 12]、[25, 8]、[25, 15]。程序用普通循环乘矩阵，不测稀疏硬件的速度。</p>
+<div class="codehilite" data-code-language="python" id="pruning-count-check"><pre><code>def linear(rows, features):
+    return [sum(w * x for w, x in zip(row, features)) for row in rows]
+
+x = [1, 2, 3, 4]
+original = [[2, 1, 3, 4], [1, -2, 1, 3]]
+unstructured = [[2, 1, 3, 0], [0, 0, 0, 3]]
+two_of_four = [[0, 0, 3, 4], [0, -2, 0, 3]]
+cropped = [row[2:] for row in original]
+
+for masked in (unstructured, two_of_four):
+    counts = [sum(w != 0 for w in row) for row in masked]
+    print(&quot;非零数:&quot;, counts, &quot;符合 2:4:&quot;, max(counts) &lt;= 2)
+    assert sum(counts) == 4
+
+for rows, inputs in ((original, x), (unstructured, x),
+                     (two_of_four, x), (cropped, x[2:])):
+    print(linear(rows, inputs))
+</code></pre></div>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -599,6 +634,12 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>这些是按元素字节数复算的例子，不是框架内存峰值。具体框架可能保留原参数、掩码、临时张量或压缩后的新格式；应查看实际产物。</p>
+<section class="visual-block visual-block-calc" id="pruning-latency-ledger" aria-label="理论运算变少，服务耗时仍增加的算例">
+<p class="visual-block-title">少算一半的层，放回整条服务路径再看</p>
+<div class="vb-calc">
+<p>教学假设：某次请求基线耗时 100 ms，只有 20 ms 在可替换的矩阵乘里，其余 80 ms 保持不变。即使这个矩阵乘真的快到一半，也只是省 20 − 10 = 10 ms；整条路径在没有新开销时是 80＋10 = 90 ms，提速 100÷90 ≈ 1.11 倍。</p>
+<p>若新路径每次请求还要增加 12 ms 的重排或同步，合计 80＋10＋12 = 102 ms，比原来慢。这里是按串行时段算的演示；只在导出时做一次的权重打包不应记进每次请求，服务中能重叠的时段也不能简单相加。</p>
+</div></section>
 <p>因此不能仅由“13B→1.3B 非零值”推出可以从 2×A100 换成 1×A10，更不能据此形成采购承诺。还缺质量、完整容量、内核支持、吞吐、延迟与目标并发证据。</p>
 <p><strong>验收不是把“稀疏度和精度”换成另外两个数，而是补齐维度：</strong></p>
 <ul>
@@ -609,6 +650,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </ul>
 <p>先做目标硬件的格式与形状实验，再做端到端测试；30 分钟可以是一次排查安排，不是充分验收时间。</p>
 <p>与 <a href="18b-知识蒸馏.html">蒸馏章节</a>、<a href="18-量化.html">量化章节</a>的共同点是：<strong>实现成功不等于优化成功。</strong> 软件也可能报错，只是质量或性能退化不一定会通过异常提示出来。</p>
+<p>选路线时先分清改动的位置：剪枝改变保留的权重或结构，量化改变数值表示；蒸馏用教师的输出等信号训练学生。<a href="19-投机解码.html">投机解码</a>则在生成时增加提议和验证流程，在满足对应验证规则时可以保留目标模型的输出分布。它们各自的部署收益都要按最终负载验收。</p>
 <hr />
 <h2 id="_7">🔗 和站内其他章的关系</h2>
 <div class="tw"><table>
@@ -655,8 +697,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>为什么置零、稀疏存储和加速是三件事？</li>
 <li>90% 零值的同形状 FP32 稠密张量会省多少元素存储？换 CSR 呢？</li>
 <li>B=1 的 CPU 矩阵乘能否证明完整 GPU 解码一定更慢？</li>
-<li>2:4 能否有三个零？更多零是否让固定编码继续缩小？</li>
-<li>结构化剪枝为什么更容易利用稠密算子，却不能保证等比例加速？</li>
+<li>两行各有 3 和 1 个非零、全层 50% 零值，满足按行分组的 2:4 吗？若组内有三个零，固定编码会继续缩小吗？</li>
+<li>本章从 2×4 裁成 2×2 后，乘加次数怎么变？为什么整条服务未必同比变快？</li>
 <li>全局阈值与逐层配额分别有什么风险？</li>
 <li>Wanda 是否不看权重大小？它与 AWQ 是同一种方法吗？</li>
 <li>迭代剪枝为何可能有帮助？彩票搜索的成本怎么计入？</li>
@@ -668,8 +710,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>置零改数值，稀疏格式改存储，内核和负载决定执行开销；任何一步都不能代替后续验证。</li>
 <li>同形状同 dtype 的稠密元素存储仍为 64 MiB；本例 CSR 需连同索引约算为 19.2 MiB，具体看实际 dtype 与非零数。</li>
 <li>不能。它只覆盖这一 CPU 运算与输入形状，不包括完整模型或 GPU 服务。</li>
-<li>可以，最多两个非零即符合该模式；固定两个值槽位和元数据通常不会因第三个零而继续减半。</li>
-<li>结构更小且规整，但对齐、固定开销、其他瓶颈和内核选择仍影响端到端速度。</li>
+<li>不满足，第一组超过两个非零。组内有三个零可以满足规则，但固定两个值槽位和元数据通常不会因此继续缩小。</li>
+<li>从 2×4 = 8 次降到 2×2 = 4 次；对齐、额外开销和未改变的阶段仍影响端到端速度。100 ms 的算例里，省 10 ms 后若又增加 12 ms，整条路径反而变为 102 ms。</li>
 <li>全局阈值可能过度剪某些层；相同逐层配额可能忽略层间敏感性差异。</li>
 <li>Wanda 同时乘权重幅度与输入通道范数；它和 AWQ 都用激活信息，但任务和算法不同。</li>
 <li>分次恢复给优化留下调整机会，也增加成本；彩票方法需合计搜索、重新训练与复用，不能只看小网络的一次训练。</li>
