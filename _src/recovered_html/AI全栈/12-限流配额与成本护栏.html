@@ -354,6 +354,16 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ <strong>为什么限流挡不住配额要挡的事</strong>：限流是「每分钟 10 次」，一天 1440 分钟 = 14400 次上限。
 一个用户老老实实地每分钟 9 次跑一整天，从头到尾没触发过任何限流 —— 但账单是真的。</p>
 </blockquote>
+<h3 id="rate-vs-concurrency">慢慢进来的请求，也可能把位置占满</h3>
+<p>长文档总结要运行一阵子。假设服务只允许同时处理 <strong>2 个总结</strong>，每个要占用 20 秒。前两个在第 0 秒和第 5 秒开始，第 10 秒来了第三个。这一分钟才到 3 次，远低于每分钟 10 次的入口限速，但前两个要到第 20 秒和第 25 秒才完成，第 10 秒时没有空位。</p>
+<div class="flowchain" role="list" aria-label="三个总结请求的时间线">
+<div class="fstep" role="listitem"><b>第 0 秒</b><span>第 1 个总结开始，占 1 个位置。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>第 5 秒</b><span>第 2 个总结开始，2 个位置都占了。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>第 10 秒</b><span>第 3 个总结通过入口限速，等待空位或被拒绝。</span></div>
+</div>
+<p><strong>并发（Concurrency）</strong>数这一刻仍在处理的任务，单位是「个」；<strong>请求速率</strong>数一段时间内来的请求，单位是「次 / 分钟」等。给在途调用单设上限，可限制同时占用的资源。个人月配额和全局日预算继续管这批请求总共能用掉多少，哪怕它们彼此间隔很久。</p>
 <hr />
 <h2 id="_3">🧩 二、限流：令牌桶</h2>
 <p>令牌桶的形状是：<strong>一个桶按固定速率往里滴令牌，桶有容量上限；来一个请求就拿走一个，没得拿就拒绝。</strong>
@@ -471,7 +481,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>输出是 <code>ok / ok / quota / ok / budget_stop</code>，最后 <code>[('u1', 80), ('u2', 40)] (120,)</code>。
 ⭐ 注意最后一次：u2 的<strong>个人配额还够</strong>（40 + 40 ≤ 100），是<strong>全局日预算</strong>拦下的（120 + 40 &gt; 150）；而且因为异常触发了回滚，u2 的 <code>used</code> 停在 40 而不是脏成 80。这就是第三层护栏存在的意义。</p>
-<p>⚠️ <strong>预扣要在调用之前，结算要在调用之后。</strong>调用前你只有一个<strong>估</strong>的 token 数（输出多少还不知道），所以流程是：按上限预扣 → 调用 → 拿到真实用量后补差价。只在调用后记账，等于在超支之后才知道超支了。</p>
+<p>⚠️ <strong>预扣要在调用之前，结算要在调用之后。</strong>调用前你只有一个<strong>估</strong>的 token 数（输出多少还不知道），所以流程是：按可计费上限预留预算 → 调用 → 拿到真实用量后结算，释放多预留的部分。只在调用后记账，等于在超支之后才知道超支了。</p>
 <p>⭐ <strong>预算拉闸要告警到人，但恢复不能只靠等几秒。</strong> 它看账本是否还有余额；依赖故障熔断看上游是否恢复，是两道不同的门：</p>
 <div class="tw"><table>
 <thead><tr><th>门 / 状态</th><th>现在怎么处理</th><th>何时恢复 / 转移</th></tr></thead>
@@ -512,7 +522,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td>⭐ <strong>调用层</strong></td>
 <td>每次调模型前预扣、之后记账</td>
-<td><strong>只有这里知道用了哪个模型、多少 token、有没有命中缓存</strong>。一次请求可能调 5 次模型，中间件那层看不见</td>
+<td><strong>这里能在发出前确定模型和用量上限，返回后再拿实际用量和缓存命中</strong>。一次请求可能调 5 次模型，中间件那层看不见</td>
 </tr>
 </tbody>
 </table></div>
@@ -577,6 +587,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <p>示例预期输出：<code>[200, 200, 200, 429, 429]</code>，内部等待0.5秒在响应中表示为 <code>Retry-After: 1</code>；换成u2是 <strong>200</strong>（⭐ <strong>桶是按用户分的</strong>，一个人打爆不该影响别人），不带token是401（还没进到限流就被上一层依赖拦了）。这里区分标准库可核对的字段转换与需另行运行的FastAPI/TestClient服务示例。</p>
+<p>代码末尾的注释指的是示意挂点。真正接线时，用户级检查可以在认证后做；每次模型尝试的金额预留要在调用层再原子检查一次，一次网页请求里的多次模型调用也各自过账。</p>
 <p>⭐ <strong>三件事值得注意</strong>：① 业务函数 <code>chat()</code> 里<strong>一行限流代码都没有</strong>——这就是第 3 章说「依赖注入不是花架子」的兑现；② ⚠️ 顺序是靠依赖链保证的，不是靠你记得把中间件注册在正确的位置（<a href="16-上线前检查单.html">第 16 章</a>那条「限流中间件挂在认证之前所以永远拿不到用户」就是手写顺序才会犯的错）；③ 换到 Node / Go 就是中间件，<code>Depends</code> 这个名字会过期，「每请求要做的事得有统一的地方挂」不会。</p>
 <hr />
 <!--MIDSTOP-->
@@ -618,6 +629,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>⚠️ <strong>协议允许429携带Retry-After，并非强制必选。</strong>本应用能计算等待时应主动提供合法字段；客户端宜识别其支持的格式，尊重等待并结合有上限的退避与非负抖动，不能假定所有客户端都会遵守。忽略等待、立即反复重试可能放大负载。依据 <a href="https://www.rfc-editor.org/rfc/rfc6585.html#section-4">RFC6585 §4</a>。</p>
+<p><strong>先看是谁拒绝的、拒绝时走到了哪一步。</strong> 本应用的入口限速拒绝发生在模型调用前；配额用完要等额度释放、窗口重置或授权调整，短时间重发解决不了。上游超时则可能已经开始处理。对于 <code>POST</code>，自动重试前要确认原请求未执行，或有服务端支持的幂等保证；同一业务意图继续使用原请求号，次数和等待时间都有上限。见 <a href="https://www.rfc-editor.org/rfc/rfc9110.html#section-9.2.2">RFC 9110 §9.2.2</a> 和 <a href="03c-幂等与条件请求.html#idempotency-key">03c 的幂等合同</a>。</p>
 <hr />
 <h2 id="_9">🧩 六、成本归因：别只知道总账单涨了</h2>
 <p>⭐ <strong>每次调用至少记三个维度：谁（<code>user_id</code>）、哪个功能（<code>feature</code>）、哪个模型（<code>model</code>）。少记一列，就有一个维度永远查不出来。</strong>月底账单涨了 40%，没有这三列你只能猜；有了，一条 <code>GROUP BY</code> 就知道是谁。</p>
@@ -656,6 +668,37 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h3 id="token">⚠️ 别只看 token 数</h3>
 <p>上面跑出来的三行是 <strong>0.056 / 2.64 / 10.2 分</strong>（用示例价表算的）。两个对比：<strong>同样的 30000 + 800 token</strong>，命中缓存的那次 2.64 分、没命中的 10.2 分，差 3.9 倍；而一次大模型长上下文 10.2 分 vs 一次小模型短对话 0.056 分，差 182 倍。</p>
 <p>⭐ <strong>所以「本月 token 数涨了 20%」这句话没有信息量</strong> —— 同样的 token 数，落在不同模型、不同缓存命中率上，账单可以差两个数量级。<strong>记账要记钱，不要记 token</strong>（token 数也留着，出问题时拿它对账）。</p>
+<h3 id="summary-request-budget">走一遍长文档总结：从点击到结算</h3>
+<p>用户点一次「总结」，浏览器要知道有没有拿到结果，服务器还要知道这一次占了多少预算。下面是一套<strong>教学接口</strong>，沿用上面的 <code>big</code> 价表，金额统一用美分。<code>doc_id</code> 指向已上传的文档，服务器用认证信息识别用户，并核验他能否访问该文档。</p>
+<div class="codehilite" data-code-language="http"><pre><code>POST /summaries
+Authorization: Bearer &lt;本应用凭证&gt;
+Content-Type: application/json
+Idempotency-Key: summary-17
+
+{"doc_id":"doc-17"}</code></pre></div>
+<p>服务器在用户和操作的范围内认领 <code>summary-17</code>，给这次物理调用另记尝试号。请求携带的业务号用于重查或复用原任务；若同一个业务号改传另一份文档，则按本接口的幂等合同拒绝。</p>
+<div class="flowchain" role="list" aria-label="长文档总结的准入与结算流程">
+<div class="fstep" role="listitem"><b>① 准入</b><span>认证 → 限速 → 并发有空位。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>② 预留</b><span>同一事务检查个人配额、全局日预算。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>③ 发出调用</b><span>带输出上限，并保留本地尝试号。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>④ 核算</b><span>用量确认后结算，未知则保留预留。</span></div>
+</div>
+<p><strong>预留 11.25 分。</strong> 假设服务器已按模型口径数清完整输入为 30,000 token，并限制最多生成 1,500 个计费输出 token。这笔调用只有输入、输出两类费用。发送前还不知道会不会命中缓存，所以先按无缓存单价预留。千 token 数 = token 数 ÷ 1,000，乘上每千 token 单价才是美分。代入得到 <strong>(30,000 ÷ 1,000) × 0.30 + (1,500 ÷ 1,000) × 1.50 = 9.00 + 2.25 = 11.25 分</strong>。如果个人月余额 12 分、全局当日余额 16 分，两边都能锁住这同一笔 11.25 分。</p>
+<p><strong>完成后实扣 2.64 分。</strong> 上游返回了可用的摘要及用量：输入 30,000 个，其中 28,000 个命中缓存，输出 800 个。示例里缓存命中的输入按原单价的 0.1 倍收费。把输入分成两组，避免重复收费：<strong>(2,000 ÷ 1,000) × 0.30 + (28,000 ÷ 1,000) × 0.30 × 0.1 + (800 ÷ 1,000) × 1.50 = 0.60 + 0.84 + 1.20 = 2.64 分</strong>。把 11.25 分的预留换成 2.64 分的已花费，释放 <strong>11.25 − 2.64 = 8.61 分</strong>。个人和全局两个窗口都登记 2.64 分，是同一次消费在两个口径下的记录。</p>
+<div class="codehilite" data-code-language="http"><pre><code>200 OK
+Content-Type: application/json
+
+{"request_id":"summary-17","summary":"会议决定先发布试用版。"}</code></pre></div>
+<div class="panels">
+<div class="panel"><div class="ph">失败 A · 模型还没被调用</div>
+<p>如果在第 ① 步触发本应用的入口限速，返回 <code>429</code>、<code>Retry-After: 1</code> 和 JSON <code>{"error":"rate_limited"}</code>。这次没有预留，也没有上游模型费用。仍需总结时，客户端至少等 1 秒，在重试限额内用同一个业务号再次提交；入口还会重新检查，等 1 秒不保证放行。如果走到第 ② 步却发现全局只剩 10 分，连预留都不提交，也不调用模型。</p></div>
+<div class="panel"><div class="ph">失败 B · 模型可能已在生成</div>
+<p>把同一功能切成流式模式后，如果第 ③ 步发出请求，流却在收到用量前中断，页面应将结果标为未完成或待查询。账本保留 11.25 分预留，并把用量标为<strong>待核算</strong>。第 5 章里的取消只能发出停止信号；是否已停、是否产生费用还要看上游。优先通过原业务号查状态，有上游请求号时按供应商支持的方式查用量或对账；确认零费用才全额释放。没有可按次查询的用量时，进入待核算流程，记录可用证据。</p></div>
+</div>
+<p>生产记账要区分业务号和尝试号，并记录预留金额、用量状态、价格版本、已知费用及关联的上游请求号。按尝试号原子地结算一次，重复收到同一结果也只实扣一次。若确实获准另发模型尝试，重新走准入和预留，把两次费用都归到原业务号。使用固定最小金额单位保存，精度要足以保留例中的小数分。这个 11.25 分上限依赖输入已核实、输出受限且没有额外收费项；工具调用等费用需要单独纳入预留。</p>
 <hr />
 <h2 id="_10">💀 事故复盘：前端重试写错，一夜烧穿预算</h2>
 <blockquote>
@@ -778,6 +821,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>三处拦截各拦什么？只在中间件拦会漏掉什么？</li>
 <li>为什么「本月 token 数涨了 20%」这句话没有信息量？给出本章的两个倍数。</li>
 <li>事故里三条监控为什么都没报警？</li>
+<li>第 10 秒到达的第三个总结，通过了入口限速却没开始执行。哪项资源用完了？</li>
+<li>预留 11.25 分，最终确认花了 2.64 分，应释放多少？如果流断开且用量还未知，又该怎样处理？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
@@ -791,6 +836,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>网关</strong>拦按 IP 的洪水和超大请求体（最便宜，但不知道谁是谁）；中间件按用户限流、查配额（放在认证之后、业务逻辑之前）；调用层预扣和记账（只有这里知道用了哪个模型、多少 token、有没有命中缓存）。只在中间件拦，一个内部循环调 40 次模型的 Agent 请求会被当成「1 次」放行。</li>
 <li>同样的 token 数落在不同模型和缓存命中率上，账单差两个数量级：<strong>命中缓存 2.64 分 vs 没命中 10.2 分 = 3.9 倍</strong>；大模型长上下文 10.2 分 vs 小模型短对话 0.056 分 = 182 倍。所以记账要记钱。</li>
 <li>根源是<strong>后端每一次都成功了</strong>（前端因为 5 秒首字超时判定失败，后端照样把整段生成完），所以：① 成本告警按账单发，账单 T+1 才到；② 服务健康看 5xx 和 p99，而流式的 200 在第一个字之前就发出去了，这些请求在服务端记录里全是 200、耗时也正常；③ QPS 只有 2.2（71280 ÷ 32400 秒），淹没在正常波动里。</li>
+<li>用完的是并发位置。第 10 秒前两个任务都未完成，2 个位置已占满。这一分钟的 3 次到达还没碰到入口速率上限。</li>
+<li>确认费用后释放 <strong>8.61 分</strong>，只实扣 2.64 分。用量未知时保留预留，先按原请求号查状态、核实用量或走待核算流程。前端断线和模型计费是两件事。</li>
 </ol>
 </details>
 <hr />
