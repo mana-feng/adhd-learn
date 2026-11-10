@@ -293,7 +293,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <button id="themeToggle" title="切换深浅色">🌗</button>
 </div></header>
 <main class="mg-main">
-<header class="mg-cover mg-remaining-cover" data-mg-authored="M15-remaining-04" data-mg-layout="diagnostic"><div class="mg-cover-copy"><p class="mg-kicker">模型上线之后 / 04</p><p class="mg-question">同一个样本，训练和线上为什么算出不同特征？</p><p class="mg-dek">先查常见不一致，再把发现方法和特征 schema 约束接起来。</p><p class="mg-outcome">能把时间、缺失值与变换差异变成可检查的契约。</p><nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_2">定位常见不一致</a><a href="#mg-model-operations-04-reading-start">直接读完整解释</a></nav><p class="mg-route-note"><a href="#schema">查看特征契约</a></p></div></header>
+<header class="mg-cover mg-remaining-cover" data-mg-authored="M15-remaining-04" data-mg-layout="diagnostic"><div class="mg-cover-copy"><p class="mg-kicker">模型上线之后 / 04</p><p class="mg-question">同一个样本，训练和线上为什么算出不同特征？</p><p class="mg-dek">先查常见不一致，再把特征 schema 接到 Feature Store 的注册定义、离线历史取数与在线服务三部分。</p><p class="mg-outcome">能把时间、缺失值与变换差异变成可检查的契约，并判断历史取数有没有偷看未来。</p><nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_2">定位常见不一致</a><a href="#mg-model-operations-04-reading-start">直接读完整解释</a></nav><p class="mg-route-note"><a href="#schema">查看特征契约</a></p></div></header>
 <span class="mg-reading-start" id="mg-model-operations-04-reading-start"></span>
 <noscript><p class="polish-noscript" role="note">正文和导航链接仍可阅读；打卡、主题切换与代码、图解工具需要 JavaScript。</p></noscript><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
@@ -305,7 +305,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#_5">📋 五、可以照抄的检查清单</a></li>
 <li><a href="#_6">🕳️ 六、还有两种，教科书里几乎不提</a></li>
 <li><a href="#schema">🧾 七、把它变成工程约束：特征 schema 契约</a></li>
-<li><a href="#_7">🔗 八、和站内其他章的关系</a></li>
+<li><a href="#feature-store">🏪 八、Feature Store：让两边从同一份定义取特征</a></li>
+<li><a href="#_7">🔗 九、和站内其他章的关系</a></li>
 <li><a href="#_8">✅ 检查点</a></li>
 <li><a href="#_9">🛑 可以停在这里</a></li>
 </ul>
@@ -313,7 +314,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </details>
 <h1 id="04">04 · 训练/推理一致性</h1>
 <p class="polish-evidence-note">案例说明：本页未附具体事故的可核验原始记录；其中的复盘情景与数字用于教学推演，不能当作某团队真实事故或通用效果统计。</p>
-<p>⏱ <strong>44 分钟</strong> ｜ ⭐ <strong>线上掉点最常见、也最难查的原因</strong></p>
+<p>⏱ <strong>56 分钟</strong> ｜ ⭐ <strong>线上掉点最常见、也最难查的原因</strong></p>
 <hr>
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>训练时算特征用的是一套代码，线上算特征用的是另一套。</strong>
@@ -407,7 +408,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><strong>② 特征平台 / Feature Store</strong></td>
-<td>特征统一计算存储，两边都从它取</td>
+<td><strong>注册定义 + 离线历史取数 + 在线低延迟服务</strong>；两条路径共用可追踪的定义和版本，不要求塞进同一个数据库</td>
 <td>基础设施投入大</td>
 <td>团队规模够时</td>
 </tr>
@@ -579,7 +580,114 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 3. <strong>标签延迟 60 天，意味着它至少烧掉两个月</strong>（🔗 <a href="07-%E6%B2%A1%E6%9C%89%E6%A0%87%E7%AD%BE%E6%80%8E%E4%B9%88%E5%8F%91%E7%8E%B0%E9%80%80%E5%8C%96.html">第 7 章</a>）。</p>
 </blockquote>
 <hr>
-<h2 id="_7">🔗 八、和站内其他章的关系</h2>
+<h2 id="feature-store" data-mg-stop>🏪 八、Feature Store：让两边从同一份定义取特征</h2>
+<p>回到第二节的第一个失败：训练在 Spark SQL 里算一遍「最近 7 天消费」，线上又在 Java 里算一遍。<strong>两份代码今天看起来相同，半年后通常就会变成两个口径。</strong></p>
+<p><strong>特征存储（Feature Store）</strong>不是单纯放特征值的数据库。它希望把<strong>特征定义、历史取数和线上取数</strong>放进同一套可追踪的接口，让训练与服务不必各自发明一遍规则。</p>
+
+<h3 id="feature-store-parts">先拆成三块，别把它们混成一个箱子</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>部分</th>
+<th>负责什么</th>
+<th>一个最小例子</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>注册表 / 特征定义</strong></td>
+<td>记录名称、实体键、类型、来源、变换逻辑、时间字段、TTL、负责人和版本</td>
+<td><code>user_7d_pay_count@v3</code> 的实体是 <code>user_id</code>，窗口是预测时点之前 7 天</td>
+</tr>
+<tr>
+<td><strong>离线历史取数</strong></td>
+<td>为训练和回放取历史特征；必须按每条样本当时可见的信息做时间点连接</td>
+<td>训练 5 月 10 日的样本，只取 5 月 10 日预测时点之前的特征</td>
+</tr>
+<tr>
+<td><strong>在线低延迟服务</strong></td>
+<td>按实体键快速返回当前可服务的特征值，供实时预测使用</td>
+<td>请求带 <code>user_id=42</code>，在延迟预算内取到该用户最新可用值</td>
+</tr>
+</tbody>
+</table></div>
+<section class="visual-block visual-block-flow" aria-label="Feature Store 三部分如何协作"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">一份版本化特征定义</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">离线：按历史时点组训练集</span></div><div class="vb-flow-row"><span class="vb-flow-step">同一份版本化特征定义</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">在线：按实体键低延迟取值</span></div><div class="vb-flow-row"><span class="vb-flow-step">两条路径都记录定义版本与时间</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">才能比较是不是同一个特征</span></div></div></section>
+<p>注意：<strong>统一的是定义和取数契约，不代表离线仓库与在线数据库必须是同一个物理系统。</strong>离线侧要扫历史、做大批量连接；在线侧要低延迟、常常只保留每个实体较新的值，两者工作负载不同。</p>
+
+<h3 id="point-in-time-example">完整时间例子：D 日的样本不能拿 D+1 的答案</h3>
+<p><strong>先统一时区：本例所有时间都使用 Asia/Shanghai（UTC+8）。</strong>假设训练表里有一条归属于 <strong>D = 2026-05-10 10:00 Asia/Shanghai</strong> 的标签样本：当时预测用户 42 是否会在接下来 24 小时取消订单。标签值可能到 <strong>D+1 = 2026-05-11</strong> 才成熟，训练任务到 <strong>2026-05-20 09:00 Asia/Shanghai</strong> 才取数，<strong>但拼特征的截止点仍是 D 日 10:00 Asia/Shanghai</strong>，必须还原当时模型能看到的世界。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>记录</th>
+<th>事件时间（Asia/Shanghai）</th>
+<th>处理时间（Asia/Shanghai）</th>
+<th>当 D 日 10:00 的特征能否使用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>特征快照 A：过去 7 天支付 12 次</td>
+<td>D = 2026-05-10 09:40</td>
+<td>D = 2026-05-10 09:45</td>
+<td>✅ 事件已发生，且预测前已经处理完成</td>
+</tr>
+<tr>
+<td>迟到记录 B：过去 7 天支付应为 13 次</td>
+<td>D = 2026-05-10 09:50</td>
+<td>D = 2026-05-10 10:20</td>
+<td>⚠️ 事件发生在预测前，但线上 10:00 尚不可见；若要复现真实在线行为就不能补进去</td>
+</tr>
+<tr>
+<td>特征快照 C：过去 7 天支付 17 次</td>
+<td>D+1 = 2026-05-11 08:00</td>
+<td>D+1 = 2026-05-11 08:05</td>
+<td>❌ 来自未来，包含预测之后发生的行为</td>
+</tr>
+</tbody>
+</table></div>
+<p>这里有三个时间，必须分开：</p>
+<ul>
+<li><strong>事件时间（event time）</strong>：点击、支付或订单在真实世界发生的时间；本表统一换算为 Asia/Shanghai 后再比较。</li>
+<li><strong>处理时间（processing time）</strong>：管道实际读到并写出这条记录的时间；迟到数据会让它晚于事件时间，本例仍用 Asia/Shanghai 表示。</li>
+<li><strong>取数时间（retrieval time）</strong>：训练或在线服务发起查询的时间；本例是 2026-05-20 09:00 Asia/Shanghai，不能因为取数更晚就使用 D+1 才出现的特征。</li>
+</ul>
+<section class="visual-block visual-block-calc" aria-label="时间点正确取数示例"><p class="visual-block-title">按时点选择</p><div class="vb-calc"><p>统一时区 = Asia/Shanghai（UTC+8）</p><p>样本预测时点 = D = 2026-05-10 10:00 Asia/Shanghai</p><p>训练取数时点 = 2026-05-20 09:00 Asia/Shanghai</p><p>如果目标是复现当时线上可见信息：事件时间 ≤ D 日 10:00，且处理时间 ≤ D 日 10:00</p><p>因此选快照 A 的 12；不能用迟到后补齐的 13，更不能用 D+1 = 2026-05-11 Asia/Shanghai 的 17</p></div></section>
+<blockquote>
+<p>⭐ 这种「对每一条样本，只连接它当时可见的最近特征」叫 <strong>point-in-time join（时间点正确连接）</strong>。先像本例一样把事件、处理、预测和取数时间统一到同一时区，再比较先后。只写一句 <code>feature_time &lt;= prediction_time</code> 还不一定够：如果你要复现真实线上可见性，还要处理迟到数据的处理时间、TTL、时区、并列时间戳和去重规则。</p>
+</blockquote>
+
+<h3 id="feature-store-boundary">它减少偏斜，但不是正确性保证书</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Feature Store 能降低的风险</th>
+<th>仍然必须单独验证的边界</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>训练和线上各写一份特征定义</td>
+<td><strong>定义本身是否正确</strong>：把「支付次数」误写成「下单次数」，统一执行也会一起错</td>
+</tr>
+<tr>
+<td>特征名、类型、实体键和版本散落各处</td>
+<td><strong>新鲜度</strong>：上游停更时，在线库可以稳定返回三天前的旧值</td>
+</tr>
+<tr>
+<td>历史训练集由临时 SQL 随意拼接</td>
+<td><strong>时间点正确性</strong>：只有配置并测试了 point-in-time join 才能防止偷看未来</td>
+</tr>
+<tr>
+<td>线上取值接口各自实现</td>
+<td><strong>隐私与权限</strong>：谁能注册、读取、导出和保留敏感特征仍需治理</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>结论：Feature Store 减少 training-serving skew，但不保证特征正确、新鲜、合规，也不自动保证 point-in-time join。</strong>上线前仍要做逐字段比对、历史时间回放、新鲜度告警、权限审计与版本记录。</p>
+<p>🔗 进一步看：<a href="https://docs.feast.dev/getting-started/components/overview">Feast 官方组件概览</a>说明了注册定义、历史取数和在线取数的分工；<a href="https://docs.feast.dev/master/reference/offline-stores/overview">离线取数接口</a>明确把 point-in-time correct join 作为历史特征检索能力。具体系统仍以所选实现和实际测试为准。</p>
+<hr>
+<h2 id="_7">🔗 九、和站内其他章的关系</h2>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -610,7 +718,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><a href="../%E6%95%B0%E6%8D%AE%E8%BF%99%E4%B8%80%E5%85%B3/18-%E7%89%B9%E5%BE%81%E5%AD%98%E5%82%A8.html">数据这一关 18 · 特征存储</a></td>
-<td>⭐ 上面方案 ② 的展开：Feature Store 到底解决什么（point-in-time 正确性）、<strong>不</strong>解决什么、成本账、以及「决定不上」时的三条轻量替代 —— 本章讲<strong>怎么发现和挡住</strong>不一致，那边讲怎么从源头不产生它</td>
+<td>⭐ 上面方案 ② 的展开：Feature Store 提供 point-in-time 历史取数能力，<strong>但不自动保证 PIT 正确</strong>；那一章继续讲成本、验证边界与「决定不上」时的轻量替代，本章负责说明怎样发现和挡住不一致</td>
 </tr>
 </tbody>
 </table></div>
@@ -629,6 +737,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>schema 契约里的 <code>fingerprint</code> 有什么用？</li>
 <li>校验不通过时三种策略各适合什么场景？高 QPS 时推荐哪种？</li>
 <li>sklearn 版本升级那个事故里，为什么所有监控都是绿的？什么能挡住它？</li>
+<li>Feature Store 的注册表、离线历史取数和在线低延迟服务分别负责什么？为什么不要求它们使用同一个物理数据库？</li>
+<li>本例为什么先统一为 Asia/Shanghai？D 日 10:00 的预测样本为什么不能使用 D+1 的特征？事件时间、处理时间和取数时间各是什么？最终应选 12、13 还是 17？</li>
+<li>Feature Store 能减少哪些不一致？为什么它不保证特征正确、新鲜、隐私合规和 point-in-time join？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
@@ -645,6 +756,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>把 schema 指纹写进预测日志</strong>，事后能立刻回答"这条预测是用哪个版本的特征定义算的"——没有它时这个问题通常要查半天提交记录。</li>
 <li><strong>抛异常走降级</strong>（风控/金融/医疗，错误不会静默扩散）、记日志继续算（回到静默失效，只在纯排序场景可考虑）、抽样校验 + 抛异常（高 QPS 推荐这种：每 100 条查 1 条，开销可忽略，任何系统性问题几秒内就会被抽到）。</li>
 <li>因为<strong>分布真的没变，变的只是列的对应关系</strong>——维度一样、不报错、分数分布几乎不动、通过率只从 88% 到 87.6%（在正常波动内）。只有 schema 契约（列顺序校验）能挡住它；另外依赖版本本身就是特征定义的一部分，训练和推理必须锁死同一个镜像。</li>
+<li><strong>注册表 / 定义</strong>记录特征名称、实体键、类型、来源、变换、时间字段、TTL、负责人和版本；<strong>离线历史取数</strong>按每条训练样本当时可见的信息取历史值；<strong>在线服务</strong>按实体键低延迟返回当前可服务值。两边负载不同：离线要扫历史、批量连接，在线要低延迟且常保存较新的值，所以可以使用不同物理系统；关键是共用可追踪的定义和取数契约。</li>
+<li>不同来源若直接拿本地时间比较，可能把同一时刻排成不同先后，所以先统一为 <strong>Asia/Shanghai（UTC+8）</strong>。D 日样本只能使用 2026-05-10 10:00 当时可见的信息；D+1 = 2026-05-11 的 17 包含未来行为，会造成穿越。<strong>事件时间</strong>是行为真实发生时间，<strong>处理时间</strong>是管道读到并写出记录的时间，<strong>取数时间</strong>是训练或服务发起查询的时间（本例为 2026-05-20 09:00）。为了复现线上可见性，应选预测前已产生且已处理的快照 A，即 <strong>12</strong>；迟到后补齐的 13 和 D+1 的 17 都不能用。</li>
+<li>它能减少两份特征代码、散落的 schema/版本和随意历史 SQL 带来的偏斜。但<strong>统一执行错误定义会一起错</strong>；上游停更仍会返回旧值；只有真正配置并验证了时间点连接才防未来信息；访问控制、保留期限和敏感特征治理也不是存储系统自动完成的。因此仍需逐字段比对、时间回放、新鲜度告警和权限审计。</li>
 </ol>
 </details>
 <hr>
@@ -657,6 +771,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>根治三条路里最彻底的是<strong>「日志即训练数据」</strong>：线上算完特征原样落日志，训练直接读、不重算——⭐ <strong>因为只有一套代码</strong>。⚠️ 代价是日志量大、改特征要等攒数据、历史数据用不上。</p>
 <p>两种教科书不提的：⭐ <strong>线上有「降级样本」而训练数据里没有</strong>——特征服务超时返回默认值，占比不低，⚠️ <strong>而高峰期占比更高，那正是收入最集中的时候</strong>；处方是<strong>如实打标记保留</strong>，并且<strong>用哨兵值而不是 0</strong>。另一种是统计口径不同，⭐ <strong>它对高频类别影响小、长尾影响大，所以整体指标看不出来。</strong></p>
 <p>⭐ 工程解法是<strong>特征 schema 契约</strong>：列顺序、类型、类别词表、归一化参数，<strong>并把指纹写进预测日志</strong>，校验不过就拒绝服务。</p>
+<p>🏪 <strong>Feature Store 从一开始就要拆成注册定义、离线历史取数、在线低延迟服务三部分</strong>，两条路径共用版本化定义，不是把所有值塞进一个统一数据库。它提供 PIT 历史取数能力，<strong>但不自动保证 PIT 正确</strong>：D 日样本不能拿 D+1 特征，时区、迟到数据和连接规则都要验证；定义正确性、新鲜度、权限和隐私也要单独检查。</p>
 <p>💀 那次事故的形状：升了一个依赖的小版本，<strong>编码器的列顺序变了</strong>——不报错、分数分布几乎没变、监控全绿，<strong>而标签延迟让它两个月后才以坏账率翻倍的形式暴露</strong>。⭐ 教训两条：<strong>依赖版本本身就是特征定义的一部分</strong>，而且<strong>只有列顺序校验能挡住它</strong>。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="05-%E8%AF%A5%E7%9B%91%E6%8E%A7%E4%BB%80%E4%B9%88.html">05-该监控什么.md</a></p>
