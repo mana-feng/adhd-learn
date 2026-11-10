@@ -308,8 +308,29 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⏱ <strong>8 分钟</strong> ｜ 异或、不能用加减乘除的加法、顺时针打印矩阵</p>
 <h2 id="_1">🎯 一句话</h2>
 <p>规则题不要靠“灵光一闪”：<strong>把一轮操作写清楚，再确认边界什么时候收缩。</strong></p>
+<p>上一章的矩阵路径会尝试不同方向，这一章的顺序已经给定。先问“我这一轮要保留或改变什么”，再写代码。学完后，试着独立用纸笔分一次组、传一串进位、收掉一圈格子。</p>
 <h2 id="1" data-mg-stop="">🧩 题 1：数组中只出现一次的两个数字</h2>
 <p>所有成对数字异或后都抵消，只剩两个目标的异或。找其中一位为 1 的 bit，就能把两个目标分到不同组。</p>
+<h3>让成对编号消失，再用一位把两个目标分开</h3>
+<p>一批扫描记录里，大部分编号各出现两次，有两个不同的编号只出现一次。求和不能让相同编号自动消失。我们需要一种逐位运算，使相同的位相消、不同的位留下。</p>
+<p>一个二进制位（bit）只能是 0 或 1。以四位为例，从右到左的位权是 1、2、4、8，<code>0110</code> 表示 4 + 2 = 6。<strong>异或（XOR，Python 写作 <code>^</code>）</strong>比较对应位，相同给 0，不同给 1。<strong>按位与（AND，<code>&amp;</code>）</strong>则只保留两边都是 1 的位。下表的规则独立应用到每一位。</p>
+<div class="tw"><table>
+<caption>一对二进制位的两种运算</caption>
+<thead><tr><th scope="col">两个输入位</th><th scope="col">异或 ^</th><th scope="col">按位与 &amp;</th></tr></thead>
+<tbody><tr><th scope="row">0 和 0</th><td>0</td><td>0</td></tr>
+<tr><th scope="row">0 和 1</th><td>1</td><td>0</td></tr>
+<tr><th scope="row">1 和 0</th><td>1</td><td>0</td></tr>
+<tr><th scope="row">1 和 1</th><td>0</td><td>1</td></tr></tbody>
+</table></div>
+<p>多个数做异或时，每一位只看 1 出现了奇数次还是偶数次，所以次序不影响结果。两个相同的数在每一位都贡献零个或两个 1，放在一起会抵消。用 <code>[6, 1, 7, 6, 5, 5]</code> 手算，两对 6 和 5 都消掉后，<code>mixed = 0001 ^ 0111 = 0110</code>，即十进制 6。</p>
+<p><code>mixed</code> 的两个 1 都能分组。代码用 <code>mixed &amp; -mixed</code> 取最低的那个 1。以四位补码展示，<code>0110</code> 逐位取反再加一，得到 −6 的 <code>1010</code>。取反后的加一翻过末尾的 1，直到碰到第一个 0。于是原数最低的 1 在两边都为 1，更高的位仍然互反。按位与后只剩 <code>0010</code>。补码的字宽与符号解释见下面的可选深入。</p>
+<div class="tw"><table>
+<caption>用 <code>0010</code> 当掩码，只看位权为 2 的一位</caption>
+<thead><tr><th scope="col">分组条件</th><th scope="col">这一组的记录</th><th scope="col">组内异或</th></tr></thead>
+<tbody><tr><th scope="row">与掩码后非零</th><td>6、7、6</td><td>7</td></tr>
+<tr><th scope="row">与掩码后为零</th><td>1、5、5</td><td>1</td></tr></tbody>
+</table></div>
+<p>同一个编号的两次记录一定进同一组，所以在组内仍能抵消。两个目标在检查位上不同，各留在一组。接下来代码先扫出 <code>mixed</code>，再用掩码分流到 <code>a</code> 或 <code>b</code>，最后只给这两个答案排序。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">two_single_numbers</span><span class="p">(</span><span class="n">nums</span><span class="p">):</span>
     <span class="n">mixed</span> <span class="o">=</span> <span class="mi">0</span>
     <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">nums</span><span class="p">:</span>
@@ -328,8 +349,22 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <p><code>mixed &amp; -mixed</code> 取最低位的 1；它保证两个目标在这一位不同。</p>
+<p><strong>输入和成本。</strong>代码要求两个不同的整数各出现一次，其余值各出现两次，并且输入能遍历两遍，例如列表。它本身不验证条件。只有成对元素时，<code>mixed</code> 为 0，无法分组，返回的 <code>(0, 0)</code> 不能当作找到两个目标。把一次定宽位运算视作常数，扫 <code>n</code> 个数两遍仍是 O(n) 时间，额外空间 O(1)。Python 的任意精度整数越宽，单次运算和临时整数也越大。</p>
 <h2 id="2">🧩 题 2：不用加减乘除做加法</h2>
 <p>不进位的和是异或；进位来自两位都为 1 的地方，左移一位。重复到没有进位。</p>
+<h3>把一轮加法拆成暂存和与待处理进位</h3>
+<p>个位上 <code>1 + 1</code> 的二进制结果是 <code>10</code>。这一列写 0，左边一列补 1。于是一次更新可以拆开做。令 <code>a</code>、<code>b</code> 是本轮要合起来的两个非负整数。<code>a ^ b</code> 把各列不考虑进位时的结果留下。<code>a &amp; b</code> 找出产生进位的列，<code>&lt;&lt; 1</code> 把每个进位往左挪一位，送到位权翻倍的那一列。</p>
+<p>每列只有三种和。两个 0 贡献 0，一边是 1 贡献这一列的位权，两个 1 贡献两倍位权。异或收下第一类和第二类的暂存结果，左移后的按位与收下第三类的进位。因此把两份新结果相加，仍等于本轮的 <code>a + b</code>。</p>
+<div class="tw"><table>
+<caption>手算 7 加 1，每行两份新值都会成为下一轮输入</caption>
+<thead><tr><th scope="col">本轮 a / b</th><th scope="col">新 a，异或</th><th scope="col">新 b，与后左移</th></tr></thead>
+<tbody>
+<tr><th scope="row"><code>0111 / 0001</code></th><td><code>0110</code></td><td><code>0010</code></td></tr>
+<tr><th scope="row"><code>0110 / 0010</code></th><td><code>0100</code></td><td><code>0100</code></td></tr>
+<tr><th scope="row"><code>0100 / 0100</code></th><td><code>0000</code></td><td><code>1000</code></td></tr>
+<tr><th scope="row"><code>0000 / 1000</code></th><td><code>1000</code></td><td><code>0000</code></td></tr>
+</tbody></table></div>
+<p>进位清空后，暂存值 <code>1000</code> 就是十进制 8。代码每轮用旧的 <code>a</code> 和 <code>b</code> 同时算出两个新值。若先把 <code>a</code> 改成异或结果，再用它计算进位，两个原本都是 1 的位已经丢了。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">add_without_plus</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
     <span class="k">while</span> <span class="n">b</span><span class="p">:</span>
         <span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="n">a</span> <span class="o">^</span> <span class="n">b</span><span class="p">,</span> <span class="p">(</span><span class="n">a</span> <span class="o">&amp;</span> <span class="n">b</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="mi">1</span>
@@ -339,7 +374,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="k">assert</span> <span class="n">add_without_plus</span><span class="p">(</span><span class="mi">7</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span> <span class="o">==</span> <span class="mi">12</span>
 </code></pre></div>
 
-<p>这段对非负整数最直观；Python 的负数是无限位语义，面试若要求处理负数，要先约定 32 位掩码。</p>
+<p>原函数的输入约定为两个非负整数。按 Python 的无限符号位语义，<code>(−1, 1)</code> 会更新成 <code>(−2, 2)</code>，再到 <code>(−4, 4)</code>，进位持续向高位移动，循环不会终止。只有题目明确规定 32 位回绕时，才使用 32 位掩码。</p>
+<p>若原输入较宽的一方有 <code>w</code> 位，非负数的和最多有 <code>w+1</code> 位。新进位里的每个 1 都来自旧进位中的某个 1，并且往左移了一位。因此只要还有进位，最低的 1 每轮至少左移一位。总共 O(w+1) 轮，每轮做常数次位运算，保留常数个整数。在 Python 大整数上，每次位运算还要处理对应的位宽，按每轮 O(w+1) 位工作量估计，最坏总位工作量为 O((w+1)²)。</p>
 <details><summary>可选深入：负数的位模式必须先说字宽</summary>
 <h3 id="fixed-width-twos-complement" data-mg-stop="">8 位里的 -5，不等于 bin(-5) 的打印格式</h3>
 <p>固定 w 位补码用模 2^w 的低 w 位编码整数；有符号解释范围是 −2^(w−1) 到 2^(w−1)−1。以 8 位为例，+5 是 00000101，逐位取反加一得到 -5 的 11111011。最高位为 1 时，把无符号值减 256 才得到有符号解释；这不是“符号位加绝对值”。</p><div class="codehilite" data-code-language="python" data-g02-example="twos-complement-width"><pre><code>width = 8
@@ -360,6 +396,25 @@ print(&quot;-5 的8位模式:&quot;, format(raw, &quot;08b&quot;), &quot;Python�
 <p>依据：<a href="https://docs.python.org/3.14/library/stdtypes.html#bitwise-operations-on-integer-types">Python 3.14 整数位运算</a>。</p></details>
 <h2 id="3" data-mg-stop="">🧩 题 3：顺时针打印矩阵</h2>
 <p>不要真的“转方向”。每绕一圈，收缩上、右、下、左四条边；每走一条前都确认矩形还没有塌掉。</p>
+<h3>每走完一条边，就从剩余矩形里删掉它</h3>
+<p>想象要从一盘标签上按顺时针揭下贴纸。如果边界沿用揭之前的值，转弯时角上的贴纸会被取两遍。把四条边界记成从 0 开始的下标。<code>top</code> 和 <code>bottom</code> 是最上、最下的未读行，<code>left</code> 和 <code>right</code> 是最左、最右的未读列。两个端点都包含在剩余矩形里。</p>
+<div class="tw"><table>
+<caption>原创建例，3 行 4 列，每格用不同的值标记</caption>
+<tbody><tr><td>1</td><td>2</td><td>3</td><td>4</td></tr>
+<tr><td>5</td><td>6</td><td>7</td><td>8</td></tr>
+<tr><td>9</td><td>10</td><td>11</td><td>12</td></tr></tbody>
+</table></div>
+<div class="tw"><table>
+<caption>把「上、下、左、右」四个下标写成一组，起点为 (0, 2, 0, 3)</caption>
+<thead><tr><th scope="col">动作</th><th scope="col">新读到的值</th><th scope="col">读完后的边界</th></tr></thead>
+<tbody>
+<tr><th scope="row">上边向右</th><td>1、2、3、4</td><td>(1, 2, 0, 3)</td></tr>
+<tr><th scope="row">右边向下</th><td>8、12</td><td>(1, 2, 0, 2)</td></tr>
+<tr><th scope="row">下边向左</th><td>11、10、9</td><td>(1, 1, 0, 2)</td></tr>
+<tr><th scope="row">左边向上</th><td>5</td><td>(1, 1, 1, 2)</td></tr>
+<tr><th scope="row">内圈只剩一行</th><td>6、7</td><td>上边移到 2，下边仍是 1，结束。</td></tr>
+</tbody></table></div>
+<p>每段循环只读当前边，紧接着缩一条边，所以下一段不再包含刚读的角。只剩一行时，收掉上边后 <code>top &gt; bottom</code>，右边的行范围为空，下边也跳过。只剩一列时，右边读完后 <code>left &gt; right</code>，下边的列范围为空，左边也跳过。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">spiral_order</span><span class="p">(</span><span class="n">matrix</span><span class="p">):</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">matrix</span><span class="p">:</span>
         <span class="k">return</span> <span class="p">[]</span>
@@ -386,6 +441,7 @@ print(&quot;-5 的8位模式:&quot;, format(raw, &quot;08b&quot;), &quot;Python�
 <span class="k">assert</span> <span class="n">spiral_order</span><span class="p">([[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span> <span class="p">[</span><span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">6</span><span class="p">],</span> <span class="p">[</span><span class="mi">7</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">9</span><span class="p">]])</span> <span class="o">==</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">9</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">]</span>
 </code></pre></div>
 
+<p><strong>输入和成本。</strong>输入是各行等长的二维列表。空矩阵或零列返回空列表；每行长度不同的输入超出本示例的约定。对非空的 <code>R</code> 行、<code>C</code> 列，四条边每次把访问过的格子移出剩余范围，每格恰好读一次，时间为 O(R × C)。返回列表也占 O(R × C)，除它之外只用常数个边界和循环下标。</p>
 <h2 id="_2">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -397,10 +453,12 @@ print(&quot;-5 的8位模式:&quot;, format(raw, &quot;08b&quot;), &quot;Python�
 <tbody>
 <tr>
 <td><a href="../NumPy与向量化思维/08-整数dtype的真相.html">NumPy 与向量化思维 08 · 整数 dtype 的真相</a></td>
-<td>⭐ 题 2 那句「Python 的负数是无限位语义，要先约定 32 位掩码」的反面：一旦进了 NumPy，整数就是定宽的，<strong>越界不报错、直接回绕</strong>，而且没有任何信号</td>
+<td>⭐ 当逐元素加法的结果仍用原定宽整数类型保存时，NumPy 数组可能静默回绕。链接中的 <code>uint8</code> 数组示例里，200 加 100 得到 44。某些标量运算会报警，转换或类型提升的结果要按各自规则判断。<a href="https://numpy.org/doc/stable/reference/arrays.promotion.html">NumPy 类型提升文档</a></td>
 </tr>
 </tbody>
 </table></div>
+<p>异或留下所有不同的位，所以还能用来数两串等长二进制标签有几处不同。比如 <code>1010 ^ 1111 = 0101</code>，两个 1 对应两处不同，这个数叫<strong>汉明距离（Hamming distance）</strong>。在图像匹配中，BRIEF 会把一个局部特征写成二进制描述，再用这个距离比较描述是否接近。<a href="https://www.epfl.ch/labs/cvlab/research/descriptors-and-keypoints/research-detect-brief/">BRIEF 作者团队说明</a></p>
+<p>下一章解析字符串时，也可以逐步写下“当前读到哪、哪些内容已确认、何时停止”。例如读到首个不符合规则的字符，先处理停止条件，再决定是否继续更新结果。</p>
 <h2 id="_3">🛑 可以停在这里</h2>
 <p>模拟题的正确打开方式：先写一轮，再写“这一轮结束后哪条边/哪个状态改变”。</p>
 <h2 id="_4">✅ 检查点</h2>
@@ -408,6 +466,16 @@ print(&quot;-5 的8位模式:&quot;, format(raw, &quot;08b&quot;), &quot;Python�
 <details>
 <summary>👀 看答案</summary>
 <p>只有一行或一列时，上边或右边已经把元素拿完了；不检查会重复加入。</p>
+</details>
+<p>如果 <code>mixed = 0110</code>，改用掩码 <code>0100</code> 也能分开两个目标吗？用 <code>0001</code> 呢？</p>
+<details>
+<summary>👀 看答案</summary>
+<p><code>0100</code> 可以。它挑的是 <code>mixed</code> 的另一处 1，两个目标在这一位也不同。<code>0001</code> 选中的那一位在 <code>mixed</code> 里为 0，两个目标那一位相同，仍会进同一组。</p>
+</details>
+<p>只走加法的第一轮。若 <code>a = 0011</code>、<code>b = 0001</code>，两个新值是什么？</p>
+<details>
+<summary>👀 看答案</summary>
+<p>异或给 <code>0010</code>，按位与给 <code>0001</code>，左移后也是 <code>0010</code>。两个 2 留到下一轮合并。此时进位仍然非零，先别返回。</p>
 </details>
 <hr />
 <p>⚡ <strong>走神救援</strong></p>
