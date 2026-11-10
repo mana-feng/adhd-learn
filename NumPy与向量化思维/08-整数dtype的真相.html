@@ -295,9 +295,9 @@ x + np.array([1], dtype=np.uint8)  # array([0], dtype=uint8)</code></pre></div><
 <p>⏱ <strong>64 分钟</strong> ｜ ⭐ <strong>同一个溢出，写成数组一声不吭给你 44，写成标量会报警告 —— 你踩的坑正是因为数组不吭声</strong></p>
 </details><section class="nm-section nm-prose" data-nm-section="1"><p class="nm-kicker">01 / 完整解释</p><h2>先确认这个整数格能装多少。</h2><h3 id="_1" data-nm-stop="">🎯 一句话</h3>
 <p><strong>本章固定宽度整数数组的加法可静默回绕；浮点转整数的 <code>astype</code> 向零截断，而非四舍五入。<code>np.errstate</code> 不能充当整数数组的通用越界检查器；部分 NumPy 整数标量运算却会受它影响，需分开看。</strong>
-浮点那一侧有 <code>inf</code> 和 <code>nan</code> 给你信号，整数这一侧<strong>什么信号都没有</strong>——结果照样是个合法的整数，只是不是你要的那个。</p>
+数组加法回绕后仍会给出类型范围内的整数。检查结果是否在范围内，无法倒推出刚才有没有回绕。</p>
 <h3 id="_2">🧩 一、先把边界划清楚</h3>
-<p>⚠️ 「dtype」这个词在站内已经被占用了，而且占用它的是<strong>另一件事</strong>。</p>
+<p>同样是 255，加 1 得到 256 还是 0，要先问这些数是怎么存的。数组的<strong>数据类型（Data Type，<code>dtype</code>）</strong>规定了每个元素的表示方式。例如 <code>uint8</code> 用 8 个二进制位存一个无符号整数，能存 0 到 255。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -329,7 +329,7 @@ x + np.array([1], dtype=np.uint8)  # array([0], dtype=uint8)</code></pre></div><
 </tr>
 </tbody>
 </table></div>
-<p><strong>本章只做整数</strong>，一行浮点精度的选型建议都不给。反过来，上面三处也都不讲整数回绕——站内 102 处 <code>dtype</code> 全是深度学习数值格式，整数这一侧是空的。</p>
+<p>本章跟着一个整数走过三步：先存入数组，再参加运算，最后把结果存进目标类型。混合类型运算可能让整数进入浮点表示，所以还要检查它能否保住相邻整数的差别。</p>
 <h3 id="_3">🧩 二、招牌：数组静默，标量报警告</h3>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
@@ -392,7 +392,7 @@ x + np.array([1], dtype=np.uint8)  # array([0], dtype=uint8)</code></pre></div><
 </code></pre></div>
 
 <section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">直接 astype [ 0 0 2 -2 3 1000000000]</span></div><div class="vb-flow-row"><span class="vb-flow-step">round 再 astype [ 1 -1 2 -2 4 1000000000]</span></div><div class="vb-flow-row"><span class="vb-flow-step">floor 再 astype [ 0 -1 2 -3 3 1000000000]</span></div><div class="vb-flow-row"><span class="vb-flow-step">int64 -&gt; int16 [-32768 4464 -1]</span></div><div class="vb-flow-row"><span class="vb-flow-step">int64 -&gt; uint8 [ 0 112 255]</span></div><div class="vb-flow-row"><span class="vb-flow-step">int16 范围 -32768 ~ 32767 | 全部装得下吗: False</span></div></div></section>
-<p><strong>三件事同时发生了</strong>：</p>
+<p><strong>这三行结果来自不同操作。</strong> 先区分主动舍入与直接转换，再看原值是否超出目标类型的范围。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -419,7 +419,8 @@ x + np.array([1], dtype=np.uint8)  # array([0], dtype=uint8)</code></pre></div><
 </tr>
 </tbody>
 </table></div>
-<p>⚠️ <strong><code>32768 -&gt; -32768</code> 这一条最值得盯着看</strong>：只超了 1，符号就翻了。如果这是个传感器读数，你的下游会看到一个「突然反向的信号」而不是「一个偏大的值」——<strong>异常检测抓不住它，因为它落在合法范围内</strong>。</p>
+<p>⚠️ <strong><code>32768 -&gt; -32768</code> 这一条最值得盯着看</strong>：只超了 1，符号就翻了。如果这是个传感器读数，你的下游会看到一个「突然反向的信号」而不是「一个偏大的值」——<strong>只检查值域会漏掉它，因为它落在合法范围内</strong>。</p>
+<p>上表的越界回绕来自<strong>整数数组转成更窄的整数类型</strong>。浮点转整数要先按任务决定如何取整，再检查结果是否有限、是否在目标整数范围内。<code>np.isfinite</code> 对 <code>NaN</code>（非数值）和正负无穷 <code>Inf</code> 返回假，而范围要另外核对。</p>
 <hr>
 <!--MIDSTOP-->
 <blockquote>
@@ -428,6 +429,7 @@ x + np.array([1], dtype=np.uint8)  # array([0], dtype=uint8)</code></pre></div><
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
 <h3 id="nep-50">🧩 五、类型提升：NEP 50 之后的规则</h3>
+<p>给同一个 <code>int8</code> 数组加 1，用 Python 的 <code>1</code> 和 NumPy 的 <code>np.int64(1)</code>，两次都能得到相同的值，结果类型却可能不同。<strong>类型提升（Type Promotion）</strong>指 NumPy 根据操作数的类型决定运算所用类型的过程。下面的 Python 标量规则从 NumPy 2.0 起适用。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="n">a8</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int8</span><span class="p">)</span>
@@ -458,9 +460,35 @@ x + np.array([1], dtype=np.uint8)  # array([0], dtype=uint8)</code></pre></div><
 <li><strong>有 dtype 的标量（<code>np.int64(1)</code>）和数组一样参与提升</strong>。<code>int8 + np.int64(1)</code> → <code>int64</code>。
    💀 <strong>所以 <code>a8 + 1</code> 和 <code>a8 + np.int64(1)</code> 结果的 dtype 不一样</strong>，而它们看起来只差一个包装。</li>
 <li><strong>有符号 + 无符号 = 找一个能同时装下两边的</strong>。<code>uint8</code>（0–255）+ <code>int8</code>（−128–127）→ <strong><code>int16</code></strong>，因为没有 8 位类型能覆盖 −128–255。
-   ⚠️ <strong><code>uint64 + int64</code> 找不到这样的整数类型，于是掉到 <code>float64</code></strong> ——超过 2^53 之后就丢精度了，而且不报错。</li>
-<li><strong>整数 + 浮点，提升到「能装下这个整数精度的最小浮点」</strong>。<code>int16 + float32</code> → <code>float32</code>，但 <strong><code>int32 + float32</code> → <code>float64</code></strong>（<code>float32</code> 只有 24 位尾数，装不下 32 位整数）。</li>
+   ⚠️ <strong><code>uint64 + int64</code> 找不到这样的整数类型，于是掉到 <code>float64</code></strong> 。它能表示更大的数，但超过 <code>2**53</code> 后，不能精确表示每一个整数。</li>
+<li><strong>整数与浮点混算时，整数位宽也参与选型。</strong> <code>int16 + float32</code> → <code>float32</code>，但 <strong><code>int32 + float32</code> → <code>float64</code></strong>，因为 <code>float32</code> 的有效精度只有 24 个二进制位，无法逐一表示所有 <code>int32</code> 的值。<code>int64 + float32</code> 也得到 <code>float64</code>，仍可能舍入较大的整数。</li>
 </ol>
+<p><strong>看一次整数舍入。</strong> 三条记录的整数 ID 依次是 16777216、16777217 和 16777218。若把它们转成 <code>float32</code>，还能区分三条记录吗？先沿下表读中间一行，再跑代码。</p>
+<div class="tw"><table>
+<caption>把同一批整数分别转换为两种浮点类型</caption>
+<thead><tr><th scope="col">整数 ID</th><th scope="col">转成 <code>float32</code></th><th scope="col">转成 <code>float64</code></th></tr></thead>
+<tbody>
+<tr><th scope="row">16777216</th><td>16777216</td><td>16777216</td></tr>
+<tr><th scope="row">16777217</th><td><strong>16777216</strong></td><td>16777217</td></tr>
+<tr><th scope="row">16777218</th><td>16777218</td><td>16777218</td></tr>
+</tbody>
+</table></div>
+<p><code>2**24</code> 表示 2 的 24 次方，等于 16777216。从这个数开始，<code>float32</code> 向上的相邻可表示数间距从 1 变成 2。因为只能保留 24 个有效二进制位，这一段只能每隔 2 存一个整数。16777217 到两侧的距离都是 1，两侧同样近。默认舍入规则会选保留下来的二进制末位为 0 的那一侧，也就是 16777216。<code>float64</code> 有 53 个有效二进制位，在这三个数附近仍能区分间距 1，直到 <code>2**53</code> 才遇到同样的边界。</p>
+<div class="codehilite" data-code-language="python"><pre><code>import numpy as np
+
+ids = np.array([2**24, 2**24 + 1, 2**24 + 2], dtype=np.int64)
+near32 = ids.astype(np.float32)
+near64 = ids.astype(np.float64)
+print(near32.tolist())  # [16777216.0, 16777216.0, 16777218.0]
+print(near64.tolist())  # [16777216.0, 16777217.0, 16777218.0]
+print(np.isfinite(near32).all())  # True
+
+ids_at_edge = np.array([2**53, 2**53 + 1, 2**53 + 2], dtype=np.int64)
+edge64 = ids_at_edge.astype(np.float64)
+print(edge64.tolist())
+# [9007199254740992.0, 9007199254740992.0, 9007199254740994.0]
+</code></pre></div>
+<p>这里两列都直接从原始整数转换。第一个 <code>print</code> 已经看到两个 ID 合并，但 <code>np.isfinite(near32).all()</code> 仍为真，因为三个结果都是有限值。再把 <code>near32</code> 转成 <code>float64</code> 只会更精确地存下舍入后的值。需要按 ID 精确匹配时，保留原始整数列。</p>
 <div class="nm-takeaway"><button type="button" class="nm-save-note" data-nm-save="astype" data-nm-enhance disabled>记住这一段</button></div></section><section class="nm-section nm-prose" data-nm-section="3"><p class="nm-kicker">03 / 完整解释</p><h2>把错误挡在输入与计算边界。</h2><h3 id="nperrstate" data-nm-stop="">🧩 六、💀 <code>np.errstate</code> 不保证捕获整数数组回绕</h3>
 <p>下一章用 <code>np.errstate</code> 把浮点运算的 <code>inf</code> 等异常变成报错。<strong>它不能通用地捕获整数数组回绕</strong>：下面的 <code>int32</code> 数组加法仍会回绕。要与 NumPy 整数标量运算区分：例如 <code>with np.errstate(over="raise")</code> 内，<code>np.int16(32000) * np.int16(3)</code> 会抛 <code>FloatingPointError</code>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -521,13 +549,39 @@ x + np.array([1], dtype=np.uint8)  # array([0], dtype=uint8)</code></pre></div><
 <td>⭐ 从外部读进来的数据落库前，最值钱的一道闸</td>
 </tr>
 <tr>
-<td><strong>干脆别省那点内存</strong></td>
-<td>默认用 <code>int64</code></td>
-<td>数据量没到几十 GB 的时候，这就是正确答案</td>
+<td><strong>选好存储和中间类型</strong></td>
+<td>按值域和运算规模检查 <code>dtype</code></td>
+<td><code>int64</code> 能表示较宽范围的有符号整数，适合值与中间结果都落在其范围内的任务。若要写回窄类型，仍需检查目标范围。</td>
 </tr>
 </tbody>
 </table></div>
-<p>⚠️ <strong>归约函数会自己升档，所以「求和不炸、逐元素炸」</strong>：</p>
+<p>假设传感器给了三次整数计数 <code>[12000, 25000, 31000]</code>，全部存得进 <code>int16</code>。现在要把每次计数乘 2，再求总数。先把输入、乘法结果和最后的求和分别写下来。</p>
+<div class="tw"><table>
+<caption>同一份输入，比较三种升宽时机</caption>
+<thead><tr><th scope="col">路径</th><th scope="col">乘法后得到的三项</th><th scope="col">最终输出</th></tr></thead>
+<tbody>
+<tr><th scope="row">乘完再转 <code>int32</code></th><td>24000、−15536、−3536</td><td>同样的三项，存成 <code>int32</code></td></tr>
+<tr><th scope="row">乘完用 <code>int64</code> 求和</th><td>24000、−15536、−3536</td><td><strong>4928</strong></td></tr>
+<tr><th scope="row">先转 <code>int32</code>，再乘，再用 <code>int64</code> 求和</th><td>24000、50000、62000</td><td><strong>136000</strong></td></tr>
+</tbody>
+</table></div>
+<p><code>int16</code> 能存 −32768 到 32767。第一项 <code>12000 × 2 = 24000</code> 仍在范围内。后两项 <code>25000 × 2 = 50000</code> 与 <code>31000 × 2 = 62000</code> 各减去一轮的 <code>2**16 = 65536</code>，才落回范围，变成 −15536 和 −3536。用 <code>int64</code> 加总这些数，只会准确地算出 <code>24000 − 15536 − 3536 = 4928</code>。</p>
+<div class="codehilite" data-code-language="python"><pre><code>import numpy as np
+
+raw = np.array([12000, 25000, 31000], dtype=np.int16)  # (3,)
+products = raw * np.int16(2)  # (3,), int16
+late_cast = products.astype(np.int32)
+late_sum = products.sum(dtype=np.int64)
+print(late_cast.tolist(), late_cast.dtype)  # [24000, -15536, -3536] int32
+print(late_sum, late_sum.dtype)  # 4928 int64
+
+wide_products = raw.astype(np.int32) * np.int32(2)  # (3,), int32
+wide_sum = wide_products.sum(dtype=np.int64)
+print(wide_products.tolist())  # [24000, 50000, 62000]
+print(wide_sum, wide_sum.dtype)  # 136000 int64
+</code></pre></div>
+<p>先升宽那条路径保住了乘法的三项，求和得到 <code>24000 + 50000 + 62000 = 136000</code>。<strong>累加器（Accumulator）</strong>是求和中保存中间总数的量。<code>sum(dtype=np.int64)</code> 在求和阶段使用 <code>int64</code> 累加，只有传给它的数值仍然正确，这一步才有用。</p>
+<p><strong>再单独测一次求和。</strong> 下一个例子有 100 个各为 30000 的 <code>int16</code> 计数。数学上的总和为 <code>100 × 30000 = 3000000</code>，均值为 <code>3000000 ÷ 100 = 30000</code>。试想如果用 <code>int16</code> 累加，哪一步先装不下？</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="n">raw</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">12000</span><span class="p">,</span> <span class="mi">25000</span><span class="p">,</span> <span class="mi">31000</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int16</span><span class="p">)</span>
@@ -546,8 +600,9 @@ x + np.array([1], dtype=np.uint8)  # array([0], dtype=uint8)</code></pre></div><
 </code></pre></div>
 
 <section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">原始 int16 [12000 25000 31000]</span></div><div class="vb-flow-row"><span class="vb-flow-step">直接 *2 (int16) [ 24000 -15536 -3536]</span></div><div class="vb-flow-row"><span class="vb-flow-step">先升 int32 再乘 [24000 50000 62000]</span></div><div class="vb-flow-row"><span class="vb-flow-step">sum 的 dtype int64 值 3000000</span></div><div class="vb-flow-row"><span class="vb-flow-step">逐元素累加 int16 -14656</span></div><div class="vb-flow-row"><span class="vb-flow-step">mean 的 dtype float64 值 30000.0</span></div><div class="vb-flow-row"><span class="vb-flow-step">int16 + float32 -&gt; float32</span></div><div class="vb-flow-row"><span class="vb-flow-step">bool + bool -&gt; bool [ True]</span></div></div></section>
-<p>⭐ <strong><code>sum()</code> 和 <code>mean()</code> 会自动升档</strong>（<code>int16</code> 的和给 <code>int64</code>，均值给 <code>float64</code>），所以它们通常是安全的。<strong>危险的是逐元素运算</strong>：<code>raw * 2</code> 里的 25000 和 31000 当场变成负数。</p>
-<p>⭐ <strong>最后一行是个独立的坑</strong>：<code>True + True</code> 不是 2，是 <strong><code>True</code></strong> ——布尔数组相加是逻辑或。想数「有多少个 True」必须先 <code>.astype(int)</code> 或者用 <code>.sum()</code>（<code>.sum()</code> 会升到 <code>int64</code>，是对的）。</p>
+<p>这个例子里，第二个 30000 加上去就达到 60000，超出 <code>int16</code>。显式指定 <code>np.add.reduce(big, dtype=np.int16)</code> 时，最终结果 <code>3000000 − 46 × 65536 = −14656</code> 落回了 <code>int16</code> 的范围。</p>
+<p>当输入的整数位宽小于平台默认整数的位宽时，<code>sum()</code> 默认用更宽的整数类型累加。这份有符号 <code>int16</code> 输入在 64 位 NumPy 2.x 中得到 <code>int64</code>。整数输入的 <code>mean()</code> 默认使用 <code>float64</code> 计算并返回结果。整数和仍可能超出累加器的范围，浮点均值也可能舍入。分别核对乘法的中间值、求和的中间值和最后写回的目标类型。</p>
+<p>最后一行加的是两个 NumPy 布尔数组，逐元素相加在这里等价于逻辑或，得到 <code>[True]</code>。要数一份布尔数组里有多少个 <code>True</code>，可以直接调用 <code>.sum()</code>，NumPy 会用整数计数。单独写 Python 的 <code>True + True</code> 得到的是 2。</p>
 <h3 id="bug">🧩 八、⭐ 站里已经在诊断这个 bug，只是没讲成因</h3>
 <p><a href="../数据这一关/07-异常值是错还是真.html">数据这一关 · 07 · 异常值是错还是真</a> 把「某一列的值<strong>正好是 32767 / 65535 / 2147483647</strong>」列为脏数据的判别信号——<strong>那就是本章第三节那张表里的三个数</strong>。</p>
 <p>⭐ <strong>两章合起来才是完整的一件事</strong>：</p>
@@ -589,7 +644,7 @@ x + np.array([1], dtype=np.uint8)  # array([0], dtype=uint8)</code></pre></div><
 </tr>
 <tr>
 <td><a href="../AI基础设施/06-混合精度.html">AI 基础设施 · 06 · 混合精度</a></td>
-<td><strong>浮点低精度那一整侧在那里</strong>：FP16 和 BF16 怎么选、loss scaling 为什么必须有。本章一个字都不讲浮点选型，要选精度就去那边</td>
+<td><strong>浮点低精度那一整侧在那里</strong>：FP16 和 BF16 怎么选、loss scaling 为什么必须有。本章的浮点例子只用于检查整数转换后是否仍能区分，训练精度选型见混合精度章节</td>
 </tr>
 <tr>
 <td><a href="../AI基础设施/18-量化.html">AI 基础设施 · 18 · 量化</a></td>
@@ -622,6 +677,7 @@ x + np.array([1], dtype=np.uint8)  # array([0], dtype=uint8)</code></pre></div><
 <li><code>np.array([True]) + np.array([True])</code> 等于什么？</li>
 <li>数据里出现一撮值正好等于 32767，最可能的成因是什么？为什么值域检查抓不住 <code>32768 -&gt; -32768</code> 这种回绕？</li>
 </ol>
+<p><strong>再预测一次：</strong> 把 <code>raw * np.int16(2)</code> 的结果转成 <code>int32</code>，后两项是什么？分别转为 <code>float32</code> 的两个整数 <code>2**24</code> 与 <code>2**24 + 1</code> 还能区分吗？</p>
 <details>
 <summary>👀 答案</summary>
 <ol>
@@ -630,23 +686,24 @@ x + np.array([1], dtype=np.uint8)  # array([0], dtype=uint8)</code></pre></div><
 <li><strong><code>[0, 0]</code></strong> ——向零截断。⚠️ 和 <code>np.floor</code> 不一样：<code>floor</code> 给 <code>[0, -1]</code>。负数那一侧两者才分得开。</li>
 <li><strong><code>[2., 4.]</code></strong>。<code>np.round</code> 是银行家舍入：五往偶数那边凑，所以 2.5 → 2 而 3.5 → 4。</li>
 <li><code>+ 1</code> → <strong><code>int8</code></strong>（NEP 50 的弱标量不拉高数组 dtype）；<code>+ np.int64(1)</code> → <code>int64</code>（有 dtype 的标量参与提升）；<code>+ 1000</code> → 抛 <code>OverflowError: Python integer 1000 out of bounds for int8</code>。</li>
-<li>因为 <code>uint8</code> 是 0–255、<code>int8</code> 是 −128–127，<strong>没有 8 位类型能覆盖 −128–255</strong>，所以升到 <code>int16</code>。⚠️ <code>uint64 + int64</code> 找不到能装下两边的整数类型，掉到 <code>float64</code> ——超过 2^53 就丢精度且不报错。</li>
+<li>因为 <code>uint8</code> 是 0–255、<code>int8</code> 是 −128–127，<strong>没有 8 位类型能覆盖 −128–255</strong>，所以升到 <code>int16</code>。⚠️ <code>uint64 + int64</code> 找不到能装下两边的整数类型，掉到 <code>float64</code> 。超过 <code>2**53</code> 后，有些相邻整数会舍入成同一个浮点值。</li>
 <li><strong>本节 int32 数组示例抓不住</strong>，<code>np.array([2147483647], dtype=np.int32) + np.int32(1)</code> 在 <code>np.errstate(all="raise")</code> 中仍回绕成 <code>-2147483648</code>。这不代表全部整数运算都如此：<code>np.int16(32000) * np.int16(3)</code> 的标量乘法会在 <code>over="raise"</code> 下抛出 <code>FloatingPointError</code>。它不能替代整数数组的范围检查。</li>
-<li><strong>3000000，dtype 是 <code>int64</code></strong>。<code>sum()</code> / <code>mean()</code> 会自动升档（均值给 <code>float64</code>），所以归约通常安全；危险的是逐元素运算——<code>np.add.reduce(big, dtype=np.int16)</code> 强行按 int16 累加就给出 −14656，而 <code>raw * np.int16(2)</code> 让 25000、31000 变成 −15536、−3536。</li>
+<li><strong>3000000</strong>。64 位 NumPy 2.x 默认用 <code>int64</code> 累加这批 <code>int16</code>，这个总和装得下。指定 <code>int16</code> 累加得到 −14656。而 <code>raw * np.int16(2)</code> 在乘法阶段就让后两项变成 −15536、−3536，后面的求和没有机会恢复原值。</li>
 <li><strong><code>True</code></strong>（dtype 还是 <code>bool</code>）。布尔数组相加是逻辑或，不是 2。数 True 的个数要 <code>.astype(int)</code> 或直接 <code>.sum()</code>。</li>
 <li>最可能是某处 <code>astype(np.int16)</code>（或 <code>int16</code> 数组做了乘法）把超范围的值截断了 —— 32767 是 <code>int16</code> 的上界。💀 值域检查抓不住 <code>32768 -&gt; -32768</code>，因为 <strong>−32768 是一个完全合法的 <code>int16</code></strong>；只能靠「它和前后样本的关系不对劲」发现。</li>
 </ol>
+<p>乘完再转换，后两项仍为 −15536、−3536，因为回绕已经发生。<code>2**24</code> 与 <code>2**24 + 1</code> 转为 <code>float32</code> 后也相同，都是 16777216，因为此处的相邻可表示数间距已经变成 2。</p>
 </details>
 <h3 id="_8">🛑 可以停在这里</h3>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>⭐ <strong>这一章只讲整数</strong>——浮点精度选型和量化在别的板块，站内上百处 <code>dtype</code> 全是深度学习数值格式，<strong>整数这一侧一处没有</strong>。</p>
+<p>从一个整数出发，按存储、运算、累加、写回的顺序核对 <code>dtype</code>。相邻的大整数进入浮点表示后，可能成为同一个有限值。</p>
 <p>⭐ <strong>招牌实验</strong>：<code>uint8</code> 的 200 加 100 得到的是 44（也就是减掉 256），⭐⭐ <strong>而警告条数是 0</strong>。同一件事写成标量倒会报溢出警告——💀 <strong>但真实代码里你遇到的永远是数组那一版</strong>：你不会写标量加法，你会写 <code>img + delta</code>，然后几个像素从 250 悄悄变成 4。有符号更狠：最大值加 1 直接翻成最小的负数。</p>
 <p>⭐ <strong>记住这几个数的样子</strong>：127、255、32767、65535、21 亿多、42 亿多——<strong>它们是溢出留在数据里的指纹</strong>。⚠️ 默认整数 dtype <strong>平台和版本相关</strong>，依赖范围的地方一律显式写 dtype。</p>
-<p><strong><code>astype</code> 三件事同时发生</strong>：⚠️ <strong>向零截断</strong>（和 <code>floor</code> 对负数结果不同）、<code>np.round</code> 是<strong>银行家舍入</strong>（2.5 进到 2 而 3.5 进到 4）、⭐ <strong>越界静默回绕</strong>。💀 最阴的一例是只超出上界 1，符号就翻了，<strong>而结果仍是一个合法值，值域检查抓不住</strong>。</p>
+<p><strong>区分三种操作：</strong>范围内的浮点转整数会<strong>向零截断</strong>（负数一侧与 <code>floor</code> 不同）；<code>np.round</code> 遇到正中间值会<strong>取偶数</strong>（2.5 到 2，3.5 到 4）；本章示例中的整数缩窄转换会<strong>静默回绕</strong>。💀 最阴的一例是只超出上界 1，符号就翻了，<strong>而结果仍是一个合法值，值域检查抓不住</strong>。</p>
 <p>类型提升四条里最容易被绊的：Python 裸整数是弱标量、<strong>不会把数组 dtype 拉高</strong>；⚠️ 而有符号加无符号会取一个能装下两边的类型，<strong>极端情况下会一路提升到浮点</strong>。</p>
 <p>💀💀 <strong><code>np.errstate</code> 不是整数数组的通用越界保护。</strong> 本章数组加法在 <code>all="raise"</code> 中仍静默回绕；部分 NumPy 整数标量运算却能报告溢出。升宽后检查只在原值、操作数和精确中间结果都装得进中间类型时可靠；原 <code>add_checked</code> 的 int64 中间量也会溢出。64 位边界应运算前判界，或先用 Python int / object 精确运算再检查范围。<code>can_cast</code> 的安全模式检查转换关系，不能代替算术结果的范围验证。</p>
-<p>⭐ 好消息是<strong>求和、求均值这类会自己升档，危险的是逐元素运算</strong>。⭐ 附带一个独立的坑：<strong>布尔相加是逻辑或</strong>，<code>True + True</code> 还是 <code>True</code> 而不是 2。</p>
+<p><strong>要在哪一步防回绕，就在哪一步之前升宽。</strong> 用宽类型求和不能修复已经回绕的乘法结果。布尔数组逐元素相加得到逻辑或的结果，数一份数组里的真值可用 <code>.sum()</code>。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="09-log域运算.html">09-log域运算.md</a></p>
 <div class="nm-takeaway"><button type="button" class="nm-save-note" data-nm-save="_6" data-nm-enhance disabled>记住这一段</button></div></section><aside class="nm-prose nm-original-navigation" aria-label="原有完整章节目录"><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
