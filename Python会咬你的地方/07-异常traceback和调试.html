@@ -382,6 +382,15 @@ ValueError: invalid literal for int() with base 10: &#39;n/a&#39;
 <p>💡 <strong>一个立刻能用的习惯</strong>：贴 traceback 求助 / 搜索时，<strong>至少带上最后一行和倒数第二段</strong>。
 只贴最后一行等于只说「我发烧了」；只贴第一段等于只说「我进了医院」。</p>
 </blockquote>
+<div class="framecard" id="exception-propagation-flow">
+<div class="fh">跟着 <code>"n/a"</code> 看异常往哪走</div>
+<ol>
+<li><strong>进入。</strong> 入口调用 <code>load_batch</code>，再进入 <code>to_score</code> 和 <code>normalize</code>。前一个值 <code>"80"</code> 已经转换成功，这次轮到 <code>"n/a"</code>。</li>
+<li><strong>中断。</strong> <code>int("n/a")</code> 抛出 <code>ValueError</code>。这次 <code>normalize</code> 没有返回数值，后面的除法也不执行。</li>
+<li><strong>向外找处理代码。</strong> <code>normalize</code> → <code>to_score</code> → <code>load_batch</code> → 入口。这些调用先后退出，列表构建中断，外面的 <code>print</code> 等不到参数。</li>
+</ol>
+</div>
+<p>这些尚未结束的调用组成<strong>调用栈（call stack）</strong>。异常传播（exception propagation）时，Python 从出错的位置向外查找能处理这一类异常的 <code>except</code>。未匹配到处理代码的函数会退出，当前调用点后续语句不会继续执行。这个例子到达脚本顶层仍未被处理，解释器会打印 traceback。稍后的<a href="#try-else-finally">分支示例</a>会在调用方接住它。</p>
 <h2 id="raise-from" data-mg-stop="">🧩 二、异常链：<code>raise ... from</code> 和它的两个变体</h2>
 <p>底层报了个 <code>ValueError</code>，你想换成业务语言的 <code>ConfigError</code> 抛出去。这有三种写法，<strong>三种 traceback 完全不同</strong>：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># chain.py —— 同一个错误，三种转抛方式</span>
@@ -417,7 +426,7 @@ ValueError: invalid literal for int() with base 10: &#39;n/a&#39;
 <tr>
 <th>写法</th>
 <th>traceback 里的连接句</th>
-<th>根因还在不在</th>
+<th>默认输出里的原始异常</th>
 </tr>
 </thead>
 <tbody>
@@ -434,15 +443,15 @@ ValueError: invalid literal for int() with base 10: &#39;n/a&#39;
 <tr>
 <td><code>raise X from None</code></td>
 <td><strong>（没有连接句）</strong></td>
-<td>💀 <strong><code>ValueError: ... '八千'</code> 整段消失</strong></td>
+<td>隐藏 <code>ValueError: ... '八千'</code> 这段，但新异常仍保留原上下文</td>
 </tr>
 </tbody>
 </table></div>
+<p>例子中的 <code>bare</code> 模式执行的是 <code>raise ConfigError(...)</code>。在处理块中只写 <code>raise</code>，则会重新抛出当前正在处理的异常。</p>
 <p>⭐ <strong>实践规则</strong>：</p>
 <ul>
 <li><strong>转抛时默认写 <code>from e</code></strong>。它比什么都不写更准确 —— 你是<strong>故意</strong>把它转成业务错误的，不是「处理时不小心又炸了」。</li>
-<li>⚠️ <strong><code>from None</code> 只在一种场景下用</strong>：底层异常的内容<strong>会泄露敏感信息</strong>（比如连接串里的密码出现在 <code>ValueError</code> 里）。
-  除此之外用它，等于<strong>亲手删掉排查这个 bug 唯一的线索</strong>。</li>
+<li>对外只想展示一层清楚的错误时，可以用 <code>from None</code> 隐藏默认输出中的上下文。示例注释里的「抹掉根因」说的是显示效果。旧异常仍可从新异常的 <code>__context__</code> 取得，因此敏感信息要在输出边界单独脱敏。<a href="https://docs.python.org/3.14/reference/simple_stmts.html#the-raise-statement">Python 语言参考 · raise 语句</a></li>
 <li>💀 <strong><code>from None</code> 最坏的形态是「为了日志好看」</strong>。日志好看了，出事那天你只有一句「PORT 配置不是整数」，
   而不知道读到的原值是什么、从哪个文件读的。</li>
 </ul>
@@ -536,6 +545,43 @@ ValueError: invalid literal for int() with base 10: &#39;n/a&#39;
 
 <p>⚠️ <strong>不要给每个函数配一个异常类</strong>。异常层次的价值在<strong>分叉点</strong>：
 只有当上层会因为类型不同而走不同分支时，多一个类才有意义；否则加的只是打字量。</p>
+<h3 id="try-else-finally">缩小 <code>try</code>，只保护要处理的操作</h3>
+<p>沿用上面的分数。文字 <code>"n/a"</code> 转不了整数，<code>"130"</code> 能转换却超出 0 到 100。两处都可能抛 <code>ValueError</code>。如果把它们都放进一个大 <code>try</code>，范围错误也会被写成「转换失败」。</p>
+<p>下面是完整示例。<code>parse_score</code> 只负责转换。<code>show_score</code> 把范围检查放在 <code>else</code>，并用一行日志代替真实清理。</p>
+<div class="codehilite" data-code-language="python" data-code-title="分数转换的三条路径"><pre id="exception-branch-example"><code>def parse_score(raw):
+    return int(raw)
+
+
+def show_score(raw):
+    try:
+        score = parse_score(raw)
+    except ValueError:
+        print("转换失败")
+    else:
+        if not 0 &lt;= score &lt;= 100:
+            raise ValueError("分数不在 0 到 100")
+        print(f"确认分数 {score}")
+    finally:
+        print("完成本次清理")
+
+
+for raw in ("80", "n/a", "130"):
+    print(f"输入 {raw!r}")
+    try:
+        show_score(raw)
+    except ValueError as error:
+        print(f"外层捕获 {error}")
+</code></pre></div>
+<div class="panels" aria-label="三种输入的执行轨迹">
+<div class="panel"><div class="ph">输入 <code>'80'</code>，转换与校验都通过</div>
+<p><code>try</code> 正常走到末尾，进入 <code>else</code>。先打印「确认分数 80」，再由 <code>finally</code> 打印「完成本次清理」。</p></div>
+<div class="panel"><div class="ph">输入 <code>'n/a'</code>，转换失败</div>
+<p><code>parse_score</code> 抛错。它是在 <code>try</code> 中调用的，异常沿调用栈回到这里，被 <code>except ValueError</code> 接住。先打印「转换失败」，再打印「完成本次清理」。这一轮跳过 <code>else</code>。</p></div>
+<div class="panel"><div class="ph">输入 <code>'130'</code>，校验失败</div>
+<p><code>try</code> 完成后进入 <code>else</code>，范围检查抛错。这里的错误越过同级 <code>except</code>，先打印「完成本次清理」，再由外层打印「外层捕获 分数不在 0 到 100」。</p></div>
+</div>
+<p><code>except</code> 只匹配其 <code>try</code> 块内发生或传入的异常。<code>else</code> 只在 <code>try</code> 正常走到末尾时执行；提前 <code>return</code> 离开 <code>try</code> 也会跳过它。离开整个结构前，<code>finally</code> 先执行。它正常结束后，尚未处理的异常继续向外传。<a href="https://docs.python.org/3.14/reference/compound_stmts.html#the-try-statement">Python 语言参考 · try 语句</a></p>
+<p>这里专注于控制流。文件关闭、锁释放等成对操作，可回到 <a href="03-装饰器与上下文管理器.html#with-tryfinally">03 章的 with 和清理</a> 看资源如何收尾。</p>
 <h2 id="_3">🧩 四、两个会静默改变语义的写法</h2>
 <h3 id="finally-return" data-mg-stop="">💀 <code>finally</code> 里 <code>return</code></h3>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># finally_return.py —— finally 里的 return 会把异常整个吃掉</span>
@@ -563,8 +609,8 @@ ValueError: invalid literal for int() with base 10: &#39;n/a&#39;
 <p>实跑输出：</p>
 <section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>bad() = 一切正常</p><p>清理动作跑了</p><p>good() 抛出： 真正的错误</p></div></section>
 <p>💀 <code>bad()</code> 抛了 <code>ValueError</code>，调用方拿到的却是字符串 <code>一切正常</code>。
-<strong>没有报错、没有警告、traceback 里什么都没有。</strong> <code>finally</code> 里的 <code>return</code>（以及 <code>break</code>、<code>continue</code>）
-会覆盖掉正在飞的异常。⭐ <strong>规则：<code>finally</code> 里只写清理，不写控制流。</strong></p>
+<code>ValueError</code> 没有传给调用方。<code>return</code> 从 <code>finally</code> 离开函数时，覆盖了待传播的异常。<code>break</code> 或 <code>continue</code> 跳出 <code>finally</code> 时也会丢弃待传播的异常。</p>
+<p>原输出显示的是运行结果。CPython 3.14 编译这类跳出 <code>finally</code> 的语句时会发 <code>SyntaxWarning</code>，默认警告设置下，示例仍会执行并保留原来的返回行为。把清理留在 <code>finally</code>，把返回等跳转留在外面。<a href="https://peps.python.org/pep-0765/">PEP 765 · 跳出 finally 的控制流</a></p>
 <h3 id="assert-o">💀 <code>assert</code> 在 <code>-O</code> 下会被整条删掉</h3>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># assert_o.py —— 同一份代码，加不加 -O 结果相反</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
@@ -830,7 +876,7 @@ ValueError: invalid literal for int() with base 10: &#39;n/a&#39;
 <li>拿到一段 traceback，你先看哪一行、再看哪一段？为什么不能从上往下读？</li>
 <li><code>~~~^^^</code> 这几行符号是什么，它替你省掉了什么？</li>
 <li><code>raise X from e</code>、<code>raise X</code>（在 <code>except</code> 里）、<code>raise X from None</code> 三者在 traceback 上有什么不同？默认该用哪个？</li>
-<li><code>from None</code> 唯一合理的使用场景是什么？</li>
+<li><code>from None</code> 会隐藏什么？为什么对外输出仍要做脱敏？</li>
 <li><code>except Exception</code> 和裸 <code>except:</code> 差在哪？举出两个会被后者吞掉的东西。</li>
 <li>「解析失败要计数不要 <code>pass</code>」这条规则，三档写法各自失去了什么？</li>
 <li><code>finally</code> 里写 <code>return</code> 会发生什么？规则怎么记？</li>
@@ -843,22 +889,28 @@ ValueError: invalid literal for int() with base 10: &#39;n/a&#39;
 <ol>
 <li>先看<strong>最后一行</strong>（错误种类 + 值），再看倒数第二段（真正出事的现场）。因为 <code>Traceback (most recent call last)</code> 明说了最下面才是最近的一层，从上往下读看到的是入口，方向反了。</li>
 <li>3.11 起加的<strong>细粒度定位</strong>。例子里 <code>return int(v) / 100</code> 底下 <code>~~~^^^</code> 对准 <code>int(v)</code>，说明炸的是 <code>int()</code> 不是除法 —— 一行里有多个调用时直接省掉一轮猜。</li>
-<li><code>from e</code> → 连接句是「<strong>The above exception was the direct cause of the following exception</strong>」；<code>raise X</code> → 「During handling of the above exception, another exception occurred」；<code>from None</code> → 没有连接句，根因整段消失。转抛默认写 <code>from e</code>。</li>
-<li>只有一种：底层异常的内容<strong>会泄露敏感信息</strong>（例如连接串里的密码出现在 <code>ValueError</code> 里）。其余情况用它等于亲手删掉唯一线索。</li>
+<li><code>from e</code> 显示显式原因。<code>raise X</code> 在处理块内显示隐式上下文。<code>from None</code> 的默认输出只显示新异常。明确转换业务异常时，通常用 <code>from e</code> 保留排查线索。</li>
+<li><code>from None</code> 隐藏默认 traceback 中的上一段。原异常仍保存在 <code>__context__</code>，其他日志或代码仍可读取，对外展示前应单独脱敏。</li>
 <li>裸 <code>except:</code> 等价于 <code>except BaseException:</code>。会被它吞掉而 <code>except Exception</code> 放过去的两个：<strong><code>KeyboardInterrupt</code>（Ctrl-C）</strong> 和 <code>SystemExit</code>。所以「跑了 40 分钟的重试脚本按 Ctrl-C 掐不掉」就是这么来的。</li>
 <li><code>pass</code> 失去全部（发生过没有、几次、哪条都不知道）；<code>log.warning</code> 少一点，但一条 warning 淹在每秒几千条日志里等于没有；<strong>计数 + 留样本</strong>才拿到能行动的东西：「3.2% 的行解析失败，长这样」。</li>
-<li><code>finally</code> 里的 <code>return</code>（以及 <code>break</code>/<code>continue</code>）会<strong>覆盖掉正在飞的异常</strong> —— 例子里 <code>bad()</code> 抛了 <code>ValueError</code>，调用方拿到的却是字符串 <code>一切正常</code>，且没有任何报错。规则：<code>finally</code> 里只写清理，不写控制流。</li>
+<li>从 <code>finally</code> 跳出时可能丢弃待传播的异常。例子里 <code>bad()</code> 的调用方只拿到 <code>一切正常</code>。CPython 3.14 编译这类跳转时会发 <code>SyntaxWarning</code>。把清理和跳转分开。</li>
 <li><code>-O</code>（或 <code>PYTHONOPTIMIZE=1</code>）会在<strong>编译期把 <code>assert</code> 整条删掉</strong> —— 实跑对照里同一份代码，无参数时退出码 1 报 <code>AssertionError</code>，加 <code>-O</code> 后退出码 0 且输出 <code>{'age': -5}</code>。校验外部数据要写 <code>if not ...: raise ValueError(...)</code> 或用 pydantic。</li>
 <li><code>-X dev</code> 把默认静音的警告（如 <code>ResourceWarning: unclosed file</code>）放出来，避免泄漏积累成位置无关的 <code>Too many open files</code>；<code>-W error</code> 把警告变成异常 —— 真正的价值是<strong>拿到完整调用栈</strong>，能看见是你哪一行调进去的，而不只是库里的行号。</li>
 <li><code>breakpoint()</code> 只是调用 <code>sys.breakpointhook()</code>，所以①可以换成「打印几个变量」这种不打断执行的观察点，②<strong>一个 <code>PYTHONBREAKPOINT=0</code> 就能全关掉</strong>（<code>pdb.set_trace()</code> 没有这个开关，忘删一行能让 CI 挂到超时）。迷路时按 <code>w</code>（where），然后 <code>u</code> 走到自己那一层再 <code>p 变量</code>。</li>
 </ol>
+</details>
+<p id="exception-flow-check"><strong>先预测。</strong> 把分数范围检查搬进内层 <code>try</code>，再运行输入 <code>"130"</code>。哪一个 <code>except</code> 会先接住错误？</p>
+<details>
+<summary>👀 看分支怎样改变</summary>
+<p>范围检查和转换现在位于同一个 <code>try</code> 内，所以内层 <code>except ValueError</code> 会打印「转换失败」。之后仍会打印「完成本次清理」。外层收不到这个异常，日志把两种不同的问题混在了一起。</p>
 </details>
 <h2 id="_6">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
 <p>⭐⭐ <strong>异常是你唯一免费拿到的现场记录，而大多数难查的 bug，是有人把它扔了。</strong></p>
 <p>读 traceback 的顺序：<strong>最后一行</strong>（种类和值，往往已经指出坏值）→ 倒数第二段（真正的现场）→ 往上扫找第一个属于你的文件。⚠️ <strong><code>most recent call last</code> 这句话本身就是说明书：最下面才是最近的一层。</strong> ⭐ 新版本那几个波浪线是白送的——<strong>它直接指出炸的是哪个子表达式。</strong></p>
-<p>异常链三种写法：<strong>显式连上根因</strong>、<strong>裸抛（会显示成「处理过程中又发生了」）</strong>、⚠️ 以及 <strong><code>from None</code>——它会让根因整段消失</strong>。⭐ 转抛默认就该连上根因；💀 <strong>为了「日志好看」用 <code>from None</code>，等于亲手删掉唯一的线索。</strong></p>
+<p>看到异常先找<strong>哪一步抛出、哪一层接住</strong>。<code>try</code> 只包要处理的操作，成功后的工作可以放在 <code>else</code>。<code>finally</code> 清理后，未处理的异常继续传播。</p>
+<p>转换异常时，<code>from e</code> 显式记录原因为何。处理块内直接抛新异常会记录隐式上下文。<code>from None</code> 只隐藏默认显示中的旧异常。</p>
 <p>⚠️ <strong>中断和退出这两个异常不是 <code>Exception</code> 的子类</strong>，而<strong>裸 <code>except:</code> 等价于捕获一切</strong>——⭐ <strong>一个跑了半小时的脚本 Ctrl-C 掐不掉，就是这么来的。一句话：<code>except Exception</code> 是宽，裸 <code>except:</code> 是错。</strong></p>
 <p>⭐ <strong><code>except</code> 后面写什么，就是在声明「我能处理哪一类」——那是白名单，不是黑名单。</strong>
 而 <code>except: pass</code> 的三档代价很有教学价值：<strong>直接吞掉失去全部信息 → 打个警告淹在日志里 → ⭐ 计数加留样本</strong>，只有最后一档能让你说出「有百分之几的行失败了，长这样」。</p>
