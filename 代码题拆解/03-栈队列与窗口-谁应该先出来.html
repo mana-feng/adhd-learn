@@ -308,8 +308,30 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⏱ <strong>10 分钟</strong> ｜ 两个栈实现队列、min 栈、滑动窗口最大值</p>
 <h2 id="_1">🎯 一句话</h2>
 <p>这类题先不写代码，先问：<strong>我需要最早的、最新的，还是目前最大的那个？</strong></p>
+<p>三张处理单按 A、B、C 的顺序到达。排队办事先拿 A。桌上只能从顶上取纸，先拿 C。上一章逐层访问树节点时用的是前一种规则，本章把取出顺序单独拆开。</p>
+<div class="panels" role="group" aria-label="相同的放入顺序，不同的取出顺序">
+  <div class="panel"><div class="ph">栈（stack）</div><p>从同一端放入、取出。后进先出（Last In, First Out，LIFO）。A、B、C 依次压栈，弹出顺序为 <strong>C → B → A</strong>。</p></div>
+  <div class="panel"><div class="ph">队列（queue）</div><p>从队尾加入，从队首取出。先进先出（First In, First Out，FIFO）。A、B、C 依次入队，出队顺序为 <strong>A → B → C</strong>。</p></div>
+</div>
+<p>双端队列（double-ended queue，deque）允许在两端加入或取出元素，题 3 会用到。具体从哪端操作由算法决定。第 04 章的堆会按优先级取出元素，使用的是另一条规则。</p>
 <h2 id="1" data-mg-stop="">🧩 题 1：用两个栈实现队列</h2>
 <p>一个栈负责“新来的放进去”，另一个负责“最早来的拿出来”。只有输出栈空了，才把输入栈整批倒过去。</p>
+<p>手里只有两摞只能从顶上取的纸。把输入栈逐张搬到输出栈，原本压在最底下的 A 最后被搬过去，正好落在输出栈顶。</p>
+<div class="tw" tabindex="0" role="region" aria-label="两栈队列的交错操作">
+<table>
+<caption>两栈都按从底到顶书写，右端是栈顶</caption>
+<thead><tr><th scope="col">操作</th><th scope="col">输入栈</th><th scope="col">输出栈</th><th scope="col">取出</th></tr></thead>
+<tbody>
+<tr><td>依次入队 A、B、C</td><td>A、B、C</td><td>空</td><td>—</td></tr>
+<tr><td>倒栈后首次出队</td><td>空</td><td>C、B</td><td>A</td></tr>
+<tr><td>入队 D</td><td>D</td><td>C、B</td><td>—</td></tr>
+<tr><td>直接出队</td><td>D</td><td>C</td><td>B</td></tr>
+<tr><td>直接出队</td><td>D</td><td>空</td><td>C</td></tr>
+<tr><td>再倒栈并出队</td><td>空</td><td>空</td><td>D</td></tr>
+</tbody>
+</table>
+</div>
+<p>若在输出栈还有 B 时把 D 倒上去，D 会抢到 B 前面。代码里的 <code>if not self.outbox</code> 就是倒栈的开关。两栈都空时，<code>pop()</code> 抛出 <code>IndexError</code>。本页三个 Python 示例都用 <code>assert</code> 核对结果，运行成功时无输出。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">TwoStackQueue</span><span class="p">:</span>
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">inbox</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">outbox</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[]</span>
@@ -332,9 +354,26 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="k">assert</span> <span class="p">[</span><span class="n">queue</span><span class="o">.</span><span class="n">pop</span><span class="p">(),</span> <span class="n">queue</span><span class="o">.</span><span class="n">pop</span><span class="p">(),</span> <span class="n">queue</span><span class="o">.</span><span class="n">pop</span><span class="p">()]</span> <span class="o">==</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">]</span>
 </code></pre></div>
 
-<p><strong>不变量：</strong><code>outbox</code> 顶部永远是当前最早进入、还没出去的元素。</p>
+<p><strong>不变量。</strong><code>outbox</code> 非空时，它的顶部是当前最早进入、还没出去的元素。输出栈空时，若输入栈里仍有元素，最早来的那个在输入栈底部。</p>
+<p><strong>把搬运次数记在每张单上。</strong>一次出队可能要搬完手上的 <code>n</code> 张单，最坏时间是 O(n)。但一张单在整个过程中至多经过四次栈顶操作。入输入栈一次，搬运时弹出和压入各一次，最后从输出栈弹出一次。</p>
+<p>例如先入队 A、B、C，再连续出队三次。首次出队含 3 × 2 次搬运操作和 1 次最终弹出，其余两次只弹出。总操作数是 3 + 7 + 1 + 1 = 12，六次调用平均每次两次栈顶操作。把总成本分到所有调用上，就是<strong>摊还（amortized）</strong>分析。按栈顶操作计数，平均到每次调用为 O(1)，即使某一次出队更慢。两个栈合计保存与待处理数成正比的元素，空间 O(n)，这里 <code>n</code> 是队列当前元素数。</p>
 <h2 id="2-min" data-mg-stop="">🧩 题 2：包含 min 函数的栈</h2>
 <p>别在每次 <code>min()</code> 时把栈扫一遍。再放一个 <code>mins</code> 栈：每一层都记“走到这里为止的最小值”。</p>
+<p>栈里先放 5，再放两张都写着 2 的单。如果只记一个全局最小值，弹出顶上的 2 时，还要确认另一张 2 有没有留在栈里。最小值栈（min stack）在每次压栈时多存一份截至该层的最小值。弹出一层，下一层的记录就自动露出来。</p>
+<div class="tw" tabindex="0" role="region" aria-label="压入与弹出重复最小值的状态表">
+<table>
+<caption>从左到右是栈底到栈顶，两栈高度始终相同</caption>
+<thead><tr><th scope="col">操作</th><th scope="col">原值 <code>data</code></th><th scope="col">最小值记录 <code>mins</code></th></tr></thead>
+<tbody>
+<tr><td>压入 5</td><td>5</td><td>5</td></tr>
+<tr><td>压入 2</td><td>5、2</td><td>5、2</td></tr>
+<tr><td>再压入 2</td><td>5、2、2</td><td>5、2、2</td></tr>
+<tr><td>弹出一个 2</td><td>5、2</td><td>5、2</td></tr>
+<tr><td>再弹出一个 2</td><td>5</td><td>5</td></tr>
+</tbody>
+</table>
+</div>
+<p>原栈为空时，新值就是最小值。已有元素时，把新值和上一层的最小值取较小者。表里的记录依次是 5、min(2, 5) = 2、min(2, 2) = 2。代码用 <code>append()</code> 同步入栈，用两次 <code>pop()</code> 同步弹出。<code>get_min()</code> 用 <code>mins[-1]</code> 读取栈顶，不移除元素。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">MinStack</span><span class="p">:</span>
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">mins</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[]</span>
@@ -360,8 +399,26 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="k">assert</span> <span class="n">stack</span><span class="o">.</span><span class="n">get_min</span><span class="p">()</span> <span class="o">==</span> <span class="mi">3</span>
 </code></pre></div>
 
+<p><strong>边界与成本。</strong>本例接收可相互比较的数值。空栈调用 <code>pop()</code> 或 <code>get_min()</code> 都会抛出 <code>IndexError</code>。每次操作至多一次大小比较和固定次数的栈顶操作，按每次比较的成本固定来计，<code>get_min()</code> 为 O(1)，使用 Python 列表实现的栈更新摊还 O(1)。若原栈有 <code>n</code> 个元素，辅助栈就有 <code>n</code> 条记录，额外空间 O(n)。</p>
 <h2 id="3" data-mg-stop="">🧩 题 3：滑动窗口的最大值</h2>
-<p>窗口向右移动时，过期下标从队首丢掉；新值进来前，把比它小的候选从队尾丢掉。队列里只留<strong>可能成为最大值</strong>的人。</p>
+<p>窗口向右移动时，过期下标从队首丢掉；新值进来前，把小于或等于它的候选从队尾丢掉。队列里只留<strong>可能成为最大值</strong>的人。</p>
+<p>屏幕每次只显示连续两张数值单。显示框从左往右每次挪一格，每一格都要报出框里的最大值。每次重看框内所有数当然可以，但相邻两格有重叠。已经离开显示框的数要删掉，框内被新数压过的候选也可以提前删。</p>
+<p>设 <code>nums</code> 是数列，位置从 0 编号，<code>right</code> 是本轮刚读到的位置，整数 <code>k</code> 是完整窗口的宽度。完整窗口往左还有 <code>k − 1</code> 格，最左位置为 <code>right − k + 1</code>。下标小于这个位置就已过期，也就是小于或等于 <code>right − k</code>。例如 <code>right = 2</code>、<code>k = 2</code> 时，最左是 <code>2 − 2 + 1 = 1</code>，下标 0 已经过期。</p>
+<p>从新值进入那刻起，往右滑的任何窗口只要还包含较旧的候选，也会包含新值。若新值至少一样大，旧值可以从候选队尾丢掉。相等时留下更新的那个，日后会更晚过期。这条队列按进入顺序保存下标，对应值从队首到队尾严格递减，叫<strong>单调队列（monotonic queue）</strong>。因此队首就是当前最大值的下标。</p>
+<div class="tw" tabindex="0" role="region" aria-label="长度为二的窗口逐轮更新">
+<table>
+<caption>输入 6、2、2、5、1，k = 2。候选按「下标（值）」书写，左端为队首</caption>
+<thead><tr><th scope="col">新位置（值）</th><th scope="col">从两端丢掉什么</th><th scope="col">本轮候选</th><th scope="col">输出</th></tr></thead>
+<tbody>
+<tr><td>0（6）</td><td>无</td><td>0（6）</td><td>窗口还没满</td></tr>
+<tr><td>1（2）</td><td>无</td><td>0（6）、1（2）</td><td>6</td></tr>
+<tr><td>2（2）</td><td>0 从队首过期，1 从队尾被新 2 替换</td><td>2（2）</td><td>2</td></tr>
+<tr><td>3（5）</td><td>2 从队尾被 5 压过</td><td>3（5）</td><td>5</td></tr>
+<tr><td>4（1）</td><td>无</td><td>3（5）、4（1）</td><td>5</td></tr>
+</tbody>
+</table>
+</div>
+<p>代码先用 <code>popleft()</code> 清理过期位置，再用 <code>pop()</code> 淘汰队尾候选，最后用 <code>append()</code> 加入新下标。至少读到第 <code>k</code> 项才输出，对应 <code>right &gt;= k - 1</code>。若把过期条件误写成 <code>下标 &lt; right - k</code>，表里新位置 2 那一轮就会错保住 6。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">deque</span>
 
 
@@ -384,6 +441,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <blockquote>
 <p>⭐ 队列存下标不是细节：这样才能知道队首是否已经离开窗口。</p>
 </blockquote>
+<p><strong>边界。</strong>宽度 <code>k = 1</code> 时每个数就是本窗口答案，<code>k</code> 等于数列长度时只输出一次全局最大值。空输入或 <code>k</code> 大于数列长度时没有完整窗口，函数返回空列表。宽度必须是正整数，本示例未对不合法的宽度做显式报错。</p>
+<p><strong>数进出次数。</strong>设数列有 <code>n</code> 项，且 <code>1 ≤ k ≤ n</code>。逐窗扫描要读 <code>n − k + 1</code> 个窗口，每个窗口看 <code>k</code> 项。上例是 <code>(5 − 2 + 1) × 2 = 8</code> 次读数。候选队列里每个下标只入队一次，最多离队一次，上例入队 5 次、离队 3 次。这两种计数各自用来判断增长趋势。双端操作是 O(1)，合计时间 O(n)。队列最多留 <code>k</code> 个下标，额外空间 O(k)，输出列表另计。</p>
 <h2 id="_2">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -405,7 +464,22 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>滑动窗口最大值为什么能丢掉比新值小的队尾元素？</p>
 <details>
 <summary>👀 看答案</summary>
-<p>新值更靠右、又至少一样大；旧的小值会更早过期，并且永远不可能再成为最大值。</p>
+<p>新值更靠右，留得更久。此后只要窗口还包含旧值，也会包含至少一样大的新值。丢掉旧候选不会改变之后窗口返回的最大值。</p>
+</details>
+<p>输出栈还剩 C、B，右端的 B 在栈顶。现在入队 D，下一次出队应该取谁？</p>
+<details>
+<summary>👀 看出队顺序</summary>
+<p>取 B。D 先进输入栈。输出栈还有 B、C 等待处理，取完它们以后才搬 D。</p>
+</details>
+<p>最小值栈先压入 8，再压入 4、4、6。弹出 6 和一个 4 后，<code>get_min()</code> 是多少？</p>
+<details>
+<summary>👀 看最小值记录</summary>
+<p>返回 4。辅助栈压满时是 8、4、4、4，弹出两层后还有 8、4。再弹出剩下的 4，最小值才回到 8。</p>
+</details>
+<p>输入 9、4、4、3，宽度为 2。读到第二个 4 时，要从哪端清除哪些下标？</p>
+<details>
+<summary>👀 看窗口淘汰</summary>
+<p>此时 <code>right = 2</code>，窗口只含下标 1 和 2。从队首移除下标 0 的 9，它已过期。再从队尾移除下标 1 的旧 4，留下下标 2 的新 4，当前最大值是 4。</p>
 </details>
 <hr />
 <p>⚡ <strong>走神救援</strong></p>
