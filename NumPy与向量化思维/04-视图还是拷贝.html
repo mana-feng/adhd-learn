@@ -310,7 +310,7 @@ x[[1, 2]] = 99  # 这次写入 x</code></pre></div><div class="nm-controls"><but
 <p>⏱ <strong>106 分钟</strong> ｜ ⭐ <strong>两行只差一对方括号的代码，一行把原数组改了，一行没有 —— 而 NumPy 两次都没吭声</strong></p>
 <hr>
 <h3 id="_1">🎯 一句话</h3>
-<p><strong>NumPy 的很多操作返回的不是新数据，是「同一块内存的另一种读法」。改了它，原数组跟着变 —— 不报错、不警告，唯一可靠的判据是 <code>np.shares_memory(a, b)</code>。</strong></p>
+<p><strong>NumPy 的视图是原数据的另一种读法。通过可写视图改到某一格，其他读取同一格的数组也会看到新值。</strong> 要检查两个数组实际使用的数据是否重叠，可以用 <code>np.shares_memory(a, b)</code>。</p>
 <p><a href="03-广播的三条规则.html">上一章</a>那类错误至少还留了点痕迹：要么 <code>ValueError</code>，要么结果形状变成一张莫名其妙的方阵。
 这一章是<strong>完全没有信号的那一类</strong>：程序跑通了、形状对、数字看着也合理，
 只是<strong>你的输入数据在中途被人改掉了</strong>。</p>
@@ -342,14 +342,13 @@ x[[1, 2]] = 99  # 这次写入 x</code></pre></div><div class="nm-controls"><but
   <code>c += 1</code> 就地改那块内存，<code>b</code> 当然跟着变。</li>
 <li><code>b[[0, 2]]</code> 给的是<strong>拷贝</strong> —— 数据被抄了一份出来，改 <code>c</code> 和 <code>b</code> 没关系。</li>
 </ul>
-<p>⚠️ <strong>两行都不报错，都返回一个正常的数组。</strong> 差别不在语法、不在形状、不在类型，
-只在「返回的东西背后是不是同一块内存」。</p>
+<p>读 <code>b[::2]</code> 时，两个冒号隔开起点、终点和步长。这个正步长切片从省略的起点 0 开始，每次加 2，遇到省略的终点 <code>len(b)=6</code> 就停，不取终点。因此读取位置是 0、2、4，得到 <code>[0,2,4]</code>。视图里的第 1 格对应原数组的第 2 格。</p>
+<p>两行都返回数组，但 <code>b[[0,2]]</code> 给的是一份明确的下标列表，只挑位置 0 和 2，返回 <code>[0,2]</code> 的副本。即使用 <code>b[[0,2,4]]</code> 取到与切片完全相同的三个值，读取结果仍是副本。</p>
 <p>⚠️⚠️ <strong>先别急着总结成「花式索引不会改原数组」</strong> —— 第四节会给你一个反例，
 那是本章最容易记反的一条。这里成立的只有一句话：<strong><code>b[[0,2]]</code> 这次【读】回来的东西是拷贝。</strong></p>
 <hr>
 <div class="nm-takeaway"><button type="button" class="nm-save-note" data-nm-save="read-observe" data-nm-enhance disabled>记住这一段</button></div></section><section class="cross-unit nm-prose nm-section" id="read-decide" aria-labelledby="read-decide-title" data-nm-stop=""><h2 id="read-decide-title">怎么判断是否共享内存</h2><p class="cross-cue">判据说明和完整写法表放在一起；.base 回答的不是同一个问题。</p><h3 id="npshares_memory-base">🔍 二、判据：<code>np.shares_memory</code>，不是 <code>.base</code></h3>
-<p>结论先放这儿，这一行你会用一辈子：⭐ <strong><code>np.shares_memory(a, b)</code></strong> —— 唯一在所有情况下都对的判据。</p>
-<p><code>.base</code> 看起来更直观 —— 视图有 <code>base</code>、拷贝没有 —— 而且在最简单的情形下它确实对：</p>
+<p><strong><code>np.shares_memory(a, b)</code> 默认精确检查两个数组实际用到的数据是否重叠。</strong> <code>.base</code> 提供的是数组背后的数据来源，无法据此判断两个数组是否读到同一格。先看一个 <code>.base</code> 恰好指向原数组的简单情况：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="c1"># 情形一：源数组自己就是内存的持有者</span>
@@ -403,11 +402,38 @@ x[[1, 2]] = 99  # 这次写入 x</code></pre></div><div class="nm-controls"><but
 <p>第二条在第三节的表里有两个现成的例子（<code>a.T.reshape(12)</code> 和 <code>a[1:3, [0, 2]]</code>）：
 它们的 <code>.base</code> <strong>不是 <code>None</code></strong>，但 <code>np.shares_memory(a, ...)</code> 是 <code>False</code>。
 所以 <code>if x.base is not None:  # 那它是个视图</code> 这个写法<strong>会在两个方向上都出错</strong>。</p>
-<blockquote>
-<p>⭐ <strong>第一条的完整机制在 <a href="05-内存布局与stride.html">05 章第三节</a></strong>，那里把「视图的视图」这一层讲透了。
-这一章只要你记住结论：<strong>判共享内存，一律写 <code>np.shares_memory</code>。</strong>
-⚠️ 它在超大数组上可能偏慢，替代品和取舍也在 05 章第三节。</p>
-</blockquote>
+<p><strong>同一个原数组切出来的两段，改一段，另一段会变吗？</strong> 下面三对切片都从 <code>x=[10,20,30,40,50,60]</code> 取值。先标出每段实际读取的格子，再找有没有同一格被两段选中。</p>
+<div class="tw"><table>
+<caption>比较每对切片实际选中的原数组下标</caption>
+<thead><tr><th scope="col">切片对</th><th scope="col">两段各选哪些格</th><th scope="col">重叠的格</th></tr></thead>
+<tbody>
+<tr><th scope="row"><code>x[:3]</code> 与 <code>x[3:]</code></th><td>0、1、2 / 3、4、5</td><td>无</td></tr>
+<tr><th scope="row"><code>x[::2]</code> 与 <code>x[1::2]</code></th><td>0、2、4 / 1、3、5</td><td>无</td></tr>
+<tr><th scope="row"><code>x[::2]</code> 与 <code>x[2:5]</code></th><td>0、2、4 / 2、3、4</td><td>2、4</td></tr>
+</tbody>
+</table></div>
+<p>前两对都没有共同的格。第二对各自从首格到末格覆盖的范围是 0–4 和 1–5，范围交错，实际访问的格子却错开了。<code>np.may_share_memory(a, b)</code> 默认只比两段内存的地址范围，所以这一对会得到 <code>True</code>，表示有重叠的可能。这个检查返回 <code>False</code> 才能排除重叠。</p>
+<p>再预测一次：<code>even</code> 是偶数下标的切片，把它的第 1 格改成 99，<code>odd</code>（奇数下标）、<code>tail</code>（下标 2 到 4）和事先做好的副本，哪些会读到 99？</p>
+<div class="codehilite" data-code-language="python"><pre><code>import numpy as np
+
+x = np.array([10, 20, 30, 40, 50, 60])
+left, right = x[:3], x[3:]
+even, odd, tail = x[::2], x[1::2], x[2:5]
+for a, b in [(left, right), (even, odd), (even, tail)]:
+    print(np.shares_memory(a, b), np.may_share_memory(a, b))
+
+read_only = even.view()
+read_only.flags.writeable = False
+detached = even.copy()
+even[1] = 99
+print(x.tolist(), odd.tolist(), tail.tolist())
+print(read_only.tolist(), detached.tolist())
+</code></pre></div>
+<p>前三行依次输出 <code>False False</code>、<code>False True</code>、<code>True True</code>。两列分别是精确检查和范围检查。</p>
+<p><code>even[1]</code> 写的是 <code>x[2]</code>，所以 <code>x</code> 变成 <code>[10,20,99,40,50,60]</code>，<code>tail</code> 变成 <code>[99,40,50]</code>，<code>odd</code> 仍是 <code>[20,40,60]</code>。只读视图 <code>read_only</code> 也读到 <code>[10,99,50]</code>，因为只读限制的是从该视图写入；独立副本 <code>detached</code> 仍是 <code>[10,30,50]</code>。</p>
+<details><summary>自查：<code>x[2:2]</code> 是切片，为什么精确检查却是 <code>False</code>？</summary>
+<p>起点和不包含的终点都是 2，没有选中任何格，所以这个空视图与 <code>x</code> 没有实际数据重叠。先看是否选中了元素，再问它们的内存是否重叠。</p></details>
+<p>复杂布局的精确检查可能很耗时。设置正数 <code>max_work</code> 可以限制检查工作量，超出上限会抛 <code>TooHardError</code>，这时结果还未知。关于 <code>.base</code> 和布局，见 <a href="05-内存布局与stride.html">第 05 章第三节</a>。两种检查的参数见 NumPy 官方的 <a href="https://numpy.org/doc/stable/reference/generated/numpy.shares_memory.html">精确检查</a>和<a href="https://numpy.org/doc/stable/reference/generated/numpy.may_share_memory.html">范围检查</a>文档。</p>
 <hr>
 <h3 id="_3">📋 三、一张判据表</h3>
 <p>把常见写法一次跑完，别猜：</p>
@@ -565,8 +591,7 @@ x[[1, 2]] = 99  # 这次写入 x</code></pre></div><div class="nm-controls"><but
 </tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>一条能概括全表的话</strong>：
-<strong>只改「怎么读这块内存」的，是视图；需要重新挑元素、或者算出新数值的，是拷贝。</strong></p>
+<p>本表针对列出的写法和输入。视图共享原来的数据，独立结果另有存储。只看选中的值或能否按固定步长读，无法判断写法会不会给视图。例如等距整数列表按高级索引的规则仍读出副本。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -598,10 +623,7 @@ x[[1, 2]] = 99  # 这次写入 x</code></pre></div><div class="nm-controls"><but
 </tr>
 </tbody>
 </table></div>
-<p>⚠️ <strong>最后一行是这张表里唯一需要盯着的</strong>。<code>a.reshape(4,3)</code> 是视图、<code>a.T.reshape(12)</code> 是拷贝 ——
-写代码的时候你未必知道传进来的数组是不是连续的，也就未必知道这一行会不会串。
-⭐ <code>ravel()</code> 和 <code>flatten()</code> 的分工正是为这件事准备的：
-<code>ravel()</code> 尽量给视图，<code>flatten()</code> 一定给拷贝。<strong>想要「保证不共享」就写 <code>flatten()</code>，别写 <code>ravel()</code>。</strong></p>
+<p>在这组输入上，<code>a.reshape(4,3)</code> 是视图，<code>a.T.reshape(12)</code> 不与 <code>a</code> 共享内存。能否重塑成视图，取决于新形状和读取顺序能否用步长表达。<code>ravel()</code> 返回连续的一维数组，能共享时就共享；<code>flatten()</code> 总会创建一份压平后的副本。</p>
 <blockquote>
 <p><strong>为什么这条线画在这里</strong>（哪些操作能用一份 shape + strides 说明书表达）是
 <a href="05-内存布局与stride.html">05 章</a>的正题；
@@ -703,7 +725,7 @@ x[[1, 2]] = 99  # 这次写入 x</code></pre></div><div class="nm-controls"><but
 <code>a[[0,1]]</code> 先当作 <code>__getitem__</code> 跑完，造出一份<strong>临时拷贝</strong>，<code>[0] = 99</code> 写进那份拷贝，
 然后临时拷贝当场被回收。你写的那一行，效果等于什么都没写。</p>
 <p>⭐ <strong>一句话记法：只有【紧挨着等号左边】的那个下标才是写；它左边的每一步都是读。</strong>
-<code>a[0][1] = 99</code> 之所以生效，是因为读那一步 <code>a[0]</code> 恰好给的是视图。<strong>语法一样，结果取决于读的那一步。</strong></p>
+<code>a[0][1] = 99</code> 先读到首行视图 <code>[0,1,2,3]</code>，再把视图的第 1 格写成 99，落点是 <code>a[0,1]</code>。如果第一步改用 <code>a[[0]]</code>，同样选中首行，却先复制出一张独立的小表。此时给 <code>a[[0]][0,1]</code> 赋值，写入落在小表里。</p>
 <p>⚠️ 同一个机制还有一个后果：<code>b[[0,0,0]] += 1</code> <strong>只加一次</strong>，不是三次。
 那一条以及 <code>np.add.at</code> 的用法在 <a href="06-%E7%B4%A2%E5%BC%95%E7%9A%84%E5%9B%9B%E7%A7%8D%E5%BD%A2%E6%80%81.html">06 章第五节</a>。</p>
 <hr>
@@ -1016,12 +1038,12 @@ x[[1, 2]] = 99  # 这次写入 x</code></pre></div><div class="nm-controls"><but
 <tr>
 <td><strong>②</strong></td>
 <td><strong>要改就先在入口拷一份</strong>，别在半路拷</td>
-<td><code>x = np.array(x, dtype=float)</code> 放函数第一行。⚠️ 别写 <code>np.asarray</code>，它不拷</td>
+<td><code>x = np.array(x, dtype=float)</code> 放函数第一行。⚠️ 别写 <code>np.asarray</code> 来保证独立，它可能复用输入的缓冲区</td>
 </tr>
 <tr>
 <td><strong>③</strong></td>
-<td>⭐ <strong>不要把内部数组的视图当返回值交出去</strong></td>
-<td><code>return self._buf[1:]</code> 会让调用者拿到一把能改你内部状态的钥匙。要么 <code>.copy()</code>，要么 <code>r.flags.writeable = False</code> 把它设成只读</td>
+<td>⭐ <strong>说明返回的是快照还是共享数据</strong></td>
+<td>需要返回独立的数值快照时，用 <code>self._buf[1:].copy()</code>。如果希望视图继续反映原数据变化，只限制从该视图直接写入，可设置 <code>r.flags.writeable = False</code>。</td>
 </tr>
 </tbody>
 </table></div>
@@ -1059,7 +1081,7 @@ x[[1, 2]] = 99  # 这次写入 x</code></pre></div><div class="nm-controls"><but
 </tr>
 <tr>
 <td>想要一份保证独立的</td>
-<td>⭐ <code>a.copy()</code>。⚠️ <code>np.asarray(a)</code> 和 <code>a[:]</code> <strong>都不拷</strong></td>
+<td>⭐ <code>a.copy()</code>。⚠️ <code>np.asarray(a)</code> 可能复用原数据，<code>a[:]</code> 则给视图</td>
 </tr>
 <tr>
 <td>想要「压平，且保证不共享」</td>
@@ -1071,7 +1093,7 @@ x[[1, 2]] = 99  # 这次写入 x</code></pre></div><div class="nm-controls"><but
 </tr>
 <tr>
 <td>传给别人的函数，怕被改</td>
-<td>入口 <code>x = np.array(x)</code>；或者交出去之前 <code>r.flags.writeable = False</code></td>
+<td>需要隔离就传 <code>x.copy()</code>。只想阻止从这个视图直接写入，可设置 <code>r.flags.writeable = False</code>。</td>
 </tr>
 <tr>
 <td><code>dtype=object</code> 的数组要真拷贝</td>
@@ -1087,8 +1109,7 @@ x[[1, 2]] = 99  # 这次写入 x</code></pre></div><div class="nm-controls"><but
 </tr>
 </tbody>
 </table></div>
-<p>⚠️ <strong>一条容易漏的</strong>：<code>reshape</code> 是这张表里唯一「同一行代码、两种行为」的 ——
-是否能给视图取决于目标形状能否由当前 strides 表达；不连续不等于必然拷贝。<strong>写库的时候别依赖它的返回值会不会串。</strong></p>
+<p>⚠️ <strong>一条容易漏的</strong>：<code>reshape</code> 可能给视图，也可能复制数据。能否给视图取决于目标形状和读取顺序能否用步长表达。需要明确隔离时，再用 <code>.copy()</code>。</p>
 <p>上面的具体实验结果照常成立；不要把它概括成“不连续必然拷贝”。机制可对照 <a href="https://numpy.org/doc/stable/user/basics.copies.html">NumPy 的拷贝与视图说明</a>。</p>
 <hr>
 <h3 id="_7">🔗 这一章连到哪里</h3>
@@ -1160,7 +1181,7 @@ x[[1, 2]] = 99  # 这次写入 x</code></pre></div><div class="nm-controls"><but
 <li><code>c = b[::2]; c += 1</code> 和 <code>c = b[[0,2]]; c += 1</code>，实跑之后 <code>b</code> 分别变成什么？差别的根源是什么？</li>
 <li>判断两个数组共不共享内存，该写哪一行？为什么 <code>.base</code> 不行 —— 说出<strong>两个</strong>方向的失败。</li>
 <li>⭐ <code>a.T.base is a</code> 是 <code>True</code> 还是 <code>False</code>？<code>a.T.base is base</code> 呢？</li>
-<li>判据表里哪一行是「同一行代码、两种行为」？想要「压平且保证不共享」该写 <code>ravel()</code> 还是 <code>flatten()</code>？</li>
+<li>为什么两次调用 <code>reshape</code>，一次与原数组共享、一次不共享？想要「压平且保证不共享」该写 <code>ravel()</code> 还是 <code>flatten()</code>？</li>
 <li>⭐ 「花式索引给的是拷贝」，那为什么 <code>b[[0,2]] += 1</code> 还是把 <code>b</code> 改了？判据是什么？</li>
 <li>💀 <code>a[[0,1]][0] = 99</code> 会发生什么？为什么它比报错还糟？正确写法是什么？</li>
 <li>K-means 那场事故里，<code>X</code> 被改掉了几行？两版的 inertia 分别是多少？180 个样本里有多少个标签是一样的 —— 这个数字为什么才是重点？</li>
@@ -1214,8 +1235,8 @@ x[[1, 2]] = 99  # 这次写入 x</code></pre></div><div class="nm-controls"><but
 </li>
 <li>
 <p><strong>①</strong> 把「会改参数」写进函数名或第一行文档（NumPy 自己就是：<code>np.sort(a)</code> 返回新的、<code>a.sort()</code> 改自己）；</p>
-<p>② 要改就在函数第一行拷一份 <code>x = np.array(x, dtype=float)</code>（⚠️ 别写 <code>np.asarray</code>，它不拷）；</p>
-<p>③ 别把内部数组的视图当返回值交出去 —— 要么 <code>.copy()</code>，要么 <code>r.flags.writeable = False</code> 设成只读（<code>np.broadcast_to</code> 就是这么干的）。</p>
+<p>② 要改就在函数第一行拷一份 <code>x = np.array(x, dtype=float)</code>（⚠️ 别写 <code>np.asarray</code> 来保证独立，它可能复用输入的缓冲区）；</p>
+<p>③ 需要独立数值快照时返回 <code>.copy()</code>；允许读取源数据的新值时，可以返回设置了 <code>r.flags.writeable = False</code> 的共享视图。原数组或其他可写视图仍能改到这些数据。</p>
 <p>拷贝不免费：122 MB 的数组取视图 0.0001 ms、<code>.copy()</code> 10.1 ms，约 9 万倍，所以入口撒一次就够，别在循环里每行撒。</p>
 </li>
 </ol>
