@@ -352,7 +352,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>⚠️ 麻烦的是这两件事在源码里<strong>长得很像</strong>。<code>b += [4]</code> 对列表是<strong>改对象</strong>（相当于 <code>extend</code>），对元组和数字是改名字（造一个新的再绑上去）。同一个 <code>+=</code>，两种行为。</p>
+<p>⚠️ <code>+=</code> 会先读取左边，再把运算结果写回左边。对内置列表，<code>b += [4]</code> 会先原地扩展列表，再把同一个列表写回 <code>b</code>。元组和数值无法这样原地修改，写回的是加法结果。到了函数里，还要先分清读写的是哪个 <code>b</code>。</p>
 <blockquote>
 <p>⭐ <strong>背下来这句</strong>：<strong><code>是不是同一个对象</code> 用 <code>is</code> / <code>id()</code> 查；<code>内容一样不一样</code> 用 <code>==</code> 查。</strong>
 这一章之后所有的坑，都是「以为在复制、其实在共享」。</p>
@@ -396,6 +396,61 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
+<h3 id="function-name-scope">外面有这个名字，为什么函数里还说没绑定？</h3>
+<p>外层函数有一张工单列表。内层函数原先只负责读取，后来加了一行代码，打算把列表换成新的。再运行时，先执行的读取就报错了。那一行改绑还没执行，为什么会影响前面的读取？</p>
+<p><strong>作用域（scope）</strong>决定一处代码可以看见哪些名字，以及同名时用哪一个。在普通函数体里，Python 先根据整个函数体中的绑定操作确定哪些名字是局部的。形参就是一类局部名字。给裸名字赋值也会把它归到本函数，除非用 <code>nonlocal</code> 或 <code>global</code> 明确指定别处的绑定。</p>
+<p>只读一个没有在本函数绑定的名字时，Python 沿函数定义处向外查找，依次检查包住它的函数、定义所在的模块和内置名字。若这个名字已被判为本函数的局部名字，就在本次调用里读它。读到还没绑定的局部名字会抛出 <code>UnboundLocalError</code>，不会跳回外层同名的变量。</p>
+<div class="tw" tabindex="0" role="region" aria-label="工单列表在四次调用中的名称和对象变化">
+<table>
+<thead><tr><th scope="col">本次调用</th><th scope="col">内层怎样使用 jobs</th><th scope="col">外层调用后看到什么</th></tr></thead>
+<tbody>
+<tr><td><code>show()</code></td><td>只读，找到外层的 <code>jobs</code></td><td><code>jobs</code> 和 <code>old_jobs</code> 都指向 <code>["A"]</code></td></tr>
+<tr><td><code>broken()</code></td><td>赋值使 <code>jobs</code> 成为局部名字。<code>print</code> 先读它，尚未绑定就报错</td><td>外层两个名字仍指向同一个 <code>["A"]</code></td></tr>
+<tr><td><code>append_job()</code></td><td>读外层 <code>jobs</code> 指向的列表，用 <code>append</code> 改内容</td><td>两个名字仍指向同一个列表，现在是 <code>["A", "B"]</code></td></tr>
+<tr><td><code>replace_jobs()</code></td><td><code>nonlocal</code> 让赋值改绑外层的 <code>jobs</code></td><td><code>jobs → ["C"]</code>，<code>old_jobs → ["A", "B"]</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>下面整段可以独立运行。它只捕获故意触发的那一种异常，所以还能继续演示后两次调用。</p>
+<div class="codehilite" data-code-language="python"><pre><code>def demo():
+    jobs = ["A"]
+    old_jobs = jobs
+
+    def show():
+        print("读取", jobs)
+
+    def broken():
+        print(jobs)
+        jobs = ["C"]
+
+    def append_job():
+        jobs.append("B")
+
+    def replace_jobs():
+        nonlocal jobs
+        jobs = ["C"]
+
+    show()
+    try:
+        broken()
+    except UnboundLocalError as error:
+        print(type(error).__name__)
+
+    append_job()
+    print("追加", jobs, old_jobs is jobs)
+    replace_jobs()
+    print("换表", jobs, old_jobs, old_jobs is jobs)
+
+
+demo()
+</code></pre></div>
+<section class="visual-block visual-block-note" aria-label="作用域示例输出">
+<p class="visual-block-title">运行输出</p>
+<div class="vb-note"><p>读取 ['A']</p><p>UnboundLocalError</p><p>追加 ['A', 'B'] True</p><p>换表 ['C'] ['A', 'B'] False</p></div>
+</section>
+<p>若只想改共享列表的内容，<code>jobs.append("B")</code> 或 <code>jobs[0] = "B"</code> 会读取 <code>jobs</code> 再改对象。这两行都没有给裸名字 <code>jobs</code> 赋值。若把追加改写成 <code>jobs += ["B"]</code>，增量赋值仍把 <code>jobs</code> 当成要读写的局部名字。没有局部初值时，读取那一步就报错，列表尚未改变。</p>
+<p><code>nonlocal</code> 从外层函数里逐层找最近一个已有的同名绑定，让内层的读和写都使用它。外层函数里没有可用的绑定时会报 <code>SyntaxError</code>。<code>global</code> 指向函数定义所在的模块层。若只需交回一个新列表，可以直接返回它，让调用方决定绑定给谁。</p>
+<p>下一步可在 <a href="03-装饰器与上下文管理器.html#_2">03 的三层装饰器</a>看内层函数怎样使用外层的参数。遇到实际报错时，可按 <a href="07-异常traceback和调试.html#traceback">07 的 traceback 读法</a>先定位读失败的那一行，再查同一函数体中的赋值。规则可对照 <a href="https://docs.python.org/3/reference/executionmodel.html#resolution-of-names">Python 名称解析</a>与<a href="https://docs.python.org/3/reference/simple_stmts.html#augmented-assignment-statements">增量赋值参考</a>。</p>
 <h2 id="0" data-mg-stop="">⚠️ 三、可变默认参数：共享的默认值</h2>
 <p>默认值是在<strong>执行 <code>def</code> 那一刻</strong>求值一次的，之后所有调用<strong>共用同一个对象</strong>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 可变默认参数：默认值在【定义函数那一刻】只创建一次</span>
@@ -703,6 +758,11 @@ print(&quot;保留的负载字节:&quot;, sizes)
 <td>函数里改成返回新对象</td>
 </tr>
 <tr>
+<td>外层有值，内层读取却报 <code>UnboundLocalError</code></td>
+<td><a href="#function-name-scope">函数体里的名字绑定</a></td>
+<td>在同一函数体里找这个裸名字的赋值，包括 <code>+=</code> 和未执行的分支</td>
+</tr>
+<tr>
 <td>函数第二次调用结果就不对</td>
 <td>⭐ 三、可变默认参数</td>
 <td><code>print(f.__defaults__)</code></td>
@@ -774,6 +834,7 @@ print(&quot;保留的负载字节:&quot;, sizes)
 <li>DQN 的 target 网络写成 <code>= net</code> 会怎样？为什么这个错误在训练曲线上看不出来？该加一句什么断言？</li>
 <li>类属性被共享时，为什么 <code>self.history.append(x)</code> 会改到类属性，而 <code>self.history = []</code> 不会？</li>
 <li>什么时候应判断对象身份，什么时候应比较值？为什么「<code>x is 256</code> 返回 True」比一个总是出错的 bug 更麻烦？</li>
+<li>在工单例子里，如果把 <code>broken()</code> 的赋值移进 <code>if False:</code> 分支，前面的 <code>print(jobs)</code> 还会报错吗？如果直接删除赋值呢？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
@@ -786,13 +847,14 @@ print(&quot;保留的负载字节:&quot;, sizes)
 <li>target 网络和主网络变成同一个对象，参数一更新目标跟着动，DQN 退化成<strong>自己追自己的回归</strong>。看不出来是因为它不报错、loss 还在降，发散在曲线上长得像「调参没调好」，于是你会去调学习率、buffer、探索率，全都不是根因。该加 <code>assert self.q_target is not self.q</code>；同步权重用 <code>load_state_dict</code> 复制数值。</li>
 <li>属性查找是「先找实例，找不到再找类」。<code>append</code> 是<strong>读</strong>属性再原地改那个对象 → 读到类上那个列表；<code>self.history = []</code> 是赋值，会在实例上新建一个属性把类属性遮住。所以「读的是类的、写的是实例的」这种半吊子状态真的会出现。规矩：类体里只放不可变的东西，容器一律在 <code>__init__</code> 里建。</li>
 <li><code>is</code> 判断的是对象身份：适合判断 <code>None</code>、自定义哨兵和“是否正是同一个对象”。普通数值或字符串相等用 <code>==</code>；布尔条件通常直接写 <code>if flag:</code>。CPython 的整数缓存和常量合并只是实现细节，不能让 <code>x is 256</code> 成为数值比较规则。</li>
+<li>移进 <code>if False:</code> 仍会报 <code>UnboundLocalError</code>。判断名字属于哪个作用域时会看完整函数体，不取决于分支是否执行。删除赋值后，内层只读外层名字，按本例调用顺序会打印 <code>["A"]</code>，外层列表的内容不变。</li>
 </ol>
 </details>
 <h2 id="_7">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
 <p>⭐ <strong>Python 里没有「变量」，只有贴在对象上的名字。</strong> 赋值从来不复制对象。</p>
-<p>⭐ <strong>判据：改对象 = 别人看得见，改名字 = 别人看不见</strong>——而这两件事<strong>在源码里长得很像</strong>（<code>+=</code> 对列表是改对象，对数字和元组是改名字）。传参既不是传值也不是传引用：形参只是又一个贴到同一对象上的名字，所以 <code>lst.append(...)</code> 外面看得见，<code>lst = [...]</code> 外面看不见。</p>
+<p>⭐ <strong>先分清改对象还是改绑名字。</strong>形参和调用方可以指向同一对象，<code>lst.append(...)</code> 的修改可以通过两个名字看到。<code>lst = [...]</code> 只改变形参的绑定。读写报错时回到<a href="#function-name-scope">工单列表的四次调用</a>，先确认名字归哪一层，再看哪一行才给它绑定对象。</p>
 <p>⚠️ <strong>一号杀手是可变默认参数</strong>：默认值在执行 <code>def</code> 那一刻<strong>只造了一次</strong>，它挂在<strong>函数对象</strong>上（证据是 <code>f.__defaults__</code>）。它难抓的三个原因：<strong>第一次调用完全正确</strong>（只调一次的测试永远绿）、不报错不警告、在长驻服务里攒成<strong>长得像内存泄漏</strong>的东西。⭐ 统一判据：<strong>默认值只要会变或有构造代价，就写 <code>None</code> 再在函数体里造。</strong></p>
 <p>拷贝的差别只在嵌套层显现：浅拷贝改内层会串，深拷贝不会。⚠️ <code>deepcopy</code> 递归到底、有真实开销，还处理不了文件句柄、socket、锁那类对象。</p>
 <p>💀 <strong>站内实例</strong>：DQN 里 <code>self.q_target = deepcopy(net)</code> 写成 <code>= net</code> 之后，target 跟着主网络一起动，<strong>DQN 退化成自己追自己</strong>——⭐ <strong>不报错、loss 还在降、只是学不出来</strong>，于是你会去调学习率和 buffer，全不是根因。该补的是一行 <code>assert self.q_target is not self.q</code>。</p>
