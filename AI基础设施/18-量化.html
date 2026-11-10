@@ -495,11 +495,17 @@ print(quantize_affine(0.28))
 <p><strong>per-tensor：</strong> 整个 W 共用 s=0.9/7≈0.128571。第二行的 0.06/s≈0.467、−0.04/s≈−0.311，都舍入为 0，反量化后第二行变成 [0,0]。</p>
 <p><strong>per-channel：</strong> 第一行仍用 0.9/7；第二行单独用 s<sub>2</sub>=0.06/7≈0.008571。于是第二行编码为 [7,−5]，反量化得到 [0.06,−0.042857]，小权重没有全部消失。</p>
 <p id="error-propagation">现在把误差带进线性层。原始第二个输出是 y<sub>2</sub>=0.06×2+(−0.04)×1=0.08。per-tensor 结果是 0×2+0×1=0，误差为 −0.08；per-channel 结果是 0.06×2+(−0.042857)×1≈0.077143，误差约 −0.002857。</p>
-<p>一般地，线性层 y=Wx+b；量化权重记作 Ŵ，则输出误差为：</p>
-<p>$$\Delta y=\hat{y}-y=(\hat{W}-W)x$$</p>
+<p>一般地，设线性层有 n 个输入、m 个输出：权重矩阵 $W\in\mathbb{R}^{m\times n}$，输入向量 $x\in\mathbb{R}^{n}$，偏置 $b\in\mathbb{R}^{m}$，原始输出 $y=Wx+b\in\mathbb{R}^{m}$。量化并反量化后的近似权重记作 $\hat{W}\in\mathbb{R}^{m\times n}$。</p>
+<p><strong>本例只量化权重，输入 x 与偏置 b 保持相同。</strong> 因此近似输出是 $\hat{y}=\hat{W}x+b$，输出变化 $\Delta y$ 才能化简为：</p>
+<p>$$\Delta y=\hat{y}-y=(\hat{W}x+b)-(Wx+b)=(\hat{W}-W)x$$</p>
+<p>若输入激活或偏置也被量化，分别记为 $\hat{x}$、$\hat{b}$，并把此时的近似输出记为 $\tilde{y}=\hat{W}\hat{x}+\hat{b}$，那么完整差值可以拆成：</p>
+<p>$$\tilde{y}-y=(\hat{W}-W)x+\hat{W}(\hat{x}-x)+(\hat{b}-b)$$</p>
+<p>右边三项依次来自权重、激活和偏置。只保留第一项，就等于假设后两项为 0；因此不能把本章的简式直接套到 W8A8 等同时量化权重和激活的方案。</p>
 <ul>
-<li><strong>Δy</strong> 是输出变化；<strong>Ŵ−W</strong> 是每个权重的量化误差；<strong>x</strong> 是本次输入激活。</li>
+<li><strong>m、n</strong> 分别是输出维度与输入维度；<strong>Ŵ−W</strong> 是形状仍为 m×n 的权重误差矩阵。</li>
+<li><strong>ŷ</strong> 是仅替换权重后的近似输出；<strong>Δy=ŷ−y∈R<sup>m</sup></strong> 是 m 个输出各自的变化；<strong>x</strong> 是本次保持不变的输入激活。</li>
 <li>同一份权重误差遇到更大的激活，输出误差可能被放大；不同项也可能相互抵消，所以不能只看某一个权重。</li>
+<li>若输入激活或偏置也被量化，就要使用上面的三项分解，不能继续只写 (Ŵ−W)x。</li>
 <li>这个小例子说明 per-channel 能缓解通道跨度差异，不证明它对所有层、所有内核都更快或端到端质量必然更高。</li>
 </ul>
 <p>粒度更细通常能提供更多尺度信息，也会增加 scale 元数据、内核复杂度或执行限制。比较时要保持 zero point、分组方式、模型输入与实际内核一致。</p>
@@ -806,7 +812,7 @@ print(quantize_affine(0.28))
 <li>BF16→INT4 的 4 倍是什么模型下的比例，不是什么保证？</li>
 <li>量化的三个潜在收益是什么？</li>
 <li>非对称量化里，scale 和 zero point 分别怎样从两个区间得到？zero point 为什么必须是整数？</li>
-<li>为什么同一个矩阵用 per-tensor 时小通道可能归零，而 per-channel 能保留它？这是否保证端到端更快？</li>
+<li>为什么同一个矩阵用 per-tensor 时小通道可能归零，而 per-channel 能保留它？这是否保证端到端更快？本章的 Δy=(Ŵ−W)x 依赖什么前提？</li>
 <li>离群值怎样让小值挤进同一个格子？</li>
 <li>SmoothQuant 与 AWQ 各在做什么？“1% 显著权重”不能推出什么？</li>
 <li>PTQ/QAT、校准集/评测集各有什么区别？</li>
@@ -823,7 +829,7 @@ print(quantize_affine(0.28))
 <li>是理想纯权重字节数的 1/4、对应权重读取模型下 4 倍速率，不是端到端实测。</li>
 <li>减少权重读取、腾出容量、降低设备容量要求；都需要质量与服务指标验收。</li>
 <li>先用两个区间的跨度相除得到 s=(x<sub>max</sub>−x<sub>min</sub>)/(q<sub>max</sub>−q<sub>min</sub>)，再令实数 0 对应 z≈q<sub>min</sub>−x<sub>min</sub>/s。q 是整数编码，所以 z 也要舍入并限制在整数范围；否则 0 没有可保存的整数编码。</li>
-<li>per-tensor 的最大值可能把共同 scale 拉大，使小通道的数除以 scale 后不足半格而舍入为 0；per-channel 给各通道独立 scale。它可能减小数值误差，但增加元数据和内核要求，不保证端到端更快或所有任务更准。</li>
+<li>per-tensor 的最大值可能把共同 scale 拉大，使小通道的数除以 scale 后不足半格而舍入为 0；per-channel 给各通道独立 scale。它可能减小数值误差，但增加元数据和内核要求，不保证端到端更快或所有任务更准。该误差式只在本例“只替换 W，x 与 b 不变”时成立；激活或偏置也量化时必须计入额外误差项。</li>
 <li>量程变宽使 scale 变大，几个不同的小值舍入后可能相同。</li>
 <li>SmoothQuant 在量化前做等价的通道缩放；AWQ 用激活信息选择保护尺度。不能说剩余 99% 没用。</li>
 <li>PTQ 在训练后应用量化，QAT 用训练适应量化效应；校准帮助定方案，独立评测验证是否可用。</li>
@@ -840,7 +846,7 @@ print(quantize_affine(0.28))
 <ul>
 <li>量化先省字节，是否提速还看瓶颈和算子。</li>
 <li>scale 决定格距，zero point 决定 0 放在哪；粒度决定多少数共用一把尺。</li>
-<li>量化误差会经过输入激活进入线性层输出，单看文件大小或某个权重不够。</li>
+<li>本章的线性层误差式只量化权重；若激活或偏置也量化，还要加上它们造成的误差。</li>
 <li>校准负责选量程与参数，不是最终验收；自己的关键任务和人群仍要单独测试。</li>
 <li>权重与 KV 分开算，容量上界不等于可用并发。</li>
 </ul>
