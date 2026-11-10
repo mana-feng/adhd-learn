@@ -315,8 +315,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">📉 一、为什么小批量解码值得先看量化</a></li>
 <li><a href="#_3">🔢 二、量化的基本原理</a></li>
+<li><a href="#range-affine">　↳ 先从量程推导 scale 与 zero point</a></li>
+<li><a href="#granularity-linear">　↳ 粒度怎样改变线性层误差</a></li>
 <li><a href="#llm">😖 三、离群值：LLM 量化的核心难题</a></li>
 <li><a href="#_4">🧰 四、主流方法怎么选</a></li>
+<li><a href="#calibration-workflow">　↳ 校准到底在校什么</a></li>
 <li><a href="#_7">⚠️ 五、质量评估：这一步不能省</a></li>
 <li><a href="#kv-cache">🧊 六、别忘了 KV Cache 量化</a></li>
 <li><a href="#_8">🔗 和站内其他章的关系</a></li>
@@ -326,7 +329,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="18">18 · 量化</h1>
-<p>⏱ <strong>32 分钟（参考，可分次读）</strong> ｜ ⭐ <strong>少存、少搬，但要实际验证速度与质量</strong></p>
+<p>⏱ <strong>32 分钟（原有参考时长，新增推导建议分次读）</strong> ｜ ⭐ <strong>少存、少搬，但要实际验证速度与质量</strong></p>
+<section class="reading-recap" aria-label="本章学习路线"><p>这一章只追四个问题</p><ol><li>有限个整数格子怎样近似连续数值？</li><li>为什么同一位宽换一种量程或粒度，误差会完全不同？</li><li>校准、PTQ 与 QAT 分别在解决哪一步？</li><li>数值误差怎样传进线性层，最后又该怎样验收任务质量？</li></ol></section>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
 <p><strong>量化用更少的位数表示数值，可以减少权重或缓存的存储；是否更快，要看当前瓶颈和执行它的算子。</strong></p>
@@ -376,7 +380,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>训练同样可能受益于低精度计算、通信或存储。<strong>不能把“训练最多 BF16/FP8”写成技术上限</strong>；QLoRA 等路线使用低比特冻结基座，QAT 则让权重适应量化误差，两者都不等于所有训练状态以相同低位宽计算。</p>
 <hr />
 <h2 id="_3">🔢 二、量化的基本原理</h2>
-<p>先把实数映射到有限整数格子，再用比例尺近似还原：</p>
+<p>先把实数映射到有限整数格子，再用比例尺近似还原。这里的“连续”是直觉说法：计算机里的 FP16/FP32 也只有有限个可表示值；量化只是把可选格子进一步变少。</p>
 <figure class="dia" data-fig="quantization" id="mg-ai-infra-18-figure-1"><svg viewBox="0 0 700 326" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="量化的数值映射"><defs><marker id="a6__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker><marker id="a6l__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--link)"/></marker><marker id="a6d__f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--danger,#e5534b)"/></marker></defs><line x1="110" y1="96" x2="610" y2="96" stroke="var(--link)" stroke-width="3"/><circle cx="249.1" cy="96" r="4.5" fill="var(--link)"/><circle cx="270.7" cy="96" r="4.5" fill="var(--link)"/><circle cx="280.0" cy="96" r="4.5" fill="var(--link)"/><circle cx="320.6" cy="96" r="4.5" fill="var(--link)"/><circle cx="333.1" cy="96" r="4.5" fill="var(--link)"/><circle cx="339.2" cy="96" r="4.5" fill="var(--link)"/><circle cx="364.1" cy="96" r="4.5" fill="var(--link)"/><circle cx="378.9" cy="96" r="4.5" fill="var(--link)"/><circle cx="381.1" cy="96" r="4.5" fill="var(--link)"/><circle cx="388.0" cy="96" r="4.5" fill="var(--link)"/><circle cx="440.3" cy="96" r="4.5" fill="var(--link)"/><circle cx="460.4" cy="96" r="4.5" fill="var(--link)"/><circle cx="469.9" cy="96" r="4.5" fill="var(--link)"/><circle cx="490.4" cy="96" r="4.5" fill="var(--link)"/><text class="dia-t" x="100" y="101" font-size="12.5" text-anchor="end" fill="var(--link)" font-weight="700">FP16</text><text class="dia-t" x="340" y="72" font-size="12.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">原始权重示意：FP16 的可表示值也有限</text><line x1="110" y1="210" x2="610" y2="210" stroke="var(--accent)" stroke-width="3"/><line x1="110.0" y1="202" x2="110.0" y2="218" stroke="var(--accent)" stroke-width="1.6"/><line x1="141.2" y1="202" x2="141.2" y2="218" stroke="var(--accent)" stroke-width="1.6"/><line x1="172.5" y1="202" x2="172.5" y2="218" stroke="var(--accent)" stroke-width="1.6"/><line x1="203.8" y1="202" x2="203.8" y2="218" stroke="var(--accent)" stroke-width="1.6"/><line x1="235.0" y1="202" x2="235.0" y2="218" stroke="var(--accent)" stroke-width="1.6"/><line x1="266.2" y1="202" x2="266.2" y2="218" stroke="var(--accent)" stroke-width="1.6"/><line x1="297.5" y1="202" x2="297.5" y2="218" stroke="var(--accent)" stroke-width="1.6"/><line x1="328.8" y1="202" x2="328.8" y2="218" stroke="var(--accent)" stroke-width="1.6"/><line x1="360.0" y1="202" x2="360.0" y2="218" stroke="var(--accent)" stroke-width="1.6"/><line x1="391.2" y1="202" x2="391.2" y2="218" stroke="var(--accent)" stroke-width="1.6"/><line x1="422.5" y1="202" x2="422.5" y2="218" stroke="var(--accent)" stroke-width="1.6"/><line x1="453.8" y1="202" x2="453.8" y2="218" stroke="var(--accent)" stroke-width="1.6"/><line x1="485.0" y1="202" x2="485.0" y2="218" stroke="var(--accent)" stroke-width="1.6"/><line x1="516.2" y1="202" x2="516.2" y2="218" stroke="var(--accent)" stroke-width="1.6"/><line x1="547.5" y1="202" x2="547.5" y2="218" stroke="var(--accent)" stroke-width="1.6"/><line x1="578.8" y1="202" x2="578.8" y2="218" stroke="var(--accent)" stroke-width="1.6"/><line x1="610.0" y1="202" x2="610.0" y2="218" stroke="var(--accent)" stroke-width="1.6"/><circle cx="235.0" cy="210" r="4.5" fill="var(--accent)"/><line x1="249.1" y1="104" x2="235.0" y2="200" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/><circle cx="266.2" cy="210" r="4.5" fill="var(--accent)"/><line x1="270.7" y1="104" x2="266.2" y2="200" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/><circle cx="266.2" cy="210" r="4.5" fill="var(--accent)"/><line x1="280.0" y1="104" x2="266.2" y2="200" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/><circle cx="328.8" cy="210" r="4.5" fill="var(--accent)"/><line x1="320.6" y1="104" x2="328.8" y2="200" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/><circle cx="328.8" cy="210" r="4.5" fill="var(--accent)"/><line x1="333.1" y1="104" x2="328.8" y2="200" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/><circle cx="328.8" cy="210" r="4.5" fill="var(--accent)"/><line x1="339.2" y1="104" x2="328.8" y2="200" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/><circle cx="360.0" cy="210" r="4.5" fill="var(--accent)"/><line x1="364.1" y1="104" x2="360.0" y2="200" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/><circle cx="391.2" cy="210" r="4.5" fill="var(--accent)"/><line x1="378.9" y1="104" x2="391.2" y2="200" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/><circle cx="391.2" cy="210" r="4.5" fill="var(--accent)"/><line x1="381.1" y1="104" x2="391.2" y2="200" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/><circle cx="391.2" cy="210" r="4.5" fill="var(--accent)"/><line x1="388.0" y1="104" x2="391.2" y2="200" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/><circle cx="453.8" cy="210" r="4.5" fill="var(--accent)"/><line x1="440.3" y1="104" x2="453.8" y2="200" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/><circle cx="453.8" cy="210" r="4.5" fill="var(--accent)"/><line x1="460.4" y1="104" x2="453.8" y2="200" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/><circle cx="485.0" cy="210" r="4.5" fill="var(--accent)"/><line x1="469.9" y1="104" x2="485.0" y2="200" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/><circle cx="485.0" cy="210" r="4.5" fill="var(--accent)"/><line x1="490.4" y1="104" x2="485.0" y2="200" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/><text class="dia-t" x="100" y="215" font-size="12.5" text-anchor="end" fill="var(--accent)" font-weight="700">粗格点</text><text class="dia-t" x="340" y="244" font-size="12.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">量化后：只能落在这些格点上 —— 每个数被「吸」到最近的格子</text><text class="dia-t" x="340" y="32" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">量化：用更粗的格点近似原来的数值</text><text class="dia-t" x="340" y="288" font-size="12.5" text-anchor="middle" fill="var(--accent)" font-weight="700">⭐ 关键是【缩放因子】选多大：格子铺太宽浪费精度，铺太窄两头被截断</text><text class="dia-t" x="340" y="310" font-size="11.5" text-anchor="middle" fill="var(--muted)" font-weight="normal">本图只画 17 个示意格点；完整整数范围与 scale 见正文例子</text></svg><figcaption>看虚线：不同的原始值可能落到同一格点，因而丢失细节。这里只用少量格点解释舍入，<b>不是完整 INT8 编码表</b>；FP16 本身也只有有限可表示值。缩放因子决定量程与间距：范围过窄会截断，过宽可能增加常见值的误差。</figcaption></figure>
 
 <p>$$\begin{aligned}
@@ -384,11 +388,48 @@ q&amp;=\operatorname{clip}\big(\operatorname{round}(x/s)+z,\ q_{\min},q_{\max}\b
 \hat{x}&amp;=s(q-z)
 \end{aligned}$$</p>
 <ul>
-<li>s 是正的 scale（比例尺）：每一格对应多大的实数变化。</li>
-<li>z 是整数 zero point（零点）：实数 0 对应哪个整数。</li>
-<li>round 负责舍入；clip 把超出范围的整数截到端点。</li>
-<li>x̂ 是还原值，通常不等于原来的 x。</li>
+<li><strong>x</strong> 是量化前的实数；<strong>q</strong> 是保存下来的整数编码。</li>
+<li><strong>s</strong> 是正的 scale（缩放因子、比例尺）：整数相邻一格，对应实数变化多少。</li>
+<li><strong>z</strong> 是整数 zero point（零点）：实数 0 对应哪个整数编码。</li>
+<li><strong>q<sub>min</sub>、q<sub>max</sub></strong> 是整数编码的上下界；有符号 INT8 通常有 −128～127 共 256 个编码，但对称方案也常只用 −127～127。</li>
+<li><strong>round</strong> 负责舍入；<strong>clip</strong> 把超出范围的整数截到端点。</li>
+<li><strong>x̂</strong> 读作“x hat”，是反量化后的近似值，通常不等于原来的 x；x̂−x 就是这一次的量化误差。</li>
 </ul>
+<h3 id="range-affine">先从量程推导 scale 与 zero point</h3>
+<p>为什么公式要同时有 s 和 z？因为我们要让实数区间的两个端点，尽量落到整数区间的两个端点。设参考实数范围是 [x<sub>min</sub>, x<sub>max</sub>]，整数范围是 [q<sub>min</sub>, q<sub>max</sub>]。下面先假设参考范围包含实数 0；若原始统计范围不含 0，实现通常会扩展范围或把 z 限制到可用整数区间。两个区间分别有 x<sub>max</sub>−x<sub>min</sub> 与 q<sub>max</sub>−q<sub>min</sub> 的跨度，所以每一个整数间隔应代表：</p>
+<p>$$s=\frac{x_{\max}-x_{\min}}{q_{\max}-q_{\min}}$$</p>
+<p>再要求“实数 0 映射到整数 z”。把 x=0 代入未截断的映射 q≈x/s+z，可得 z≈q<sub>min</sub>−x<sub>min</sub>/s；实现还会把 z 舍入并限制在整数范围内。</p>
+<p><strong>完整的非对称 INT8 例子：</strong> 假设一组权重的参考范围是 −0.2～0.8，使用 q<sub>min</sub>=−128、q<sub>max</sub>=127。</p>
+<ol>
+<li>先算跨度：0.8−(−0.2)=1.0；整数跨度是 127−(−128)=255。</li>
+<li>得到 s=1.0/255≈0.00392157。也就是整数每走一格，实数约变化 0.00392。</li>
+<li>计算零点：z=round(−128−(−0.2/0.00392157))=round(−77)=−77。于是实数 0 正好用整数 −77 表示。</li>
+<li>量化 x=0.28：q=round(0.28/0.00392157)−77=71−77=−6，没有超界，不需要截断。</li>
+<li>反量化：x̂=0.00392157×(−6−(−77))=0.00392157×71≈0.278431。</li>
+<li>误差：x̂−x≈0.278431−0.28=−0.001569。负号表示近似值比原值略小。</li>
+</ol>
+<p>这个例子里的量程是演示设定，不是模型自动保证的最佳答案。若后续输入跑到 1.2，q 会被 clip 到 127，反量化仍只能得到约 0.8；这叫<strong>饱和或截断误差</strong>。量程铺得太宽，常见值的格子又会变粗；校准要处理的正是这组取舍。</p>
+<p>把同一套步骤写成不依赖第三方库的 Python，公式和代码可以逐行对照：</p>
+<div class="codehilite" data-code-language="python"><pre><code>def quantize_affine(x, x_min=-0.2, x_max=0.8, q_min=-128, q_max=127):
+    # 两个区间的跨度决定一格有多宽
+    scale = (x_max - x_min) / (q_max - q_min)
+
+    # 先让实数 0 对应某个整数，再把它限制在合法编码内
+    zero_point = round(q_min - x_min / scale)
+    zero_point = max(q_min, min(q_max, zero_point))
+
+    # 量化：除以格距、舍入、平移、截断
+    q = round(x / scale) + zero_point
+    q = max(q_min, min(q_max, q))
+
+    # 反量化，并返回这一次的有符号误差
+    x_hat = scale * (q - zero_point)
+    return scale, zero_point, q, x_hat, x_hat - x
+
+
+print(quantize_affine(0.28))
+</code></pre></div>
+<p>输出约为 <code>(0.00392157, -77, -6, 0.27843137, -0.00156863)</code>。这段代码用于解释步骤，不替代框架实现；不同库可能规定不同的舍入模式、饱和行为和 scale 存储精度，部署时必须以实际算子为准。</p>
 <p><strong>一个口径一致的对称 INT8 例子：</strong> 使用整数范围 −127～127，z=0，实数参考范围 −0.5～0.5，因此 s=0.5/127≈0.003937。</p>
 <div class="tw"><table>
 <thead>
@@ -448,7 +489,20 @@ q&amp;=\operatorname{clip}\big(\operatorname{round}(x/s)+z,\ q_{\min},q_{\max}\b
 </tr>
 </tbody>
 </table></div>
-<p>粒度更细不自动保证端到端质量更好。比较时还要一致地计算 scale、zero point、分组方式和实际内核支持。</p>
+<h3 id="granularity-linear">粒度怎样改变线性层误差</h3>
+<p>“每通道更细”不能只靠一句定义理解。下面用一个两行权重矩阵做<strong>教学用 4bit 心算</strong>。把每一行当作一个输出通道，采用对称整数范围 −7～7；真实框架的通道轴由算子和权重布局决定，不能永远假设是行。</p>
+<p>$$W=\begin{bmatrix}0.9&amp;-0.8\\0.06&amp;-0.04\end{bmatrix},\qquad x=\begin{bmatrix}2\\1\end{bmatrix}$$</p>
+<p><strong>per-tensor：</strong> 整个 W 共用 s=0.9/7≈0.128571。第二行的 0.06/s≈0.467、−0.04/s≈−0.311，都舍入为 0，反量化后第二行变成 [0,0]。</p>
+<p><strong>per-channel：</strong> 第一行仍用 0.9/7；第二行单独用 s<sub>2</sub>=0.06/7≈0.008571。于是第二行编码为 [7,−5]，反量化得到 [0.06,−0.042857]，小权重没有全部消失。</p>
+<p id="error-propagation">现在把误差带进线性层。原始第二个输出是 y<sub>2</sub>=0.06×2+(−0.04)×1=0.08。per-tensor 结果是 0×2+0×1=0，误差为 −0.08；per-channel 结果是 0.06×2+(−0.042857)×1≈0.077143，误差约 −0.002857。</p>
+<p>一般地，线性层 y=Wx+b；量化权重记作 Ŵ，则输出误差为：</p>
+<p>$$\Delta y=\hat{y}-y=(\hat{W}-W)x$$</p>
+<ul>
+<li><strong>Δy</strong> 是输出变化；<strong>Ŵ−W</strong> 是每个权重的量化误差；<strong>x</strong> 是本次输入激活。</li>
+<li>同一份权重误差遇到更大的激活，输出误差可能被放大；不同项也可能相互抵消，所以不能只看某一个权重。</li>
+<li>这个小例子说明 per-channel 能缓解通道跨度差异，不证明它对所有层、所有内核都更快或端到端质量必然更高。</li>
+</ul>
+<p>粒度更细通常能提供更多尺度信息，也会增加 scale 元数据、内核复杂度或执行限制。比较时要保持 zero point、分组方式、模型输入与实际内核一致。</p>
 <hr />
 <h2 id="llm">😖 三、离群值：LLM 量化的核心难题</h2>
 <p><strong>如果少数值把量程拉得很宽，常见的小值会挤在很少几个格子里。</strong> 不是所有模型都固定存在“100 倍离群值”，也不是有离群值就必然失效。</p>
@@ -539,6 +593,23 @@ q&amp;=\operatorname{clip}\big(\operatorname{round}(x/s)+z,\ q_{\min},q_{\max}\b
 </tbody>
 </table></div>
 <p>可对照 <a href="https://pytorch.org/blog/quantization-aware-training/">PyTorch 的 LLM QAT 流程</a>。先试较低成本路线合理，但不能用“PTQ 绝对主流”代替自己的质量验证。</p>
+<h3 id="calibration-workflow">校准到底在校什么</h3>
+<p><strong>校准（calibration）不是让模型继续学习答案，而是观察代表性数据经过模型时的数值分布，为量程、scale、zero point、粒度或裁剪阈值提供依据。</strong> 权重已经存放在模型里，权重量化可以直接统计权重；激活会随输入变化，静态激活量化通常更依赖代表性校准样本。</p>
+<p>把 PTQ 的最小闭环拆成五步，比较容易发现数据泄漏：</p>
+<ol>
+<li><strong>冻结基线：</strong> 固定原模型、分词器、提示模板和解码参数。</li>
+<li><strong>准备校准集：</strong> 只用有权使用且经过必要脱敏的代表性输入，覆盖语言、长度、典型流量与高风险分组；它用来定量化参数，不用来宣布最终成绩。</li>
+<li><strong>运行观察器：</strong> 收集 min/max、直方图或方法需要的层输入统计，再选择 scale、zero point、裁剪阈值和粒度。不同方法并不都只看 min/max。</li>
+<li><strong>生成并加载量化模型：</strong> 核对保存格式和推理内核真的采用同一套参数。</li>
+<li><strong>独立验收：</strong> 用没有参与校准的评测集比较任务质量、关键分组、时延、吞吐与显存；不合格就调整方案或回退。</li>
+</ol>
+<p><strong>裁剪的数字取舍：</strong> 仍用上一节的 [0.3,0.2,−0.4,0.5,87.2,0.1]。若把最大绝对值 87.2 全部包进对称 INT8，s≈0.687，0.3 会舍入成 0。若候选阈值改为 1.0，s=1/127≈0.007874，0.3 会编码成 round(38.1)=38，反量化约 0.2992；但 87.2 会被截成约 1.0，误差巨大。校准算法是在“多数值更细”和“尾部值别被截坏”之间选取可验证的折中，不是机械寻找最大值。</p>
+<div class="tw"><table>
+<thead><tr><th>激活量化方式</th><th>scale 何时得到</th><th>主要取舍</th></tr></thead>
+<tbody>
+<tr><td>静态量化（static quantization）</td><td>部署前用校准数据确定并保存</td><td>运行期开销较低，但校准分布若不代表线上，量程可能不合适</td></tr>
+<tr><td>动态量化（dynamic quantization）</td><td>运行时按当前张量、批次或 token 统计</td><td>能适应输入变化，但统计和缩放也有运行成本，且仍需独立质量评测</td></tr>
+</tbody></table></div>
 <p><strong>校准集不是测试集。</strong> 校准数据可能用于估计范围、选择尺度、衡量输入相关性或重建层输出，不同方法不只是在统计 min/max。</p>
 <p>英文百科校准与中文客服流量差异大时，质量可能受影响；但掉分也可能来自位宽、模型结构、实现、提示模板或实际任务，不应未经调查就归因于校准集。</p>
 <p>几百条只是一些方法的实验起点，不是充分性保证。使用有权使用、适当脱敏的代表性样本，覆盖语言、长度和关键场景；再用独立评测集验收，不能直接把所有线上日志当可用数据。</p>
@@ -734,9 +805,12 @@ q&amp;=\operatorname{clip}\big(\operatorname{round}(x/s)+z,\ q_{\min},q_{\max}\b
 <li>哪些条件下，量化可能明显改善解码？为什么不能泛指全部推理？</li>
 <li>BF16→INT4 的 4 倍是什么模型下的比例，不是什么保证？</li>
 <li>量化的三个潜在收益是什么？</li>
+<li>非对称量化里，scale 和 zero point 分别怎样从两个区间得到？zero point 为什么必须是整数？</li>
+<li>为什么同一个矩阵用 per-tensor 时小通道可能归零，而 per-channel 能保留它？这是否保证端到端更快？</li>
 <li>离群值怎样让小值挤进同一个格子？</li>
 <li>SmoothQuant 与 AWQ 各在做什么？“1% 显著权重”不能推出什么？</li>
 <li>PTQ/QAT、校准集/评测集各有什么区别？</li>
+<li>静态量化和动态量化的 scale 在什么时候得到？裁剪为什么不是越少越好？</li>
 <li>W4A16、INT8 W8A8、FP8 W8A8 有什么不同？选型只看 GPU 够吗？</li>
 <li>为什么没有报错也要评测？</li>
 <li>如何核对不同任务和人群的质量？</li>
@@ -748,9 +822,12 @@ q&amp;=\operatorname{clip}\big(\operatorname{round}(x/s)+z,\ q_{\min},q_{\max}\b
 <li>小批量逐 token 解码、权重读取为主要瓶颈且有合适内核时可能受益；prefill、大批量、长上下文或通信开销可能改变瓶颈。</li>
 <li>是理想纯权重字节数的 1/4、对应权重读取模型下 4 倍速率，不是端到端实测。</li>
 <li>减少权重读取、腾出容量、降低设备容量要求；都需要质量与服务指标验收。</li>
+<li>先用两个区间的跨度相除得到 s=(x<sub>max</sub>−x<sub>min</sub>)/(q<sub>max</sub>−q<sub>min</sub>)，再令实数 0 对应 z≈q<sub>min</sub>−x<sub>min</sub>/s。q 是整数编码，所以 z 也要舍入并限制在整数范围；否则 0 没有可保存的整数编码。</li>
+<li>per-tensor 的最大值可能把共同 scale 拉大，使小通道的数除以 scale 后不足半格而舍入为 0；per-channel 给各通道独立 scale。它可能减小数值误差，但增加元数据和内核要求，不保证端到端更快或所有任务更准。</li>
 <li>量程变宽使 scale 变大，几个不同的小值舍入后可能相同。</li>
 <li>SmoothQuant 在量化前做等价的通道缩放；AWQ 用激活信息选择保护尺度。不能说剩余 99% 没用。</li>
 <li>PTQ 在训练后应用量化，QAT 用训练适应量化效应；校准帮助定方案，独立评测验证是否可用。</li>
+<li>静态量化部署前用代表性样本保存 scale；动态量化运行时按当前数据计算。完全不裁剪会让少数极值把格子拉粗，裁剪太多又会让尾部值饱和；应由任务与风险分组验收决定。</li>
 <li>位宽不等于完整格式；还要看算子、模型、版本、任务、质量与实际负载。</li>
 <li>加载成功和文本通顺不证明任务能力没变；实现故障也可能报错。</li>
 <li>固定评测口径，检查独立样本、关键分组与不确定性，不采用通用“200 条就够”门槛。</li>
@@ -762,8 +839,9 @@ q&amp;=\operatorname{clip}\big(\operatorname{round}(x/s)+z,\ q_{\min},q_{\max}\b
 <p>⚡ <strong>走神救援</strong></p>
 <ul>
 <li>量化先省字节，是否提速还看瓶颈和算子。</li>
-<li>scale、零点、位宽与粒度要一起看，不能混用计算口径。</li>
-<li>校准不是验收；自己的关键任务和人群仍要单独测试。</li>
+<li>scale 决定格距，zero point 决定 0 放在哪；粒度决定多少数共用一把尺。</li>
+<li>量化误差会经过输入激活进入线性层输出，单看文件大小或某个权重不够。</li>
+<li>校准负责选量程与参数，不是最终验收；自己的关键任务和人群仍要单独测试。</li>
 <li>权重与 KV 分开算，容量上界不等于可用并发。</li>
 </ul>
 <p><strong>下一节</strong> 👉 <a href="18b-知识蒸馏.html">18b-知识蒸馏.md</a></p>
