@@ -305,7 +305,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <a href="#mg-ai-infra-06-reading-start">直接进入完整正文</a>
 <a href="#mg-ai-infra-06-figure-1">对照本章原图与图注</a>
 </nav>
-<nav class="mg-reading-map" aria-label="本章其他定位"><a href="#_4">⚙️ 三、&quot;混合&quot;精度：哪些用低精度，哪些不能</a><a href="#loss-scalingfp16">🩹 四、Loss Scaling：FP16 专属的补丁</a></nav>
+<nav class="mg-reading-map" aria-label="本章其他定位"><a href="#_4">⚙️ 三、&quot;混合&quot;精度：哪些用低精度，哪些不能</a><a href="#loss-scalingfp16">🩹 四、损失缩放：先放大，后还原</a></nav>
 </div>
 </header>
 <span id="mg-ai-infra-06-reading-start"></span>
@@ -316,7 +316,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#_2">🔢 一、五种数字格式</a></li>
 <li><a href="#_3">💰 二、为什么快：三个来源</a></li>
 <li><a href="#_4">⚙️ 三、"混合"精度：哪些用低精度，哪些不能</a></li>
-<li><a href="#loss-scalingfp16">🩹 四、Loss Scaling：FP16 专属的补丁</a></li>
+<li><a href="#loss-scalingfp16">🩹 四、损失缩放：先放大，后还原</a></li>
 <li><a href="#_5">⚠️ 五、五个真实的坑</a></li>
 <li><a href="#fp8h100">🚀 六、FP8：H100 之后的下一步</a></li>
 <li><a href="#_6">🔗 和站内其他章的关系</a></li>
@@ -326,22 +326,22 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="06">06 · 混合精度</h1>
-<p>⏱ <strong>26 分钟</strong> ｜ ⭐ <strong>性价比最高的一个优化</strong></p>
+<p>⏱ <strong>30 分钟</strong> ｜ ⭐ <strong>手算舍入与梯度缩放</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>部分张量使用较低精度可减少存储与搬运，并利用匹配的矩阵内核；整网收益需要实测。</strong>
-听起来像作弊，但它能work是因为 ——
-<strong>深度学习需要的是"动态范围"，而不是"小数点后多少位"。</strong></p>
+
+<p>同一批数据改成较低精度后，显存占用降了，训练损失却突然成了 <code>NaN</code>（非数值，例如无效浮点运算产生的结果）。也可能反过来，模型数值正常，训练一步却没变快。<strong>混合精度（Mixed Precision）</strong>把低精度用于合适的计算或张量，把容易积累误差的步骤留在较高精度。沿用<a href="03-显存与带宽墙.html">第 3 章</a>的字节和搬运账本，本章再分别查数字装不装得下、会舍入到哪里，以及算子的哪一步用了什么精度。</p>
 <hr />
 <h2 id="_2">🔢 一、五种数字格式</h2>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>FP32 [符号 1][指数 8][尾数 23] ← 传统标准</p><p>TF32 [符号 1][指数 8][尾数 10] ← Ampere 支持的矩阵计算格式，是否启用由框架设置决定</p><p>FP16 [符号 1][指数 5][尾数 10] ⚠️ 范围窄</p><p>BF16 [符号 1][指数 8][尾数 7] ⭐ 范围同 FP32，精度低</p><p>FP8 [符号 1][指数 4-5][尾数 2-3] ← H100 起</p><p>↑ 决定【范围】 ↑ 决定【精度】</p></div></section>
+<p>同样用 16 位，为什么 FP16 能分开两个很接近的数，BF16 却能存下 FP16 装不下的大数？位数就像固定的预算。符号位决定正负，指数决定乘上哪一档 2 的幂，尾数中实际存储的小数位决定同一档能分多细。</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>FP32 [符号 1][指数 8][尾数 23] ← 传统标准</p><p>TF32 [符号 1][指数 8][尾数 10] ← Ampere 支持的矩阵计算格式，是否启用由框架设置决定</p><p>FP16 [符号 1][指数 5][尾数 10] ⚠️ 范围窄</p><p>BF16 [符号 1][指数 8][尾数 7] ← 正规指数范围与 FP32 相同，附近的数字间隔更大</p><p>FP8 [符号 1][指数 4–5][尾数 2–3] ← 多种 8 位格式，硬件和内核支持须查证</p><p>↑ 决定【范围】 ↑ 决定【精度】</p></div></section>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>格式</th>
-<th>最大值</th>
-<th>最小正规值</th>
-<th>十进制有效位</th>
+<th scope="col">最大有限正数</th>
+<th scope="col">最小正正规值</th>
+<th scope="col">1 右侧相邻数的间隔</th>
 </tr>
 </thead>
 <tbody>
@@ -349,46 +349,66 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <td>FP32</td>
 <td>~3.4e38</td>
 <td>~1.2e-38</td>
-<td>~7 位</td>
+<td>2<sup>−23</sup></td>
 </tr>
 <tr>
 <td><strong>FP16</strong></td>
 <td><strong>65504</strong> ⚠️</td>
 <td>~6e-5 ⚠️</td>
-<td>~3 位</td>
+<td>2<sup>−10</sup></td>
 </tr>
 <tr>
 <td><strong>BF16</strong></td>
 <td><strong>~3.4e38</strong> ⭐</td>
 <td>~1.2e-38 ⭐</td>
-<td>~2 位</td>
+<td>2<sup>−7</sup></td>
 </tr>
 </tbody>
 </table></div>
-<blockquote>
-<p>🔑 <strong>BF16 vs FP16 是这一章最重要的对比</strong>：
-<strong>BF16 牺牲精度换范围，FP16 牺牲范围换精度。</strong>
-<strong>而深度学习更怕"溢出"（范围不够）而不是"不精确"</strong> ——
-梯度本来就是噪声估计，差几个百分点无所谓；
-但一旦变成 <code>inf</code> 或 <code>0</code>，训练直接崩。</p>
-<p><strong>所以现在的默认是 BF16，不是 FP16。</strong></p>
-</blockquote>
+
+<p>先看 1 到 2（不含 2）这一档。指数为 0，乘数 2<sup>0</sup> 就是 1。对这些正规正数，开头的二进制 1 隐含在格式里，不占尾数的小数位。若存 <var>p</var> 个小数位，可用值就是 1 + <var>f</var> / 2<sup><var>p</var></sup>，其中 <var>f</var> 是从 0 到 2<sup><var>p</var></sup> − 1 的整数。<var>f</var> 每增加 1，值就前进一格。因此 FP16 的格距是 1 ÷ 1024，BF16 的格距是 1 ÷ 128。在别的指数档，格距也随那一档的 2 的幂放大或缩小。</p>
+<div class="tw" id="mp-format-grid"><table style="width:100%;min-width:0;table-layout:fixed">
+<caption style="white-space:normal;overflow-wrap:anywhere">同为 16 位，舍入与范围不同</caption>
+<thead><tr><th scope="col" style="white-space:normal;overflow-wrap:anywhere;word-break:normal">输入</th><th scope="col" style="white-space:normal;overflow-wrap:anywhere;word-break:normal">FP16</th><th scope="col" style="white-space:normal;overflow-wrap:anywhere;word-break:normal">BF16</th></tr></thead>
+<tbody>
+<tr><th scope="row" style="white-space:normal;overflow-wrap:anywhere;word-break:normal">1 + 2<sup>−9</sup></th><td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">精确表示</td><td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">舍入为 1</td></tr>
+<tr><th scope="row" style="white-space:normal;overflow-wrap:anywhere;word-break:normal">65,536</th><td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">超出有限范围</td><td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">精确表示</td></tr>
+</tbody></table></div>
+<p><strong>先算 1 附近的舍入。</strong>1 + 2<sup>−9</sup> 约等于 1.001953，也是 1 + 2 ÷ 1024，正好落在 FP16 从 1 开始的第 2 格。BF16 的右邻是 1 + 1 ÷ 128，中点是 1 + 1 ÷ 256。输入在中点左边，按最近值舍入为 1。</p>
+<p><strong>再算大数能否装下。</strong>FP16 最大一档的指数是 15，最大尾数是 1023。上限为 (1 + 1023 ÷ 1024) × 32,768 = 65,504，所以 65,536 超出有限范围。BF16 可以取指数 16，尾数的小数部分为 0，恰好得到 1 × 2<sup>16</sup> = 65,536。</p>
+<p>BF16 的正规指数范围与 FP32 一样宽，最大有限值仍略小，次正规范围和舍入间隔也不同。遇到 FP16 前向溢出时，可以先核对设备、算子是否支持 BF16，再用同一批数据复查误差和速度。若任务更在意数值分辨率，且数值始终在 FP16 合适的范围内，FP16 或局部 FP32 都值得对照。<a href="https://docs.nvidia.com/cuda/archive/13.3.0/cuda-programming-guide/05-appendices/mathematical-functions.html">CUDA 浮点格式表</a></p>
 <hr />
 <h2 id="_3">💰 二、为什么快：三个来源</h2>
-<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">① Tensor Core（最主要）⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">FP32: 19.5 TFLOPS</span></div><div class="vb-flow-row"><span class="vb-flow-step">BF16: 312 TFLOPS ← 16 倍</span></div><div class="vb-flow-row"><span class="vb-flow-step">Tensor Core 也支持 TF32、整数等格式，支持项随代际变化（第 2 章）</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 带宽减半</span></div><div class="vb-flow-row"><span class="vb-flow-step">同样的显存带宽，一次能搬两倍的元素</span></div><div class="vb-flow-row"><span class="vb-flow-step">对带宽瓶颈的操作（第 3 章那一大堆）直接快一倍 ⭐</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ 显存占用减半</span></div><div class="vb-flow-row"><span class="vb-flow-step">能开更大的 batch</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">算术强度上升</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">又快一点</span></div></div></section>
-<blockquote>
-<p>💡 <strong>注意第 ② 点</strong>：<strong>即使某个操作没用 Tensor Core，减半的数据量也让它变快。</strong>
-这就是为什么混合精度对<strong>整个模型</strong>都有收益，而不只是矩阵乘。</p>
-</blockquote>
+
+<section class="visual-block visual-block-flow" aria-label="混合精度的三个性能来源">
+<p class="visual-block-title">三种收益，分别核算</p>
+<div class="vb-flow">
+<div class="vb-flow-row"><span class="vb-flow-step">① 计算：匹配的矩阵内核可以用 Tensor Core</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step">② 搬运：真正缩小的张量少读写一些字节</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step">③ 容量：节省出来的显存有时能放入更大的批次</span></div>
+</div>
+</section>
+<p><strong>算力与时间用不同的量。</strong>A100 规格给出普通 FP32 的峰值 19.5 TFLOPS、稠密 BF16 Tensor Core 的峰值 312 TFLOPS（每 TFLOPS 表示每秒 10<sup>12</sup> 次浮点运算）。312 ÷ 19.5 = 16，比较的是两种计算路径的峰值。如果基线已用稠密 TF32 Tensor Core，峰值是 156 TFLOPS，规格比变成 312 ÷ 156 = 2。训练一步还要等读写、其他算子和同步。<a href="https://images.nvidia.com/data-center/a100/a100-datasheet.pdf">A100 数据手册</a></p>
+<p><strong>字节变少不等于带宽变小。</strong>假设一个逐元素操作读 100 万个元素并写回 100 万个结果，无缓存复用，也没有额外读写。FP32 共 (100 万 + 100 万) × 4 = 800 万字节，若输入和输出都能存为 BF16，则是 400 万字节。若两条路径都能以 1 TB/s（每秒 10<sup>12</sup> 字节）搬运，按「字节数 ÷ 带宽」分别是 8 μs 和 4 μs。这只是搬运时间的理想估算。若还需把张量转回 FP32、重新分配缓冲区或等待数据，整步未必按这个比例缩短。</p>
 <hr />
 <h2 id="_4">⚙️ 三、"混合"精度：哪些用低精度，哪些不能</h2>
 <p id="nc-f06-implementation"><strong>先固定本例实现：</strong>下图采用 FP32 主权重更新、低精度计算副本和 FP32 Adam m/v 的一种常见方案。混合精度的定义是组合多种数值精度；是否另存 master 副本、状态 dtype 与归约/累加精度，要按框架、优化器和算子核对，不能由“用了 BF16”直接推定。</p>
-<section class="reading-information"><p class="reading-information-title">关键信息</p><ul><li><span>本例中适合尝试 BF16/FP16 的部分：</span></li><li><span>矩阵乘、卷积（占 90%+ 的计算量）</span></li><li><span>激活值（占大部分显存）</span></li><li><span>前向和反向的中间结果</span></li><li><span>本例采用的 FP32 保存/累加策略（非统一规定）：</span></li><li><span>⭐ 主权重副本（master weights）</span></li><li><span>优化器状态（Adam 的 m、v）</span></li><li><span>Softmax / LayerNorm 的【累加部分】</span></li><li><span>损失的求和归约</span></li></ul></section>
+<section class="reading-information"><p class="reading-information-title">关键信息</p><ul><li><span>本例中适合尝试 BF16/FP16 的部分：</span></li><li><span>匹配低精度内核的矩阵乘、卷积</span></li><li><span>允许降低存储精度的激活值</span></li><li><span>前向和反向的中间结果</span></li><li><span>本例采用的 FP32 保存/累加策略（非统一规定）：</span></li><li><span>⭐ 主权重副本（master weights）</span></li><li><span>优化器状态（Adam 的 m、v）</span></li><li><span>Softmax / LayerNorm 的【累加部分】</span></li><li><span>损失的求和归约</span></li></ul></section>
+<div class="tw"><table style="width:100%;min-width:0;table-layout:fixed">
+<caption>看到一种 dtype，先问它指的是哪一处</caption>
+<thead><tr><th scope="col" style="white-space:normal;overflow-wrap:anywhere;word-break:normal">位置</th><th scope="col" style="white-space:normal;overflow-wrap:anywhere;word-break:normal">一次矩阵乘的常见例子</th></tr></thead>
+<tbody>
+<tr><th scope="row" style="white-space:normal;overflow-wrap:anywhere;word-break:normal">算子输入</th><td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">内核拿 BF16 权重和 BF16 激活值做乘法。</td></tr>
+<tr><th scope="row" style="white-space:normal;overflow-wrap:anywhere;word-break:normal">内部累加</th><td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">矩阵乘的一个输出要把许多乘积相加。用 FP32 累加可减少小项在求和时被舍掉的风险，但读入时已经舍掉的信息回不来。</td></tr>
+<tr><th scope="row" style="white-space:normal;overflow-wrap:anywhere;word-break:normal">输出 dtype</th><td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">累加结果仍可转换成 BF16 输出，因此看到 BF16 输出无法判断中间怎样累加。</td></tr>
+<tr><th scope="row" style="white-space:normal;overflow-wrap:anywhere;word-break:normal">跨步保存的状态</th><td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">模型参数、梯度缓冲和 Adam 状态各自有存储精度。由训练配置决定，不能只看前向算子的输入输出。</td></tr>
+</tbody></table></div>
+<p><strong>自动混合精度（Automatic Mixed Precision，AMP）</strong>的 <code>autocast</code> 按设备和算子选择执行 dtype。以 PyTorch CUDA 为例，符合条件的矩阵乘可以走较低精度，Softmax、LayerNorm 等符合条件的调用有 FP32 策略。原地调用、指定 <code>dtype=</code>、融合内核等情况要查具体策略。FP32 累加也只是常见选择，某些内核会在中间降低精度。<a href="https://docs.pytorch.org/docs/2.14/amp.html">PyTorch AMP 算子表</a> · <a href="https://docs.pytorch.org/docs/stable/notes/numerical_accuracy.html">PyTorch 数值精度说明</a></p>
 <h3 id="fp32">⭐ 为什么本例使用 FP32 主权重副本</h3>
-<section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">典型情况：权重 = 1.0，学习率 × 梯度 = 0.0001</span></div><div class="vb-flow-row"><span class="vb-flow-step">FP16 下：1.0 的最小可表示间隔约 0.001</span></div><div class="vb-flow-row"><span class="vb-flow-step">1.0 + 0.0001 = 1.0 ⭐ 更新【完全丢失】💀</span></div><div class="vb-flow-row"><span class="vb-flow-step">所以：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 用 FP32 保存主权重，更新累加在 FP32 上</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 每步把它转成 BF16 拿去做前向/反向</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">演示：权重 1.0，更新增量 +0.0001（如负梯度产生的上调）</span></div><div class="vb-flow-row"><span class="vb-flow-step">FP16 下：1.0 右侧间隔是 1 ÷ 1024，舍入中点在 1.0 + 1 ÷ 2048</span></div><div class="vb-flow-row"><span class="vb-flow-step">0.0001 小于 1 ÷ 2048，写回 FP16 时 1.0001 舍入为 1.0</span></div><div class="vb-flow-row"><span class="vb-flow-step">所以：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 用 FP32 保存主权重，更新累加在 FP32 上</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 下图用 BF16 计算副本示意；改用 FP16 也可以保留 FP32 更新路径</span></div></div></section>
 <figure class="dia" id="mg-ai-infra-06-figure-1">
 <svg viewBox="0 0 700 262" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="混合精度训练的一圈：FP32 主权重转成 BF16 做前向反向，梯度再转回 FP32 更新主权重">
-<text class="dia-t" x="350" y="26" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">一圈下来：FP32 负责【存和累加】，BF16 负责【算】</text>
+<text class="dia-t" x="350" y="26" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">用 BF16 计算副本，在 FP32 主权重上累加更新</text>
 <line x1="210" y1="80" x2="262" y2="80" stroke="var(--accent)" stroke-width="1.8"/>
 <polygon points="270,80 262,75.5 262,84.5" fill="var(--accent)"/>
 <text class="dia-t" x="240" y="70" font-size="11" text-anchor="middle" fill="var(--muted)" font-weight="normal">cast</text>
@@ -405,7 +425,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <rect x="270" y="54" width="140" height="52" rx="9" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/>
 <text class="dia-t" x="340" y="85" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="600">BF16 权重</text>
 <rect x="470" y="54" width="170" height="52" rx="9" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/>
-<text class="dia-t" x="555" y="85" font-size="12.5" text-anchor="middle" fill="var(--fg)" font-weight="600">前向 / 反向（BF16）</text>
+<text class="dia-t" x="555" y="85" font-size="12.5" text-anchor="middle" fill="var(--fg)" font-weight="600">前向 / 反向计算示例</text>
 <rect x="470" y="182" width="170" height="52" rx="9" fill="var(--card)" stroke="var(--border)" stroke-width="1.6"/>
 <text class="dia-t" x="555" y="213" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="600">BF16 梯度</text>
 </svg>
@@ -419,13 +439,48 @@ FP32 主权重 4 + Adam 的 m 4 + v 4 = 12。
 <strong>本例可减少适用激活/计算张量的字节数；FP32 m/v 本身不因 autocast 自动减半，其他实现需重算预算。</strong></p>
 </blockquote>
 <hr />
-<h2 id="loss-scalingfp16">🩹 四、Loss Scaling：FP16 专属的补丁</h2>
+<h2 id="loss-scalingfp16">🩹 四、损失缩放：先放大，后还原</h2>
 <p id="nc-f06-fp16-range"><strong>正规下限不是非零下限：</strong>IEEE binary16 的最小正正规值为 2<sup>−14</sup>，最小正次正规值为 2<sup>−24</sup>。因此不能仅因 1e−7 小于约 6e−5 就断言它一定变成 0；次正规区的相对精度更低，足够小的数仍可能舍入为 0。算子是否支持次正规或采用 flush-to-zero，要核对具体指令/内核/设置，不能当作所有 GPU 的通则。</p>
-<section class="visual-block visual-block-flow" aria-label="流程图"><p class="visual-block-title">流程图</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 问题：某些低精度梯度过小，可能舍入或被实现清零</span></div><div class="vb-flow-row"><span class="vb-flow-step">FP16 最小正规值约 6.10e-5；最小正次正规值约 5.96e-8</span></div><div class="vb-flow-row"><span class="vb-flow-step">小于正规范围不等于必为 0；须区分次正规、舍入和 flush 条件</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 解法：</span></div><div class="vb-flow-row"><span class="vb-flow-step">① loss × S（比如 S = 65536）再反向</span></div><div class="vb-flow-row"><span class="vb-flow-step">② 理想链式法则下梯度同乘 S；实际仍有舍入/溢出风险</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">尽量保留小梯度，S 不能保证每个值都可表示</span></div><div class="vb-flow-row"><span class="vb-flow-step">③ optimizer.step() 之前把梯度 ÷ S 还原</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 动态 loss scaling：</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 没溢出</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">每隔 N 步把 S 翻倍（试探更大的范围）</span></div><div class="vb-flow-row"><span class="vb-flow-step">· 溢出（出现 inf/nan）</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">S 减半，【跳过这一步更新】</span></div></div></section>
-<blockquote>
-<p>⭐ <strong>BF16 通常不需要 loss scaling</strong> —— 它的指数位和 FP32 一样宽，
-梯度下溢风险通常比 FP16 小，仍可能出现数值问题。<strong>这是 BF16 在工程上最大的省心之处。</strong></p>
-</blockquote>
+
+<p>如果反向传播中有很小的梯度要经过 FP16 路径，可以先放大损失，使这些值在低精度计算时更有机会保留下来。这叫<strong>损失缩放（Loss Scaling）</strong>。设 <var>L</var> 是原损失，<var>g</var> 是它对某个权重的梯度，<var>S</var> 是本步固定的正缩放因子。把反向传播的入口改成 <var>S</var> × <var>L</var>，由于常数可提出求导，理想情况下梯度变成 <var>S</var> × <var>g</var>。更新前除以 <var>S</var> 还原，因此没有故意改变学习率。低精度计算仍可能舍入，已经丢失的值也无法靠事后放大恢复。</p>
+<section class="visual-block visual-block-calc" id="mp-loss-scaling-example" aria-label="同一个缩放因子的两个结果">
+<p class="visual-block-title">手算放大后，小梯度留下，大梯度可能溢出</p>
+<div class="vb-calc">
+<p><strong>先看小梯度。</strong>令 <var>g</var> = 2<sup>−27</sup>。它只有最小正次正规值 2<sup>−24</sup> 的 1/8，按最近值舍入为 0。先乘演示因子 <var>S</var> = 8192 = 2<sup>13</sup>，得到 2<sup>13</sup> × 2<sup>−27</sup> = 2<sup>−14</sup>，正好可由 FP16 正规值表示。在较高精度里还原，2<sup>−14</sup> ÷ 2<sup>13</sup> = 2<sup>−27</sup>。</p>
+<p><strong>再看同一轮里的大梯度。</strong>若另一处 <var>g</var> = 16，乘同一个 8192 得 131,072。假设这个结果也必须经过 FP16，按最近值转换时溢出为 <code>inf</code>。即使小梯度保住了，单优化器这一轮仍应跳过更新。若后续试到 <var>S</var> = 2048，16 × 2048 = 32,768 可以表示。缩放因子太小则可能重新丢掉小值。</p>
+</div>
+</section>
+<p>用 Python 3 标准库的 <code>struct</code> 做同一个二进制舍入实验。格式 <code>e</code> 把数转换成 binary16 再读回。Python 的转换会对过大的有限输入报溢出，因此示例将该错误记作 <code>inf</code>，以便展示跳步判断。这里只模拟一次写入，不模拟 GPU 内核或训练过程。</p>
+<div class="codehilite" data-code-language="python"><pre><code>import math
+import struct
+
+def as_fp16(value):
+    try:
+        return struct.unpack("e", struct.pack("e", float(value)))[0]
+    except OverflowError:
+        return math.copysign(math.inf, value)
+
+small = 2.0 ** -27
+scale = 8192
+scaled_small = as_fp16(small * scale)
+scaled_large = as_fp16(16 * scale)
+
+print("未缩放:", as_fp16(small))
+print(f"放大、还原: {scaled_small:.10g}, {scaled_small / scale:.10g}")
+print("同组跳过更新:", not math.isfinite(scaled_large))
+print("试用更小的因子:", as_fp16(16 * 2048))
+</code></pre></div>
+<p>输出依次是 <code>0.0</code>、<code>6.103515625e-05, 7.450580597e-09</code>、<code>True</code>、<code>32768.0</code>。第一行和第二行对照出小梯度是否留下，第三行说明本组里另一个梯度非有限，第四行只说明较小因子下这个大值装得下。</p>
+<section class="visual-block visual-block-flow" aria-label="一次带梯度裁剪的 AMP 更新">
+<p class="visual-block-title">PyTorch 训练一步的缩放、裁剪与跳步顺序</p>
+<div class="vb-flow">
+<div class="vb-flow-row"><span class="vb-flow-step">autocast 中做前向和计算损失</span><span class="vb-flow-arrow" aria-hidden="true">→</span><span class="vb-flow-step">退出 autocast，再用放大的损失反向传播</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step">如需裁剪，先 unscale_ 还原</span><span class="vb-flow-arrow" aria-hidden="true">→</span><span class="vb-flow-step">按原单位裁剪</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step">scaler.step：有 inf / NaN 则跳过这个优化器的更新</span><span class="vb-flow-arrow" aria-hidden="true">→</span><span class="vb-flow-step">scaler.update：为后续步调整缩放因子</span></div>
+</div>
+</section>
+<p>下方是两个独立的 CUDA 分支骨架。使用前需提供放在同一设备上的模型和输入 <code>x</code>、能返回标量损失的前向以及绑定模型参数的 <code>opt</code>。每个训练步开始前应清理上一轮梯度，<code>GradScaler</code> 则在训练循环外初始化一次。不裁剪时，<code>scaler.step(opt)</code> 会先在内部还原梯度；累积多个小批次时，在完整一组梯度累积完以后只还原一次，同组保持相同的缩放因子。出现非有限梯度后通常减小因子，连续若干次正常更新后可以试着增大因子。<a href="https://docs.pytorch.org/docs/stable/notes/amp_examples.html">PyTorch AMP 示例</a></p>
+<p>BF16 因为正规指数范围更宽，常规 BF16 AMP 通常省略这一步缩放。遇到前向已出现 <code>inf</code> 或 <code>NaN</code>，先查产生它的算子、输入和 dtype；调梯度缩放无法修复发生在前向的溢出。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：`model` 来自你自己的代码，这一段只看写法</span>
 <span class="c1"># FP16：需要 GradScaler</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
@@ -445,9 +500,9 @@ FP32 主权重 4 + Adam 的 m 4 + v 4 = 12。
 <span class="n">opt</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
 </code></pre></div>
 
+
 <blockquote>
-<p>⚠️ <strong><code>scaler.unscale_()</code> 这一步经常被漏掉</strong>：
-不还原就做梯度裁剪，等于按放大后的值裁剪，<strong>裁剪阈值完全失效</strong>。</p>
+<p>先还原再裁剪是因为阈值按原梯度定。以单个梯度 0.5、裁剪上限 1、<var>S</var> = 8192 为例。正确顺序把 4096 还原成 0.5，无需裁剪。若先把 4096 裁成 1 再还原，结果只剩 1 ÷ 8192 ≈ 0.000122，原本合格的更新被错误压小。</p>
 </blockquote>
 <hr />
 <h2 id="_5">⚠️ 五、五个真实的坑</h2>
@@ -463,7 +518,7 @@ FP32 主权重 4 + Adam 的 m 4 + v 4 = 12。
 <tr>
 <td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><strong>维度没对齐</strong></td>
 <td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">精度改了但速度没变</td>
-<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">维度补到 <strong>8 的倍数</strong>（FP16）/ 16 的倍数（INT8）⭐</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">核对硬件、库版本和实际内核。FP16 的 8 元素、INT8 的 16 元素对齐是常见效率提示，先比较补齐后的真实开销。</td>
 </tr>
 <tr>
 <td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><strong>在 autocast 里手动 <code>.half()</code></strong></td>
@@ -482,14 +537,14 @@ FP32 主权重 4 + Adam 的 m 4 + v 4 = 12。
 </tr>
 <tr>
 <td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><strong>FP16 训练中期突然 NaN</strong></td>
-<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">某个激活溢出 65504</td>
-<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><strong>换 BF16</strong>（首选）或降低 loss scale ⭐</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">可能是前向溢出，也可能只在缩放后的反向梯度里出现</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">先定位第一个非有限值。前向可评估 BF16 或局部 FP32，缩放引发的反向溢出才考虑缩放策略。</td>
 </tr>
 </tbody>
 </table></div>
 <blockquote>
 <p>💥 <strong>一个高频的困惑</strong>："我开了 AMP，为什么没变快？"
-排查顺序：</p>
+以下是原有的四个排查线索。第 ① 项的倍数是对齐提示，是否能走 Tensor Core 以及补齐是否划算，要看实际调用的库和内核。<a href="https://docs.nvidia.com/deeplearning/performance/dl-performance-matrix-multiplication/index.html">NVIDIA 矩阵乘对齐说明</a></p>
 <div class="codehilite"><pre><span></span><code>① 矩阵维度是 8 的倍数吗？（4095 → 4096）
 ② 模型是不是太小？（小 kernel 的启动开销占主导）
 ③ 瓶颈是不是根本不在 GPU？（第 4 章的 dataloader 实验）
@@ -499,13 +554,15 @@ FP32 主权重 4 + Adam 的 m 4 + v 4 = 12。
 </blockquote>
 <hr />
 <h2 id="fp8h100">🚀 六、FP8：H100 之后的下一步</h2>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">两种格式：</span></div><div class="vb-flow-row"><span class="vb-flow-step">E4M3（指数4尾数3）</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">精度稍好，用于【前向的激活和权重】</span></div><div class="vb-flow-row"><span class="vb-flow-step">E5M2（指数5尾数2）</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">范围稍大，用于【反向的梯度】</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 收益：算力再翻一倍（H100: 1979 TFLOPS），带宽再减半</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 代价：动态范围极窄，必须【per-tensor scaling】</span></div><div class="vb-flow-row"><span class="vb-flow-step">每个张量维护一个缩放因子，实时统计并调整</span></div><div class="vb-flow-row"><span class="vb-flow-step">框架（Transformer Engine）帮你做，但要理解它在做什么</span></div></div></section>
-<blockquote>
-<p>💡 <strong>FP8 目前的实际状态</strong>：
-<strong>推理上已经相当成熟</strong>（尤其是权重和 KV Cache）；
-<strong>训练上仍需谨慎</strong> —— 大模型预训练用 FP8 需要仔细的逐层策略，
-通常敏感层（第一层、最后一层、LayerNorm）仍保持更高精度。</p>
-</blockquote>
+
+<section class="visual-block visual-block-flow" aria-label="FP8 混合格式示例">
+<p class="visual-block-title">以 Transformer Engine 的混合格式配方为例</p>
+<div class="vb-flow">
+<div class="vb-flow-row"><span class="vb-flow-step">E4M3：指数 4 位、小数 3 位</span><span class="vb-flow-arrow" aria-hidden="true">→</span><span class="vb-flow-step">同一指数档更细，常用于前向激活和权重</span></div>
+<div class="vb-flow-row"><span class="vb-flow-step">E5M2：指数 5 位、小数 2 位</span><span class="vb-flow-arrow" aria-hidden="true">→</span><span class="vb-flow-step">表示范围更宽，该配方可用于反向梯度</span></div>
+</div>
+</section>
+<p>从 BF16 换成 FP8，只有真正转成 8 位存放的元素从 2 字节降为 1 字节，峰值计算吞吐也要按具体芯片、模式和内核查证。Transformer Engine 的当前/延迟缩放可以为每个张量使用一个缩放因子，也有分块缩放等配方。这里的因子用于把张量数值放入 FP8 的可表示范围，和前一节放大训练损失的做法是两件事。权重、激活、梯度或 KV Cache 选哪一种存储格式，取决于场景、支持的路径和误差实测。<a href="https://docs.nvidia.com/deeplearning/transformer-engine/features/low_precision_training/fp8_current_scaling/fp8_current_scaling.html">Transformer Engine 当前缩放</a> · <a href="https://docs.nvidia.com/deeplearning/transformer-engine/features/low_precision_training/fp8_blockwise_scaling/fp8_blockwise_scaling.html">分块缩放</a></p>
 <hr />
 <h2 id="_6">🔗 和站内其他章的关系</h2>
 <div class="tw"><table style="width:100%;min-width:0;table-layout:fixed">
@@ -522,7 +579,7 @@ FP32 主权重 4 + Adam 的 m 4 + v 4 = 12。
 </tr>
 <tr>
 <td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><a href="03-显存与带宽墙.html">第 3 章</a> 带宽瓶颈</td>
-<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">数据减半 → 带宽压力减半</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">按实际精度重算要搬的字节</td>
 </tr>
 <tr>
 <td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><a href="03-显存与带宽墙.html">第 3 章</a> 12 字节/参数</td>
@@ -530,7 +587,7 @@ FP32 主权重 4 + Adam 的 m 4 + v 4 = 12。
 </tr>
 <tr>
 <td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><a href="18-量化.html">第 18 章</a> 量化</td>
-<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">更激进的同一思路（INT8/INT4）</td>
+<td style="white-space:normal;overflow-wrap:anywhere;word-break:normal">本章侧重为算子分配精度；第 18 章另算 INT8/INT4 的量化刻度与误差</td>
 </tr>
 <tr>
 <td style="white-space:normal;overflow-wrap:anywhere;word-break:normal"><a href="../机器学习与深度学习基础/11-训练调试手册.html">ML 基础第 11 章</a> NaN 排查</td>
@@ -545,45 +602,42 @@ FP32 主权重 4 + Adam 的 m 4 + v 4 = 12。
 <hr />
 <h2 id="_7">✅ 检查点</h2>
 <ol>
-<li>BF16 和 FP16 的区别是什么？为什么现在默认用 BF16？</li>
-<li>混合精度快的三个来源是什么？哪个最主要？</li>
-<li>为什么即使不用 Tensor Core 的操作也会变快？</li>
-<li>本例为什么使用 FP32 主权重更新？举个数字，并说明它是不是所有实现的统一要求。</li>
-<li>本例的 12 字节/参数计了什么？为什么实际混合精度显存预算仍须按实现重算？</li>
-<li>Loss scaling 解决什么风险？FP16 正规下限与非零下限有什么区别，动态缩放怎样工作？</li>
-<li>为什么 BF16 通常不需要 loss scaling？</li>
-<li>"开了 AMP 但没变快"的四步排查顺序？</li>
-<li>FP8 的两种格式各用在哪？它的主要代价是什么？</li>
+
+<li>在 1 附近，1 + 2<sup>−9</sup> 分别写进 FP16、BF16 时会怎样？65,536 又会怎样？</li>
+<li>混合精度的三个性能来源是什么？为什么 A100 的 16 倍规格比不是一步训练的加速比？</li>
+<li>算子输入和输出都是 BF16，内部累加一定是 BF16 吗？</li>
+<li>本例为什么用 FP32 主权重更新？为什么 1.0 加 0.0001 写回 FP16 会丢掉这次更新？</li>
+<li>12 字节/参数计了哪三项？再计 FP32 梯度是多少？</li>
+<li>小梯度 2<sup>−27</sup> 乘 8192 后变成多少？同一步还有一项梯度 16，经过 FP16 后能否更新？</li>
+<li>梯度是 0.5、裁剪上限是 1 时，为什么放大到 4096 后不能直接裁剪？</li>
+<li>打开 AMP 没变快，如何判断是矩阵内核、数据搬运还是 GPU 在等数据？</li>
+<li>Transformer Engine 的混合 FP8 配方怎样选 E4M3 和 E5M2？其他配方必须这么分吗？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>BF16 指数 8 位（范围同 FP32）尾数 7 位；FP16 指数 5 位（最大 65504）尾数 10 位</strong>。BF16 牺牲精度换范围。默认用 BF16 是因为深度学习更怕溢出而不是不精确——梯度本来就是噪声估计，但变成 inf/0 训练直接崩。</li>
-<li>①<strong>Tensor Core</strong>（最主要，16 倍）②带宽减半 ③显存减半能开更大 batch。</li>
-<li>因为<strong>数据量减半，同样的带宽一次能搬两倍元素</strong>——对带宽瓶颈的操作（逐元素、LayerNorm、Softmax 等）直接快一倍。</li>
-<li>按本例的舍入设定，FP16 权重 1.0 加 0.0001 会舍入回 1.0；在 FP32 主权重上累加可减少这种损失。是否额外存 master、副本/状态用何 dtype，仍取决于具体实现，不能由这个例子推出统一要求。<strong></strong></li>
-<li>本例 FP32 主权重 4 + Adam m 4 + v 4 = 12 字节/参数；这三项没有因计算用低精度而缩小。若另计 FP32 梯度则加 4，低精度持久副本/激活/工作区等继续另算。其他优化器、状态 dtype 或分片方案须重算，不能说混合精度只省激活。<strong></strong></li>
-<li>缩放用于降低小梯度在低精度路径中丢失的风险。FP16 的 2^−14 是正规下限，2^−24 才是最小正次正规值；1e−7 并非必为 0，flush 还须核对实现。图中动态策略在无溢出若干步后增大 S，出现 inf/nan 时降低 S 并跳过更新；更新/裁剪前先 unscale，不保证修复所有数值问题。<strong></strong></li>
-<li>因为 <strong>BF16 的指数位和 FP32 一样宽（8 位）</strong>，梯度下溢风险通常比 FP16 小，仍可能出现数值问题。这是它工程上最省心之处。</li>
-<li>①矩阵维度是 8 的倍数吗（4095→4096）②模型是不是太小（kernel 启动开销占主导）③瓶颈是不是根本不在 GPU（dataloader 实验）④profiler 确认 Tensor Core kernel 真被调用。</li>
-<li><strong>E4M3 用于前向的激活和权重</strong>（精度稍好），E5M2 用于反向的梯度（范围稍大）。代价：动态范围极窄，必须 per-tensor scaling。</li>
+<li>1 + 2<sup>−9</sup> 正好落在 FP16 的第 2 格，写到 BF16 则舍入为 1。65,536 超过 FP16 的有限范围，BF16 可用指数 16 精确表示。</li>
+<li>匹配的矩阵计算单元、较少的内存读写、可能容纳更大的批次。规格比比较两条路径的峰值，不包括实际执行的算子组合和搬运、等待。</li>
+<li>不一定。低精度输入可以配合 FP32 累加，再转回 BF16 输出，具体取决于内核与框架配置。</li>
+<li>1.0 右侧第一个 FP16 值比它高 1 ÷ 1024，中点只高 1 ÷ 2048 ≈ 0.000488。0.0001 比中点更近 1.0，所以写回 1.0。保留 FP32 更新路径能累积更多这种小变化，是否另存主副本按实现决定。</li>
+<li>FP32 主权重、Adam 的一阶和二阶状态各 4 字节，合计 12。加 FP32 梯度是 16；低精度持久副本、激活和工作区仍另计。</li>
+<li>8192 × 2<sup>−27</sup> = 2<sup>−14</sup>，还原后是 2<sup>−27</sup>。但 16 × 8192 = 131,072 溢出，这一步应跳过该优化器的更新，并把缩放因子调低供后续使用。</li>
+<li>按放大后的 4096 做裁剪，会先削成 1，再还原为 1 ÷ 8192，远小于本应保留的 0.5。</li>
+<li>在同负载下用 profiler 看内核、显存读写和 GPU 空档，再对照矩阵尺寸和对齐、启动开销以及数据供给。改变 batch 或输入形状时分开记录。</li>
+<li>常见混合配方用 E4M3 做前向、E5M2 做反向，分别偏向分辨率和范围。缩放粒度和前后向格式由配方决定。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_8">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p><strong>用一半位数存数据：快一倍、省一半显存。</strong> ⭐ <strong>它能 work 是因为深度学习需要的是动态范围，而不是小数点后多少位。</strong></p>
-<p>⭐⭐ <strong>BF16 和 FP16 的对比是全章的核心</strong>：一个把位数花在<strong>指数</strong>上（范围和单精度一样），一个花在<strong>尾数</strong>上（精度更高但范围小得多）。⭐ <strong>而深度学习更怕溢出、不怕不精确</strong>——梯度本来就是噪声估计，可一旦变成无穷或零就直接崩。<strong>所以默认选前者。</strong></p>
-<p>快的三个来源：<strong>只有半精度才用得上专用的矩阵乘单元</strong>、<strong>带宽减半（所以连不吃那个单元的操作也变快）</strong>、显存减半能开大 batch。</p>
-<p>⭐ <strong>「混合」的含义</strong>：矩阵乘和激活用半精度，⭐ <strong>本例主权重更新、Adam m/v 和敏感归约选用 FP32，实际保存与累加精度须按实现确认</strong>——⚠️ <strong>当低精度权重的小更新小于相应舍入间隔时，更新可能被吞掉；保留 FP32 更新路径是本例的应对策略。</strong> ⭐ <strong>本例 m/v 的字节数不因 autocast 自动减半；总显存节省要把权重、副本、梯度、状态和激活逐项核算。</strong></p>
-<p>⭐ <strong>FP16 路径常用 loss scaling 来减少小梯度丢失</strong>（先把损失放大再反向，更新前还原），⭐ <strong>BF16 通常不需要这种缩放，但仍可能舍入或溢出，不能把它当数值稳定保证。</strong></p>
-<p>⚠️ 五个坑里最典型的是<strong>「改了精度速度没变」</strong>：多半是<strong>维度没对齐到硬件要求的倍数</strong>。排查顺序：先查对齐 → 模型是不是太小 → <strong>瓶颈是不是根本不在 GPU</strong> → 最后用 profiler 确认那个单元真的被调用了。
-⚠️ 另一个隐蔽的：<strong>梯度裁剪之前忘了还原缩放，裁剪阈值就完全失效了。</strong></p>
-<p>🗓️ 更低精度的格式<strong>推理已经成熟、训练仍需谨慎</strong>——⭐ <strong>它的动态范围极窄，必须逐张量地做缩放，敏感层还要保持高精度。</strong></p>
+<p><strong>先认范围，再认间隔。</strong>FP16 在 1 附近的格距更细，BF16 的正规指数范围更宽。选哪种精度，要核对数值表现、内核和实际速度。</p>
+<p><strong>分开记输入、累加、输出和保存。</strong>FP32 主权重、Adam 状态与低精度计算是可以组合的选择。12 字节/参数只是本例的三项账本，搬运收益也只来自确实少读写的字节。</p>
+<p><strong>FP16 梯度太小时，可先缩放损失再反向。</strong>有裁剪先还原，检测到非有限梯度跳过更新。BF16 通常省略缩放。若前向已经溢出，回到出问题的算子检查。</p>
+<p>本章改变的是数字格式与算子精度。下一节保持同一个结果，继续问：能不能把多个算子融合起来，少搬几次数据？</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="07-算子融合与编译.html">07-算子融合与编译.md</a></p>
-<details class="g05-content-note" id="nc-f06-conditions" style="max-width:100%;min-width:0;overflow-wrap:anywhere"><summary>条件与依据</summary><p>FP32 主权重、优化器状态和归约精度依实现选择；本页 12 字节只计 FP32 主权重与 Adam m/v，另计 FP32 梯度才是 16，持久低精度副本和其他张量另算。BF16 的范围较宽，仍会舍入或溢出；FP16 正规下限为 2^−14、最小正次正规值为 2^−24。代码保留常见 FP16 GradScaler 骨架，不能由此认定每条 FP16 运算都 flush，或每个实现都另有持久 master 副本。</p><p>进一步核对：<a href="https://docs.pytorch.org/docs/2.14/amp.html">PyTorch 2.14 的逐算子策略与 gradient scaling</a>、<a href="https://numpy.org/doc/stable/reference/generated/numpy.finfo.html">NumPy 的正规/次正规区分</a>、<a href="https://docs.nvidia.com/cuda/parallel-thread-execution/#half-precision-floating-point-instructions-add">PTX half add 的次正规与 .ftz 条件</a>。例如该 PTX half add 默认支持次正规，而 .ftz 变体会清零次正规输入/结果；这只说明具体指令条件，不能外推所有内核。本页修订未运行 GPU、训练或性能实验。</p><p><a href="https://docs.nvidia.com/deeplearning/performance/mixed-precision-training/index.html">官方文档</a></p></details>
+<details class="g05-content-note" id="nc-f06-conditions" style="max-width:100%;min-width:0;overflow-wrap:anywhere"><summary>条件与依据</summary><p>FP32 主权重、优化器状态和归约精度依实现选择；本页 12 字节只计 FP32 主权重与 Adam m/v，另计 FP32 梯度才是 16，持久低精度副本和其他张量另算。BF16 的范围较宽，仍会舍入或溢出；FP16 正规下限为 2^−14、最小正次正规值为 2^−24。代码保留常见 FP16 GradScaler 骨架，不能由此认定每条 FP16 运算都 flush，或每个实现都另有持久 master 副本。</p><p>进一步核对：<a href="https://docs.pytorch.org/docs/2.14/amp.html">PyTorch 2.14 的逐算子策略与 gradient scaling</a>、<a href="https://numpy.org/doc/stable/reference/generated/numpy.finfo.html">NumPy 的正规/次正规区分</a>、<a href="https://docs.nvidia.com/cuda/parallel-thread-execution/#half-precision-floating-point-instructions-add">PTX half add 的次正规与 .ftz 条件</a>。例如该 PTX half add 默认支持次正规，而 .ftz 变体会清零次正规输入/结果；这只说明具体指令条件，不能外推所有内核。本页 Python 算例可在 CPU 上复算二进制舍入。CUDA 训练骨架、真实训练和性能实验需要单独验证。</p><p><a href="https://docs.nvidia.com/deeplearning/performance/mixed-precision-training/index.html">官方文档</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="05-互联与集群拓扑.html"><div class="dir">← 上一节</div>⭐ 互联与拓扑</a><a class="next" href="07-算子融合与编译.html"><div class="dir">下一节 →</div> 算子融合与编译</a></nav>
