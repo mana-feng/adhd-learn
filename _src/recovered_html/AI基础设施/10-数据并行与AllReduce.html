@@ -555,9 +555,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <td>见上面代码</td>
 </tr>
 <tr>
-<td><strong>各卡 batch 不等长</strong></td>
-<td>AllReduce 挂死（有的卡先退出循环）</td>
-<td>补齐或用 <code>join()</code> 上下文 ⭐</td>
+<td><strong>collective 次序或次数不一致</strong></td>
+<td>某些 rank 已进入 AllReduce，另一些 rank 没有进入或进入了别的 collective</td>
+<td>逐 rank 对照迭代数与 collective 序列；不等长输入可评估补齐或 <code>join()</code> ⭐</td>
 </tr>
 <tr>
 <td><strong>BatchNorm 各算各的</strong></td>
@@ -572,16 +572,19 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <blockquote>
-<p>💥 <strong>"AllReduce 挂死"是最难排查的一个</strong>：
-症状是训练突然卡住不动、没有报错；监控有时仍显示 GPU 或通信内核处于忙碌状态，但这不等于在做有效训练计算。
-根因常常是<strong>某张卡的数据比别人少一个 batch，提前退出了循环</strong>，
-其他卡在等一个永远不会来的 AllReduce。</p>
-<p>✅ <strong>排查</strong>：<code>export TORCH_NCCL_BLOCKING_WAIT=1</code> 会让它超时报错而不是永久挂起。</p>
+<p>💥 <strong>"AllReduce 挂死"描述的是现象，不是唯一根因</strong>：某张卡少一个 batch、条件分支让 collective 顺序不同、某个 rank 异常退出、数据加载阻塞、网络故障或 NCCL 错误，都可能让其他 rank 一直等待。监控有时仍显示 GPU 或通信内核忙碌，但“GPU 100%”不能单独定位原因。</p>
+<p><strong>按证据排查：</strong></p>
+<ol>
+<li>先记录每个 rank 的进程存活、当前 epoch/step、DataLoader 是否产出下一批，确认是计算慢、数据卡住，还是已经进入 collective。</li>
+<li>给每个 collective 标记递增序号与类型，逐 rank 比对序列，例如 rank 0 在 <code>#184 all_reduce</code>，rank 3 却停在 <code>#183 broadcast</code>，就说明调用顺序不一致。</li>
+<li>开启 <code>TORCH_DISTRIBUTED_DEBUG=DETAIL</code>、<code>NCCL_DEBUG=INFO</code>，必要时加 <code>NCCL_DEBUG_SUBSYS=COLL</code>，保留各 rank 日志。</li>
+<li><code>TORCH_NCCL_BLOCKING_WAIT=1</code> 要与进程组 <code>timeout</code> 配合，目标是让超时暴露为可见错误；不同 PyTorch/NCCL 版本的报错与清理行为可能不同，不能把它当成自动修复。</li>
+</ol>
 </blockquote>
 <hr />
 <h2 id="parallel-boundary">🧭 六、它和其他并行方案的边界</h2>
 <div class="tw"><table style="min-width:46em"><thead><tr><th>方案</th><th>设备上放什么</th><th>主要通信</th><th>解决的核心问题</th></tr></thead><tbody>
-<tr><td><strong>DDP / AllReduce 数据并行</strong></td><td>每个 rank 都有完整模型、梯度和优化器状态</td><td>同步归约梯度</td><td>模型放得下时，提高训练吞吐；不直接省模型状态显存</td></tr>
+<tr><td><strong>DDP / AllReduce 数据并行</strong></td><td>每个 rank 都有完整参数、梯度和优化器状态；激活只对应本 rank 的 local microbatch</td><td>同步归约梯度</td><td>模型放得下时，提高训练吞吐；不分片三类模型状态</td></tr>
 <tr><td><strong>参数服务器（Parameter Server）</strong></td><td>worker 计算梯度；中心或分片 server 保存/更新参数</td><td>worker push 梯度、pull 参数；可同步也可异步</td><td>把更新职责放到 server；异步模式还要处理参数陈旧，不等同于 AllReduce</td></tr>
 <tr><td><strong>ZeRO / FSDP</strong></td><td>把优化器状态、梯度、参数中的部分或全部分片</td><td>按阶段使用 reduce-scatter、all-gather 等集合通信</td><td>减少每卡模型状态显存；它仍属于数据并行家族，但通信时机与内容更复杂</td></tr>
 <tr><td><strong>张量 / 流水线 / 专家并行</strong></td><td>把一层张量、不同层或不同专家分到设备</td><td>激活、部分结果或 token 路由通信</td><td>单卡放不下模型或需要改变单次前后向的计算切分；详见 12～14 章</td></tr>
@@ -607,11 +610,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><a href="03-显存与带宽墙.html">第 3 章</a> 显存四大块</td>
-<td><strong>数据并行一块都没省</strong> ⭐</td>
+<td><strong>DDP 不分片参数、梯度、优化器状态</strong>。激活是否下降要看比较口径：固定全局 batch 时，每 rank local microbatch 变小，激活通常随之下降；固定每 rank local microbatch 时，激活不会因加卡自动下降，而全局 batch 会增大。</td>
 </tr>
 <tr>
 <td><a href="11-ZeRO与FSDP.html">第 11 章</a> ZeRO</td>
-<td><strong>数据并行的省显存版</strong></td>
+<td>仍在数据并行家族中，但进一步分片优化器状态、梯度或参数，具体取决于阶段/策略。</td>
 </tr>
 <tr>
 <td><a href="09-显存优化全家桶.html">第 9 章</a> 梯度累积</td>
@@ -639,8 +642,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>分层 AllReduce 为什么不能只理解成“派一张代表卡”？</li>
 <li>$T_{ring}$ 的启动项和传输项分别由什么决定？</li>
 <li>为什么慢 rank 会让所有卡等待？</li>
-<li>数据并行省显存吗？</li>
-<li>"训练突然卡死、无报错、GPU 100%"最可能是什么原因？</li>
+<li>DDP 对参数、梯度、优化器状态和激活显存分别有什么影响？</li>
+<li>"训练突然卡住、无报错、GPU 可能仍显示很忙"能否只凭现象认定少了一个 batch？应该怎样排查？</li>
 <li>一般数据并行、nn.DataParallel 与 DDP 有何区别？DDP 会自动切输入吗？</li>
 <li>每卡 batch=4、4 张卡、累积 2 步时，全局 batch 是多少？学习率必须乘 4 吗？</li>
 </ol>
@@ -656,8 +659,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>正确做法是机内先把梯度分成约 1/8 的归约分片，再让各机器相同本地 rank 分组跨机归约，最后机内收集。随便派一张代表携带完整梯度不会自动省流量，还可能形成瓶颈。</li>
 <li>启动项 $2(N-1)\alpha$ 由轮数和每轮固定延迟决定；传输项 $2(N-1)D/(NB_{eff})$ 由每 rank 字节数和实测有效带宽决定。该式是忽略重叠、分片平衡的粗估。</li>
 <li>同步集合通信要求所有 rank 以相同顺序参与；快 rank 到达后也要等最慢 rank。整步先受 $\max_r(T_{compute,r})$ 限制，再加暴露在关键路径上的通信。</li>
-<li><strong>一块都没省</strong>——每张卡都有完整的参数、梯度、优化器状态。省显存要用 ZeRO。</li>
-<li><strong>某张卡的数据比别人少一个 batch 提前退出循环</strong>，其他卡在等一个永远不来的 AllReduce。排查：<code>TORCH_NCCL_BLOCKING_WAIT=1</code> 让它超时报错而不是永久挂起。</li>
+<li>DDP 不分片参数、梯度和优化器状态，所以这三类模型状态每个 rank 都保留。激活只来自本 rank 的 local microbatch：固定全局 batch 并把它分到更多 rank 时，local microbatch 变小，激活通常下降；若固定 local microbatch，加卡只会扩大全局 batch，激活不会自动下降。</li>
+<li>不能。少一个 batch 只是常见原因之一；collective 次序/次数不一致、rank 异常、DataLoader 阻塞、网络或 NCCL 故障也可能造成等待。先比对逐 rank 的 epoch/step、进程和数据加载状态，再比对 collective 序号/类型，并收集分布式与 NCCL 日志。<code>TORCH_NCCL_BLOCKING_WAIT=1</code> 需配合进程组 timeout，用来暴露超时，不是自动修复。</li>
 <li>一般数据并行是范式；nn.DataParallel 常用单进程多线程、forward 复制/scatter/gather；DDP 常用每 GPU 一进程、保留副本并同步梯度。DDP 可用于单机或多机，但不自动切输入；调用方安排数据。比较速度前先对齐有效 batch 与 loss 口径。</li>
 <li>$B_{global}=4\times4\times2=32$。学习率不必机械乘 4；先看相对原实验的全局 batch 是否真的改变，再结合优化器、warmup 和验证指标实验。</li>
 </ol>
@@ -665,7 +668,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="_7">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
-<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>数据并行让每卡保留模型副本、处理不同数据，再同步梯度；它本身不分摊模型状态。</li><li>Ring = Reduce-Scatter + All-Gather；每 rank 发送量是 $2(N-1)D/N$，接收量相同，$N$ 大时才近似 $2D$。</li><li>DP 范式不是 nn.DataParallel 类名。DDP 也能单机多卡，输入分片由调用方安排；有效样本数不等时需核对梯度权重。</li><li>同步训练由最慢 rank 和暴露通信共同决定；检查采样器、梯度累积、随机数策略与各卡迭代次数。</li><li>分层通信要让不同本地 rank 分担不同分片，不是派一个代表带完整梯度；最终收益必须在真实拓扑上测。</li></ul></section>
+<section class="reading-recap" aria-label="走神救援"><p>先记住这几件事</p><ul><li>DDP 每 rank 保留完整参数、梯度和优化器状态；激活取决于 local microbatch，不能笼统说“四大块一块没省”。</li><li>Ring = Reduce-Scatter + All-Gather；每 rank 发送量是 $2(N-1)D/N$，接收量相同，$N$ 大时才近似 $2D$。</li><li>DP 范式不是 nn.DataParallel 类名。DDP 也能单机多卡，输入分片由调用方安排；有效样本数不等时需核对梯度权重。</li><li>同步训练由最慢 rank 和暴露通信共同决定；挂住时逐 rank 核对迭代数、collective 序列、进程/数据状态和 NCCL 日志，不凭 GPU 利用率猜唯一根因。</li><li>分层通信要让不同本地 rank 分担不同分片，不是派一个代表带完整梯度；最终收益必须在真实拓扑上测。</li></ul></section>
 
 <p><strong>下一节</strong> 👉 <a href="11-ZeRO与FSDP.html">11-ZeRO与FSDP.md</a> ⭐</p>
 <details class="g05-content-note"><summary>条件与依据</summary><p>Ring 的 $2(N-1)D/N$ 是每 rank 的发送量，接收量相同；不能把两者合计后仍称作发送量。$\alpha$-$B_{eff}$ 时间式是假设分片平衡、用单一有效带宽近似、暂不计重叠的教学模型，不是性能承诺。分层方案需各本地 rank 对应分片跨机归约；“只派一个代表”不会自动使整机网络流量降到 1/8。<code>no_sync()</code> 示例还需导入 <code>contextlib.nullcontext</code> 并处理不足一个累积窗口的尾批；各 rank 的 dropout 不同本身不是错误，复现需要可追踪的随机数流。</p><p>参考：<a href="https://docs.pytorch.org/docs/stable/generated/torch.nn.parallel.DistributedDataParallel.html">PyTorch DistributedDataParallel</a>、<a href="https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/collectives.html">NCCL Collectives</a>。本页未运行真实多卡训练或网络性能测试。</p></details>
