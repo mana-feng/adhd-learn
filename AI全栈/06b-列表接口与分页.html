@@ -480,24 +480,39 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>推荐不透明串，但要清楚它不是加密</strong>——base64 只是「不透明」，谁都能解开看里面。所以<strong>游标里绝不能放敏感信息</strong>，解出来之后必须重新校验类型再用（别信客户端传回来的东西）：</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">base64</span><span class="o">,</span><span class="w"> </span><span class="nn">json</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">encode</span><span class="p">(</span><span class="n">updated_at</span><span class="p">,</span> <span class="n">last_id</span><span class="p">):</span>
-    <span class="n">raw</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">({</span><span class="s2">&quot;u&quot;</span><span class="p">:</span> <span class="n">updated_at</span><span class="p">,</span> <span class="s2">&quot;i&quot;</span><span class="p">:</span> <span class="n">last_id</span><span class="p">},</span> <span class="n">separators</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;,&quot;</span><span class="p">,</span> <span class="s2">&quot;:&quot;</span><span class="p">))</span><span class="o">.</span><span class="n">encode</span><span class="p">()</span>
-    <span class="k">return</span> <span class="n">base64</span><span class="o">.</span><span class="n">urlsafe_b64encode</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="sa">b</span><span class="s2">&quot;=&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">decode</span><span class="p">()</span>   <span class="c1"># ⭐ urlsafe + 去掉 = 才好放进 URL</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">decode</span><span class="p">(</span><span class="n">cursor</span><span class="p">):</span>
-    <span class="n">pad</span> <span class="o">=</span> <span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="p">(</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">cursor</span><span class="p">)</span> <span class="o">%</span> <span class="mi">4</span><span class="p">)</span>
-    <span class="n">d</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">base64</span><span class="o">.</span><span class="n">urlsafe_b64decode</span><span class="p">(</span><span class="n">cursor</span> <span class="o">+</span> <span class="n">pad</span><span class="p">))</span>
-    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;u&quot;</span><span class="p">),</span> <span class="nb">int</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;i&quot;</span><span class="p">),</span> <span class="nb">int</span><span class="p">):</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;bad cursor&quot;</span><span class="p">)</span>      <span class="c1"># ⭐ 解出来先校验类型，别直接拼进 SQL</span>
-    <span class="k">return</span> <span class="n">d</span><span class="p">[</span><span class="s2">&quot;u&quot;</span><span class="p">],</span> <span class="n">d</span><span class="p">[</span><span class="s2">&quot;i&quot;</span><span class="p">]</span>
+<p>客户端只需要保存并回传令牌。下面演示把边界值编码成 Base64 字符串，再检查类型和范围。这个往返示例没有签名。需要验证完整性时，可以用服务端保存的随机令牌，或校验自包含令牌的签名。签名只能帮助验证内容的完整性，读取权限仍须按当前请求检查。可读编码和签名都不能为字段提供保密性。</p>
+<div class="codehilite" data-code-language="python" data-code-title="游标编码 · 只演示格式往返"><pre><code>import base64
+import json
 
-<span class="n">c</span> <span class="o">=</span> <span class="n">encode</span><span class="p">(</span><span class="mi">1754870400</span><span class="p">,</span> <span class="mi">8231</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">c</span><span class="p">,</span> <span class="s2">&quot;→&quot;</span><span class="p">,</span> <span class="n">decode</span><span class="p">(</span><span class="n">c</span><span class="p">))</span>                                          <span class="c1"># 能来回</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;⚠️ 明文可见:&quot;</span><span class="p">,</span> <span class="n">base64</span><span class="o">.</span><span class="n">urlsafe_b64decode</span><span class="p">(</span><span class="n">c</span> <span class="o">+</span> <span class="s2">&quot;=&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">decode</span><span class="p">())</span>   <span class="c1"># {&quot;u&quot;:1754870400,&quot;i&quot;:8231}</span>
+
+def encode(updated_at, last_id):
+    raw = json.dumps({"u": updated_at, "i": last_id}, separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+def decode(cursor):
+    if not isinstance(cursor, str) or not 1 &lt;= len(cursor) &lt;= 256:
+        raise ValueError("游标格式错误")
+    pad = "=" * (-len(cursor) % 4)
+    try:
+        payload = json.loads(base64.b64decode(cursor + pad, altchars=b"-_", validate=True))
+    except ValueError:
+        raise ValueError("游标格式错误") from None
+    if not isinstance(payload, dict) or payload.keys() != {"u", "i"}:
+        raise ValueError("游标字段错误")
+    timestamp, last_id = payload["u"], payload["i"]
+    max_integer = 2**63 - 1  # 演示表使用有符号 64 位整数
+    if (type(timestamp) is not int or type(last_id) is not int
+            or not 0 &lt;= timestamp &lt;= max_integer or not 1 &lt;= last_id &lt;= max_integer):
+        raise ValueError("游标字段错误")
+    return timestamp, last_id
+
+
+cursor = encode(1754870400, 8231)
+assert decode(cursor) == (1754870400, 8231)
+print(decode(cursor))
 </code></pre></div>
-
-<p>实测：编码得到 <code>eyJ1Ijox...</code>，解回 <code>(1754870400, 8231)</code>；三种坏游标（乱码、缺字段、类型不对）全被 <code>decode</code> 挡下。<strong>这就是「不透明」的全部含义——对前端黑盒，对服务端一解就有，没有任何加密。</strong></p>
+<p>输出 <code>(1754870400, 8231)</code>。服务端要限制令牌大小，校验字段名、类型、范围，以及筛选、排序和用户范围是否仍匹配。令牌中不放敏感信息。第五节会用服务端保存的令牌走完两次请求。</p>
 <p>⚠️ <strong>翻页途中那条游标记录被删了怎么办</strong>——第二节已经答过：<strong>不影响</strong>。游标存的是「值」（<code>updated_at=100, id=3</code>），查的是「比这个值小的」，<code>id=3</code> 那条在不在都无所谓。这正是 keyset 比「查 id 之后的行」这种朴素写法更稳的地方。</p>
 <hr />
 <!--MIDSTOP-->
@@ -510,42 +525,28 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <h2 id="_4">🔍 四、过滤和排序：可排序字段必须白名单</h2>
 <p>列表接口一定会长出 <code>?sort=updated_at&amp;order=desc&amp;status=failed</code> 这类参数。<strong>排序字段最危险</strong>：它常被直接拼进 <code>ORDER BY</code>，而那里不只允许列名，也允许子查询或 <code>CASE</code>，于是成了 SQL 注入面。</p>
 <p>⚠️ 参数化占位符 <code>?</code> 救不了这里：它只能替换值，不能替换列名或关键字，在SQLite中 <code>ORDER BY ?</code> 可以是合法的绑定值表达式，但不会把参数字符串解析为列标识符。排序字段只能走白名单映射。</p>
-<p>下面这段真的把一个密钥从数据库里偷了出来——只靠一个 <code>sort</code> 参数（可直接跑）：</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
-<span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
-<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE TABLE conversations (id INTEGER PRIMARY KEY, title TEXT, updated_at INTEGER)&quot;</span><span class="p">)</span>
-<span class="n">db</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="s2">&quot;INSERT INTO conversations VALUES (?,?,?)&quot;</span><span class="p">,</span> <span class="p">[(</span><span class="mi">1</span><span class="p">,</span><span class="s2">&quot;a&quot;</span><span class="p">,</span><span class="mi">30</span><span class="p">),(</span><span class="mi">2</span><span class="p">,</span><span class="s2">&quot;b&quot;</span><span class="p">,</span><span class="mi">20</span><span class="p">),(</span><span class="mi">3</span><span class="p">,</span><span class="s2">&quot;c&quot;</span><span class="p">,</span><span class="mi">10</span><span class="p">)])</span>
-<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE TABLE api_keys (k TEXT)&quot;</span><span class="p">)</span>
-<span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;INSERT INTO api_keys VALUES (&#39;sk-live-7fd3&#39;)&quot;</span><span class="p">)</span>   <span class="c1"># 攻击者想拿的东西</span>
+<p>服务端先把外部排序选项映射到固定的 SQL 片段。允许的列名和方向由代码定义，未知选项在查库前就返回客户端错误。下面的 Python 3 片段用正常输入与两个未知选项验证这道检查。它只生成排序子句。</p>
+<div class="codehilite" data-code-language="python" data-code-title="排序白名单 · 正常选择与拒绝"><pre><code>SORTABLE = {"updated": "updated_at", "title": "title"}
+DIRECTIONS = {"desc": "DESC", "asc": "ASC"}
 
-<span class="k">def</span><span class="w"> </span><span class="nf">bad</span><span class="p">(</span><span class="n">sort</span><span class="p">):</span>                                <span class="c1"># ⚠️ 把 sort 直接拼进 ORDER BY</span>
-    <span class="k">return</span> <span class="p">[</span><span class="n">r</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;SELECT id FROM conversations ORDER BY </span><span class="si">{</span><span class="n">sort</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)]</span>
 
-<span class="n">OVERFLOW</span> <span class="o">=</span> <span class="s2">&quot;abs(-9223372036854775808)&quot;</span>        <span class="c1"># SQLite 里这句必抛 integer overflow</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">oracle</span><span class="p">(</span><span class="n">cond</span><span class="p">):</span>                             <span class="c1"># cond 为真→正常；为假→触发错误</span>
-    <span class="k">try</span><span class="p">:</span> <span class="n">bad</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;CASE WHEN (</span><span class="si">{</span><span class="n">cond</span><span class="si">}</span><span class="s2">) THEN id ELSE </span><span class="si">{</span><span class="n">OVERFLOW</span><span class="si">}</span><span class="s2"> END&quot;</span><span class="p">);</span> <span class="k">return</span> <span class="kc">True</span>
-    <span class="k">except</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">OperationalError</span><span class="p">:</span>          <span class="k">return</span> <span class="kc">False</span>
+def order_clause(sort, order):
+    if sort not in SORTABLE or order not in DIRECTIONS:
+        raise ValueError("不支持的排序选项")
+    column = SORTABLE[sort]
+    direction = DIRECTIONS[order]
+    return f"ORDER BY {column} {direction}, id {direction}"
 
-<span class="n">got</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>                                       <span class="c1"># 🧪 用「报没报错」当探针，二分问出每个字节</span>
-<span class="k">for</span> <span class="n">pos</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">13</span><span class="p">):</span>
-    <span class="n">lo</span><span class="p">,</span> <span class="n">hi</span> <span class="o">=</span> <span class="mi">32</span><span class="p">,</span> <span class="mi">126</span>
-    <span class="k">while</span> <span class="n">lo</span> <span class="o">&lt;</span> <span class="n">hi</span><span class="p">:</span>
-        <span class="n">mid</span> <span class="o">=</span> <span class="p">(</span><span class="n">lo</span> <span class="o">+</span> <span class="n">hi</span><span class="p">)</span> <span class="o">//</span> <span class="mi">2</span>
-        <span class="k">if</span> <span class="n">oracle</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;(SELECT unicode(substr(k,</span><span class="si">{</span><span class="n">pos</span><span class="si">}</span><span class="s2">,1)) FROM api_keys) &gt; </span><span class="si">{</span><span class="n">mid</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">):</span> <span class="n">lo</span> <span class="o">=</span> <span class="n">mid</span> <span class="o">+</span> <span class="mi">1</span>
-        <span class="k">else</span><span class="p">:</span> <span class="n">hi</span> <span class="o">=</span> <span class="n">mid</span>
-    <span class="n">got</span> <span class="o">+=</span> <span class="nb">chr</span><span class="p">(</span><span class="n">lo</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;💀 只靠 ORDER BY 拼串，把密钥问出来了:&quot;</span><span class="p">,</span> <span class="n">got</span><span class="p">)</span>     <span class="c1"># sk-live-7fd3</span>
+
+assert order_clause("updated", "desc") == "ORDER BY updated_at DESC, id DESC"
+for sort, order in [("unknown", "desc"), ("updated", "up")]:
+    try:
+        order_clause(sort, order)
+    except ValueError as error:
+        print(error)
+    else:
+        raise AssertionError("应在查库前拒绝未知选项")
 </code></pre></div>
-
-<p><strong>实测输出</strong> <code>sk-live-7fd3</code>——⚠️ 表里没有任何一句 <code>SELECT k</code>，攻击者却靠「这一页排出来报不报错」一个字节一个字节把密钥读了出来。修法是<strong>白名单</strong>：外部传来的排序名先映射到一个你写死的真实列名，不认识就拒绝，方向也只允许两个取值：</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="n">SORTABLE</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;updated&quot;</span><span class="p">:</span> <span class="s2">&quot;updated_at&quot;</span><span class="p">,</span> <span class="s2">&quot;title&quot;</span><span class="p">:</span> <span class="s2">&quot;title&quot;</span><span class="p">}</span>   <span class="c1"># ⭐ 外部名 → 真实列名，你写死的</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">good</span><span class="p">(</span><span class="n">sort</span><span class="p">,</span> <span class="n">order</span><span class="o">=</span><span class="s2">&quot;desc&quot;</span><span class="p">):</span>
-    <span class="n">col</span> <span class="o">=</span> <span class="n">SORTABLE</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">sort</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">col</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span> <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;不支持的排序字段&quot;</span><span class="p">)</span>   <span class="c1"># ⭐ 不认识就拒，绝不回退到「原样拼」</span>
-    <span class="n">direction</span> <span class="o">=</span> <span class="s2">&quot;DESC&quot;</span> <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">order</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s2">&quot;desc&quot;</span> <span class="k">else</span> <span class="s2">&quot;ASC&quot;</span>   <span class="c1"># ⭐ 方向也只有两个取值</span>
-    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;SELECT id FROM conversations ORDER BY </span><span class="si">{</span><span class="n">col</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">direction</span><span class="si">}</span><span class="s2">&quot;</span>
-</code></pre></div>
-
 <blockquote>
 <p id="sqlite-order-value-check"><strong>最小SQLite对照：</strong>给出三行(id,score)=(1,30)、(2,10)、(3,20)，绑定字符串score执行 <code>ORDER BY ?</code> 并不按score列排序；显式 <code>ORDER BY score</code> 才得到id序列2、3、1。前者是各行同一常量表达式，行间顺序没有由它规定，不能把某次返回顺序当通用保证。这个本地对照只验证SQLite语义；现有白名单仍负责选列和方向，普通过滤值仍用占位符。依据 <a href="https://www.sqlite.org/lang_expr.html#parameters">SQLite参数表达式文档</a>。</p>
 <p>⭐ <strong>判据</strong>：<strong>凡是要拼进 SQL 结构位置（列名、方向、表名）的外部输入，一律走白名单映射，不认识就拒绝。</strong> 值可以参数化；列名/方向等结构不能借绑定值来选择——在SQLite中 <code>ORDER BY ?</code> 可以是合法的绑定值表达式，但不会把参数字符串解析为列标识符，因此仍须白名单映射，不能让外部输入直接拼接SQL。</p>
@@ -585,6 +586,111 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <blockquote>
 <p>💡 <strong>要展示总数怎么办</strong>：要么接受它是<strong>近似值</strong>（Postgres 可以读 <code>pg_class.reltuples</code> 估算，🗓️ 未实跑，需要真实 Postgres），要么维护一个<strong>计数器表</strong>（写入时 ±1）。⚠️ <strong>别在每次翻页都跑一遍精确 <code>COUNT</code></strong>——那是最贵、最没必要的一种。</p>
 </blockquote>
+<h3 id="conversation-page-contract">沿两次 GET 翻完会话列表</h3>
+<p>小林打开自己的「进行中」会话，界面每次只显示两条。服务端已从会话验证出当前用户是 <code>u1</code>。假设时间单位为秒，测试数据中这位用户的进行中会话按时间和编号降序排列为 <code>(100,4)</code>、<code>(100,3)</code>、<code>(100,2)</code>、<code>(99,1)</code>。同一用户已归档的 <code>5</code> 和另一用户的 <code>6</code> 都排在更晚的第 101 秒，仍须先被过滤。</p>
+<div class="flowchain" role="list" aria-label="第一页怎样找到下一页">
+<div class="fstep" role="listitem"><b>① 确定范围</b><span>用服务端已核验的用户与请求的状态筛出四条。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>② 多取一条</b><span>按时间与编号都降序取 2 + 1 条，得到 4、3、2。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>③ 返回两条并记边界</b><span>返回 4、3，用最后交给用户的 3 记住 (100,3)。</span></div>
+</div>
+<p>第一次请求用 <code>GET /conversations?status=open&amp;limit=2</code>。响应是 <code>200 OK</code>，JSON 正文为 <code>{"items":[{"id":4,"updated_at":100},{"id":3,"updated_at":100}],"next_cursor":"&lt;实际令牌&gt;"}</code>。客户端把 <code>next_cursor</code> 的实际值原样带进第二次请求的 <code>cursor</code> 参数，继续使用同一个 <code>status</code>。多读出的第 3 条只用来判断还有下一页。如果用它做边界，下一页会跳过 <code>id=2</code>。</p>
+<p>两次请求之间，新会话 <code>(101,7)</code> 来了，边界行 <code>id=3</code> 被删除。第二次发 <code>GET /conversations?status=open&amp;limit=2&amp;cursor=&lt;实际令牌&gt;</code>，仍查 <code>(updated_at, id) &lt; (100,3)</code>。先比时间，同一秒再比编号，于是取到 <code>id=2</code>、<code>id=1</code>。响应为 <code>200 OK</code>，JSON 正文为 <code>{"items":[{"id":2,"updated_at":100},{"id":1,"updated_at":99}],"next_cursor":null}</code>。更晚的 <code>7</code> 留给刷新后第一页。修改排序字段仍可能让记录跨过边界，本接口逐次读取当前数据。</p>
+<p>下面把这份接口合同做成可以直接运行的 Python 3 + SQLite 练习。函数返回 HTTP 状态码和 JSON 对应的数据结构，整个过程只用内存数据库，错误响应里的 <code>trace_id</code> 使用固定演示值。固定排序对应索引中的 <code>updated_at DESC, id DESC</code>。令牌是随机的，服务端字典只保存它对应的范围与边界。真实服务须在每次请求重新核对身份和访问范围，持久化或统一管理令牌及有效期。</p>
+<div class="codehilite" data-code-language="python" data-code-title="会话列表 · 可复跑的两页"><pre><code>import secrets
+import sqlite3
+from contextlib import closing
+
+
+def bad_request(code, message):
+    return 400, {"error": {"code": code, "message": message, "trace_id": "demo-06b"}}
+
+
+def list_conversations(db, cursors, user_id, status, limit, cursor=None):
+    # user_id 由调用者从已验证会话取得，本例用固定测试身份。
+    if status not in {"open", "archived"}:
+        return bad_request("invalid_status", "不支持的状态筛选")
+    if type(limit) is not int or not 1 &lt;= limit &lt;= 20:
+        return bad_request("invalid_limit", "limit 必须是 1 到 20 的整数")
+
+    scope = (user_id, status)
+    sql = "SELECT id, updated_at FROM conversations WHERE user_id = ? AND status = ?"
+    values = list(scope)
+    if cursor is not None:
+        saved = None
+        if isinstance(cursor, str) and 1 &lt;= len(cursor) &lt;= 128:
+            saved = cursors.get(cursor)
+        if saved is None:
+            return bad_request("cursor_expired", "请从第一页重新加载")
+        saved_scope, boundary = saved
+        if saved_scope != scope:
+            return bad_request("cursor_scope_mismatch", "查询范围已变化，请从第一页加载")
+        sql += " AND (updated_at, id) &lt; (?, ?)"
+        values.extend(boundary)
+
+    sql += " ORDER BY updated_at DESC, id DESC LIMIT ?"
+    rows = db.execute(sql, (*values, limit + 1)).fetchall()
+    items = rows[:limit]
+    next_cursor = None
+    if len(rows) &gt; limit:
+        next_cursor = secrets.token_urlsafe(16)
+        last = items[-1]
+        cursors[next_cursor] = (scope, (last["updated_at"], last["id"]))
+    return 200, {"items": [dict(row) for row in items], "next_cursor": next_cursor}
+
+
+with closing(sqlite3.connect(":memory:")) as db:
+    db.row_factory = sqlite3.Row
+    db.executescript("""
+        CREATE TABLE conversations (
+            id INTEGER PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX conversations_page
+            ON conversations(user_id, status, updated_at DESC, id DESC);
+        INSERT INTO conversations VALUES
+            (1, 'u1', 'open', 99), (2, 'u1', 'open', 100),
+            (3, 'u1', 'open', 100), (4, 'u1', 'open', 100),
+            (5, 'u1', 'archived', 101), (6, 'u2', 'open', 101);
+    """)
+    cursors = {}
+    http, first = list_conversations(db, cursors, "u1", "open", 2)
+    first_ids = [row["id"] for row in first["items"]]
+    token = first["next_cursor"]
+    assert http == 200 and first_ids == [4, 3] and token
+    assert cursors[token] == (("u1", "open"), (100, 3))
+    print(http, first_ids, token is not None)
+
+    with db:
+        db.execute("INSERT INTO conversations VALUES (7, 'u1', 'open', 101)")
+        db.execute("DELETE FROM conversations WHERE id = 3")
+    http, second = list_conversations(db, cursors, "u1", "open", 2, token)
+    second_ids = [row["id"] for row in second["items"]]
+    assert http == 200 and second_ids == [2, 1] and second["next_cursor"] is None
+    print(http, second_ids, second["next_cursor"] is not None)
+
+    def expect_error(result, expected):
+        http, body = result
+        assert http == 400 and body["error"]["code"] == expected
+        print(http, body["error"]["code"])
+
+    expect_error(list_conversations(db, cursors, "u1", "archived", 2, token),
+                 "cursor_scope_mismatch")
+    del cursors[token]  # 模拟服务端令牌到期
+    expect_error(list_conversations(db, cursors, "u1", "open", 2, token),
+                 "cursor_expired")
+    expect_error(list_conversations(db, cursors, "u1", "open", 0),
+                 "invalid_limit")
+</code></pre></div>
+<p>前两行输出分别是 <code>200 [4, 3] True</code> 与 <code>200 [2, 1] False</code>，最后一列表示有没有 <code>next_cursor</code>。接着依次得到 <code>400 cursor_scope_mismatch</code>、<code>400 cursor_expired</code> 和 <code>400 invalid_limit</code>。换状态或令牌失效时，前端清掉旧列表，从第一页重载。页大小无效时，先修正 <code>limit</code> 再发送。错误码与请求编号的用法见 <a href="03b-接口的形状.html#code">03b · 错误响应</a>。两列比较的求值顺序见 <a href="https://www.sqlite.org/rowvalue.html#row_value_comparisons">SQLite 行值比较文档</a>。</p>
+<details>
+<summary>先预测 · 如果误把第 3 条候选当成游标，会少哪条？</summary>
+<p>会少 <code>id=2</code>。候选第 3 条是 <code>(100,2)</code>，下一次查询只取严格小于该值的记录，<code>2</code> 自己也被排除。游标应指向已经返回的 <code>(100,3)</code>。</p>
+</details>
+
 <hr />
 <h2 id="_5">📋 六、顺带：批量接口的部分失败怎么报</h2>
 <p>列表选中多项后「批量删除 / 批量归档」是列表接口的孪生兄弟。它有个独有的坑：<strong>十条里第三条失败了，你返 200 还是 500？</strong> 都不对——200 骗人（有失败），500 也骗人（大部分成了，而且客户端不知道该不该整批重试）。⭐ <strong>正确做法是逐项报</strong>：</p>
@@ -664,7 +770,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td><a href="06-关系数据库.html">06-关系数据库.html</a></td>
-<td>本章的游标查询<strong>直接建在它的索引上</strong>：会话列表要 <code>(user_id, updated_at DESC)</code>、会话内消息要 <code>(conversation_id, seq)</code>。⭐ 索引怎么建、为什么把 <code>ORDER BY</code> 列一起带上、执行计划怎么看，<strong>全在它第三节，这里只用结论</strong></td>
+<td>本章沿用它的索引思路。会话内消息可用 <code>(conversation_id, seq)</code>。本章的会话列表还按状态筛选，用 <code>(user_id, status, updated_at DESC, id DESC)</code> 对齐过滤和排序。实际是否命中索引要看执行计划。</td>
 </tr>
 <tr>
 <td><a href="03-后端骨架.html">03-后端骨架.html</a></td>
@@ -672,7 +778,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><a href="08-认证会话与多租户.html">08-认证会话与多租户.html</a></td>
-<td>⚠️ <strong>列表接口是越权重灾区</strong>：<code>GET /conversations</code> 的 <code>WHERE</code> 里<strong>必须带上来自已验签凭证的 <code>tenant_id</code>／<code>user_id</code></strong>，绝不能来自请求参数。那一章讲怎么从结构上让「忘了加 <code>WHERE tenant_id</code>」写不出来</td>
+<td><code>GET /conversations</code> 每页都要从已验证身份重新取得允许访问的范围，再据此过滤。服务端还要核对令牌与这次范围是否匹配。第 08 章区分身份认证与租户、对象授权。</td>
 </tr>
 <tr>
 <td><a href="12-限流配额与成本护栏.html">12-限流配额与成本护栏.html</a></td>
@@ -691,9 +797,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>「翻页途中插入导致重复」——实测第 1 页 <code>[12,11,10,9,8]</code>，插入两条新消息后第 2 页是什么？重复了哪两条？为什么？</li>
 <li>游标（keyset）分页在什么条件下能稳定续页？它比 <code>OFFSET</code> 换来的代价是什么？</li>
 <li>排序列是 <code>updated_at</code>、而它大量撞车时，为什么单列游标会漏数据？正确的游标该怎么写？</li>
-<li>游标编码成 base64 不透明串，能不能往里放敏感信息？解码之后还要做一步什么？</li>
+<li>Base64 编码或签名能保护游标字段的保密性吗？服务端还要核对哪些条件？</li>
 <li>为什么把列名字符串绑定给 <code>ORDER BY ?</code> 不能选择排序列？这与SQLite语法错误有何区别？那靠什么防注入？</li>
-<li>「共 1234 条」这种精确总数，什么时候会很贵？不想要总数、只想知道「还有没有下一页」怎么做？</li>
+<li>「共 1234 条」这种精确总数，什么时候会很贵？只想知道「还有没有下一页」要多取几条？用哪条记录生成令牌？</li>
 <li>批量删除十条，第三条没权限，该返什么 HTTP 状态码？body 里放什么？</li>
 </ol>
 <details>
@@ -701,11 +807,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ol>
 <li><code>OFFSET N</code> 不能「跳」到第 N 条，数据库只能<strong>从头把前 N 条都取出来、一条条数着丢弃</strong>，再返回接下来的。翻得越深丢弃得越多，所以随页深线性变慢。实测第 2 万页（<code>OFFSET 399980</code>）比第 1 页慢约 400 倍（3.82 ms vs 0.009 ms），执行计划是 <code>SCAN</code>。</li>
 <li>第 2 页是 <code>[9,8,7,6,5]</code>，<strong>重复了 <code>9</code> 和 <code>8</code></strong>。因为新插的两条把每一条都往后挤了两个位置，<code>OFFSET 5</code> 原本指向 <code>7</code>，插入后指向了 <code>9</code>——<code>OFFSET</code> 算的是位置，位置被插入挪动了。</li>
-<li>因为它的条件是<strong>值比较</strong>（<code>seq &lt; 8</code>）而不是位置偏移：已读的都 ≥ 游标，新插/删除都不改变「比 8 小的还有哪些」这个事实。代价是不能跳页（给不了「第 500 页」和总页数），只能一页页往下翻——但 AI 产品的历史列表都是无限下滑，几乎不损失。</li>
+<li>条件 <code>seq &lt; 8</code> 按稳定唯一的值继续。新插入较大的值不会把续页边界挪动，边界行删了也能继续查。删掉的旧行不再返回，新插入的较小值可能进入后续页。通常要按页续取，完整一致的导出另需快照。</li>
 <li><code>updated_at</code> 撞车时，<code>updated_at &lt; 100</code> 会把「同样是 100、但还没读」的那些行<strong>整段跳过</strong>。正确写法是复合游标 <code>(updated_at, id) &lt; (?, ?)</code>——行值比较，和 <code>ORDER BY updated_at DESC, id DESC</code> 一一对应，末尾用唯一列（主键）兜底。</li>
-<li><strong>不能</strong>——base64 只是「不透明」不是加密，谁都能解开看。所以不放敏感信息，且解码之后必须重新校验类型（<code>isinstance(..., int)</code>）再用，绝不信任客户端传回来的内容。</li>
-<li>因为 <code>?</code> 绑定的是<strong>值表达式</strong>，不是列名/关键字替换，在SQLite中 <code>ORDER BY ?</code> 可以是合法的绑定值表达式，但不会把参数字符串解析为列标识符。这不能实现外部指定列排序，因此使用白名单：外部排序名映射到写死的真实列名，方向只允许 <code>DESC</code>/<code>ASC</code> 两个取值，不认识就拒绝。（正文里那段演示只靠一个 <code>sort</code> 参数就把 <code>sk-live-7fd3</code> 一个字节一个字节偷了出来。）</li>
-<li>当过滤条件<strong>命不中索引</strong>时——实测 <code>COUNT(*) WHERE content LIKE '%..%'</code> 要全表 <code>SCAN</code>，30.7 ms，比取一页（0.009 ms）慢三千多倍，还随数据量线性变慢。只想知道「还有没有下一页」就多取一条：查 <code>LIMIT 21</code>，回来 21 条就是「还有」（丢掉第 21 条），≤20 条就是「到底了」，实测 0.008 ms。</li>
+<li>不能。编码后仍可读，签名用于检查完整性。校验格式、范围、有效期及查询作用域，每次按当前身份重新授权。</li>
+<li>因为 <code>?</code> 绑定的是<strong>值表达式</strong>，不是列名/关键字替换，在SQLite中 <code>ORDER BY ?</code> 可以是合法的绑定值表达式，但不会把参数字符串解析为列标识符。这不能实现外部指定列排序，因此使用白名单：外部排序名映射到写死的真实列名，方向也从固定选项映射。未知选项在查库前就拒绝。</li>
+<li>当过滤条件<strong>命不中索引</strong>时——实测 <code>COUNT(*) WHERE content LIKE '%..%'</code> 要全表 <code>SCAN</code>，30.7 ms，比取一页（0.009 ms）慢三千多倍，还随数据量线性变慢。只想知道「还有没有下一页」就多取一条：查 <code>LIMIT 21</code>，回来 21 条就是「还有」，只返回前 20 条，用第 20 条生成令牌。查到不超过 20 条时返回的令牌为 <code>null</code>。</li>
 <li>返 <strong>207</strong>（部分成功；全成 200，全败 4xx 如 422）。body 里放逐项结果 <code>results:[{id, status, code}]</code> 加一个 <code>succeeded/failed</code> 汇总，每项的 <code>code</code> 用 03 章那套机器码。别让整批共享一个「全成全败」的事务，除非业务真要求原子性。</li>
 </ol>
 </details>
@@ -715,8 +821,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <blockquote>
 <p>历史对话、文档和任务列表若直接写 <code>LIMIT 20 OFFSET ?</code>，会有两个坑：深翻页时数据库仍要从头丢掉前 N 条，页数越深越慢；翻页途中插入或删除数据时，位置会移动，导致重复或漏项。</p>
 <p>聊天历史还在持续写入，因此改用<strong>游标（keyset）分页</strong>：记住最后一条值，下一页查 <code>WHERE seq &lt; 上次游标 ORDER BY seq DESC LIMIT 20</code>。它按值比较而非位置偏移，游标记录被删也不影响；代价是不能任意跳页，但无限下滑的历史列表通常不需要这个能力。</p>
-<p>排序列会撞值时，游标必须复合：<code>(updated_at, id) &lt; (?, ?)</code>，并与 <code>ORDER BY</code> 完全对齐、以唯一列兜底，否则会漏行。游标可编码成 base64 不透明串，但它不是加密，不能放敏感信息，解码后也要校验类型。排序字段必须走白名单映射；<code>ORDER BY</code> 的列名不能用 <code>?</code> 参数化，直接拼接就是注入面。</p>
-<p>精确 <code>COUNT(*)</code> 带上不命中索引的过滤会全表扫描。无限下滑只需知道「还有没有下一页」，多取一条（<code>LIMIT 21</code>）即可。批量接口若部分失败，返回 207 并在 <code>results[]</code> 逐项带状态，别把整批误报成全成或全败。</p>
+<p>排序列会撞值时，游标必须复合：<code>(updated_at, id) &lt; (?, ?)</code>，并与 <code>ORDER BY</code> 完全对齐、以唯一列兜底，否则会漏行。Base64 编码后的游标字段仍然可读。验证令牌范围与有效期，每次按当前身份核对访问权限。排序字段必须走白名单映射；<code>ORDER BY</code> 的列名不能用 <code>?</code> 参数化，直接拼接就是注入面。</p>
+<p>精确 <code>COUNT(*)</code> 带上不命中索引的过滤会全表扫描。无限下滑只需知道「还有没有下一页」，多取一条（<code>LIMIT 21</code>），用最后返回给客户端的那条记录生成令牌。批量接口若部分失败，返回 207 并在 <code>results[]</code> 逐项带状态，别把整批误报成全成或全败。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="07-向量检索落地.html">07-向量检索落地.html</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
