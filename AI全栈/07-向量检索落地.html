@@ -315,7 +315,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⏱ <strong>42 分钟</strong> ｜ ⭐ <strong>先别急着上专用向量库</strong></p>
 <hr />
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>你的向量大概率应该和业务数据存在同一个 Postgres 里 —— 至少在百万条以内、至少在你能说清「为什么必须分开」之前。</strong></p>
+<p><strong>如果向量和业务数据需要一起查、一起更新，可以先用同一个 Postgres 建立基线。是否拆开，取决于自己的查询、索引和运维实测。</strong></p>
 <p>⚠️ 这一章不讲 RAG 该怎么切分、怎么重排（那是<a href="../大模型全景导论/08-RAG深水区.html">《大模型全景导论》08</a>），
 也不讲 HNSW 和 IVF 的原理（那是<a href="../推荐算法/10-向量检索与ANN.html">《推荐算法》10</a>）。
 ⭐ <strong>本章只讲一件事：怎么把它真的存进库里、和业务数据一起查。</strong></p>
@@ -360,8 +360,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⚠️ <strong>这不是理论风险，是必然会发生的</strong> —— 网络抖动、进程重启、部署时机，任何一个都能制造它。
 要解决就得引入对账任务、软删除、事件溯源……<strong>一整套本来不需要的复杂度</strong>。</p>
 <blockquote>
-<p>⭐ <strong>而如果向量就在同一个 Postgres 里，上面整个问题不存在</strong> ——
-一个 <code>DELETE ... CASCADE</code>，一个事务，完事。</p>
+<p>⭐ <strong>如果向量和文档在同一个 PostgreSQL 数据库，可把这两步纳入同一个事务。</strong>下面在外键上配置 <code>ON DELETE CASCADE</code>，删除父文档时一并删除它的片段。外部缓存或另存的索引仍需单独更新。</p>
 </blockquote>
 <hr />
 <h2 id="pgvector">🐘 二、pgvector：把向量当成一个字段</h2>
@@ -393,7 +392,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>⭐ <strong>注意 <code>ON DELETE CASCADE</code></strong> —— 上一节那个一致性问题，在这里就是一行 DDL 解决的。
 删文档，它的所有 chunk 和向量跟着走，<strong>在同一个事务里</strong>。</p>
-<p>查询就是普通 SQL 加一个距离运算符：</p>
+<p>先在仅有演示数据的本地表里看距离排序。<code>$1</code> 绑定查询向量，业务查询还要加第四节的可见范围条件。</p>
 <div class="codehilite" data-code-language="sql"><pre><span></span><code><span class="c1">-- 🗓️ 未实跑，需要 PostgreSQL + pgvector</span>
 <span class="k">SELECT</span><span class="w"> </span><span class="n">content</span><span class="p">,</span><span class="w"> </span><span class="n">embedding</span><span class="w"> </span><span class="o">&lt;=&gt;</span><span class="w"> </span><span class="err">$</span><span class="mi">1</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">distance</span>
 <span class="k">FROM</span><span class="w"> </span><span class="n">chunks</span>
@@ -414,7 +413,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td><code>&lt;=&gt;</code></td>
 <td>余弦距离</td>
-<td>⭐ <strong>大多数 embedding 模型用这个</strong>（OpenAI、BGE 等）</td>
+<td>模型文档建议按向量方向比较时</td>
 </tr>
 <tr>
 <td><code>&lt;-&gt;</code></td>
@@ -424,15 +423,28 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td><code>&lt;#&gt;</code></td>
 <td>负内积</td>
-<td>向量已归一化时，比余弦快一点</td>
+<td>模型建议用内积时。负号让更大的内积在升序排序里靠前</td>
 </tr>
 </tbody>
 </table></div>
-<p>⚠️ <strong>用错了不会报错，只会悄悄检索得更差</strong> —— 这是最难发现的一类 bug。<strong>先去查你的模型文档。</strong></p>
+<p>同一组向量改用另一种度量，SQL 仍可能成功，但排名可能变。先核对模型推荐的度量，建索引时选对应的运算符类。<a href="https://github.com/pgvector/pgvector#querying">pgvector 运算符文档</a>。</p>
+<h3 id="vector-retrieval-path">把一次文档提问变成可核对的排序</h3>
+<p>用户问「退款什么时候到账？」手里有几段说明文字。逐字找「到账」会漏掉写着「款项原路退回」的片段。嵌入（Embedding）模型把文本编码成一串数字，称为向量（Vector）。如果模型把相关文字映射到相近方向，就能先取回值得阅读的片段。</p>
+<div class="flowchain" role="list" aria-label="一次文档问答的检索流程">
+<div class="fstep" role="listitem"><b>① 问题 → 向量</b><span>按查询侧约定编码问题，得到查询向量。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>② 确定可搜范围</b><span>本例只允许当前用户尚未归档且已有可用向量的片段。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>③ 由近到远取前 K 个</b><span>精确搜索比较范围内所有合格向量。K 是最多取回的片段数。</span></div>
+<div class="farrow" aria-hidden="true">→</div>
+<div class="fstep" role="listitem"><b>④ 交付片段和来源</b><span>下游收到片段文字和来源编号，再核对这些文字能否回答问题。</span></div>
+</div>
+<p><strong>为什么这里比较方向？</strong> 如果两个向量都指向同一方向，仅长度不同，余弦相似度（Cosine Similarity）把它们视为同样接近。做法是先把两个向量各自除以长度，再把对应坐标相乘相加，得到两个方向的点积。下例向量只有两个坐标，长度用勾股定理算。查询向量 <var>q</var> 和片段向量 <var>v</var> 必须处于同一向量空间，长度必须非零。</p>
+<p>用假设的二维向量来手算，数字是为了演示，实际向量的坐标通常没有这样简单的含义。设 <var>q</var> = (1, 0)，片段 C11 的 <var>v</var> = (3, 4)。两向量长度分别为 √(1² + 0²) = 1 和 √(3² + 4²) = 5。归一化后相乘相加：1 × (3/5) + 0 × (4/5) = 0.6。pgvector 的 <code>&lt;=&gt;</code> 返回余弦距离（Cosine Distance），即 <strong>1 − 余弦相似度</strong>，所以 C11 的距离为 <strong>1 − 0.6 = 0.4</strong>。</p>
+<p>再算当前用户的 C12，<var>v</var> = (0, 2)，长度为 2，余弦相似度为 1 × (0/2) + 0 × (2/2) = 0，距离为 1。允许使用的只有 C11 和 C12，取 Top‑2 得到 <strong>C11 → C12</strong>。数据库按距离升序排。距离 0.4 无单位，也不表示答案有 40% 的概率正确。下游仍须看片段是否包含到账时间，才能决定是否引用。</p>
 <hr />
 <h2 id="_4">📇 三、索引：⚠️ 别建太早</h2>
-<p>不建索引，Postgres 会<strong>全表扫描</strong>算距离。几千条时这完全没问题（几十毫秒），
-<strong>几十万条就开始难受了</strong>。</p>
+<p>精确搜索逐个计算合格候选的距离。没有向量索引时，Postgres 仍可能先通过普通索引缩小范围，不一定全表扫描。先量自己的候选数、延迟和吞吐，再决定是否上近似索引。</p>
 <p>pgvector 有两种索引：</p>
 <div class="tw"><table>
 <thead>
@@ -465,40 +477,37 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td>⚠️ <strong>致命点</strong></td>
-<td><strong>必须先有数据才能建</strong>（要靠数据聚类）</td>
+<td><strong>先载入代表性数据再建</strong>（需要聚类）</td>
 <td>可以在空表上建</td>
 </tr>
 </tbody>
 </table></div>
-<p>⚠️⚠️ <strong>IVFFlat 那个「必须先有数据」是新手最容易栽的地方</strong>：
-你在空表上建了 IVFFlat 索引，之后灌进去一百万条 —— <strong>索引是基于那时候的空数据建的，效果极差</strong>，
-而且不会有任何报错。灌完数据要 <code>REINDEX</code>。</p>
+<p><strong>IVFFlat 需要足够的代表性数据来划分候选列表。</strong>如果过早建了索引，结果条数或召回可能不达标。先补足数据，再考虑重建并与精确结果对照。</p>
 <blockquote>
 <p>⭐ <strong>实践建议</strong>：
-<strong>数据量小（几万以内）时，干脆先不建索引</strong> —— 全表扫描又准又简单，还省得调参。
-等真的慢了，先上 <strong>HNSW</strong>（不用操心数据分布），除非内存吃紧再考虑 IVFFlat。</p>
+<strong>先用精确搜索做正确性对照</strong>。合格范围小且延迟达标时可以继续用它。需要提速时，在同一批查询上比较 HNSW、IVFFlat 的延迟、召回和资源开销。</p>
 </blockquote>
-<p>⚠️ <strong>索引是近似的</strong>。建了索引，检索结果<strong>可能和精确搜索不一样</strong> ——
-这是用速度换准确度，不是 bug。如果你发现「加了索引之后效果变差」，那是召回率在下降，
-要调参数（HNSW 的 <code>ef_search</code>、IVFFlat 的 <code>probes</code>），不是索引坏了。</p>
+<p>近似最近邻搜索（Approximate Nearest Neighbor Search，ANN）用有限的扫描预算找可能接近的向量。当查询实际走近似索引时，结果可能与精确搜索不同。效果变差时，先核对实际计划、数据和过滤范围，再试调 HNSW 的 <code>ef_search</code> 或 IVFFlat 的 <code>probes</code>。</p>
 <hr />
 <h2 id="_5" data-mg-stop>🔒 四、⭐ 过滤 + 向量检索：差别到底在哪（⚠️ 最容易被讲错的一节）</h2>
 <p><strong>真实需求几乎从来不是「在全部向量里搜最相似的」</strong>，而是：</p>
 <blockquote>
-<p>「在<strong>这个用户</strong>的、<strong>这个文件夹</strong>里的、<strong>没被归档</strong>的文档里，搜最相似的 5 条」</p>
+<p>「在<strong>当前用户有权读</strong>、<strong>没被归档</strong>的文档里，搜最相似的 5 条」</p>
 </blockquote>
-<p>在 Postgres 里，这就是加个 <code>WHERE</code>：</p>
+<p>这个私有文档示例由服务端认证后取出当前用户 ID，绑定到 <code>$2</code>，<code>$1</code> 绑定查询向量。若是租户内共享文档，要用实际成员、角色和资源授权限定范围。查询参数里的用户号或单个所有者过滤都不能代替业务授权。</p>
 <div class="codehilite" data-code-language="sql"><pre><span></span><code><span class="c1">-- 🗓️ 未实跑，需要 PostgreSQL + pgvector</span>
-<span class="k">SELECT</span><span class="w"> </span><span class="k">c</span><span class="p">.</span><span class="n">content</span><span class="p">,</span><span class="w"> </span><span class="k">c</span><span class="p">.</span><span class="n">embedding</span><span class="w"> </span><span class="o">&lt;=&gt;</span><span class="w"> </span><span class="err">$</span><span class="mi">1</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">distance</span>
+<span class="k">SELECT</span><span class="w"> </span>c.id AS chunk_id, c.document_id, <span class="k">c</span><span class="p">.</span><span class="n">content</span><span class="p">,</span><span class="w"> </span><span class="k">c</span><span class="p">.</span><span class="n">embedding</span><span class="w"> </span><span class="o">&lt;=&gt;</span><span class="w"> </span><span class="err">$</span><span class="mi">1</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">distance</span>
 <span class="k">FROM</span><span class="w"> </span><span class="n">chunks</span><span class="w"> </span><span class="k">c</span>
 <span class="k">JOIN</span><span class="w"> </span><span class="n">documents</span><span class="w"> </span><span class="n">d</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="n">d</span><span class="p">.</span><span class="n">id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">c</span><span class="p">.</span><span class="n">document_id</span>
-<span class="k">WHERE</span><span class="w"> </span><span class="k">c</span><span class="p">.</span><span class="n">user_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="err">$</span><span class="mi">2</span><span class="w">          </span><span class="c1">-- ⭐ 租户隔离</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="k">c</span><span class="p">.</span><span class="n">user_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="err">$</span><span class="mi">2</span><span class="w">          </span><span class="c1">-- 私有文档：片段所有者</span>
+  AND d.user_id = $2          -- 文档所有者也必须匹配
+  AND c.embedding IS NOT NULL -- 向量尚未生成时不可参与排序
 <span class="w">  </span><span class="k">AND</span><span class="w"> </span><span class="n">d</span><span class="p">.</span><span class="n">archived</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">false</span><span class="w">      </span><span class="c1">-- ⭐ 注意：这个条件在另一张表上</span>
 <span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="k">c</span><span class="p">.</span><span class="n">embedding</span><span class="w"> </span><span class="o">&lt;=&gt;</span><span class="w"> </span><span class="err">$</span><span class="mi">1</span>
 <span class="k">LIMIT</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span>
 </code></pre></div>
 
-<p>⭐ <strong>注意 <code>archived</code> 在 <code>documents</code> 上、不在 <code>chunks</code> 上</strong> —— 关系库直接 <code>JOIN</code> 过去就行，
+<p><strong><code>chunk_id</code> 与 <code>document_id</code> 用于追溯来源。</strong><code>archived</code> 在 <code>documents</code> 上，查询通过 <code>JOIN</code> 把文档状态与片段关联，
 这一点下面还会回来说。</p>
 <p>在专用向量库里，这件事叫「<strong>带元数据过滤的检索</strong>」，是一个<strong>需要专门支持的特性</strong>，
 各家实现差异很大，通常就两种做法，各有各的问题：</p>
@@ -512,7 +521,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tbody>
 <tr>
 <td><strong>先过滤再搜</strong>（pre-filter）</td>
-<td>过滤后候选集变小，向量索引可能失效，退化成暴力扫</td>
+<td>先缩小候选范围。合格数据很少时，精确计算也可能足够快</td>
 </tr>
 <tr>
 <td><strong>先搜再过滤</strong>（post-filter）</td>
@@ -522,13 +531,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </table></div>
 <h3 id="pgvector_1">⚠️⚠️ 别搞错：这个困境 pgvector 也有</h3>
 <p><strong>很多「pgvector vs 专用向量库」的对比文章会把这个困境说成专用库独有。这是错的。</strong></p>
-<p>一旦你按上一节的建议建了 <strong>HNSW / IVFFlat</strong>，pgvector 走的就是<strong>同一条 post-filter 路</strong>：
-近似索引先按距离取回一批候选，<code>WHERE</code> 再在这批候选上过滤 ——
-同样会出现「取回一批、过滤完只剩几条」。换个存储不会让近似索引变成精确索引。</p>
+<p>当执行计划<strong>实际选择了 HNSW 或 IVFFlat</strong>，pgvector 会在近似索引扫描后应用过滤，可能得到不足 K 条的结果。若规划器先按业务条件缩小范围再精确排序，就没有这个近似候选预算。SQL 中 <code>WHERE</code> 写在 <code>ORDER BY</code> 前面，并不能决定实际执行计划。</p>
 <blockquote>
-<p>🗓️ 较新的 pgvector 提供了<strong>迭代索引扫描</strong>（<code>hnsw.iterative_scan</code> 之类的开关），
-过滤完不够数就自动往下再扫一段。⭐ <strong>这恰恰说明这个问题在 pgvector 里真实存在</strong> ——
-不然不会专门给它一个开关。版本相关，用前查你那版文档。</p>
+<p>pgvector 从 0.8.0 起可启用<strong>迭代索引扫描</strong>。过滤后不足时，索引可以继续扫描，直到取够或达到预算。继续扫也可能凑不够，所以仍要测自己的查询。<a href="https://github.com/pgvector/pgvector#iterative-index-scans">pgvector 迭代扫描说明</a>。</p>
 </blockquote>
 <p>pgvector 的价值在于与业务 SQL、事务和查询规划器的结合，不能把专用向量库说成“不支持精确搜索”。例如 Qdrant 的 <code>SearchParams(exact=True)</code> 就能提供精确对照。<a href="https://qdrant.tech/documentation/tutorials-search-engineering/ann-recall/">官方 ANN 召回实验</a>。</p>
 <div class="tw"><table>
@@ -558,23 +563,64 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tbody>
 </table></div>
 <p>小数据量先用精确搜索建立基线；大数据量再测近似索引的召回—延迟取舍。存储选型要比较自己的过滤分布、成本和运维条件。<a href="../智能体工程教程/11c-检索评测与调优实验.html">检索实验</a>将这种对照接到 RAG。</p>
-<p>⚠️ <strong>一个必须做对的安全细节</strong>：<code>WHERE user_id = $2</code> 这个条件<strong>绝不能是可选的</strong>。
-<a href="08-认证会话与多租户.html">第 8 章</a>讲了怎么从结构上保证它不会被漏掉 —— 不是靠记得写。</p>
+<p><strong>候选必须经过可信的业务授权。</strong>这个私有文档示例用服务端认证得到的所有者范围。生产服务如何把访问范围落实到应用和数据层，见<a href="08-认证会话与多租户.html">第 08 章</a>。</p>
+<h3 id="vector-candidate-check">用相同四条片段，分清少返回和漏掉近邻</h3>
+<p>把刚才的例子加到四条。C13 已归档，C21 不在当前用户的可见范围内。两条的向量 (2, 0)、(1, 0) 都和查询 (1, 0) 同方向，余弦相似度都为 1，距离都为 0。这里把近似索引的扫描上限简化为「只看到三个候选」，便于手算。</p>
+<div class="panels" aria-label="精确基线与候选受限的检索对照">
+<div class="panel"><div class="ph">精确基线 · 在允许范围内比较全部</div>
+<p>C11（0.4）→ C12（1），两条都能交给下游。</p></div>
+<div class="panel"><div class="ph">候选受限 · 扫描三条再过滤</div>
+<p>看到 C13（0）→ C21（0）→ C11（0.4）。过滤后只剩 C11。C12 在允许范围内，却未进入这次扫描的候选。两条同分的候选在教学代码中按编号排。</p></div>
+</div>
+<p>这是一次有两个合格近邻却只交付一个的例子。如果精确基线也只有一个合格候选，返回一条就是正常结果。反过来，近似查询即使返回了 K 条，也可能用较远的候选填满名额。要查漏了谁，比较<strong>结果编号</strong>。这里的索引召回率以精确结果为参照，用「两组共同的编号数 ÷ 精确结果条数」计算。本例 K = 2，精确组是 C11、C12，共同的只有 C11，所以 <strong>1 ÷ 2 = 50%</strong>。如果精确组为空，分母为 0，应单独记录空结果。这项指标衡量近似搜索复现精确结果的程度，文档是否真的有用还需另做相关性评测。</p>
+<p>下面的 Python 3 示例只用标准库。把四个演示向量直接作为输入，比较同一过滤条件下的精确结果和候选受限结果。它只模拟固定的候选范围，不实现 HNSW 或 IVFFlat。</p>
+<div class="codehilite" data-code-language="python" data-code-title="四条片段 · 精确 Top‑2 与候选受限对照"><pre><code>from math import hypot
+
+query = (1, 0)
+current_user = 7
+k = 2
+rows = [
+    ("C11", 7, False, (3, 4)),
+    ("C12", 7, False, (0, 2)),
+    ("C13", 7, True, (2, 0)),
+    ("C21", 9, False, (1, 0)),
+]
+
+
+def distance(vector):
+    x, y = vector
+    qx, qy = query
+    return 1 - (qx * x + qy * y) / (hypot(qx, qy) * hypot(x, y))
+
+
+def eligible(row):
+    _, owner, archived, _ = row
+    return owner == current_user and not archived
+
+
+ranked = sorted(rows, key=lambda row: (distance(row[3]), row[0]))
+exact_ranked = sorted(filter(eligible, rows), key=lambda row: (distance(row[3]), row[0]))
+exact = [row[0] for row in exact_ranked[:k]]
+limited = [row[0] for row in ranked[:3] if eligible(row)][:k]
+print("exact:", exact)
+print("limited:", limited)
+print("index recall:", f"{len(set(exact) &amp; set(limited)) / len(exact):.0%}")
+</code></pre></div>
+<p>运行后依次得到 <code>exact: ['C11', 'C12']</code>、<code>limited: ['C11']</code>、<code>index recall: 50%</code>。<code>exact</code> 先筛选可用的片段，再按距离排序。<code>limited</code> 模拟只看到前三条候选，再从中筛选。分母在这组演示里固定非零。</p>
+<p>在线诊断时，保持数据快照、模型版本、距离、授权条件和 K 一致。先在可控环境跑出精确对照，再用 <code>EXPLAIN</code> 确认近似索引是否真的被选中。遇到并列距离时，精确对照和比较程序需要采用一致的并列处理约定。对比短结果比例、索引召回率和延迟，重点覆盖只匹配少量记录的过滤条件。可试着调大扫描预算，或对很小的合格范围用精确搜索。无论扫描多少，只有通过授权的片段才能进入模型上下文。</p>
 <hr />
 <h2 id="embedding">🧮 五、embedding 在哪算、什么时候算</h2>
-<p><strong>写入时算，不是查询时算。</strong></p>
+<p><strong>文档片段在写入阶段提前算向量，每次查询只计算问题的向量。</strong></p>
 <section class="visual-block visual-block-flow" aria-label="因果链"><p class="visual-block-title">因果链</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">上传文档</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">切分</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">【算 embedding】</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">连同文本一起入库</span></div><div class="vb-flow-row"><span class="vb-flow-step">↑ 慢，几十秒起步，所以走队列（第 11 章）</span></div><div class="vb-flow-row"><span class="vb-flow-step">用户提问</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">【算 query 的 embedding】</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">查询</span></div><div class="vb-flow-row"><span class="vb-flow-step">↑ 快，一次一条，可以同步做</span></div></div></section>
-<p>⚠️ <strong>两边必须用同一个模型</strong>。用 A 模型存的向量、用 B 模型的 query 去搜，
-<strong>不会报错，只会返回一堆不相关的东西</strong>。</p>
+<p><strong>查询和文档向量必须来自兼容的同一个向量空间。</strong>通常使用同一个模型版本，并各自采用模型文档要求的查询侧和文档侧输入约定。有的模型要求两侧用不同前缀。同样长的向量也可能来自互不兼容的空间，数据库的维度检查只能拦住长度不符。</p>
 <p>⭐ <strong>换 embedding 模型 = 全部重算。</strong> 这件事的代价要提前知道：</p>
 <ul>
 <li>一百万个 chunk，按常见的 embedding 定价，<strong>重算一次是一笔真金白银</strong></li>
-<li>重算期间新旧向量<strong>不能混在一张表里</strong>（维度可能都不一样）</li>
-<li>所以要么停机、要么建新表双写再切换</li>
+<li>维度不同时要用兼容的存储结构。即使维度相同，也要分版本隔离搜索范围和索引</li>
+<li>可建新表或新版本的检索路径，回填、核对覆盖率和检索质量后，再同时切换查询编码与目标索引</li>
 </ul>
 <blockquote>
-<p>⭐ <strong>实践建议</strong>：<strong>在表里存一列 <code>embedding_model</code></strong>，记下这条向量是哪个模型算的。
-不存的话，将来你连「哪些需要重算」都查不出来。</p>
+<p>⭐ <strong>实践建议</strong>：<strong>记录模型和版本</strong>，例如在表里加 <code>embedding_model</code>、<code>embedding_version</code>，再结合文档版本判断哪些片段需要重算。上文 SQL 的演示表只放单一版本。写入与查询时都要校验维度，使用余弦距离时还要拦截零向量。</p>
 </blockquote>
 <hr />
 <h2 id="_6">🚦 六、什么时候真该上专用向量库</h2>
@@ -665,7 +711,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><a href="08-认证会话与多租户.html">08 · 认证、会话与多租户</a></td>
-<td>⭐ 第四节那个 <code>WHERE user_id</code> <strong>绝不能漏</strong>。那一章讲怎么从结构上保证 —— <strong>不是靠记得写</strong></td>
+<td>第四节按私有文档所有者筛选。那一章讲如何用可信身份和业务授权限定可见范围</td>
 </tr>
 <tr>
 <td><a href="11-长任务与队列.html">11 · 长任务与队列</a></td>
@@ -701,31 +747,33 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>embedding 该在写入时算还是查询时算？为什么？</li>
 <li>换 embedding 模型的代价是什么？该提前存哪一列来降低这个代价？</li>
 <li>什么时候真该上专用向量库？列三条信号。</li>
+<li>先预测再看答案。候选预算从 3 改为 2，仍按示例距离和编号排序。过滤后还剩几条？与精确 Top‑2 的索引召回率是多少？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
 <li><strong>一套备份恢复</strong>（还要和主库恢复到同一时间点）、一套监控告警、一套连接管理、一致性问题（最贵）。</li>
 <li>删除要做两步（删业务记录、删向量），<strong>这两步不在一个事务里</strong>：①成功②失败 → 💀 文档已删除但仍能被检索到（数据泄露）；①失败②成功 → 文档还在但问不出内容。⚠️ 网络抖动、进程重启、部署时机都会触发。pgvector 里一行 <code>ON DELETE CASCADE</code> 就解决了 —— 同一个事务。</li>
-<li><code>&lt;=&gt;</code> <strong>余弦距离</strong>（大多数模型用这个）、<code>&lt;-&gt;</code> L2 欧氏、<code>&lt;#&gt;</code> 负内积（向量已归一化时更快）。⚠️ 选错不会报错，只会悄悄检索得更差 —— 最难发现的一类 bug。先查模型文档。</li>
-<li>⚠️⚠️ <strong>IVFFlat 必须先有数据才能建</strong>（要靠数据聚类）。在空表上建完再灌一百万条，索引是基于空数据建的、效果极差，而且不会有任何报错。灌完要 <code>REINDEX</code>。</li>
-<li><strong>干脆先不建。</strong> 几万条全表扫描又准又简单，还省得调参。真慢了先上 HNSW（不用操心数据分布），除非内存吃紧再考虑 IVFFlat。⚠️ 另外记住索引是近似的：加索引后结果可能和精确搜索不同，那是召回率下降，要调 <code>ef_search</code>/<code>probes</code>，不是 bug。</li>
+<li><code>&lt;=&gt;</code> 为余弦距离，<code>&lt;-&gt;</code> 为 L2 欧氏距离，<code>&lt;#&gt;</code> 为负内积。按模型推荐的度量选运算符。用错可能改变排序。</li>
+<li>IVFFlat 需要代表性数据来划分候选列表。数据过少就建索引，结果条数和召回可能不达标。先补数据，再重建并核对。</li>
+<li>先按业务过滤后的候选规模实测精确搜索。延迟达标时可以不建近似索引。延迟不达标时，比较索引的召回、延迟和资源开销。</li>
 <li>两种做法：<strong>pre-filter</strong>（先过滤再搜——候选集变小，向量索引可能失效退化成暴力扫）、post-filter（先搜再过滤——⚠️ 取回 top 100 过滤完只剩 3 条甚至 0 条，要的 5 条拿不到）。⚠️⚠️ pgvector 一样有这个问题：实际使用 HNSW / IVFFlat 的查询可能遇到过滤后不足 K，应检查执行计划与迭代扫描配置，换个存储不会让近似索引变精确（🗓️ 较新版本有 <code>hnsw.iterative_scan</code> 这类开关，专门给它兜底——这恰恰说明问题真实存在）。它真正的优势是三条：① 小数据量可以干脆不建索引，精确扫描过滤得一条不差——专用库也可能提供精确模式，需按具体引擎验证；② 过滤条件能走普通 B-tree，「先过滤再精扫」还是「走向量索引」由查询规划器自己挑，不用你二选一；③ 过滤条件和向量在同一份数据、同一个事务里，<code>archived</code> 在另一张表上也能 JOIN，不必把元数据同步一份过去（同步就会漂）。</li>
-<li><strong>写入时算。</strong> 因为算 embedding 慢（几十秒起步），HTTP 请求等不了，要走队列（<a href="11-长任务与队列.html">第 11 章</a>）；query 的 embedding 一次一条，快，可以同步算。⚠️ 两边必须用同一个模型 —— 用错不报错，只返回一堆不相关的东西。</li>
-<li><strong>全部重算</strong>：一百万 chunk 是一笔真金白银；重算期间新旧向量不能混在一张表（维度可能不同），要么停机要么建新表双写再切换。提前存一列 <code>embedding_model</code> —— 不存的话，将来连「哪些需要重算」都查不出来。</li>
+<li>文档片段提前算，查询侧每次为问题算。两边要遵守同一向量空间的编码约定，同维不能证明兼容。</li>
+<li>迁移时要为仍需检索的片段重算，按版本隔离候选与索引。提前记录 <code>embedding_model</code> 和 <code>embedding_version</code>，便于确定回填范围。</li>
 <li>任选三条：<strong>向量数超千万级</strong>、QPS 高且延迟敏感、需要 Postgres 没有的检索能力（GPU 加速、放不进内存的磁盘索引；⚠️ 量化压缩不算 —— pgvector 已经有 <code>halfvec</code> 和二值量化，拿它当理由是不成立的）、向量和业务数据本来就分离（来自离线批处理、无一致性要求 —— 这时第一节的理由不成立）、团队已经在运维那个库。⚠️ 注意没有一条是「因为它是专门做这个的」 —— 技术选型的成本不在「学会用」，在「长期运维」。</li>
+<li>先看到的是距离都为 0 的 C13 和 C21，前者已归档，后者不在当前用户可见范围。结果为空，共同编号数为 0，索引召回率为 0 ÷ 2 = 0%。精确对照仍能找出 C11 和 C12。</li>
 </ol>
 </details>
 <hr />
 <h2 id="_10">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>⭐ <strong>这一章的立场：你的向量大概率应该和业务数据存在同一个数据库里</strong>——至少在百万条以内，<strong>至少在你能说清「为什么必须分开」之前</strong>。</p>
+<p>⭐ <strong>这一章的立场：向量需要和业务数据一起查、一起更新时，可以先放在同一个数据库里建立基线</strong>。</p>
 <p>⭐ <strong>多一个专用库就多四样东西</strong>：一套备份恢复、一套监控、一套连接管理，<strong>以及最贵的那个——一致性</strong>。删文档要删业务记录和删向量两步，⚠️ <strong>它们不在一个事务里</strong>。💀 <strong>一半成功就是「文档已删除却仍能被检索到」，那是数据泄露</strong>；反过来是文档还在但问不出内容。⭐ <strong>而放在一起时，这一切就是一行级联删除。</strong></p>
-<p>⚠️ <strong>索引别建太早</strong>：那类近似索引<strong>必须先有数据才能建</strong>（它靠数据聚类）——<strong>在空表上建完再灌数据，索引基于空数据、效果极差，而且不会报错。</strong> ⭐ 几万条以内<strong>干脆不建索引</strong>，全表扫描又准又简单。</p>
-<p>⭐⭐ <strong>最关键的一节是「带元数据过滤的检索」</strong>：真实需求几乎从不是「在全部向量里搜」，而是「在这个用户的、这个文件夹里的、没归档的文档里搜」。⚠️ <strong>别以为放在一起就没有先过滤还是后过滤的困境</strong>——⭐ <strong>只要建了近似索引，走的就是同一条路；换个存储不会让近似索引变成精确索引。</strong></p>
+<p><strong>先测精确搜索。</strong>只有查询确实需要提速时，才测近似索引的召回和延迟。IVFFlat 先载入代表性数据再建索引。</p>
+<p>⭐⭐ <strong>最关键的一节是「带元数据过滤的检索」</strong>：真实需求几乎从不是「在全部向量里搜」，而是「在这个用户的、这个文件夹里的、没归档的文档里搜」。<strong>实际走近似索引时</strong>，候选扫描可能先受预算限制，再由授权条件过滤。用同一授权范围的精确 Top‑K 对照，才能判断少了谁。</p>
 <p>它真正的优势是三条：小数据量<strong>可以干脆不建索引</strong>（专用库也可能支持精确模式）、过滤条件走普通索引由查询规划器自己挑、过滤和向量在同一份数据同一个事务里。⭐ <strong>所以理由是「你多了几个选项而且不用自己选」，不是「问题不存在」。</strong></p>
-<p>⭐ <strong>换 embedding 模型等于全部重算</strong>，新旧维度可能不同、不能混在一张表里——⭐ <strong>提前存一列「用的是哪个模型」</strong>，否则将来连「哪些要重算」都查不出来。</p>
+<p><strong>换向量模型需要为仍要检索的片段重算。</strong>记录模型版本，隔离新旧搜索范围，回填并验证后再切换。</p>
 <p>⚠️ 真该上专用库的信号里<strong>没有一条是「因为它是专门做这个的」</strong>——⭐ <strong>技术选型的成本不在学会用，在长期运维：多一个有状态组件，就多一个会在凌晨出问题的东西。</strong></p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="07b-文件上传与对象存储.html">07b-文件上传与对象存储.md</a></p>
