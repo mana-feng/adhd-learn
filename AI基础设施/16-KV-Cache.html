@@ -304,7 +304,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <a class="mg-primary" href="#_2">先看复用前提与容量</a>
 <a href="#mg-ai-infra-kv-cache-reading-start">直接进入完整正文</a>
 </nav>
-<p class="mg-reading-map">可以分段读：<a href="#_3">① 复用与容量</a><a href="#gqa-mqa-kv">② 缓存结构与 MLA</a><a href="#batch">③ 算一个容量上界</a></p>
+<p class="mg-reading-map">可以分段读：<a href="#_2">① 先看每步复用什么</a><a href="#_3">② 从张量形状推容量</a><a href="#2-prefix-caching">③ 判断前缀能否命中</a><a href="#batch">④ 算容量上界</a></p>
 </div>
 </header>
 <span id="mg-ai-infra-kv-cache-reading-start"></span>
@@ -342,6 +342,20 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>🔑 <strong>为什么只缓存 K 和 V，不缓存 Q</strong>：
 因为 <strong>Q 只用一次</strong>（当前 token 查询），而 <strong>K、V 会被后面所有 token 反复用到</strong>。</p>
 </blockquote>
+<h3 id="kv-one-layer">先把一层里的 Q、K、V 看成三种不同任务</h3>
+<p>先不用背矩阵。处理第 <code>t</code> 个 token 时，<strong>查询向量（Query，Q）</strong>表示“当前位置要找什么”；
+<strong>键向量（Key，K）</strong>表示“每个旧位置可以按什么特征被匹配”；
+<strong>值向量（Value，V）</strong>表示“匹配到后真正取回什么信息”。这是帮助建立直觉的类比，真实机制仍是下面的点积和加权求和。</p>
+<p>当前 token 的查询只在本步使用：</p>
+<p>$$\operatorname{Attention}(q_t,K_{1:t},V_{1:t})=
+\operatorname{softmax}\!\left(\frac{q_tK_{1:t}^{T}}{\sqrt{d_{head}}}\right)V_{1:t}$$</p>
+<ul>
+<li><code>t</code> 是当前生成到的位置，<code>1:t</code> 表示从第 1 个位置到当前位置。</li>
+<li><code>q_t</code> 是当前位置的一条查询；<code>K_{1:t}</code> 和 <code>V_{1:t}</code> 包含所有已处理位置。</li>
+<li><code>d_head</code> 是每个注意力头的维度；除以 <code>√d_head</code> 是缩放点积，避免维度变大时分数幅度失控。</li>
+<li><code>softmax</code> 把匹配分数变成权重，再用这些权重对 V 做加权求和。</li>
+</ul>
+<p><strong>缓存什么：</strong>每一层、每个已处理位置的 K 和 V。<strong>不属于 KV Cache 的：</strong>模型权重、只服务当前步的 Q，以及算完本步即可释放的临时激活/工作区。它们也占显存，但不能混进 KV 容量公式。</p>
 <p id="nc-kv-train-infer"><strong>先记住边界：</strong>推理缓存复用的是相同条件下先前位置的 K/V；常规训练还要计算整段因果损失、保留反向所需信息并更新参数，不能把它直接当成增量生成。缓存减少重复计算，却不把所有注意力都变成线性，也不保证吞吐按显存压缩比增长。理解这几点即可继续读容量公式；细节可展开。</p>
 <details class="g05-content-note" id="nc-kv-depth"><summary>深入：训练、Prefill 与 Decode 的缓存前提（可跳过）</summary>
 <div class="tw"><table style="min-width:38em;table-layout:fixed"><thead><tr><th style="width:23%">阶段</th><th>怎么计算</th><th>复用边界</th></tr></thead><tbody>
@@ -358,32 +372,51 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </details>
 <hr />
 <h2 id="_3" data-mg-stop>💸 二、它有多大</h2>
-<p>$$\text{KV Cache} = 2 \times L \times n \times d_{kv} \times \text{batch} \times \text{字节数}$$</p>
-<p>（2 = K 和 V，L = 层数，n = 序列长度，$d_{kv}$ = KV 的总维度）</p>
-<section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>Llama-2 7B（32 层，hidden 4096，32 头 MHA）：</p><p>每个 token 每层：2 × 4096 × 2 字节 = 16 KB</p><p>32 层 = 512 KB / token ⭐</p><p>→ seq=2048： 1 GB / 请求</p><p>→ seq=2048，batch=32： 32 GB 💀 比模型本身（14GB）还大！</p><p>→ seq=32768，batch=1： 16 GB</p></div></section>
+<p><strong>现在的问题不是“KV 大不大”，而是“这些维度各增加一倍，显存会怎样变”。</strong>
+一条 K 或 V 需要覆盖所有层、所有同时驻留的请求、每个已处理 token、每个 KV 头和头内全部数字；K、V 各一份，所以最前面乘 2。</p>
+<p>当一个批次里的请求都按相同长度 <code>T</code> 估算时：</p>
+<p>$$M_{KV}=2 \times L \times B \times T \times H_{kv} \times d_{head} \times s$$</p>
+<ul>
+<li><code>M_KV</code>：KV Cache 的元素存储量，单位是字节；它不含分配器碎片、量化尺度、工作区和模型权重。</li>
+<li><code>2</code>：K 与 V 两份张量。</li>
+<li><code>L</code>：Transformer 层数；每层都有自己的注意力与缓存。</li>
+<li><code>B</code>：同一时刻仍驻留在缓存中的请求数，不是某个离线文件里一共有多少条输入。</li>
+<li><code>T</code>：每个请求已经占用的 token 数；通常包含输入前缀和已经生成的 token。</li>
+<li><code>H_kv</code>：KV 头数；MHA 通常等于 Q 头数，GQA/MQA 会更少。</li>
+<li><code>d_head</code>：每个 KV 头保存多少个数；<code>d_kv = H_kv × d_head</code>。</li>
+<li><code>s</code>：每个数占多少字节，例如 FP16/BF16 通常为 2 字节。量化还可能另存尺度等元数据。</li>
+</ul>
+<p><strong>为什么是乘法：</strong>先数出一个 token 在一层的一份 K 有 <code>H_kv × d_head</code> 个数；乘 2 得到 K+V；再复制到 <code>L</code> 层、<code>T</code> 个位置和 <code>B</code> 个请求，最后乘每个数的字节数。</p>
+<section class="visual-block visual-block-calc" aria-label="完整容量计算"><p class="visual-block-title">完整算一遍：Llama-2 7B 的教学估算</p><div class="vb-calc"><p>已知：L=32 层，H_kv=32，d_head=128，FP16 所以 s=2 字节。</p><p>① 一个 token、一层：2 × 32 × 128 × 2 = 16,384 字节 = 16 KiB。</p><p>② 一个 token、全部 32 层：16 KiB × 32 = 512 KiB。</p><p>③ 一个请求到 2,048 token：512 KiB × 2,048 = 1,073,741,824 字节 = 1 GiB（约 1.074 GB）。</p><p>④ 32 个同长请求：1 GiB × 32 = 32 GiB。这里还没扣模型权重、工作区和碎片，不能把 32 GiB 当成整机只需 32 GiB。</p><p>⑤ 单请求到 32,768 token：512 KiB × 32,768 = 16 GiB。</p></div></section>
+<blockquote><p>💡 <strong>KiB/GiB 与 KB/GB 不完全相同：</strong>1 KiB=1,024 字节，1 GiB=1,024³ 字节；1 GB=10⁹ 字节。本页手算用二进制 KiB/GiB，容量函数明确使用十进制 GB，比较时必须先统一单位。</p></blockquote>
+<h3 id="mixed-length-kv">不同长度请求不能直接套 B × T</h3>
+<p>在线服务里，请求长度通常不同。此时更准确的元素容量公式是：</p>
+<p>$$M_{KV}=2 \times L \times H_{kv} \times d_{head} \times s \times \sum_{i=1}^{B}T_i$$</p>
+<p><code>T_i</code> 是第 <code>i</code> 个请求当前占用的 token 数，<code>Σ</code> 表示把 B 个请求的长度加起来。仍用上面的 512 KiB/token，三个请求长度分别为 512、1,024、2,048：</p>
+<section class="visual-block visual-block-calc" aria-label="不同长度请求容量计算"><p class="visual-block-title">混合长度手算</p><div class="vb-calc"><p>ΣT_i = 512 + 1,024 + 2,048 = 3,584 token。</p><p>实际元素量：3,584 × 512 KiB = 1.75 GiB。</p><p>若朴素地按最长 2,048 给三个请求都预留：3 × 2,048 × 512 KiB = 3 GiB。</p><p>差出的 1.25 GiB 不是注意力数学需要的内容，而是“按最大长度预留”的管理浪费；下一章的分页管理正是针对这类问题。</p></div></section>
 <div class="tw"><table>
 <thead>
 <tr>
 <th>模型</th>
-<th>每 token 的 KV</th>
-<th>32K 上下文单请求</th>
+<th>每 token 的 KV（约）</th>
+<th>32K 上下文单请求（约）</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><strong>Llama-2 7B</strong>（MHA）</td>
-<td>512 KB</td>
-<td>16 GB</td>
+<td>512 KiB</td>
+<td>16 GiB</td>
 </tr>
 <tr>
 <td><strong>Llama-2 70B</strong>（GQA-8）</td>
-<td>320 KB</td>
-<td>10 GB</td>
+<td>320 KiB</td>
+<td>10 GiB</td>
 </tr>
 <tr>
 <td><strong>Mistral 7B</strong>（GQA-8）</td>
-<td>128 KB ⭐</td>
-<td>4 GB</td>
+<td>128 KiB ⭐</td>
+<td>4 GiB</td>
 </tr>
 </tbody>
 </table></div>
@@ -749,7 +782,7 @@ RoPE 解耦是这个套路最干净的一个例子 —— <strong>64 维的额�
 </blockquote>
 <hr />
 <h2 id="_4">🗑️ 五、朴素管理方式的浪费</h2>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>❌ 传统做法：为每个请求预分配【最大长度】的连续显存</p><p>请求 A（实际用 100 token，max 2048）：</p><p>[████░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 用了 5%，浪费 95%</p><p>请求 B（实际用 1500）：</p><p>[████████████████████████░░░░░░░░] 浪费 27%</p><p>⭐ 实测：传统方式的 KV Cache 显存利用率只有 20-40% 💀</p></div></section>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>❌ 朴素做法：为每个请求预分配【最大长度】的连续显存</p><p>请求 A（实际用 100 token，max 2048）：</p><p>[████░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 只使用约 5%，其余是预留</p><p>请求 B（实际用 1500）：</p><p>[████████████████████████░░░░░░░░] 约 27% 尚未使用</p><p>⭐ PagedAttention 原论文报告其对比系统存在显著 KV 浪费；你自己的比例取决于长度分布、引擎和块大小</p></div></section>
 <p><strong>三种浪费</strong>：</p>
 <div class="tw"><table>
 <thead>
@@ -776,13 +809,15 @@ RoPE 解耦是这个套路最干净的一个例子 —— <strong>64 维的额�
 <blockquote>
 <p>🔑 <strong>这就是 <a href="17-连续批处理与PagedAttention.html">PagedAttention</a> 要解决的问题</strong> ——
 它把操作系统的<strong>虚拟内存分页</strong>思想搬到了 KV Cache 上，
-<strong>把利用率从 20-40% 提到 90%+。</strong>
+原论文在其模型、负载和对比系统中报告接近零的 KV 管理浪费与吞吐提升；这不是任意硬件和流量都固定达到“90%+”的承诺。
 🔗 <a href="17-连续批处理与PagedAttention.html">第 17 章</a>详讲。</p>
 </blockquote>
+<section class="visual-block visual-block-compare" aria-label="三个容易混淆的机制"><p class="visual-block-title">先分清三个问题</p><div class="vb-compare"><p><strong>分页管理解决“放在哪里”：</strong>把每个请求的 KV 分成块，减少必须连续预留大空间造成的浪费。</p><p><strong>前缀缓存解决“能否复用”：</strong>满足严格条件时，让多个请求引用相同的已计算前缀块。</p><p><strong>连续批处理解决“现在轮到谁算”：</strong>请求完成就移出，新请求及时加入，由调度器决定每轮服务哪些请求。</p><p>三者可以组合，但互不等价：PagedAttention 不会自动让两个不同前缀共享内容，也不会单独决定排队公平性。</p></div></section>
 <hr />
 <h2 id="_5">🧰 六、四个能立刻用的优化</h2>
 <h3 id="1-kv-cache">① KV Cache 量化</h3>
-<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">FP16</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">INT8：KV 元素字节数减半；可用并发仍需扣其他开销并满足延迟目标</span></div><div class="vb-flow-row"><span class="vb-flow-step">FP16→FP8：元素字节数减半；FP16→INT4：约为 1/4（另计尺度）</span><span class="vb-flow-arrow"></span><span class="vb-flow-step">（质量要测）</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 经验：K 比 V 对量化更敏感（K 影响 attention 分布）</span></div><div class="vb-flow-row"><span class="vb-flow-step">常见做法：K 用 INT8，V 用 INT4</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="信息关系"><p class="visual-block-title">信息关系</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">FP16/BF16</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">FP8/INT8：KV 元素的主体字节数约减半；尺度等元数据另计</span></div><div class="vb-flow-row"><span class="vb-flow-step">更低位宽</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">容量继续下降，但量化/反量化开销与任务质量必须实测</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ K 与 V 的数值分布和适合的分组方式可能不同</span></div><div class="vb-flow-row"><span class="vb-flow-step">不能把“K 永远更敏感”或“K/V 固定用某个位宽”当成通用规则</span></div></div></section>
+<p>例如 KIVI 论文针对其研究的模型观察到：K 更适合按通道分组，V 更适合按 token 分组。这是<strong>特定方案的分布观察</strong>，不是“所有模型都应让 K 用 INT8、V 用 INT4”的固定配方。最终要同时核对后端是否支持、峰值显存、TTFT/TPOT、困惑度和真实下游任务。</p>
 
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：`LLM` 来自你自己的代码，这一段只看写法</span>
 <span class="c1"># vLLM</span>
@@ -790,11 +825,20 @@ RoPE 解耦是这个套路最干净的一个例子 —— <strong>64 维的额�
 </code></pre></div>
 
 <h3 id="2-prefix-caching">② 前缀缓存（Prefix Caching）</h3>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">场景：所有请求都带同一个 2000 token 的系统提示词</span></div><div class="vb-flow-row"><span class="vb-flow-step">❌ 每个请求都重新 Prefill 这 2000 token</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 缓存它的 KV，所有请求共享</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">Prefill 成本接近零</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ 在 Agent、RAG、多轮对话场景收益巨大</span></div><div class="vb-flow-row"><span class="vb-flow-step">（多轮对话里，前面所有轮次都是可复用的前缀）</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">场景：许多请求都以同一段 2,000 token 系统提示开始</span></div><div class="vb-flow-row"><span class="vb-flow-step">❌ 未命中：每个请求都重新 Prefill 全部前缀</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 命中：复用已缓存的完整前缀块</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">省掉命中部分的 Prefill；不同后缀仍要计算</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ Agent、RAG、多轮对话可能受益，但只有严格相同的开头才能命中</span></div></div></section>
+<p><strong>前缀缓存不是“意思差不多就能复用”。</strong>它要匹配<strong>最长完全相同的 token 前缀</strong>，并保持生成这些 K/V 的条件一致：同一模型权重与适配器、同一 tokenizer/chat template、相同 token 顺序和位置规则；多模态输入还要区分图像等内容。系统提示里多一个空格、RAG 文档被放到共享前缀前面、切换 LoRA，都可能让命中在差异处停止。</p>
+<div class="tw"><table><thead><tr><th>看起来相近</th><th>实际能否继续复用</th><th>原因</th></tr></thead><tbody>
+<tr><td>文字相同，模型/LoRA 不同</td><td>❌</td><td>投影权重不同，K/V 数值也不同</td></tr>
+<tr><td>同一模型，但 chat template 改了</td><td>通常 ❌</td><td>最终 token ID 序列可能不同</td></tr>
+<tr><td>系统提示相同，后面的用户问题不同</td><td>✅ 复用共同开头</td><td>只复用分叉之前的完整前缀块</td></tr>
+<tr><td>多轮对话的旧轮次 token 完全相同</td><td>✅ 复用相同部分</td><td>新一轮及发生变化的部分仍需 Prefill</td></tr>
+</tbody></table></div>
+<p><strong>块边界也会影响实际命中量：</strong>以每块 16 token、共同前缀 50 token 为例，只缓存完整块的实现可直接命中 48 token，最后不足一块的 2 token 仍需处理。具体块大小和淘汰策略属于推理引擎实现，不是模型数学保证。</p>
 
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="c1"># 🧩 骨架：`LLM` 来自你自己的代码，这一段只看写法</span>
 <span class="n">llm</span> <span class="o">=</span> <span class="n">LLM</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="s2">&quot;...&quot;</span><span class="p">,</span> <span class="n">enable_prefix_caching</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>   <span class="c1"># ⭐</span>
 </code></pre></div>
+<p>打开开关只表示“允许引擎尝试复用”，不等于每个请求都会命中。生产监控应分别记录可复用 token 数、实际命中 token 数、Prefill 时间与缓存淘汰；否则只看开关状态无法判断收益。</p>
 
 <h3 id="3">③ 滑动窗口 / 注意力汇聚</h3>
 <section class="visual-block visual-block-flow" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">只保留最近 W 个 token 的 KV</span><span class="vb-flow-arrow">→</span><span class="vb-flow-step">显存从 O(n) 降到 O(W)</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 会丢失长距离信息</span></div><div class="vb-flow-row"><span class="vb-flow-step">⭐ StreamingLLM 的发现：保留【最开始的几个 token】（attention sink）</span></div><div class="vb-flow-row"><span class="vb-flow-step">+ 最近的窗口，效果比纯滑动窗口好很多</span></div></div></section>
@@ -883,15 +927,17 @@ print(max_batch(80, 14, 32, 8, 128, 2048))    # 216, 0.268435456 GB
 <ol>
 <li>KV Cache 减少了哪部分重复计算？为什么不能把缓存后的全部生成成本都写成 O(n)？</li>
 <li>为什么只缓存 K 和 V，不缓存 Q？</li>
-<li>KV Cache 的大小公式是什么？7B 模型 seq=2048、batch=32 是多少？</li>
+<li>一层 KV 的张量形状包含哪些维度？等长请求和不同长度请求的容量公式分别是什么？</li>
+<li>7B 模型 seq=2048、batch=32 的 KV 元素容量是多少？三个请求长度为 512、1024、2048 时又是多少？</li>
 <li>MHA、GQA、MQA 的区别？GQA 为什么是现在的主流？</li>
 <li>GQA 是推理时能改的吗？</li>
 <li>MLA 和 MQA/GQA 走的是同一条路吗？它缓存的是什么？</li>
 <li>MLA 的"吸收"是什么意思？为什么展开 K、V 不用额外花钱？它拿什么换了什么？</li>
 <li>为什么压缩之后的 K 不能直接加 RoPE？DeepSeek 怎么绕过去的？</li>
-<li>传统 KV Cache 管理的利用率是多少？三种浪费分别是什么？</li>
-<li>KV Cache 量化时，K 和 V 哪个更敏感？</li>
-<li>前缀缓存在什么场景收益最大？</li>
+<li>PagedAttention 原论文比较的朴素 KV 管理为什么浪费严重？三种浪费分别是什么？这些比例能否直接当成你的线上保证？</li>
+<li>为什么不能把“K 永远更敏感、K/V 固定用某个位宽”当成 KV 量化通用规则？</li>
+<li>前缀缓存命中需要哪些一致条件？共同前缀 50 token、块大小 16 时，为什么可能只命中 48 token？</li>
+<li>分页管理、前缀缓存、连续批处理分别回答什么问题？</li>
 <li>StreamingLLM 的发现是什么？</li>
 <li>常规训练、prefill、decode 的缓存前提怎样不同？PagedAttention 保证吞吐倍增吗？</li>
 </ol>
@@ -900,15 +946,17 @@ print(max_batch(80, 14, 32, 8, 128, 2048))    # 216, 0.268435456 GB
 <ol>
 <li>固定模型宽度下，不复用前缀时投影/MLP 重复处理的 token 数累计 O(n²)，复用后这部分累计 O(n)。全量因果注意力的新 query 仍访问前缀，累计仍 O(n²)，KV 容量则随长度 O(n)；输入前缀长度也要计入。<strong></strong></li>
 <li>因为 <strong>Q 只用一次</strong>（当前 token 查询），而 K、V 会被后面所有 token 反复用到。</li>
-<li><strong>2 × 层数 × 序列长度 × KV维度 × batch × 字节数</strong>。7B/seq2048/batch32 ≈ 32 GB，比模型本身（14GB）还大。</li>
+<li>单层 K、V 都覆盖 <strong>B × H_kv × T × d_head</strong>；两份张量再乘 L 层和每元素字节数。等长时 <strong>2 × L × B × T × H_kv × d_head × s</strong>；不同长度时把 <strong>B × T</strong> 换成 <strong>ΣT_i</strong>。</li>
+<li>该教学配置为 512 KiB/token。2,048 token 单请求是 1 GiB，32 个同长请求是 <strong>32 GiB</strong>。混合长度总计 3,584 token，所以是 <strong>1.75 GiB</strong>；若按最长长度给三个请求都预留则是 3 GiB。</li>
 <li>MHA 每个头有自己的 K/V；<strong>MQA 所有 Q 头共享一组 K/V</strong>（缩小 32 倍但质量下降）；GQA 分成 g 组，每组共享（缩小 4-8 倍，质量几乎无损）。GQA 是主流因为几乎不掉质量却把 KV Cache 砍到 1/4-1/8，KV 更小可缓解容量压力，但不能保证吞吐按相同倍数增长，仍须比较实际负载下的速度与延迟。</li>
 <li><strong>不能</strong>，这是模型架构层面的选择，推理时改不了——选模型时就要看。</li>
 <li><strong>不是同一条路</strong>。MQA/GQA 做的是"少存几个头"（砍 KV 头数），MLA 头数一个不减，缓存的是一个低秩潜向量 c（DeepSeek 配置里 512 维），用的时候再靠上投影矩阵还原成每个头的 K、V。差别的关键：GQA 的压缩是结构性的（几个头的差异真的没了），MLA 的压缩是和模型一起训出来的（每个头还是独立的，只是换了个存法） ——所以 MLA 能同时做到存得更少和质量不比 MHA 差。</li>
 <li>因为 $q^{T}(W_{UK}c) = (W_{UK}^{T}q)^{T}c$，<strong>上投影矩阵可以挪到 q 那一边、和 q 的投影矩阵合并</strong>，于是推理时根本不用把 K 展开，直接在潜空间里算注意力（W_UV 同理吸收进输出投影）。代价是合并后的矩阵更大、每步乘法量比 GQA 多 ——它拿的是闲置的算力（Decode 算力 95% 闲着），换的是紧张的带宽，和 FlashAttention、投机解码是同一类交易。⚠️ 反过来 Prefill 阶段算力紧张，那时展开着算反而更划算。</li>
 <li>因为 RoPE 是<strong>按位置给 k 乘一个旋转矩阵</strong>，而且落到分数上是相对位置 $R_{t-s}$ ——它同时依赖查询位置和被查位置，卡在 q 和 c 中间，上投影矩阵挪不过去，吸收就做不成了。DeepSeek 的解法是解耦式 RoPE：把 k 拆成内容部分（从潜向量展开、不带 RoPE）和位置部分 k^R（从 hidden 直接投影出 64 维、带 RoPE、所有头共享），分数 = 两项相加。更一般的教训：两个优化打架时，把冲突的那一小部分单独拆出来让它按老办法走 ——64 维的开销买回了整个压缩方案。</li>
-<li>只有 <strong>20-40%</strong>。三种浪费：内部碎片（预分配 max_len 用不到）、外部碎片（请求结束留下不连续空洞）、预留浪费。</li>
-<li><strong>K 更敏感</strong>（它影响 attention 分布）。常见做法：K 用 INT8，V 用 INT4。</li>
-<li><strong>所有请求共享同一个长系统提示词</strong>的场景——Agent、RAG、多轮对话（前面所有轮次都是可复用前缀）。能把 Prefill 成本降到接近零。</li>
+<li>原论文讨论的朴素管理会因预分配与碎片显著浪费容量；本页旧基线用 20-40% 帮助理解数量级。三种浪费是内部碎片（预分配 max_len 用不到）、外部碎片（请求结束留下不连续空洞）和预留浪费。具体比例依引擎、块大小、长度分布与负载而变，不能直接当线上保证。</li>
+<li>不同模型、任务、量化格式、分组方式和后端内核的误差不同。KIVI 的结论是其研究对象中 K 适合按通道分组、V 适合按 token 分组；这不能推出通用的固定位宽配方，必须实测容量、延迟和任务质量。</li>
+<li>要匹配最长完全相同的 token 前缀，并保持模型/适配器、tokenizer/chat template、位置规则及多模态内容等缓存条件一致。只缓存完整块时，50=16×3+2，所以 3 个完整块即 48 token 命中，余下 2 token 仍需处理。</li>
+<li>分页管理回答 KV 块<strong>放在哪里</strong>；前缀缓存回答已计算内容<strong>能否复用</strong>；连续批处理回答调度器<strong>现在让谁计算</strong>。它们能组合，但彼此不等价。</li>
 <li>保留<strong>最开始的几个 token（attention sink）+ 最近的窗口</strong>，效果比纯滑动窗口好很多。</li>
 <li>常规 teacher-forcing 训练计算整段因果损失并反向/更新，不能无条件复用旧参数的 K/V。Prefill 产生前缀 K/V；decode 在固定参数、相同前缀与位置/掩码等规则下复用，新 query 仍访问前缀。分页管理不等于稀疏注意力，容量、抢占/重算和 TTFT/TPOT 要一起看，不能保证固定吞吐收益。</li>
 </ol>
@@ -916,7 +964,7 @@ print(max_batch(80, 14, 32, 8, 128, 2048))    # 216, 0.268435456 GB
 <hr />
 <h2 id="_8">🛑 可以停在这里</h2>
 <p>⚡ <strong>走神救援</strong></p>
-<p>先分清训练的反向/更新与推理的固定参数复用；缓存省下重复计算，也要付容量与读写代价。投影/MLP 的 O(n) 不代表全部注意力 O(n)，并发上界也不代表能守住延迟目标。</p>
+<p>先分清训练的反向/更新与推理的固定参数复用；缓存省下重复计算，也要付容量与读写代价。容量来自 <strong>K/V 两份 × 层数 × 已驻留 token 数 × KV 头数 × 头维度 × 元素字节</strong>。投影/MLP 的 O(n) 不代表全部注意力 O(n)，并发上界也不代表能守住延迟目标。</p>
 <blockquote>
 <p>⭐ <strong>KV Cache 是推理系统里最贵的那块显存。</strong> 不缓存就得每生成一个 token 重算整个前缀；⭐ <strong>缓存 K 和 V 是因为它们会被后面所有 token 反复用到，而 Q 只用一次。</strong> ⚠️ 它能轻易<strong>比模型权重本身还大</strong>。</p>
 <p>⭐ <strong>GQA 是这几年最实用的架构改动</strong>：从每头独立、到全部共享（小很多但掉质量）、到分组共享（<strong>小几倍而质量几乎无损</strong>）。⭐ <strong>KV 更小可以腾出容量，但实际吞吐与 TTFT/TPOT 仍受计算、读写和调度影响，不能直接承诺翻倍。</strong> ⚠️⚠️ <strong>但它是模型架构层面的选择，推理时改不了——选模型时就要看。</strong></p>
@@ -924,10 +972,10 @@ print(max_batch(80, 14, 32, 8, 128, 2048))    # 216, 0.268435456 GB
 <p>⭐ 那个「吸收」技巧的代价是每步乘法变多——<strong>它拿闲置算力换紧张带宽</strong>，⭐ <strong>和 FlashAttention、投机解码是同一类交易</strong>。⚠️ 而 Prefill 阶段算力本来就紧张，<strong>反而该展开着算</strong>。</p>
 <p>⭐⭐ <strong>位置编码解耦那一段的教训超出了这个方案本身：两个优化打架时，把冲突的那一小部分拆出来让它按老办法走</strong>——很小的额外开销买回了整个压缩方案。</p>
 <p>⚠️ 它需要引擎专门支持，<strong>不支持的引擎会退化成展开了再算——显存优势归零，而且不报错。</strong></p>
-<p>💀 传统管理方式的显存利用率只有三四成（预分配、碎片、预留三种浪费）——这正是下一章要解决的。四个能立刻用的里两条要点：⚠️ <strong>量化时 K 比 V 更敏感</strong>（它影响注意力分布），⭐ <strong>前缀缓存在 Agent 和多轮对话上收益巨大。</strong></p>
+<p>💀 朴素的最大长度预留会产生预分配、碎片和预留浪费——这正是下一章要解决的。四个能立刻用的里两条要点：⚠️ <strong>KV 量化没有跨模型通用的 K/V 位宽配方</strong>；⭐ <strong>前缀缓存只复用最长完全相同、且生成条件一致的 token 前缀</strong>。分页管理决定“放在哪里”，前缀缓存决定“能否复用”，连续批处理决定“现在轮到谁算”。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="17-连续批处理与PagedAttention.html">17-连续批处理与PagedAttention.md</a> ⭐</p>
-<details class="g05-content-note"><summary>条件与依据</summary><p>使用因果注意力、固定参数和位置规则时，旧 token 的 K/V 才能复用；仍须让新 query 访问已有 K/V。表中的 KB/GB 有二进制近似，容量函数统一使用十进制 GB，输出应为 54 与 216。MLA 表按假想 MHA 同等 K/V 维度比较，实际 V3 内容/位置/值头维度不同，不能拿该表当真实 MHA 基线测量；GQA、MQA 与 MLA 的质量和速度必须由模型评测确认。</p><p><a href="https://arxiv.org/abs/2405.04434">原论文</a></p></details>
+<details class="g05-content-note"><summary>条件与依据</summary><p>使用因果注意力、固定参数和位置规则时，旧 token 的 K/V 才能复用；仍须让新 query 访问已有 K/V。表中的 KiB/GiB 使用二进制单位，容量函数统一使用十进制 GB，输出应为 54 与 216。MLA 表按假想 MHA 同等 K/V 维度比较，实际 V3 内容/位置/值头维度不同，不能拿该表当真实 MHA 基线测量；GQA、MQA 与 MLA 的质量和速度必须由模型评测确认。</p><p>机制依据：<a href="https://huggingface.co/docs/transformers/en/cache_explanation">Transformers：KV caching works</a> · <a href="https://docs.vllm.ai/en/stable/design/prefix_caching/">vLLM：Automatic Prefix Caching</a> · <a href="https://arxiv.org/abs/2309.06180">PagedAttention 原论文</a> · <a href="https://arxiv.org/abs/2402.02750">KIVI 论文</a> · <a href="https://arxiv.org/abs/2405.04434">DeepSeek-V2 原论文</a></p></details>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="15-推理和训练是两回事.html"><div class="dir">← 上一节</div>⭐⭐ 推理≠训练</a><a class="next" href="17-连续批处理与PagedAttention.html"><div class="dir">下一节 →</div>⭐⭐ 连续批处理</a></nav>
