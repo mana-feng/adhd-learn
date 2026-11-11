@@ -296,8 +296,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#_2">⚠️ 零、先划清一件事：这不是「缺失值处理」</a></li>
 <li><a href="#null">🚦 一、招牌事故：一个 NULL 清空整个结果集</a></li>
 <li><a href="#unknown">🧩 二、三值逻辑：多出来的那个 UNKNOWN</a></li>
-<li><a href="#where-true">🧯 三、WHERE 只放行 TRUE——排中律在这里失效</a></li>
-<li><a href="#_3">🩹 四、反连接的三种写法，只有一种不会被毒化</a></li>
+<li><a href="#where-true">🧯 三、WHERE 筛行、ON 配对、HAVING 筛组</a></li>
+<li><a href="#_3">🩹 四、反连接：找不到匹配行时留谁</a></li>
 <li><a href="#null_1">🧮 五、那些 NULL 行，到底是在哪一步没的</a></li>
 <li><a href="#sql-null">🔀 六、⭐ SQL 里其实有两套 NULL 语义</a></li>
 <li><a href="#coalesce-nullif-null">🧰 七、日常工具：COALESCE / NULLIF / 空串不是 NULL</a></li>
@@ -308,13 +308,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="04-null">04 · NULL 与三值逻辑</h1>
-<aside class="mg-remaining-entry" aria-label="本页问题与阅读路径"><p class="mg-remaining-question">一个 NULL，怎样让本来应该留下的行消失？</p><p class="mg-remaining-outcome">沿三值逻辑与 WHERE 例子判断 UNKNOWN，再核反连接和约束的不同规则。</p><nav aria-label="原文阅读停靠点"><a href="#null">一、招牌事故：一个 NULL 清空整个结果集</a><a href="#unknown">二、三值逻辑：多出来的那个 UNKNOWN</a><a href="#where-true">三、WHERE 只放行 TRUE——排中律在这里失效</a><a href="#mg-sql-query-remaining-start">直接进入完整原文</a></nav></aside><span id="mg-sql-query-remaining-start" aria-hidden="true"></span>
+<aside class="mg-remaining-entry" aria-label="本页问题与阅读路径"><p class="mg-remaining-question">一个 NULL，怎样让本来应该留下的行消失？</p><p class="mg-remaining-outcome">逐行算出 TRUE、FALSE、UNKNOWN，再追踪连接、筛组和计数后的结果。</p><nav aria-label="原文阅读停靠点"><a href="#null">一、招牌事故：一个 NULL 清空整个结果集</a><a href="#unknown">二、三值逻辑：多出来的那个 UNKNOWN</a><a href="#where-true">三、WHERE 筛行、ON 配对、HAVING 筛组</a><a href="#mg-sql-query-remaining-start">直接进入完整原文</a></nav></aside><span id="mg-sql-query-remaining-start" aria-hidden="true"></span>
 
 <details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>108 分钟</strong> ｜ ⭐ <strong>实测：<code>NOT IN ('BJ', NULL)</code> 返回空集——一行都没有，且不报错</strong></p>
 <h2 id="_1">🎯 一句话</h2>
-<p><strong><code>NULL</code> 不是一个值，是「不知道」；任何跟它比较的结果都不是真也不是假，而是第三种真值 <code>UNKNOWN</code>——而 <code>WHERE</code> 只放行判为真的行。</strong>
-这一条是本教程里「不报错的错」的总源头：一条语法完全正确、跑得飞快、连警告都没有的查询，可以把整个结果集静静地清空。</p>
+<p>报表想找不在总部名单里的用户，查询却一行也没返回。先看名单里有没有 <code>NULL</code>，也就是 SQL 的缺值标记。<strong>普通等号遇到 <code>NULL</code> 会得到未知（<code>UNKNOWN</code>）。<code>WHERE</code> 只留下条件为真的行。</strong></p>
+<p>先回忆 <a href="01-一条查询是怎么跑的.html">01 章的查询顺序</a>、<a href="02-JOIN的几种语义.html">02 章的连接</a>和 <a href="03-聚合与分组.html">03 章的分组</a>。本章用小表定位缺值影响了哪一步，再用 <a href="05-子查询的三种形状.html">05 章</a>继续学习子查询。下面每段 Python 都能独立运行，使用标准库 <code>sqlite3</code> 和临时内存数据库，无需安装第三方库或准备数据文件。</p>
 <h2 id="_2">⚠️ 零、先划清一件事：这不是「缺失值处理」</h2>
 <p>站内有一章叫<a href="../数据这一关/05-缺失不是一种东西.html">《数据这一关》· 05 缺失不是一种东西</a>，它讲的是<strong>统计学意义上的缺失</strong>：这个值<strong>为什么</strong>没有（MCAR / MAR / MNAR）、能不能填、填了会不会把偏差带进模型。</p>
 <p>这一章讲的是完全不同的另一件事：值已经缺在库里了，<code>NULL</code> 这个东西在 SQL 里<strong>怎么参与运算和比较</strong>。</p>
@@ -346,11 +346,22 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </table></div>
 <p>⚠️ <strong>同名不同物，别混。</strong> 你可以在缺失机制上做得完全正确，仍然被本章这些坑打中——因为它们发生在你写 SQL 的那一刻，跟数据怎么来的没有半点关系。</p>
 <blockquote>
-<p>⭐ 顺带一提，<a href="../数据这一关/04-脏数据的十种形态.html">《数据这一关》· 04 脏数据的十种形态</a>讲了一种更坏的东西：<strong>哨兵值</strong>（<code>-999</code>、<code>"N/A"</code>、<code>1970-01-01</code>）——它们<strong>不是</strong> <code>NULL</code>，所以所有缺失率监控都是全绿的。
+<p>⭐ 顺带一提，<a href="../数据这一关/04-脏数据的十种形态.html">《数据这一关》· 04 脏数据的十种形态</a>讲了一种更坏的东西：<strong>哨兵值</strong>（<code>-999</code>、<code>"N/A"</code>、<code>1970-01-01</code>）——只查 <code>IS NULL</code> 的缺失率监控会漏掉这些哨兵值。
 相比之下 <code>NULL</code> 至少是<strong>诚实的</strong>：它明说自己不知道。本章讲的是这份诚实要你付出的代价。</p>
 </blockquote>
 <h2 id="null" data-mg-stop="">🚦 一、招牌事故：一个 <code>NULL</code> 清空整个结果集</h2>
-<p>一张 5 行的用户表，一张 2 行的「总部所在城市」表——其中一行的城市<strong>还没录</strong>：</p>
+<p><code>users</code> 记录用户编号 <code>id</code> 和城市 <code>city</code>。<code>hq</code> 是总部城市名单，已录入北京（BJ），还有一行待补。试着找出未匹配到已录入城市的用户。</p>
+<div class="tw"><table>
+<caption>演示输入：用户城市</caption>
+<thead><tr><th scope="col">用户编号</th><th scope="col">城市</th></tr></thead>
+<tbody>
+<tr><th scope="row">1</th><td>BJ</td></tr>
+<tr><th scope="row">2</th><td>SH</td></tr>
+<tr><th scope="row">3</th><td><code>NULL</code></td></tr>
+<tr><th scope="row">4</th><td>SH</td></tr>
+<tr><th scope="row">5</th><td>GZ</td></tr>
+</tbody>
+</table></div>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 
 <span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
@@ -373,21 +384,35 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <p>实跑输出：</p>
-<div class="codehilite" data-code-language="text"><pre><span></span><code>NOT IN 字面量: []
+<div class="codehilite" data-code-language="console"><pre><span></span><code class="language-console">NOT IN 字面量: []
 NOT IN 子查询: []
 NOT EXISTS: [(2,), (3,), (4,), (5,)]
 IN 子查询（对照）: [(1,)]
 </code></pre></div>
 
-<p>💀 <strong><code>NOT IN</code> 返回了空集。</strong> 没有异常，没有警告，<code>sqlite3</code> 高高兴兴地给你一个 <code>[]</code>。
-如果这条查询挂在一个「非总部城市的用户列表」报表上，你看到的就是「今天没有这样的用户」——而真实答案是<strong>四个</strong>。</p>
-<p>⚠️ <strong>注意最后一行的对照</strong>：<code>IN</code> 完全正常，返回了 <code>(1,)</code>。<strong>坏掉的只有加了 <code>NOT</code> 的那一半。</strong>
-这就是它这么难发现的原因：你测 <code>IN</code> 的时候一切正常，<code>NOT IN</code> 是同一个写法反过来，谁会怀疑它？</p>
-<p>⭐ <strong>只要 <code>NOT IN</code> 的右边（字面量列表或子查询结果）里出现哪怕一个 <code>NULL</code>，整条 <code>NOT IN</code> 就永远判不出真，结果集必然为空。</strong> 为什么，看下一节。</p>
+<p>结果中的 <code>[(1,)]</code> 表示一行，且这一行只有用户编号 1 这一列。没有 <code>ORDER BY</code> 的样例用来核对返回了哪些行，行的显示顺序随数据库执行而定。</p>
+<p>程序先建两张小表。Python 的 <code>None</code> 写入 SQLite 后就是 <code>NULL</code>。两条 <code>NOT IN</code> 分别查写死的名单与子查询生成的名单，两边都是 <code>('BJ', NULL)</code>，因此都返回 <code>[]</code>（零行）。</p>
+<p><code>IN</code> 找到了唯一已确认匹配的用户 1。<code>NOT EXISTS</code> 返回 2、3、4、5，表示找不到城市相等的总部记录。用户 3 的城市还没录，是否应放进报表要单独决定。先学会算条件的真值，第四节再选查询写法。</p>
 <h2 id="unknown" data-mg-stop="">🧩 二、三值逻辑：多出来的那个 <code>UNKNOWN</code></h2>
-<p>普通编程语言里布尔值有两个：真、假。<strong>SQL 有三个。</strong></p>
-<p><code>NULL</code> 的含义不是「空」也不是「零」，是<strong>「这里有个值，但我不知道它是多少」</strong>。
-于是「不知道的那个值等于 5 吗」这个问题，唯一诚实的回答是：<strong>不知道</strong>。</p>
+<p>系统只记录了用户 3 的编号。现在问“用户 3 的城市是 BJ 吗”，已有信息无法确定。<code>NULL</code> 标记缺少可用的值，具体原因由业务定义，可以是尚未录入或不适用。<strong>三值逻辑（Three-Valued Logic）</strong>给条件表达式三种结果：成立（<code>TRUE</code>）、不成立（<code>FALSE</code>）、无法判定（<code>UNKNOWN</code>）。例如 <code>'BJ' = 'BJ'</code> 为真，<code>'SH' = 'BJ'</code> 为假，<code>NULL = 'BJ'</code> 为未知。</p>
+<p>设 <code>A</code>、<code>B</code> 是两个条件。<code>AND</code> 要求两者都成立，<code>OR</code> 要求至少一个成立，<code>NOT</code> 把真与假互换。<strong>如果已经有一个条件为假，<code>AND</code> 就是假；如果已经有一个条件为真，<code>OR</code> 就是真。</strong> 对未知取反仍是未知。表格中的 T、F、U 分别表示 <code>TRUE</code>、<code>FALSE</code>、<code>UNKNOWN</code>。</p>
+<div class="tw"><table>
+<caption>SQL 三值逻辑真值表</caption>
+<thead><tr><th scope="col">A</th><th scope="col">B</th><th scope="col">A AND B</th><th scope="col">A OR B</th></tr></thead>
+<tbody>
+<tr><th scope="row">T</th><td>T</td><td>T</td><td>T</td></tr>
+<tr><th scope="row">T</th><td>F</td><td>F</td><td>T</td></tr>
+<tr><th scope="row">T</th><td>U</td><td>U</td><td>T</td></tr>
+<tr><th scope="row">F</th><td>T</td><td>F</td><td>T</td></tr>
+<tr><th scope="row">F</th><td>F</td><td>F</td><td>F</td></tr>
+<tr><th scope="row">F</th><td>U</td><td>F</td><td>U</td></tr>
+<tr><th scope="row">U</th><td>T</td><td>U</td><td>T</td></tr>
+<tr><th scope="row">U</th><td>F</td><td>F</td><td>U</td></tr>
+<tr><th scope="row">U</th><td>U</td><td>U</td><td>U</td></tr>
+</tbody>
+</table></div>
+<p><code>NOT T</code> 得 F，<code>NOT F</code> 得 T，<code>NOT U</code> 得 U。例如条件 A 是“编号等于 3”，条件 B 是“城市等于 BJ”。用户 3 的 A 为 T、B 为 U，所以 A AND B 仍为 U，A OR B 已经为 T。这些规则描述最终真值。数据库何时求值属于执行细节。</p>
+<p>运行下例时，<code>q</code> 把每个条件接在 <code>SELECT</code> 后，直接查看条件结果。SQLite 在这里返回 1、0 或 <code>NULL</code>，字典把 Python 收到的 1、0、<code>None</code> 换成三个真值的名字。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 
 <span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
@@ -410,7 +435,7 @@ IN 子查询（对照）: [(1,)]
 </code></pre></div>
 
 <p>实跑输出：</p>
-<div class="codehilite" data-code-language="text"><pre><span></span><code>NULL = NULL        -&gt; UNKNOWN
+<div class="codehilite" data-code-language="console"><pre><span></span><code class="language-console">NULL = NULL        -&gt; UNKNOWN
 NULL &lt;&gt; NULL       -&gt; UNKNOWN
 NULL &gt; 1           -&gt; UNKNOWN
 NULL = 0           -&gt; UNKNOWN
@@ -431,44 +456,31 @@ NOT 0     -&gt; TRUE
 NOT NULL  -&gt; UNKNOWN
 </code></pre></div>
 
-<p>⭐ <strong>第一行就是全章的地基</strong>：<code>NULL = NULL</code> 判出来是 <strong>UNKNOWN</strong>，不是真。
-两个「不知道」凑在一起，仍然不知道它们是不是同一个东西。</p>
-<p>⭐ <strong>但 <code>UNKNOWN</code> 不会污染一切</strong>，看真值表里这两行：</p>
+<p>回到用户名单。对单列列表，<code>city IN ('BJ', NULL)</code> 相当于 <code>city = 'BJ' OR city = NULL</code>，外面加 <code>NOT</code> 就得到 <code>NOT IN</code> 的真值。先算两次比较，再算 <code>OR</code>，最后取反。</p>
 <div class="tw"><table>
-<thead>
-<tr>
-<th>式子</th>
-<th>结果</th>
-<th>为什么</th>
-</tr>
-</thead>
+<caption>逐行计算城市名单的匹配结果</caption>
+<thead><tr><th scope="col">编号与城市</th><th scope="col">等于 BJ</th><th scope="col">等于 NULL</th><th scope="col">IN</th><th scope="col">NOT IN</th></tr></thead>
 <tbody>
-<tr>
-<td><code>0 AND NULL</code></td>
-<td><strong>FALSE</strong></td>
-<td>一个连乘里有个零，另一项是几都不影响</td>
-</tr>
-<tr>
-<td><code>1 OR NULL</code></td>
-<td><strong>TRUE</strong></td>
-<td>已经有一项为真，另一项是几都不影响</td>
-</tr>
+<tr><th scope="row">1 · BJ</th><td>T</td><td>U</td><td>T</td><td>F</td></tr>
+<tr><th scope="row">2 · SH</th><td>F</td><td>U</td><td>U</td><td>U</td></tr>
+<tr><th scope="row">3 · NULL</th><td>U</td><td>U</td><td>U</td><td>U</td></tr>
+<tr><th scope="row">4 · SH</th><td>F</td><td>U</td><td>U</td><td>U</td></tr>
+<tr><th scope="row">5 · GZ</th><td>F</td><td>U</td><td>U</td><td>U</td></tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>判据：只有当「那个未知值到底是多少」会改变答案时，结果才是 <code>UNKNOWN</code>。</strong>
-这不是随便定的规则，是「不知道」这个语义的直接推论——把它当成推论去理解，比背九宫格可靠得多。</p>
-<p>⚠️ <strong>算术和字符串也一样被吞</strong>：<code>1 + NULL</code>、<code>0 * NULL</code>、<code>'abc' || NULL</code>、<code>length(NULL)</code>、<code>upper(NULL)</code> 实跑全部返回 <code>None</code>。
-注意 <code>0 * NULL</code> 也是 <code>NULL</code>——数学上零乘任何数都是零，但 SQL 不做这个推理，⭐ <strong>只有布尔运算享受上面那两条短路优待</strong>。</p>
-<p>现在回头看第一节：<code>city NOT IN ('BJ', NULL)</code> 会被展开成</p>
-<div class="codehilite" data-code-language="text"><pre><span></span><code>NOT (city = &#39;BJ&#39; OR city = NULL)
-</code></pre></div>
-
-<p>对 <code>city='SH'</code> 这一行：<code>('SH'='BJ') OR ('SH'=NULL)</code> → <code>FALSE OR UNKNOWN</code> → <strong>UNKNOWN</strong>（正是上表第 6 行），再 <code>NOT</code> 一下还是 <code>UNKNOWN</code>。
-<strong>每一行都是 <code>UNKNOWN</code>，一行都放不出来。</strong></p>
-<p>⭐ 而 <code>IN</code> 没事，因为它展开成 <code>city='BJ' OR city=NULL</code>——对 <code>city='BJ'</code> 那行是 <code>TRUE OR UNKNOWN</code> → <strong>TRUE</strong>（上表第 3 行），照样放行。
-💀 <strong><code>NOT</code> 把「有一项为真就够了」变成了「必须每一项都为假」，而「为假」正是 <code>UNKNOWN</code> 永远给不出的。</strong></p>
-<h2 id="where-true" data-mg-stop="">🧯 三、<code>WHERE</code> 只放行 <code>TRUE</code>——排中律在这里失效</h2>
-<p>01 章说「<code>WHERE</code> 逐行判断，扔掉不要的行」。⭐ <strong>更准确的说法是：<code>WHERE</code> 只保留判为 <code>TRUE</code> 的行，<code>FALSE</code> 和 <code>UNKNOWN</code> 一起扔。</strong></p>
+<p>用户 1 的 <code>TRUE OR UNKNOWN</code> 为 <code>TRUE</code>，取反得到 <code>FALSE</code>。用户 2 的 <code>FALSE OR UNKNOWN</code> 为 <code>UNKNOWN</code>，取反后仍然未知。五行里没有一行的 <code>NOT IN</code> 为真，所以它单独作为 <code>WHERE</code> 条件时返回零行。这个推导适用于右侧含 <code>NULL</code> 的标量（单列）<code>NOT IN</code>。</p>
+<p>SQLite 中 <code>1 + NULL</code>、<code>0 * NULL</code>、<code>'abc' || NULL</code>、<code>length(NULL)</code> 和 <code>upper(NULL)</code> 都返回 <code>NULL</code>。聚合函数和其他数据库的字符串函数需要按各自规则判断。</p>
+<h2 id="where-true" data-mg-stop="">🧯 三、<code>WHERE</code> 筛行、<code>ON</code> 配对、<code>HAVING</code> 筛组</h2>
+<p><code>WHERE</code> 逐行判断，只保留条件为 <code>TRUE</code> 的行。假设 <code>v</code> 是订单金额，单位为元，报表要找超过 10 元的订单。金额待补的订单在原条件与取反条件下都得不到确定的答案。</p>
+<div class="tw"><table>
+<caption>同一行在四个条件下的真值</caption>
+<thead><tr><th scope="col">编号与金额</th><th scope="col">v &gt; 10</th><th scope="col">NOT (v &gt; 10)</th><th scope="col">v = NULL</th><th scope="col">v IS NULL</th></tr></thead>
+<tbody>
+<tr><th scope="row">1 · 5 元</th><td>F</td><td>T</td><td>U</td><td>F</td></tr>
+<tr><th scope="row">2 · NULL</th><td>U</td><td>U</td><td>U</td><td>T</td></tr>
+<tr><th scope="row">3 · 20 元</th><td>T</td><td>F</td><td>U</td><td>F</td></tr>
+</tbody>
+</table></div>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 
 <span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
@@ -487,7 +499,7 @@ NOT NULL  -&gt; UNKNOWN
 </code></pre></div>
 
 <p>实跑输出：</p>
-<div class="codehilite" data-code-language="text"><pre><span></span><code>WHERE v &gt; 10       : [(3,)]
+<div class="codehilite" data-code-language="console"><pre><span></span><code class="language-console">WHERE v &gt; 10       : [(3,)]
 WHERE NOT (v &gt; 10) : [(1,)]
 两边相加: 2 行 / 全表 3 行
 WHERE v &gt; 10 OR NOT (v &gt; 10): [(1,), (3,)]
@@ -498,18 +510,50 @@ IS NULL 写法: [(2,)]
 <p>💀💀 <strong>一个条件和它的否定，加起来不等于全表。</strong> 3 行的表，两边各拿走 1 行，<strong>有 1 行谁都没要</strong>。
 连 <code>WHERE v &gt; 10 OR NOT (v &gt; 10)</code> 这种看上去必然恒真的条件，都漏掉了 <code>id=2</code>。</p>
 <p>⚠️ <strong>这条在业务上非常贵</strong>：「大额订单」和「非大额订单」两张报表加起来对不上总数，两边的 SQL 都是对的，两边的开发都查不出问题。</p>
-<p>⭐ <strong>判据：任何时候你把一个集合按条件劈成两半，如果那一列可能有 <code>NULL</code>，你就必须显式接管第三种情况</strong>（<code>... OR v IS NULL</code>）。</p>
+<p>如果报表要求覆盖全表，可以把“金额待补”单独列一组；如果报表明确把待补订单计入第二组，就写 <code>WHERE NOT (v &gt; 10) OR v IS NULL</code>。给待补记录选择分组时，要依据报表口径。</p>
 <h3 id="is-null-null"><code>IS NULL</code> 为什么不能写成 <code>= NULL</code></h3>
-<p>看实跑：<code>WHERE v = NULL</code> 返回 <code>[]</code>，<code>WHERE v IS NULL</code> 返回 <code>[(2,)]</code>。</p>
-<p>因为 <code>=</code> 是<strong>比较运算</strong>，比较两个未知量得到 <code>UNKNOWN</code>（第二节第一行），<code>WHERE</code> 不放行。
-而 <code>IS NULL</code> <strong>根本不是比较</strong>，它是一个判定式：问的不是「这个值等于什么」，而是「这个格子里有没有值」——这个问题永远有明确答案，所以只会给出 <code>TRUE</code> 或 <code>FALSE</code>。</p>
-<blockquote>
-<p>⭐ <strong>整章最值得记住的一句</strong>：
-<strong><code>=</code> 问「值是多少」，<code>IS NULL</code> 问「有没有值」。</strong>
-前一个问题在没有值的时候无法回答，后一个永远能回答。</p>
-</blockquote>
+<p><code>v = NULL</code> 用普通等号比较，右侧始终缺值，因此每行都得到 <code>UNKNOWN</code>。<code>v IS NULL</code> 检查标量 <code>v</code> 是否带有缺值标记，结果只有真或假，只有编号 2 为真。<code>IS NOT NULL</code> 检查是否有值，保留编号 1、3。</p>
+<h3 id="on-having-unknown"><code>ON</code> 决定配对，<code>HAVING</code> 决定留组</h3>
+<p>沿用 20 元、5 元、金额待补三种情况。账户表 <code>accounts</code> 有编号 1、2、3，付款表 <code>payments</code> 各有一笔付款，付款编号分别为 11、22、33。按账户编号相等找候选配对。每个账户只有一个编号相等的候选，其余候选因编号不等而无法通过 <code>AND</code>。</p>
+<p><code>ON</code> 的整个条件为真时才建立配对。用 <code>LEFT JOIN</code> 时，没有任何配对的左行仍保留，右侧列由连接补为 <code>NULL</code>。把金额条件写到 <code>WHERE</code>，则在连接之后检查每一行，金额为 <code>NULL</code> 的行会被排除。</p>
+<div class="tw"><table>
+<caption>把金额门槛放到 ON 与 HAVING 后</caption>
+<thead><tr><th scope="col">账户</th><th scope="col">付款金额</th><th scope="col">ON 配对</th><th scope="col">LEFT JOIN 的付款编号</th><th scope="col">HAVING 留组</th></tr></thead>
+<tbody>
+<tr><th scope="row">1</th><td>20 元</td><td>T</td><td>11</td><td>T</td></tr>
+<tr><th scope="row">2</th><td>5 元</td><td>F</td><td>NULL</td><td>F</td></tr>
+<tr><th scope="row">3</th><td>NULL</td><td>U</td><td>NULL</td><td>U</td></tr>
+</tbody>
+</table></div>
+<p>用原始付款表按账户分组。<code>SUM(amount)</code> 对非 <code>NULL</code> 金额求和。三组的合计分别是 20、5、<code>NULL</code>，因为第三组没有可加的数。<code>HAVING SUM(amount) &gt; 10</code> 只让账户 1 的组通过。这里的 <code>HAVING</code> 与 <code>WHERE</code> 使用相同的真值门槛，判断的单位分别是组和行。</p>
+<div class="codehilite" data-code-language="python"><pre><code>import sqlite3
+
+db = sqlite3.connect(":memory:")
+db.executescript("""
+CREATE TABLE accounts(id INTEGER PRIMARY KEY);
+INSERT INTO accounts VALUES (1), (2), (3);
+CREATE TABLE payments(id INTEGER PRIMARY KEY, account_id INTEGER, amount INTEGER);
+INSERT INTO payments VALUES (11, 1, 20), (22, 2, 5), (33, 3, NULL);
+""")
+
+join = """SELECT a.id, p.id
+FROM accounts a LEFT JOIN payments p ON p.account_id = a.id"""
+print("ON 筛配对:", db.execute(join + " AND p.amount &gt; 10 ORDER BY a.id").fetchall())
+print("WHERE 筛行:", db.execute(join + " WHERE p.amount &gt; 10 ORDER BY a.id").fetchall())
+
+groups = "SELECT account_id, SUM(amount) FROM payments GROUP BY account_id"
+print("所有组:", db.execute(groups + " ORDER BY account_id").fetchall())
+print("HAVING 筛组:", db.execute(groups + " HAVING SUM(amount) &gt; 10 ORDER BY account_id").fetchall())
+</code></pre></div>
+<p>运行结果（Python 用 <code>None</code> 显示 SQL 的 <code>NULL</code>）。</p>
+<div class="codehilite" data-code-language="console"><pre><code class="language-console">ON 筛配对: [(1, 11), (2, None), (3, None)]
+WHERE 筛行: [(1, 11)]
+所有组: [(1, 20), (2, 5), (3, None)]
+HAVING 筛组: [(1, 20)]
+</code></pre></div>
+<p>前两行结果中的每对数字依次是账户编号、付款编号。后两行的第二列是组内金额合计。账户 3 的付款 33 确实存在，但 <code>ON</code> 里的金额条件为未知，输出中的右侧编号因此是补出来的 <code>NULL</code>。</p>
 <h3 id="check-unknown">⚠️ 一个反直觉的例外：<code>CHECK</code> 约束<strong>放行</strong> <code>UNKNOWN</code></h3>
-<p><code>ON</code>、<code>HAVING</code> 跟 <code>WHERE</code> 一样只认 <code>TRUE</code>，但<strong>约束是反过来的</strong>：</p>
+<p><code>CHECK</code> 是写入数据时检查的约束。用年龄演示三种情况：30 岁通过，10 岁判为假而被拒，年龄待补时条件为未知。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 
 <span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
@@ -525,16 +569,16 @@ IS NULL 写法: [(2,)]
 </code></pre></div>
 
 <p>实跑输出：</p>
-<div class="codehilite" data-code-language="text"><pre><span></span><code>  age=10    -&gt; IntegrityError : CHECK constraint failed: age &gt;= 18
+<div class="codehilite" data-code-language="console"><pre><span></span><code class="language-console">  age=10    -&gt; IntegrityError : CHECK constraint failed: age &gt;= 18
   age=NULL  插入成功
   表里最终: [(1, 30), (99, None)]
 </code></pre></div>
 
 <p>⭐ <strong><code>CHECK</code> 的规则是「只在判为 <code>FALSE</code> 时拒绝」</strong>——<code>UNKNOWN</code> 放行。
 💀 所以 <code>CHECK (age &gt;= 18)</code> <strong>挡不住 <code>NULL</code></strong>。要真的挡住，得写 <code>CHECK (age IS NOT NULL AND age &gt;= 18)</code>，或者给列加 <code>NOT NULL</code>。</p>
-<p>⭐ <strong>两条规则记成一对</strong>：<strong>查询要求「证明为真」，约束要求「证明为假」</strong>，<code>UNKNOWN</code> 在两边的待遇正好相反。</p>
-<h2 id="_3">🩹 四、反连接的三种写法，只有一种不会被毒化</h2>
-<p>「A 表里、B 表里没有的那些」叫<strong>反连接</strong>。三种常见写法在有 <code>NULL</code> 时<strong>给出三个不同答案</strong>：</p>
+<p>按使用位置判断结果：<code>WHERE</code> 与 <code>HAVING</code> 要求真才保留行或组，<code>ON</code> 要求真才配对，<code>CHECK</code> 遇到假才拒绝写入。</p>
+<h2 id="_3">🩹 四、反连接：找不到匹配行时留谁</h2>
+<p>找左表中没有匹配右行的记录，称为<strong>反连接（anti-join）</strong>。沿用第一节的 <code>users</code> 与 <code>hq</code>。先明确报表要找“没有查到匹配记录”的用户，还是只统计城市已知的用户。运行下面四种写法，观察缺城市的用户 3 去了哪里。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 
 <span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
@@ -559,15 +603,20 @@ IS NULL 写法: [(2,)]
 <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;CREATE TABLE empty_hq(city TEXT)&quot;</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;NOT IN 空表:&quot;</span><span class="p">,</span>
       <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;SELECT id FROM users WHERE city NOT IN (SELECT city FROM empty_hq)&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">())</span>
+print("B + 外层只留已知城市:", db.execute(
+    "SELECT u.id FROM users u WHERE u.city IS NOT NULL AND NOT EXISTS "
+    "(SELECT 1 FROM hq h WHERE h.city = u.city) ORDER BY u.id"
+).fetchall())
 </code></pre></div>
 
 <p>实跑输出：</p>
-<div class="codehilite" data-code-language="text"><pre><span></span><code>A. NOT IN            : []
+<div class="codehilite" data-code-language="console"><pre><span></span><code class="language-console">A. NOT IN            : []
 B. NOT EXISTS        : [(2,), (3,), (4,), (5,)]
 C. LEFT JOIN IS NULL : [(2,), (3,), (4,), (5,)]
 D. NOT IN + 内层过滤  : [(2,), (4,), (5,)]
 --- 子查询为空表时 ---
 NOT IN 空表: [(1,), (2,), (3,), (4,), (5,)]
+B + 外层只留已知城市: [(2,), (4,), (5,)]
 </code></pre></div>
 
 <p><strong>三种写法 + 一个补救版，跑出三个不同答案。</strong> 逐个解释：</p>
@@ -583,17 +632,17 @@ NOT IN 空表: [(1,), (2,), (3,), (4,), (5,)]
 <tr>
 <td><strong>A <code>NOT IN</code></strong></td>
 <td><strong>空</strong> 💀</td>
-<td>内层的 <code>NULL</code> 让每一行都判成 <code>UNKNOWN</code></td>
+<td>已匹配 BJ 的用户 1 判为 <code>FALSE</code>，其余四行判为 <code>UNKNOWN</code></td>
 </tr>
 <tr>
 <td><strong>B <code>NOT EXISTS</code></strong></td>
 <td>4 行</td>
-<td>⭐ <strong>不被毒化</strong>：<code>EXISTS</code> 只问「有没有配上的行」，<code>h.city = u.city</code> 判 <code>UNKNOWN</code> 就是没配上，是个明确的「否」</td>
+<td>子查询的 <code>WHERE h.city = u.city</code> 只保留真匹配。用户 1 找到一行，其他四位找到零行。<code>EXISTS</code> 检查是否至少有一行，<code>NOT EXISTS</code> 在零行时为真。</td>
 </tr>
 <tr>
 <td><strong>C <code>LEFT JOIN … IS NULL</code></strong></td>
 <td>4 行</td>
-<td>和 B 一致（02 章第二节那个合法例外）</td>
+<td>与 B 相同。这里用普通等号比较城市，任何真匹配的右侧 <code>h.city</code> 都有值。一般可检查右表声明为 <code>NOT NULL</code> 的标识列，避免把已匹配但该列缺值的行误当成未匹配。</td>
 </tr>
 <tr>
 <td><strong>D <code>NOT IN</code> + 内层滤掉 <code>NULL</code></strong></td>
@@ -602,15 +651,10 @@ NOT IN 空表: [(1,), (2,), (3,), (4,), (5,)]
 </tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>B 和 D 差的那一行（<code>id=3</code>）不是 bug，是两个不同的问题。</strong>
-<code>id=3</code> 这个用户的城市未知——他到底在不在总部城市？<code>NOT EXISTS</code> 的口径是「配不上就算不在」，<code>NOT IN</code> 的口径是「不知道就不给结论」。
-<strong>这是业务判断，你得自己决定要哪个</strong>，但你至少要知道自己选了哪个。</p>
-<p>⭐ <strong>默认结论：反连接一律写 <code>NOT EXISTS</code>。</strong> 它不需要你去操心内层有没有 <code>NULL</code>，而 <code>NOT IN</code> 需要你<strong>记得</strong>加 <code>WHERE ... IS NOT NULL</code>——而人是会忘的，尤其是在那一列今天还没有 <code>NULL</code> 的时候。</p>
-<blockquote>
-<p>⚠️ <strong>最后一个实跑值得单独看</strong>：子查询返回<strong>空表</strong>时，<code>NOT IN</code> 把 <strong>5 行全部放行</strong>（包括城市为 <code>NULL</code> 的 <code>id=3</code>）。
-这是对的——「不在一个空集合里」对任何东西都成立。⭐ 但它意味着 <strong><code>NOT IN</code> 的行为在「内层空」和「内层有一个 <code>NULL</code>」之间是从全放到全不放的跳变</strong>，而这两种情况在数据上只差一行。</p>
-</blockquote>
-<p>⚠️ <strong><code>NOT IN</code> 到底该不该完全禁用？</strong> 不必——<code>NOT IN</code> 接一串<strong>写死的字面量</strong>（<code>status NOT IN ('paid','refunded')</code>）是安全常见的写法，只要那串字面量里没有 <code>NULL</code>。⭐ 危险的只有「右边是子查询、而那一列可空」这一种组合。</p>
+<p><code>h</code> 和 <code>u</code> 是两张表的别名。内层条件引用当前外行的 <code>u.city</code>，这叫相关子查询。<code>SELECT 1</code> 对每条满足条件的右行返回一个占位值，<code>EXISTS</code> 只看是否有行。用户 3 的 <code>NULL</code> 与 <code>'BJ'</code>、<code>NULL</code> 的普通等号比较都是未知，内层返回零行，所以 B 会留下用户 3。</p>
+<p>如果口径要求城市已知且没有匹配，给 B 加上外层条件 <code>u.city IS NOT NULL AND NOT EXISTS (...)</code>。若采用 D，内层过滤只处理右侧的缺值，仍可显式加 <code>city IS NOT NULL</code> 控制左侧。</p>
+<blockquote><p>右侧<strong>子查询返回零行</strong>时，<code>IN</code> 为假、<code>NOT IN</code> 为真，即使左值是 <code>NULL</code>。所以 D 过滤完右表之后若得到空结果，仍可能保留用户 3。示例用空子查询演示这一点。SQLite 也接受空的字面量列表 <code>IN ()</code>，很多数据库要求列表至少有一项。</p></blockquote>
+<p>无论右侧来自字面量还是子查询，都要检查两侧可空性。右侧已知且非空时，左侧缺值仍会使普通 <code>NOT IN</code> 为未知。<a href="https://www.sqlite.org/lang_expr.html#the_in_and_not_in_operators">SQLite 的 IN / NOT IN 结果表</a> · <a href="https://www.postgresql.org/docs/current/functions-subquery.html">PostgreSQL 子查询条件</a></p>
 <hr />
 <!--MIDSTOP-->
 <blockquote>
@@ -619,9 +663,28 @@ NOT IN 空表: [(1,), (2,), (3,), (4,), (5,)]
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
 <h2 id="null_1">🧮 五、那些 <code>NULL</code> 行，到底是在哪一步没的</h2>
-<p>⚠️ <strong>先划界</strong>：<strong>聚合函数怎么对待 <code>NULL</code></strong>（只有 <code>COUNT(*)</code> 数行、其余都数值，<code>AVG</code> 的分母是 <code>COUNT(score)</code> 不是 <code>COUNT(*)</code>，空集上 <code>SUM</code> 给 <code>NULL</code> 要用 <code>COALESCE</code> 兜底）——这一整套是 <a href="03-聚合与分组.html">03 章</a>的正题，那里讲得比这里细，本节不重讲。</p>
-<p><strong>本节只回答一个 <code>NULL</code> 语义的问题</strong>：一份数据里有一批行的键是 <code>NULL</code>，它们是在哪一步从你的看板上消失的？
-⭐ 答案很反直觉——<strong>不是 <code>GROUP BY</code></strong>：</p>
+<p>延续 <a href="03-聚合与分组.html">03 章的聚合</a>。先看三笔付款（20 元、5 元、金额待补）都进入同一个总计。<code>COUNT(*)</code> 数输入行，所以是 3。<code>COUNT(amount)</code> 数金额非 <code>NULL</code> 的行，所以是 2。两数相减 <code>3 − 2 = 1</code>，说明还有一笔金额没录。金额为 0 也会进入 <code>COUNT(amount)</code>。</p>
+<p>这三笔的已知金额和是 <code>20 + 5 = 25</code> 元，<code>AVG(amount)</code> 用 2 作分母，得到 <code>25 ÷ 2 = 12.5</code> 元。若报表只剩一笔待补记录，行数是 1，已知金额数是 0。再把它筛掉，两个计数才都为 0。这两种情况下 <code>SUM</code> 和 <code>AVG</code> 都返回 <code>NULL</code>。下面使用无 <code>GROUP BY</code> 的汇总，空输入也返回一行结果。</p>
+<div class="codehilite" data-code-language="python"><pre><code>import sqlite3
+
+db = sqlite3.connect(":memory:")
+db.executescript("""
+CREATE TABLE payments(id INTEGER PRIMARY KEY, amount INTEGER);
+INSERT INTO payments VALUES (11, 20), (22, 5), (33, NULL);
+""")
+
+summary = "SELECT COUNT(*), COUNT(amount), SUM(amount), AVG(amount) FROM payments"
+print("全部:", db.execute(summary).fetchone())
+print("仅待补:", db.execute(summary + " WHERE id = 33").fetchone())
+print("零输入行:", db.execute(summary + " WHERE id = 99").fetchone())
+</code></pre></div>
+<p>运行结果（Python 用 <code>None</code> 显示 SQL 的 <code>NULL</code>）。</p>
+<div class="codehilite" data-code-language="console"><pre><code class="language-console">全部: (3, 2, 25, 12.5)
+仅待补: (1, 0, None, None)
+零输入行: (0, 0, None, None)
+</code></pre></div>
+<p>在本例中，<code>SUM</code>、<code>AVG</code>、<code>MIN</code> 和 <code>MAX</code> 都只使用非 <code>NULL</code> 的金额。聚合的返回类型和空输入规则要查具体函数。例如 SQLite 的 <code>AVG</code> 对整数输入仍返回浮点数，SQL Server 的 <code>AVG(int)</code> 返回整数，需小数时可以先转换输入类型。SQLite 的 <code>total</code> 在没有非空值时返回 <code>0.0</code>，PostgreSQL 的 <code>array_agg</code> 则可把输入的 <code>NULL</code> 收进数组。<a href="https://www.sqlite.org/lang_aggfunc.html">SQLite 聚合函数</a> · <a href="https://www.postgresql.org/docs/current/functions-aggregate.html">PostgreSQL 聚合函数</a> · <a href="https://learn.microsoft.com/en-us/sql/t-sql/functions/avg-transact-sql">SQL Server AVG</a></p>
+<p>接下来区分另一种情况：通话的金额已录入，但城市缺失。以下金额沿用示例表的 <code>cents</code>，单位为分。先算全表的 <code>1 + 2 + 4 + 8 + 16 = 31</code>，再核对每种查询让哪些行参与求和。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 
 <span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
@@ -646,7 +709,7 @@ NOT IN 空表: [(1,), (2,), (3,), (4,), (5,)]
 </code></pre></div>
 
 <p>实跑输出：</p>
-<div class="codehilite" data-code-language="text"><pre><span></span><code>全表 SUM = 31.0
+<div class="codehilite" data-code-language="console"><pre><span></span><code class="language-console">全表 SUM = 31.0
 GROUP BY : [(None, 20.0), (&#39;BJ&#39;, 9.0), (&#39;SH&#39;, 2.0)]
 --- 换成下面任意一步，NULL 那 20.0 就没了（都不报错）---
 a) INNER JOIN 维表    : 11.0
@@ -680,17 +743,15 @@ b 补上 NULL 之后      : 22.0
 <tr>
 <td><strong>c</strong> <code>WHERE city IN (…)</code></td>
 <td><strong>11.0</strong></td>
-<td>白名单同理，<code>NULL</code> 不在任何名单里</td>
+<td>对城市缺值的两行，<code>IN ('BJ','SH')</code> 为 <code>UNKNOWN</code>，<code>WHERE</code> 排除它们。</td>
 </tr>
 </tbody>
 </table></div>
 <p>⚠️ <strong>b 这一格最值得盯</strong>：写的人想表达「除了北京的都算上」，实际算出来的是「城市<strong>已知</strong>且不是北京的」——少了 20.0，占全表 64.5%。
 补一句 <code>city IS NULL OR</code> 就回到 22.0。</p>
-<p>⭐ <strong>判据：凡是写 <code>&lt;&gt;</code>、<code>NOT IN</code>、<code>NOT LIKE</code> 这类「否定式过滤」，先问一句「这一列可空吗」。</strong>
-肯定式过滤（<code>=</code>、<code>IN</code>、<code>LIKE</code>）不需要问，因为 <code>NULL</code> 本来也不该被它选中；
-<strong>否定式过滤则默认把「未知」也一起排除掉了，而这几乎从来不是你的本意。</strong></p>
+<p>上表中的三种查询各自从原表开始。<code>GROUP BY</code> 之后未知城市组的两行仍然贡献 <code>4 + 16 = 20</code> 分。左连接后的报表也可以同时保留两个计数：<code>COUNT(*)</code> 数结果行（包括补行），<code>COUNT(右表标识列)</code> 数实际匹配行，前提是该标识在右表中必有值。</p>
 <h2 id="sql-null">🔀 六、⭐ SQL 里其实有两套 <code>NULL</code> 语义</h2>
-<p>第二节刚说 <code>NULL = NULL</code> 判不出真。但下面这些地方，<code>NULL</code> <strong>又被当成能和自己配上的一个值</strong>：</p>
+<p>比较条件、分组、去重和排序有各自的规则。下例用两个城市缺值的用户观察分组与去重，再用邮箱演示 SQLite 的唯一约束。输出中没有指定排序的查询，只比较结果内容。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 
 <span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
@@ -713,7 +774,7 @@ b 补上 NULL 之后      : 22.0
 </code></pre></div>
 
 <p>实跑输出：</p>
-<div class="codehilite" data-code-language="text"><pre><span></span><code>GROUP BY : [(None, 2), (&#39;BJ&#39;, 1), (&#39;SH&#39;, 1)]
+<div class="codehilite" data-code-language="console"><pre><span></span><code class="language-console">GROUP BY : [(None, 2), (&#39;BJ&#39;, 1), (&#39;SH&#39;, 1)]
 DISTINCT : [(&#39;BJ&#39;,), (None,), (&#39;SH&#39;,)]
 UNION    : [(None,), (&#39;BJ&#39;,), (&#39;SH&#39;,)]
 NULL IS NULL / 1 IS NULL: (1, 0)
@@ -721,38 +782,20 @@ NULL IS NULL / 1 IS NULL: (1, 0)
 UNIQUE 列里的三个 NULL: [(1, &#39;a@x.com&#39;), (3, None), (4, None), (5, None)]
 </code></pre></div>
 
-<p>⭐ <strong>两套语义，记住这张表就够了</strong>：</p>
 <div class="tw"><table>
-<thead>
-<tr>
-<th>用「不知道」语义（<code>NULL</code> 配不上自己）</th>
-<th>用「同一个值」语义（<code>NULL</code> 配得上自己）</th>
-</tr>
-</thead>
+<caption>缺值在不同操作中的处理</caption>
+<thead><tr><th scope="col">操作</th><th scope="col">两个 NULL 的处理</th></tr></thead>
 <tbody>
-<tr>
-<td><code>WHERE</code> / <code>ON</code> / <code>HAVING</code> 里的 <code>=</code>、<code>&lt;&gt;</code>、<code>IN</code></td>
-<td><code>GROUP BY</code>（所有 <code>NULL</code> 一组）</td>
-</tr>
-<tr>
-<td>连接键的匹配（02 章第六节）</td>
-<td><code>DISTINCT</code>、<code>UNION</code>、<code>INTERSECT</code>、<code>EXCEPT</code></td>
-</tr>
-<tr>
-<td><code>CHECK</code> 约束（判 <code>FALSE</code> 才拒）</td>
-<td><code>ORDER BY</code>（<code>NULL</code> 之间视为并列）</td>
-</tr>
-<tr>
-<td></td>
-<td><code>IS</code> / <code>IS NOT</code>（<strong>判定式，不是比较</strong>）</td>
-</tr>
+<tr><th scope="row">普通等号 <code>=</code></th><td>比较结果是 UNKNOWN，<code>ON</code> 无法建立配对。</td></tr>
+<tr><th scope="row"><code>GROUP BY</code></th><td>同一分组键上的两个缺值归到同一组。</td></tr>
+<tr><th scope="row"><code>DISTINCT</code>、<code>UNION</code></th><td>其余列也相同时，去重只保留一行。</td></tr>
+<tr><th scope="row"><code>ORDER BY</code></th><td>在该排序键上并列，先后由后续排序键决定。</td></tr>
 </tbody>
 </table></div>
-<p>💀 <strong><code>UNIQUE</code> 是最贵的一格</strong>：实跑里同一个 <code>email</code> 插第二遍被拒，但<strong>三行 <code>NULL</code> 全部插入成功</strong>。
-⚠️ 一个「邮箱唯一」的约束完全挡不住三个没填邮箱的账号——它用的是比较语义，<code>NULL = NULL</code> 判不出真，也就谈不上重复。
-⭐ 真想唯一，那一列得同时是 <code>NOT NULL</code>。（🗓️ 未实跑：Postgres 15+ 提供 <code>UNIQUE NULLS NOT DISTINCT</code> 改变这一行为，SQLite 无此语法。）</p>
-<p>⭐ <strong>想要一个「<code>NULL</code> 安全的等号」</strong>：SQLite 用 <code>IS</code>（实跑：<code>NULL IS NULL</code> → 1、<code>1 IS NULL</code> → 0），Postgres 用 <code>IS NOT DISTINCT FROM</code>——02 章第六节讲连接键时提过，那里是它最常见的用武之地。</p>
-<h3 id="order-by-null"><code>ORDER BY</code> 里 <code>NULL</code> 排哪儿：三个库不一样</h3>
+<p>需要让两个缺值在连接中匹配时，要显式使用支持空值的相等判断。对普通标量列，SQLite 可写 <code>a IS b</code>，PostgreSQL 可写 <code>a IS NOT DISTINCT FROM b</code>，MySQL 提供 <code>a &lt;=&gt; b</code>。如果两边有多行缺值，缺值之间也会组合出多对。<a href="https://www.sqlite.org/lang_expr.html">SQLite 表达式</a> · <a href="https://www.postgresql.org/docs/current/functions-comparison.html">PostgreSQL 比较谓词</a> · <a href="https://dev.mysql.com/doc/refman/8.4/en/comparison-operators.html">MySQL 比较运算符</a></p>
+<p>唯一约束按数据库自身规则检查。SQLite 的例子拒绝重复的 <code>'a@x.com'</code>，接受三个 <code>NULL</code>。如果业务要求邮箱必填且唯一，就同时声明 <code>NOT NULL</code> 和 <code>UNIQUE</code>。PostgreSQL 15 起也可声明 <code>UNIQUE NULLS NOT DISTINCT</code>，让单列唯一约束最多接受一个缺值。<a href="https://www.postgresql.org/docs/15/ddl-constraints.html#DDL-CONSTRAINTS-UNIQUE-CONSTRAINTS">PostgreSQL 15 唯一约束</a></p>
+<h3 id="order-by-null"><code>ORDER BY</code> 里 <code>NULL</code> 排哪儿</h3>
+<p>五行的排序键 <code>v</code> 分别是 30、<code>NULL</code>、10、<code>NULL</code>、20。先预测升序的第一行，再从已知数字 30、10、20 中找出最小值。下面的默认排序样例展示 SQLite 的结果，<code>v</code> 相同时需要第二排序键才能指定先后。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 
 <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;sqlite version:&quot;</span><span class="p">,</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">sqlite_version</span><span class="p">)</span>
@@ -766,15 +809,18 @@ UNIQUE 列里的三个 NULL: [(1, &#39;a@x.com&#39;), (3, None), (4, None), (5, 
       <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;SELECT id, v FROM t ORDER BY (v IS NULL), v&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">())</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;MIN(v)              =&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;SELECT MIN(v) FROM t&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()[</span><span class="mi">0</span><span class="p">])</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;ORDER BY v LIMIT 1  =&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;SELECT v FROM t ORDER BY v LIMIT 1&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()[</span><span class="mi">0</span><span class="p">])</span>
+order = "CASE WHEN v IS NULL THEN 1 ELSE 0 END, v, id"
+print("CASE 指定缺值在末尾:", db.execute("SELECT id, v FROM t ORDER BY " + order).fetchall())
 </code></pre></div>
 
 <p>实跑输出（SQLite 3.50.4）：</p>
-<div class="codehilite" data-code-language="text"><pre><span></span><code>sqlite version: 3.50.4
+<div class="codehilite" data-code-language="console"><pre><span></span><code class="language-console">sqlite version: 3.50.4
 ORDER BY v          : [(2, None), (4, None), (3, 10), (5, 20), (1, 30)]
 ORDER BY v DESC     : [(1, 30), (5, 20), (3, 10), (2, None), (4, None)]
 ORDER BY (v IS NULL), v : [(3, 10), (5, 20), (1, 30), (2, None), (4, None)]
 MIN(v)              = 10
 ORDER BY v LIMIT 1  = None
+CASE 指定缺值在末尾: [(3, 10), (5, 20), (1, 30), (2, None), (4, None)]
 </code></pre></div>
 
 <p>💀 <strong><code>MIN(v)</code> 是 10，<code>ORDER BY v LIMIT 1</code> 是 <code>NULL</code>。</strong> 两句在英语里都念作「最小的那个」，SQLite 上给出不同答案——因为 <code>MIN</code> 跳过 <code>NULL</code>（聚合的规则，<a href="03-聚合与分组.html">03 章</a>），而 <code>ORDER BY</code> 把它排在最前（排序的规则，上面那张表）。⭐ <strong>同一个 <code>NULL</code>，两套语义，两个答案。</strong></p>
@@ -801,15 +847,16 @@ ORDER BY v LIMIT 1  = None
 <td>🗓️ <strong>未实跑</strong></td>
 </tr>
 <tr>
-<td><strong>MySQL</strong></td>
-<td><strong>最前</strong>（视为最小）</td>
-<td>❌ 无此语法</td>
-<td>🗓️ <strong>未实跑</strong></td>
+<td><strong>MySQL 8.4</strong></td>
+<td><strong>最前</strong></td>
+<td>无此语法</td>
+<td>官方文档，未实跑</td>
 </tr>
+<tr><td><strong>SQL Server</strong></td><td><strong>最前</strong></td><td>无此语法</td><td>官方文档，未实跑</td></tr>
 </tbody>
 </table></div>
-<p>⚠️ <strong>同一条「取最新的一条」查询，从 SQLite 搬到 Postgres 上，<code>ORDER BY updated_at DESC LIMIT 1</code> 取到的可能是完全不同的一行</strong>——SQLite 上 <code>DESC</code> 把 <code>NULL</code> 排在最后，Postgres 上排在最前。</p>
-<p>⭐ <strong>可移植的写法：<code>ORDER BY (v IS NULL), v</code></strong>（实跑把 <code>NULL</code> 稳定压到末尾，把 <code>IS NULL</code> 换成 <code>IS NOT NULL</code> 就置顶）。三个库都支持，不依赖任何一家的默认值。</p>
+<p>这四种数据库的默认降序位置与升序相反。按更新时间降序取第一行时，SQLite 会先给出已知时间，PostgreSQL 默认可能先给出缺值行。SQLite 3.30 起及 PostgreSQL 可写 <code>ORDER BY v ASC NULLS LAST, id</code>。</p>
+<p>跨这四种数据库可以写 <code>ORDER BY CASE WHEN v IS NULL THEN 1 ELSE 0 END, v, id</code>。先按第一个排序键升序，非空行得到 0，缺值行得到 1。再按 <code>v</code> 升序排已知数，最后用 <code>id</code> 给并列行定序。本例的编号顺序是 3、5、1、2、4。原示例的 <code>(v IS NULL)</code> 排序键适用于 SQLite、PostgreSQL 和 MySQL。<a href="https://www.sqlite.org/lang_select.html#orderby">SQLite 排序</a> · <a href="https://www.postgresql.org/docs/current/queries-order.html">PostgreSQL 排序</a> · <a href="https://dev.mysql.com/doc/refman/8.4/en/null-values.html">MySQL 8.4 缺值</a> · <a href="https://learn.microsoft.com/en-us/sql/t-sql/queries/select-order-by-clause-transact-sql">SQL Server 排序</a></p>
 <hr />
 <!--MIDSTOP2-->
 <blockquote>
@@ -847,7 +894,7 @@ ORDER BY v LIMIT 1  = None
 </code></pre></div>
 
 <p>实跑输出：</p>
-<div class="codehilite" data-code-language="text"><pre><span></span><code>COALESCE          : [(1, &#39;小明&#39;), (2, &#39;李雷&#39;), (3, &#39;&#39;), (4, &#39;(匿名)&#39;)]
+<div class="codehilite" data-code-language="console"><pre><span></span><code class="language-console">COALESCE          : [(1, &#39;小明&#39;), (2, &#39;李雷&#39;), (3, &#39;&#39;), (4, &#39;(匿名)&#39;)]
 套一层 NULLIF     : [(1, &#39;小明&#39;), (2, &#39;李雷&#39;), (3, &#39;韩梅&#39;), (4, &#39;(匿名)&#39;)]
 note = &#39;&#39;         : [(2,)]
 note IS NULL      : [(3,), (4,)]
@@ -887,7 +934,7 @@ NULLIF 防除零     : (None, None)
 <blockquote>
 <p>⭐ <strong>判据：在写入端就定一个规矩</strong>——一列里要么统一存 <code>NULL</code>，要么统一存空串，别两种都有。
 一个前端没填就提交空串的表单，会让表里<strong>同时存在两种「没有」</strong>，而所有 <code>IS NULL</code> 检查只看得见其中一种。
-（🗓️ <strong>未实跑</strong>：Oracle 是唯一把空串<strong>当作</strong> <code>NULL</code> 的主流库，本机无该环境。）</p>
+（🗓️ <strong>未实跑</strong>：Oracle Database 会把零长度字符值视为 <code>NULL</code>。<a href="https://docs.oracle.com/en/database/oracle/oracle-database/19/sqlrf/Nulls.html">Oracle 19c 缺值规则</a>）</p>
 </blockquote>
 <h2 id="_4">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
@@ -908,11 +955,11 @@ NULLIF 防除零     : (None, None)
 </tr>
 <tr>
 <td><a href="03-聚合与分组.html">03-聚合与分组.html</a></td>
-<td>⭐ <strong>聚合函数怎么对待 <code>NULL</code> 全部归它</strong>（<code>COUNT(*)</code> 数行、其余数值，<code>AVG</code> 的分母，空集上 <code>SUM</code> 给 <code>NULL</code>）。本章第五节接着往下问一步：那些 <code>NULL</code> 行是在<strong>哪一步</strong>从看板上消失的</td>
+<td>第 03 章介绍分组和聚合。本章第五节区分 <code>COUNT(*)</code> 与 <code>COUNT(列)</code>，并核对是筛掉了输入行，还是列中缺值没有参与计算。</td>
 </tr>
 <tr>
 <td><a href="05-子查询的三种形状.html">05-子查询的三种形状.html</a></td>
-<td>本章第四节说「反连接一律写 <code>NOT EXISTS</code>」——<code>IN</code> / <code>EXISTS</code> / <code>JOIN</code> 三种形状还有性能和可读性上的取舍，那一章接着讲</td>
+<td>本章用相关子查询寻找真匹配。第 05 章继续说明 <code>IN</code>、<code>EXISTS</code> 和 <code>JOIN</code> 各自适合的查询。</td>
 </tr>
 <tr>
 <td><a href="10-拿SQL审问一份数据.html">10-拿SQL审问一份数据.html</a></td>
@@ -924,60 +971,43 @@ NULLIF 防除零     : (None, None)
 </tr>
 <tr>
 <td><a href="../数据这一关/04-脏数据的十种形态.html">数据这一关 · 04 脏数据的十种形态</a></td>
-<td>比 <code>NULL</code> 更坏的是<strong>哨兵值</strong>（<code>-999</code>、<code>"N/A"</code>）——它们不是 <code>NULL</code>，缺失率监控全绿。本章第七节的 <code>NULLIF(age, -999)</code> 就是把它们转回 <code>NULL</code> 的那一步</td>
+<td>比 <code>NULL</code> 更坏的是<strong>哨兵值</strong>（<code>-999</code>、<code>"N/A"</code>）——只查 <code>IS NULL</code> 的缺失率监控会漏掉哨兵值。本章第七节的 <code>NULLIF(age, -999)</code> 就是把它们转回 <code>NULL</code> 的那一步</td>
 </tr>
 </tbody>
 </table></div>
 <h2 id="_5">✅ 检查点</h2>
 <ol>
-<li>本章和《数据这一关》05 章都在讲「值没有」，两者的题目分别是什么？</li>
-<li><code>NULL = NULL</code> 和 <code>NULL IS NULL</code> 判出来分别是什么，为什么不同？另外 <code>0 AND NULL</code> 和 <code>1 OR NULL</code> 是什么，这两条为什么不算例外？</li>
-<li>把 <code>city NOT IN ('BJ', NULL)</code> 展开成 <code>AND</code>/<code>OR</code> 的形式，说明它为什么对<strong>每一行</strong>都判不出真。为什么 <code>IN</code> 没事？</li>
-<li>实跑那张 3 行表上，<code>WHERE v &gt; 10</code> 和 <code>WHERE NOT (v &gt; 10)</code> 各返回几行？加起来是几？说明了什么？</li>
-<li><code>CHECK (age &gt;= 18)</code> 挡得住 <code>age = NULL</code> 吗？查询和约束对 <code>UNKNOWN</code> 的处理有什么区别？</li>
-<li>反连接的四种写法（<code>NOT IN</code> / <code>NOT EXISTS</code> / <code>LEFT JOIN … IS NULL</code> / <code>NOT IN</code> + 内层过滤）在实跑里各返回几行？B 和 D 差的那一行差在哪？</li>
-<li><code>GROUP BY city</code> 会丢掉 <code>city</code> 为 <code>NULL</code> 的行吗？那 31.0 变成 11.0 和 2.0 分别是在哪一步发生的？由此得到的判据是什么？</li>
-<li>列出至少三个「<code>NULL</code> 被当成能和自己配上的同一个值」的地方。<code>UNIQUE</code> 属于哪一套语义，后果是什么？再说明 SQLite 上 <code>MIN(v)</code> 和 <code>ORDER BY v LIMIT 1</code> 为什么给出不同答案、可移植的排序写法是什么。</li>
-<li><code>COALESCE(nick, name, '(匿名)')</code> 对一个 <code>nick</code> 是空串的行返回什么？怎么修？</li>
+<li>《数据这一关》05 章问缺失的什么问题？本章问什么？</li>
+<li>假设 <code>v</code> 缺值，<code>v = NULL</code>、<code>v IS NULL</code>、<code>NOT (v &gt; 10)</code> 各得什么？<code>FALSE AND UNKNOWN</code> 与 <code>TRUE OR UNKNOWN</code> 又各得什么？</li>
+<li>算出 BJ、SH 和 <code>NULL</code> 对 <code>NOT IN ('BJ', NULL)</code> 的真值。哪一行能通过对应的 <code>IN</code>？</li>
+<li>三笔付款为 20 元、5 元和待补。第三笔能通过 <code>WHERE amount &gt; 10</code> 吗？条件放到左连接的 <code>ON</code> 后，账户 3 和付款 33 是否出现在结果中？把原付款按账户分组再用 <code>HAVING SUM(amount) &gt; 10</code> 会保留哪一组？</li>
+<li><code>CHECK (age &gt;= 18)</code> 是否接受 <code>NULL</code>？要让年龄必填，可以加什么约束？</li>
+<li>第四节的四种写法各返回几行？如果只要城市已知且找不到匹配的人，如何改写 B？右侧子查询为空时，城市缺值能通过 <code>NOT IN</code> 吗？</li>
+<li>只剩一笔金额待补的付款时，<code>COUNT(*)</code>、<code>COUNT(amount)</code>、<code>SUM(amount)</code> 和 <code>AVG(amount)</code> 分别是什么？在通话报表里，城市缺值的 20 分在哪些查询中消失？</li>
+<li>两个缺值键在 <code>GROUP BY</code> 和普通等值连接中各怎样处理？SQLite 的 <code>MIN(v)</code> 和 <code>ORDER BY v LIMIT 1</code> 为什么不同？</li>
+<li><code>COALESCE(nick, name, '(匿名)')</code> 遇到空串昵称会返回什么？业务若把空串当成未填，应如何改写？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li>《数据这一关》05 讲<strong>统计学意义上的缺失</strong>：这个值为什么没有（MCAR / MAR / MNAR）、能不能填、填了会不会把偏差带进模型。
-   本章讲 <strong>SQL 的 <code>NULL</code> 语义</strong>：值已经缺在库里了，它怎么参与比较和运算。⚠️ <strong>同名不同物</strong>——缺失机制处理得再对，照样会被三值逻辑打中。</li>
-<li><code>NULL = NULL</code> → <strong>UNKNOWN</strong>；<code>NULL IS NULL</code> → TRUE。因为 <code>=</code> 是比较运算（问「值是多少」，两个未知量比不出结果），<code>IS NULL</code> 是判定式（问「有没有值」，这个问题永远有明确答案）。
-   <code>0 AND NULL</code> → <strong>FALSE</strong>，<code>1 OR NULL</code> → <strong>TRUE</strong>。不是例外，是「不知道」这个语义的直接推论：只有当那个未知值到底是多少会改变答案时，结果才是 <code>UNKNOWN</code>——这两种情况下它改变不了答案。
-   ⚠️ 但算术不享受这个待遇：<code>0 * NULL</code> 实跑仍是 <code>NULL</code>。</li>
-<li>展开成 <code>NOT (city = 'BJ' OR city = NULL)</code>。对 <code>city='SH'</code>：<code>FALSE OR UNKNOWN</code> → <code>UNKNOWN</code>，<code>NOT UNKNOWN</code> 还是 <code>UNKNOWN</code>，<code>WHERE</code> 不放行；每一行都如此，所以返回 <code>[]</code>。
-   <code>IN</code> 没事是因为它是 <code>city='BJ' OR city=NULL</code>，对 <code>city='BJ'</code> 那行是 <code>TRUE OR UNKNOWN</code> → <strong>TRUE</strong>。
-   💀 <code>NOT</code> 把「有一项为真就够了」变成了「必须每一项都为假」，而「为假」正是 <code>UNKNOWN</code> 给不出的。</li>
-<li>各 <strong>1 行</strong>（<code>[(3,)]</code> 和 <code>[(1,)]</code>），加起来 2 行，而全表 3 行。
-   💀 一个条件和它的否定加起来<strong>不等于全表</strong>——<code>id=2</code>（<code>v</code> 是 <code>NULL</code>）谁都没要。连 <code>WHERE v &gt; 10 OR NOT (v &gt; 10)</code> 都漏掉它。</li>
-<li><strong>挡不住</strong>——实跑 <code>age=NULL</code> 插入成功，而 <code>age=10</code> 被 <code>IntegrityError : CHECK constraint failed: age &gt;= 18</code> 拒绝。
-   <strong>查询要求「证明为真」，约束要求「证明为假」</strong>：<code>WHERE</code>/<code>ON</code>/<code>HAVING</code> 只放行 <code>TRUE</code>，<code>CHECK</code> 只在判为 <code>FALSE</code> 时拒绝，<code>UNKNOWN</code> 在两边待遇正好相反。要挡住得写 <code>CHECK (age IS NOT NULL AND age &gt;= 18)</code> 或给列加 <code>NOT NULL</code>。</li>
-<li>A <code>NOT IN</code> → <strong>0 行</strong>（<code>[]</code>）；B <code>NOT EXISTS</code> → 4 行 <code>(2,3,4,5)</code>；C <code>LEFT JOIN … IS NULL</code> → 4 行（同 B）；D <code>NOT IN</code> + 内层过滤 → 3 行 <code>(2,4,5)</code>。
-   B 和 D 差在 <strong><code>id=3</code></strong>，它自己的 <code>city</code> 是 <code>NULL</code>：<code>NOT EXISTS</code> 的口径是「配不上就算不在」，<code>NOT IN</code> 的口径是「不知道就不给结论」。<strong>这是业务判断，不是 bug</strong>，但你得知道自己选了哪个。默认写 <code>NOT EXISTS</code>。</li>
-<li><strong>不会丢</strong>——实跑 <code>GROUP BY city</code> 给出三组 <code>[(None, 20.0), ('BJ', 9.0), ('SH', 2.0)]</code>，加起来正好 31.0，<code>NULL</code> 自成一组占 20.0（接近全表三分之二）。
-   丢在后面：<strong>a 连维表（<code>INNER JOIN</code>）</strong> → <strong>11.0</strong>（连接键 <code>NULL</code> 配不上对）；b <code>WHERE city &lt;&gt; 'BJ'</code> → 2.0 而正确答案是 22.0（⚠️ <code>NULL &lt;&gt; 'BJ'</code> 判 <code>UNKNOWN</code>，一个「不等于」吞掉 20.0，占全表 64.5%）；c <code>WHERE city IN (…)</code> → 11.0。补 <code>city IS NULL OR</code> 后回到 22.0。
-   判据：写 <code>&lt;&gt;</code>、<code>NOT IN</code>、<code>NOT LIKE</code> 这类<strong>否定式过滤</strong>前，先问「这一列可空吗」——肯定式过滤不用问，否定式过滤<strong>默认把「未知」也一起排除了</strong>。</li>
-<li><code>GROUP BY</code>（所有 <code>NULL</code> 一组）、<code>DISTINCT</code>、<code>UNION</code>/<code>INTERSECT</code>/<code>EXCEPT</code>、<code>ORDER BY</code>（<code>NULL</code> 之间视为并列）、<code>IS</code>/<code>IS NOT</code>。
-   ⚠️ <strong><code>UNIQUE</code> 属于另一套（比较语义）</strong>：实跑里重复的 <code>'a@x.com'</code> 被拒，但<strong>三行 <code>NULL</code> 全部插入成功</strong>——「邮箱唯一」的约束完全挡不住三个没填邮箱的账号。要真唯一，那列得同时 <code>NOT NULL</code>。
-   排序上 <code>MIN(v)</code> = <strong>10</strong>（聚合跳过 <code>NULL</code>），<code>ORDER BY v LIMIT 1</code> = <strong><code>NULL</code></strong>（SQLite 把 <code>NULL</code> 视为最小排在最前）；而 Postgres 视 <code>NULL</code> 为最大排在最后，MySQL 同 SQLite 且不支持 <code>NULLS FIRST/LAST</code>——同一条「取最新一条」跨库搬会取到不同的行。
-   可移植写法：<strong><code>ORDER BY (v IS NULL), v</code></strong>（垫底）或 <code>ORDER BY (v IS NOT NULL), v</code>（置顶）。</li>
-<li>返回<strong>空串</strong>——因为 <code>id=3</code> 的 <code>nick</code> 是空串不是 <code>NULL</code>，<code>COALESCE</code> 认这个值（空串是长度为 0 的真实字符串：<code>length('')</code> 是 <code>0</code>，<code>length(NULL)</code> 是 <code>NULL</code>，<code>COUNT(note)</code> 把空串数了进去所以是 2）。
-    修法：套一层 <code>NULLIF</code> —— <code>COALESCE(NULLIF(nick,''), name, '(匿名)')</code>，实跑返回 <code>韩梅</code>。</li>
+<li>《数据这一关》研究缺失的原因以及填补对分析的影响。本章研究值存为 <code>NULL</code> 后查询怎样计算。</li>
+<li>依次是 <code>UNKNOWN</code>、<code>TRUE</code>、<code>UNKNOWN</code>。一项为假足以使 <code>AND</code> 为假，一项为真足以使 <code>OR</code> 为真。</li>
+<li>BJ 的 <code>IN</code> 为真，取反为假。SH 与 <code>NULL</code> 的 <code>IN</code> 都是未知，取反仍是未知。只有 BJ 通过 <code>IN</code>。</li>
+<li>第三笔比较为未知，无法通过 <code>WHERE</code>。在 <code>ON</code> 中它无法配对，左连接保留账户 3 并把付款编号补为 <code>NULL</code>。从原付款分组时，账户 3 的合计为 <code>NULL</code>，账户 2 的合计 5 小于门槛，只有账户 1 的 20 通过 <code>HAVING</code>。</li>
+<li>接受。<code>CHECK</code> 在条件为假时拒绝，可以同时用 <code>NOT NULL</code> 要求该列有值。</li>
+<li>A、B、C、D 依次是 0、4、4、3 行。给 B 加外层 <code>u.city IS NOT NULL</code>。右侧子查询返回零行时，即使左侧城市缺值，<code>NOT IN</code> 也为真。</li>
+<li>依次为 1、0、<code>NULL</code>、<code>NULL</code>。通话表分组时仍保留 <code>NULL</code> 城市组，4 + 16 = 20 分。内连接没有找到匹配城市，<code>WHERE city &lt;&gt; 'BJ'</code> 和白名单 <code>IN</code> 的条件对这两行为未知，三种查询都排除了这 20 分。</li>
+<li>分到同组。普通等值连接的配对条件为未知，无法匹配。<code>MIN(v)</code> 在 30、10、20 中取 10，SQLite 默认升序把缺值放在最前。可用 <code>CASE WHEN v IS NULL THEN 1 ELSE 0 END</code> 作第一个排序键，把缺值排在末尾。</li>
+<li>在 SQLite 中得到空串。可用 <code>COALESCE(NULLIF(nick, ''), name, '(匿名)')</code> 先把空串转为 <code>NULL</code>，再找第一个有值的参数。</li>
 </ol>
 </details>
 <h2 id="_6">🛑 可以停在这里</h2>
-<p>⚡ <strong>走神救援</strong></p>
-<blockquote>
-<p>⭐ <strong><code>NULL</code> 不是值，是「不知道」，所以 SQL 的布尔值有三个：TRUE / FALSE / UNKNOWN。</strong></p>
-<p>地基是 <code>NULL = NULL</code> 判出来是 UNKNOWN 而不是真——⭐ 因为 <strong><code>=</code> 问「值是多少」，<code>IS NULL</code> 问「有没有值」</strong>。UNKNOWN 不污染一切：判据是「<strong>只有当那个未知值会改变答案时，结果才是 UNKNOWN</strong>」。但算术不享受这个优待，任何数乘 <code>NULL</code>、任何串接 <code>NULL</code> 都是 <code>NULL</code>。</p>
-<p>💀 <strong>招牌事故</strong>：<code>WHERE city NOT IN (SELECT …)</code> 在子查询里混进一个 <code>NULL</code> 之后<strong>返回空集、一行都没有、而且不报错</strong>；⚠️ 同时不带 <code>NOT</code> 的 <code>IN</code> 完全正常——<strong>坏掉的只有加了 <code>NOT</code> 的那一半</strong>。</p>
-<p>⭐ <strong><code>WHERE</code> 只放行 TRUE，FALSE 和 UNKNOWN 一起扔。</strong> 所以<strong>一个条件和它的否定加起来不等于全表</strong>。⚠️ 约束反过来：<code>CHECK</code> 只在判 FALSE 时拒绝，于是它会放行 <code>NULL</code>——<strong>查询要求证明为真，约束要求证明为假</strong>。</p>
-<p>反连接四种写法实测给出<strong>三个不同答案</strong>，⭐ <strong>默认一律写 <code>NOT EXISTS</code></strong>，它不会被内层的 <code>NULL</code> 毒化。</p>
-<p>⚠️ 而「那些 <code>NULL</code> 行是在哪一步从看板上没的」，答案<strong>不是 <code>GROUP BY</code></strong>——<code>NULL</code> 会老老实实自成一组。真正丢在后面三步，而且都不报错：<strong><code>INNER JOIN</code> 维表</strong>（连接键 <code>NULL</code> 配不上对）、<strong><code>&lt;&gt;</code> 过滤</strong>、<strong><code>IN (…)</code> 过滤</strong>。💀 实测里一个「不等于」就吞掉了近三分之二的金额。</p>
-</blockquote>
+<ul>
+<li>用 <code>IS NULL</code> 检查缺值。用普通比较算条件时，先写出 TRUE、FALSE 或 UNKNOWN，再做 <code>AND</code>、<code>OR</code> 和 <code>NOT</code>。</li>
+<li><code>WHERE</code> 留真行，<code>HAVING</code> 留真组，<code>ON</code> 配对需要真。左连接会为没有配对的左行补出空的右侧列。</li>
+<li>反连接先确定外侧缺值如何处理。<code>NOT EXISTS</code> 检查有没有真匹配。含缺值的单列 <code>NOT IN</code> 右侧会让未匹配行的条件变为未知。</li>
+<li>核对 <code>COUNT(*)</code> 和 <code>COUNT(列)</code>，分别检查输入行数与已知值数。取排序首行时，显式指定缺值位置和并列顺序。</li>
+</ul>
 <p><strong>下一节</strong> 👉 <a href="05-子查询的三种形状.html">05-子查询的三种形状.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
