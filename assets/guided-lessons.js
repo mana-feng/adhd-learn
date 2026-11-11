@@ -133,7 +133,9 @@
   const save = layout.querySelector(".lesson-save");
   let saved = null;
   try { saved = localStorage.getItem(saveKey); } catch (_) {}
-  if (saved && routes.some(route => route.id === saved)) {
+  const savedTarget = saved && document.getElementById(saved);
+  const savedAlias = savedTarget && layout.contains(savedTarget) && savedTarget.hasAttribute("data-reading-alias");
+  if (saved && (savedAlias || routes.some(route => route.id === saved))) {
     const resume = document.createElement("a");
     resume.href = "#" + saved;
     resume.textContent = "回到上次记下的位置";

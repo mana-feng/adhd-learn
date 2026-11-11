@@ -46,7 +46,7 @@
       const words=input.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
       if(!words.length) { count.textContent='输入关键词定位条目；正文不会被隐藏。'; return; }
       const hits=rows.filter(row => words.every(w => row.textContent.toLowerCase().includes(w)));
-      count.textContent=hits.length ? '找到 '+hits.length+' 条，显示前 '+Math.min(hits.length,10)+' 条定位入口；完整正文始终保留。' : '没有匹配条目。试试更短的报错片段，或使用“不报错，但结果不对”入口。';
+      count.textContent=hits.length ? '找到 '+hits.length+' 条，显示前 '+Math.min(hits.length,10)+' 条定位入口；完整正文始终保留。' : '没有匹配条目。试试更短的报错片段，或从正文分组查找。';
       hits.slice(0,10).forEach(row => { const li=document.createElement('li'), a=document.createElement('a'); a.href='#'+row.id; a.textContent=row.cells[0].textContent; li.appendChild(a); list.appendChild(li); });
     }
     input.addEventListener('input',search);
