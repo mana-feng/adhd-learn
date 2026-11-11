@@ -55,12 +55,24 @@ blockquote{margin:1.2em 0;padding:12px 18px;background:var(--quote-bg);
  border-left:4px solid var(--accent);border-radius:0 10px 10px 0}
 blockquote p{margin:.4em 0}
 ul,ol{padding-left:1.5em}li{margin:.35em 0}
-/* ⭐ 表格横向滚动兜底：`width:100%` 让表格只会挤不会溢出，实测 305px 宽下
-   最窄单元格只剩 40px。给单元格一个 min-width 让它不再无限压缩，超出的由 .tw 兜住。
-   2–4 列的表仍然占满不滚动，只有真挤不下的多列表才出现滚动条。 */
 .tw{overflow-x:auto;margin:1.2em 0;-webkit-overflow-scrolling:touch}
 table{border-collapse:collapse;width:100%;margin:0;font-size:var(--fs-md)}
-th,td{min-width:5.2em}
+th,td{min-width:0}
+/* Keep chapter comparisons readable after the shared reader wraps a table. */
+body[data-numpy-magazine="v1"] .nm-main .table-scroll table{min-width:0;max-width:100%}
+body[data-numpy-magazine="v1"] .nm-main :is(th,td) code{
+  white-space:normal;overflow-wrap:anywhere;box-decoration-break:clone;
+}
+.nm-main caption{padding:8px 10px;text-align:left;font-weight:600}
+.nm-main .index-comparison thead th:first-child{width:29%}
+.nm-main .index-reference thead th:first-child{width:34%}
+@media(max-width:640px){
+  body[data-numpy-magazine="v1"] .nm-main .tw table{table-layout:fixed;width:100%}
+  body[data-numpy-magazine="v1"] .nm-main .tw :is(th,td){
+    padding:6px;line-height:1.5;font-size:14px;
+  }
+  .nm-main .tw :is(th,td) code{padding:1px 2px}
+}
 th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
 th{background:var(--quote-bg)}
 tr:nth-child(even) td{background:color-mix(in srgb,var(--quote-bg) 45%,transparent)}
@@ -293,54 +305,34 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <main class="nm-main"><header class="nm-cover"><div class="nm-cover-copy"><p class="nm-kicker" id="06">NUMPY / 06 · 06 · 索引的四种形态</p><h1 class="nm-question">重复下标三次，为什么只加了一次？</h1><p class="nm-dek">先读到临时结果，再写回原数组，与逐次执行累加，走的是两条不同的路径。</p><p class="nm-outcome">你能区分读取与赋值，也能解释重复下标何时需要 np.add.at。</p><div class="nm-actions"><a class="nm-primary" href="#_2">从这个问题开始</a><a class="nm-secondary" href="#nm-reading-start">直接进入完整解释</a></div><p class="nm-resume-status" role="status"></p></div><figure class="nm-cover-visual"><svg xmlns="http://www.w3.org/2000/svg" id="nm-cover-06-svg" viewbox="0 0 320 412" role="img" aria-labelledby="nm-cover-06-title nm-cover-06-desc"><title id="nm-cover-06-title">indexing 机制示意</title><desc id="nm-cover-06-desc">示意初始 a[0]=0。a[[0,0,0]] += 1 写回 1；np.add.at(a,[0,0,0],1) 在独立重置后得到 3。</desc><defs><marker id="nm-cover-06-arrow" markerwidth="7" markerheight="7" refx="6" refy="3.5" orient="auto"><path d="M0 0 L7 3.5 L0 7Z" fill="#1e6661"></path></marker></defs><rect width="320" height="412" fill="#f7f6f0"></rect><text x="18" y="30" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="19" fill="#202720">独立从 a[0]=0 开始</text><rect x="16" y="58" width="288" height="105" rx="3" fill="#e9eee3" stroke="#8da396"></rect><text x="27" y="89" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="19" fill="#202720">a[[0,0,0]] += 1</text><text x="27" y="125" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="19" fill="#202720">临时值 [1,1,1]</text><path d="M160 164 L160 192" stroke="#1e6661" stroke-width="2" fill="none" marker-end="url(#nm-cover-06-arrow)"></path><text x="36" y="225" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="22" fill="#202720">写回 a[0] = 1</text><rect x="16" y="260" width="288" height="127" rx="3" fill="#dce7b8" stroke="#8da396"></rect><text x="29" y="292" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="18" fill="#202720">np.add.at：逐次累加</text><text x="29" y="331" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="22" fill="#202720">0 → 1 → 2 → 3</text><text x="29" y="365" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="22" fill="#202720">a[0] = 3</text></svg><figcaption>示意初始 a[0]=0。a[[0,0,0]] += 1 写回 1；np.add.at(a,[0,0,0],1) 在独立重置后得到 3。</figcaption></figure></header><article class="nm-article" id="nm-reading-start"><details class="nm-deep nm-prose"><summary>阅读范围、用时与原有实验记录</summary><details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
 <p>⏱ <strong>80 分钟</strong> ｜ ⭐ <strong>方括号里放什么，决定你拿到的是原数组的一扇窗，还是一份复印件 —— 而这件事有一条唯一的判据</strong></p>
 </details><section class="nm-section nm-prose" data-nm-section="1"><p class="nm-kicker">01 / 完整解释</p><h2>取出相同的数，不等于以相同方式返回。</h2><h3 id="_1" data-nm-stop="">🎯 一句话</h3>
-<p><strong>先看索引语法：本章普通数值 ndarray 的基础切片返回视图；整数数组索引和布尔高级索引读取返回副本，即使下标恰好等距。</strong> shape、strides 与起点解释基础切片怎样共享数据，不能反过来证明某种索引一定返回视图；基础索引若取尽所有轴，则得到标量。</p>
-<p><a href="05-内存布局与stride.html">上一章</a>讲了「形状只是 shape + strides 的说明书」。
-这一章先按<strong>基础索引与高级索引的语法契约</strong>区分返回值，再用 shape 与 strides 解释共享数据的机制。<code>a[[0,1,2]]</code> 即使选中等距的行，读取仍按高级索引规则返回副本；不能只看结果是否能用步长描述。</p>
+<p><strong>先看索引语法：本章普通数值 ndarray 的基础切片返回视图；整数数组索引和布尔高级索引读取返回副本，即使下标恰好等距。</strong> shape、strides 与起点解释基础切片怎样共享数据，不能反过来证明某种索引一定返回视图；如果每根轴都只给一个整数，就得到标量。</p>
+<p><a href="05-内存布局与stride.html">上一章</a>用形状（shape）、各轴步长（strides）和起点解释一块数据怎样被读取。本章用同一张二维数组练习四种选法，先预测返回什么，再判断修改会写到哪里。</p>
+<ul>
+<li><strong>视图（view）</strong>沿用原数组的数据，改动重叠的元素会反映到原数组。</li>
+<li><strong>副本（copy）</strong>有自己的数据。即使整数下标等距，例如 <code>a[[0,1,2]]</code>，高级索引读取仍返回副本。</li>
+</ul>
 <h3 id="_2">🧩 一、四种形态，一次看全</h3>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>#</th>
-<th>形态</th>
-<th>长什么样</th>
-<th>拿到什么</th>
-<th>共享内存</th>
-</tr>
-</thead>
+<p>本章的行号和列号都从 0 开始。先看同一张表的四种读法。</p>
+<div class="tw"><table class="index-comparison">
+<caption>同一张 3×4 表的四种读法</caption>
+<thead><tr><th scope="col">形态</th><th scope="col">例子</th><th scope="col">读取结果</th></tr></thead>
 <tbody>
-<tr>
-<td>①</td>
-<td><strong>基础切片</strong></td>
-<td><code>a[1:3, ::2]</code></td>
-<td><strong>视图</strong></td>
-<td>✅</td>
-</tr>
-<tr>
-<td>②</td>
-<td><strong>整数索引</strong></td>
-<td><code>a[2, 1]</code>（每根轴都给整数）</td>
-<td><strong>0 维标量</strong></td>
-<td>—</td>
-</tr>
-<tr>
-<td>③</td>
-<td><strong>花式索引</strong>（整数数组）</td>
-<td><code>a[[0, 2]]</code></td>
-<td><strong>新数组</strong></td>
-<td>❌</td>
-</tr>
-<tr>
-<td>④</td>
-<td><strong>布尔掩码</strong></td>
-<td><code>a[a &gt; 5]</code></td>
-<td><strong>新数组</strong></td>
-<td>❌</td>
-</tr>
+<tr><th scope="row">① 基础切片</th><td><code>a[1:3, ::2]</code></td><td><strong>视图</strong>，和原表共享数据</td></tr>
+<tr><th scope="row">② 整数索引</th><td><code>a[2, 1]</code></td><td><strong>标量</strong>，取第 2 行第 1 列的值 9</td></tr>
+<tr><th scope="row">③ 整数数组索引</th><td><code>a[[0, 2]]</code></td><td><strong>副本</strong>，按名单取两行</td></tr>
+<tr><th scope="row">④ 布尔索引</th><td><code>a[a &gt; 5]</code></td><td><strong>副本</strong>，把命中的格子收集为一维数组</td></tr>
 </tbody>
 </table></div>
+<p>索引（indexing）是通过方括号指定要取的位置。给每根轴一个整数时，只留下一个值，这个值叫<strong>标量（scalar）</strong>。例如，查单个门店在某个小时的记录，可以直接取一格。只给行号则还会保留该行的所有列。</p>
+<ul>
+<li><strong>整数数组索引</strong>也叫花式索引（fancy indexing），按给定的整数名单取值。</li>
+<li><strong>布尔掩码（Boolean mask）</strong>用 <code>True</code> 和 <code>False</code> 标记保留与跳过的位置。</li>
+</ul>
+<p>这两类取值都属于高级索引（advanced indexing）。</p>
+<p>先运行四种写法。这里显式指定 <code>np.int64</code>，每个整数占 8 字节。后面计算步长时也使用这个大小。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
-<span class="n">a</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">12</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<span class="n">a</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">12</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
 
 <span class="n">s</span> <span class="o">=</span> <span class="n">a</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="mi">3</span><span class="p">,</span> <span class="p">::</span><span class="mi">2</span><span class="p">]</span>     <span class="c1"># ① 基础切片</span>
 <span class="n">i</span> <span class="o">=</span> <span class="n">a</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span>         <span class="c1"># ② 整数索引</span>
@@ -355,14 +347,18 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>实跑输出：</p>
 <section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>基础切片 shape=(2, 2) 共享内存=True</li><li>花式索引 shape=(2, 4) 共享内存=False</li><li>布尔掩码 shape=(6,) 共享内存=False</li><li>整数索引 9 int64 ndim=0</li></ol></section>
-<p>⚠️ <strong>判断共享内存请一律用 <code>np.shares_memory</code>，不要用 <code>.base is a</code></strong> ——
-<code>.base</code> 不保证指向上一层，也可能指向非 ndarray 的缓冲区来源，视图套视图时它会骗你。原因见 <a href="05-内存布局与stride.html">05 章第三节</a>。</p>
-<p>⭐ <strong>这张表不用背。</strong> 后面五节讲的是同一件事：<strong>为什么只有 ① 能是视图。</strong></p>
+<p><code>np.shares_memory(a, r)</code> 检查两个数组是否有重叠的数据。这里的结果和表格一致。<code>.base is a</code> 可能跳过中间视图，不能代替重叠检查。见<a href="05-内存布局与stride.html">第 05 章第三节</a>。</p>
+<p>空切片 <code>a[:0]</code> 仍由基础切片得到，但它没有元素可与原数组重叠，因此 <code>np.shares_memory(a, a[:0])</code> 为 <code>False</code>。</p>
 <h3 id="1">📐 二、① 基础切片：它天生就是一份说明书</h3>
-<p><code>a[1:3, ::2]</code> 里每一维给的都是 <code>起点 : 终点 : 步长</code>。<strong>这三个数直接就能翻译成 strides</strong>：</p>
+<p>基础切片（basic slicing）用 <code>start:stop:step</code> 沿某根轴挑位置。终点 <code>stop</code> 不取。省略起点和终点时，NumPy 按步长方向从一端读到另一端。省略步长则每次走一格。</p>
+<ul>
+<li><code>1:3</code> 从行 1 开始，取行 1、2。</li>
+<li><code>::2</code> 从列 0 开始，每次跨两列，取列 0、2。</li>
+</ul>
+<p>原表每格 8 字节，沿行轴走一格跨过 4 个元素。对照输出，看切片怎样改变起点和步长。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
-<span class="n">a</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">12</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<span class="n">a</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">12</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
 <span class="n">s</span> <span class="o">=</span> <span class="n">a</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="mi">3</span><span class="p">,</span> <span class="p">::</span><span class="mi">2</span><span class="p">]</span>
 
 <span class="nb">print</span><span class="p">(</span><span class="s2">"a"</span><span class="p">,</span> <span class="n">a</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">a</span><span class="o">.</span><span class="n">strides</span><span class="p">)</span>
@@ -399,28 +395,33 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </table></div>
 <p>⭐ <strong>切片的每一维都是「等差数列」</strong> —— 起点、公差、个数。
 而 strides 能表达的恰好就是等差数列。<strong>两边严丝合缝，所以一个字节都不用搬。</strong></p>
-<p>⭐ <strong>推论：切片写得多花哨都不要紧，照样是视图</strong>（连负步长都行，它只是让 strides 变成负数）：</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<p>负步长会沿轴反向走。<code>...</code> 是省略号（ellipsis），补足未写的全切片。对下面的二维表，<code>a[..., 2]</code> 等于 <code>a[:, 2]</code>。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="k">import</span> numpy <span class="k">as</span> np
 
-<span class="n">a</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">100</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">)</span>
-
-<span class="k">for</span> <span class="n">expr</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"a[5:100:7, ::-1]"</span><span class="p">,</span> <span class="s2">"a[::-1]"</span><span class="p">,</span> <span class="s2">"a[2]"</span><span class="p">,</span> <span class="s2">"a[:, 3]"</span><span class="p">,</span> <span class="s2">"a[..., 2]"</span><span class="p">):</span>
-    <span class="n">r</span> <span class="o">=</span> <span class="nb">eval</span><span class="p">(</span><span class="n">expr</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">expr</span><span class="si">:</span><span class="s2">18s</span><span class="si">}</span><span class="s2"> shape=</span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span><span class="si">:</span><span class="s2">10s</span><span class="si">}</span><span class="s2"> strides=</span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">strides</span><span class="p">)</span><span class="si">:</span><span class="s2">11s</span><span class="si">}</span><span class="s2"> "</span>
-          <span class="sa">f</span><span class="s2">"视图=</span><span class="si">{</span><span class="n">np</span><span class="o">.</span><span class="n">shares_memory</span><span class="p">(</span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">r</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+a <span class="p">=</span> np<span class="p">.</span>arange<span class="p">(</span><span class="mi">100</span><span class="p">,</span> dtype<span class="p">=</span>np<span class="p">.</span>int64<span class="p">)</span><span class="p">.</span>reshape<span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">)</span>
+examples <span class="p">=</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s2">&quot;a[5:100:7, ::-1]&quot;</span><span class="p">,</span> a<span class="p">[</span><span class="mi">5</span><span class="p">:</span><span class="mi">100</span><span class="p">:</span><span class="mi">7</span><span class="p">,</span> <span class="p">:</span><span class="p">:</span><span class="p">-</span><span class="mi">1</span><span class="p">]</span><span class="p">)</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;a[::-1]&quot;</span><span class="p">,</span> a<span class="p">[</span><span class="p">:</span><span class="p">:</span><span class="p">-</span><span class="mi">1</span><span class="p">]</span><span class="p">)</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;a[2]&quot;</span><span class="p">,</span> a<span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="p">)</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;a[:, 3]&quot;</span><span class="p">,</span> a<span class="p">[</span><span class="p">:</span><span class="p">,</span> <span class="mi">3</span><span class="p">]</span><span class="p">)</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;a[..., 2]&quot;</span><span class="p">,</span> a<span class="p">[</span><span class="p">...</span><span class="p">,</span> <span class="mi">2</span><span class="p">]</span><span class="p">)</span><span class="p">,</span>
+<span class="p">]</span>
+<span class="k">for</span> name<span class="p">,</span> result <span class="k">in</span> examples<span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span>f&quot;<span class="p">{</span>name<span class="p">:</span>18s<span class="p">}</span> shape=<span class="p">{</span><span class="nb">str</span><span class="p">(</span>result<span class="p">.</span>shape<span class="p">)</span><span class="p">:</span>10s<span class="p">}</span> &quot;
+          f&quot;strides=<span class="p">{</span><span class="nb">str</span><span class="p">(</span>result<span class="p">.</span>strides<span class="p">)</span><span class="p">:</span>11s<span class="p">}</span> 视图=<span class="p">{</span>np<span class="p">.</span>shares_memory<span class="p">(</span>a<span class="p">,</span> result<span class="p">)</span><span class="p">}</span>&quot;<span class="p">)</span>
 </code></pre></div>
 
 <p>实跑输出：</p>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>a[5:100:7, ::-1] shape=(1, 10) strides=(560, -8) 视图=True</p><p>a[::-1] shape=(10, 10) strides=(-80, 8) 视图=True</p><p>a[2] shape=(10,) strides=(8,) 视图=True</p><p>a[:, 3] shape=(10,) strides=(80,) 视图=True</p><p>a[ · , 2] shape=(10,) strides=(80,) 视图=True</p></div></section>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>a[5:100:7, ::-1] shape=(1, 10) strides=(560, -8) 视图=True</p><p>a[::-1] shape=(10, 10) strides=(-80, 8) 视图=True</p><p>a[2] shape=(10,) strides=(8,) 视图=True</p><p>a[:, 3] shape=(10,) strides=(80,) 视图=True</p><p>a[..., 2] shape=(10,) strides=(80,) 视图=True</p></div></section>
 <p>⚠️ <strong>注意 <code>a[2]</code> 和 <code>a[:, 3]</code> 也在这张表里。</strong> 形态 ② 说的是「每根轴都给整数」才得到标量；
 只给一部分轴整数，剩下的轴还在，那还是基础索引 —— 依然是视图。
 <code>a[:, 3]</code> 的 strides 是 <code>(80,)</code>：沿这一列往下走一格要跳 80 字节，<strong>它选中的元素在内存里根本不挨着</strong>，
 但因为间隔是等差的，一份说明书就够了。</p>
 <h3 id="3">🎭 三、③ 花式索引：它写不出这份说明书</h3>
-<p>换成一个整数数组，规矩当场就破了：</p>
+<p>如果要按名单取第 2、0、2 行，固定步长的切片表达不了这个走法。写 <code>a[[2,0,2]]</code> 就能逐项指定行号，也能重复取同一行。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
-<span class="n">a</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">12</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<span class="n">a</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">12</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
 <span class="n">f</span> <span class="o">=</span> <span class="n">a</span><span class="p">[[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">]]</span>
 
 <span class="nb">print</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
@@ -433,15 +434,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>实跑输出：</p>
 <section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">[[ 8 9 10 11]</span></div><div class="vb-flow-row"><span class="vb-flow-step">[ 0 1 2 3]</span></div><div class="vb-flow-row"><span class="vb-flow-step">[ 8 9 10 11]]</span></div><div class="vb-flow-row"><span class="vb-flow-step">shape: (3, 4)</span></div><div class="vb-flow-row"><span class="vb-flow-step">共享内存: False</span></div><div class="vb-flow-row"><span class="vb-flow-step">第 2 行 -&gt; 偏移 64 字节</span></div><div class="vb-flow-row"><span class="vb-flow-step">第 0 行 -&gt; 偏移 0 字节</span></div><div class="vb-flow-row"><span class="vb-flow-step">第 2 行 -&gt; 偏移 64 字节</span></div></div></section>
-<p>⭐ <strong>看那三个偏移：64、0、64。</strong></p>
-<ul>
-<li><strong>不是等差的</strong>（先往后 64，再倒回去 −64，再往前 64）</li>
-<li><strong>而且重复了</strong>（第 2 行出现了两次）</li>
-</ul>
-<p>「行号 +1 就挪 N 字节」这句话在这里<strong>根本没法填</strong> —— N 该等于多少？
-strides 只有一个数字的位置，而这里需要<strong>任意一张顺序表</strong>。</p>
-<p>⭐ <strong>本例的任意行顺序与重复下标无法由一组固定步长表示。</strong> 这解释了这个例子为什么不能直接当作原数组的一份步长视图；更一般的规则来自索引契约：整数数组高级索引读取返回副本，即使换成等距的 <code>a[[0,1,2]]</code> 也如此。</p>
-<p>后果很实在：</p>
+<p>三行的起始偏移是 64、0、64 字节。相邻两次移动分别是 <strong>−64 和 +64 字节</strong>，无法用同一个行步长表示。</p>
+<p>这解释了本例为何无法用固定步长读取。返回类型要按语法判断，即使把名单换成等距的 <code>[0,1,2]</code>，整数数组索引读取也会生成副本。接着试试在视图与副本里改同一批位置。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="c1"># 切片是视图：改它就是改原数组</span>
@@ -510,32 +504,43 @@ strides 只有一个数字的位置，而这里需要<strong>任意一张顺序�
 </tr>
 </tbody>
 </table></div>
-<p>💀 <strong>这条区别一旦踩错就是「代码不报错、也不生效」</strong>：</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<p>现在只想把第一个大于 5 的格子改成 999。<code>a[a &gt; 5][0]</code> 先取一份副本，给这份副本的第一个元素赋值，原表的 <code>a[1,2]</code> 仍然是 6。</p>
+<p>用 <code>np.nonzero</code>（第七节还会用到）可以把二维掩码变成两组配对的坐标。两组的第 0 项分别给出第一个命中格的行号和列号。先检查有无命中，再在原表上按这个坐标写入。没有命中时，坐标数组为空，跳过写入。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="k">import</span> numpy <span class="k">as</span> np
 
-<span class="n">a</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">12</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"a[1, 2] ="</span><span class="p">,</span> <span class="n">a</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">])</span>
+a <span class="p">=</span> np<span class="p">.</span>arange<span class="p">(</span><span class="mi">12</span><span class="p">)</span><span class="p">.</span>reshape<span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+all_matches <span class="p">=</span> a<span class="p">.</span>copy<span class="p">(</span><span class="p">)</span>
 
-<span class="n">a</span><span class="p">[</span><span class="n">a</span> <span class="o">&gt;</span> <span class="mi">5</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mi">999</span>           <span class="c1"># ⚠️ 写进了一个临时拷贝</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"a[a&gt;5][0] = 999 之后, a[1,2] ="</span><span class="p">,</span> <span class="n">a</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">])</span>
+a<span class="p">[</span>a <span class="p">&gt;</span> <span class="mi">5</span><span class="p">]</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="p">=</span> <span class="mi">999</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;写副本之后:&quot;</span><span class="p">,</span> a<span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">]</span><span class="p">)</span>
 
-<span class="n">a</span><span class="p">[</span><span class="n">a</span> <span class="o">&gt;</span> <span class="mi">5</span><span class="p">]</span> <span class="o">=</span> <span class="mi">999</span>              <span class="c1"># ✅ 一次到位</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"a[a&gt;5] = 999 之后:"</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
+rows<span class="p">,</span> cols <span class="p">=</span> np<span class="p">.</span>nonzero<span class="p">(</span>a <span class="p">&gt;</span> <span class="mi">5</span><span class="p">)</span>
+<span class="k">if</span> rows<span class="p">.</span>size<span class="p">:</span>
+    a<span class="p">[</span>rows<span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="p">,</span> cols<span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="p">]</span> <span class="p">=</span> <span class="mi">999</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;只改首个:&quot;</span><span class="p">,</span> a<span class="p">.</span>tolist<span class="p">(</span><span class="p">)</span><span class="p">)</span>
 
-<span class="n">b</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">12</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
-<span class="n">b</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="mi">777</span>               <span class="c1"># 这个反而生效：b[0] 是视图</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"b[0][1] = 777 之后, b[0,1] ="</span><span class="p">,</span> <span class="n">b</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
+all_matches<span class="p">[</span>all_matches <span class="p">&gt;</span> <span class="mi">5</span><span class="p">]</span> <span class="p">=</span> <span class="mi">999</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;改全部:&quot;</span><span class="p">,</span> all_matches<span class="p">.</span>tolist<span class="p">(</span><span class="p">)</span><span class="p">)</span>
+
+b <span class="p">=</span> np<span class="p">.</span>arange<span class="p">(</span><span class="mi">12</span><span class="p">)</span><span class="p">.</span>reshape<span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+b<span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="p">=</span> <span class="mi">777</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;写共享行之后:&quot;</span><span class="p">,</span> b<span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span><span class="p">)</span>
 </code></pre></div>
 
-<p>实跑输出：</p>
-<section class="comparison-repair" id="comparison-repair-15"><p>a[1, 2] = 6</p><p>a[a&gt;5][0] = 999 之后, a[1,2] = 6</p><p>a[a&gt;5] = 999 之后:</p><div class="tw"><table><caption>按行、列对齐查看数组</caption><thead><tr><th scope="col">行 / 列</th><th scope="col">列 0</th><th scope="col">列 1</th><th scope="col">列 2</th><th scope="col">列 3</th></tr></thead><tbody><tr><th scope="row">0</th><td>0</td><td>1</td><td>2</td><td>3</td></tr><tr><th scope="row">1</th><td>4</td><td>5</td><td>999</td><td>999</td></tr><tr><th scope="row">2</th><td>999</td><td>999</td><td>999</td><td>999</td></tr></tbody></table></div><p>b[0][1] = 777 之后, b[0,1] = 777</p></section>
-<p><code>a[a &gt; 5][0] = 999</code> 是<strong>两个方括号</strong>，于是分成两步：
-先 <code>__getitem__</code> 拿到一份临时拷贝，再往那份拷贝的第 0 位写 999 —— 写完那个临时对象就被回收了。
-<strong>没有任何报错，<code>a</code> 一个数都没变。</strong></p>
-<p>⚠️ 而 <code>b[0][1] = 777</code> 竟然生效了，因为 <code>b[0]</code> 是<strong>基础索引给的视图</strong>，往视图上写就是往原数组写。</p>
-<p>⭐ <strong>所以链式索引「有时灵有时不灵」，取决于中间那一步是视图还是拷贝。</strong>
-<strong>判断写回能否到达原数组，要看中间结果是否仍共享它的数据：基础索引得到视图时，链式赋值可能写回；高级索引先读出副本时，再改副本不会写回。为了让赋值目标清楚，优先把原数组上的选择合在一对方括号里；这是写法建议，不是“两对方括号必然失效”的规则。</strong></p>
+<section class="comparison-repair" id="comparison-repair-15">
+<p>写副本之后，原表的 <code>a[1,2]</code> 仍是 6。下面比较两种不同的原表写入目标。</p>
+<div class="tw"><table class="index-reference">
+<caption>赋值目标决定改动范围</caption>
+<thead><tr><th scope="col">目标</th><th scope="col">修改后的数组（按行）</th></tr></thead>
+<tbody>
+<tr><th scope="row">仅首个命中格</th><td><code>[0,1,2,3]</code><br><code>[4,5,999,7]</code><br><code>[8,9,10,11]</code></td></tr>
+<tr><th scope="row">全部命中格</th><td><code>[0,1,2,3]</code><br><code>[4,5,999,999]</code><br><code>[999,999,999,999]</code></td></tr>
+</tbody>
+</table></div>
+<p>写共享行之后，<code>b[0,1]</code> 为 777。</p>
+</section>
+<p>先问最后的赋值目标是谁，再检查中间对象是否共享原数据。<code>b[0]</code> 是共享行，所以链式写入仍能到达原表。把坐标直接交给原数组，可以明确写入目标。</p>
+<p>下一节继续用这条判据，看看同一个位置被指定多次时会写入什么。</p>
 <div class="nm-takeaway"><button type="button" class="nm-save-note" data-nm-save="_1" data-nm-enhance disabled>记住这一段</button></div></section><section class="nm-section nm-prose" data-nm-section="2"><p class="nm-kicker">02 / 完整解释</p><h2>下标本身也有形状和重复。</h2><h3 id="_4" data-nm-stop="">💀 五、重复下标：<code>+=</code> 只加了一次</h3>
 <p>这是本章最贵的一个坑，因为它<strong>结果偏小、不报错、而且只在有重复下标时才出现</strong>：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -560,54 +565,58 @@ strides 只有一个数字的位置，而这里需要<strong>任意一张顺序�
 
 <p>实跑输出：</p>
 <section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">b[idx] += 1 -&gt; [0 1 0 1 0] ⚠️ 1 号位只加了一次</span></div><div class="vb-flow-row"><span class="vb-flow-step">np.add.at -&gt; [0 3 0 1 0] ✅ 加了三次</span></div><div class="vb-flow-row"><span class="vb-flow-step">np.bincount -&gt; [0 3 0 1 0] 返回新的计数数组</span></div><div class="vb-flow-row"><span class="vb-flow-step">d[[1,1,1]] = [10,20,30] -&gt; [ 0 30 0 0 0]（本次观察）</span></div></div></section>
-<p>⭐ <strong>为什么是 1 不是 3</strong>：<code>b[idx] += 1</code> 不是原子操作，它被拆成三步 ——</p>
+<p>为什么是 1？这里会先取出临时值、再加 1，最后写回原数组。</p>
 <ol>
 <li><code>tmp = b[idx]</code> → 取出 <code>[0, 0, 0, 0]</code>（<strong>一份拷贝</strong>，就是第三节那件事）</li>
 <li><code>tmp += 1</code> → 变成 <code>[1, 1, 1, 1]</code></li>
 <li><code>b[idx] = tmp</code> → 按下标写回去</li>
 </ol>
 <p>第 3 步里，写到 1 号位的三个临时值都是 <code>1</code>。无论先处理哪一个，写完都是 <code>1</code>。若写回的值不同，情况就变了：<code>d[[1,1,1]] = [10,20,30]</code> 在本次运行后观察到 <code>d[1] == 30</code>。NumPy 的高级索引赋值通常不保证迭代顺序，因此不能靠右边的排列预测重复位置最终留下哪个值。</p>
-<p><strong><code>np.add.at(c, idx, 1)</code> 就地更新 <code>c</code></strong>。<code>idx</code> 里的每次出现都在目标位置加 1，1 号位走过 0 → 1 → 2 → 3。<strong><code>np.bincount(idx, minlength=5)</code> 为一维非负整数 <code>idx</code> 返回一个新的计数数组</strong>。两者在这个从零开始的计数例子里得到相同数字。分组计数与求和见 <a href="07-把循环改写成数组运算.html">07 章的套路 ②</a>。</p>
-<blockquote>
-<p>💀 <strong>这个 bug 的典型现场</strong>：直方图、词频、稀疏梯度累加 —— 全是「同一个桶会被撞好几次」的场景。
-症状是<strong>总数比预期小</strong>，而且小多少取决于数据里重复得有多厉害，<strong>看起来毫无规律</strong>。</p>
-</blockquote>
+<ul>
+<li><code>np.add.at(c, idx, 1)</code> 对每次出现都直接累加。1 号位依次变为 1、2、3。</li>
+<li><code>np.bincount(idx, minlength=5)</code> 接收一维非负整数下标，返回新的计数数组。从零开始计数时，两者在这里得到相同数字。分组计数和求和见<a href="07-把循环改写成数组运算.html">第 07 章的套路 ②</a>。</li>
+</ul>
+<p>统计直方图、词频或累加稀疏梯度时，同一个下标可能出现多次。用上面的 <code>+=</code> 写法计数，会漏掉同一位置的重复命中。</p>
 <hr>
 <!--MIDSTOP-->
 <blockquote>
-<p>🛑 <strong>读到这里可以停</strong> —— 前半章讲完了（约 20 分钟）。
-你已经区分了<strong>基础索引与高级索引的读取规则</strong>，以及<strong>赋值是否写到原数组，还是写到中间副本</strong>；strides 用来解释共享机制，方括号数量不能单独判断写回。还看到了“重复下标 <code>+=</code> 只加一次”这个坑。
-<strong>后半章还有</strong>：多个索引数组是配对不是交叉 · 布尔掩码的三个翻车现场 ·
-花式索引被切片隔开时结果轴会跑到最前面 · 视图和拷贝的实测账单 · 一页速记。
-回来的时候不用重读，直接从下一节接着看就行。</p>
+<p><strong>可以在这里暂停。</strong> 读时先看索引语法，写时先看赋值目标。重复下标需要逐次累加时，用 <code>np.add.at</code>。</p>
+<p>回来从第六节继续。接下来会给行和列各一份名单，先判断它们会配成哪些坐标。</p>
 </blockquote>
 <h3 id="_5">🧮 六、两个整数数组是「配对」，不是「交叉」</h3>
-<p>给两根轴各一个整数数组时，NumPy <strong>不做笛卡尔积</strong>，而是把它们<strong>逐位配对</strong>：</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<p>假设想从行 0、2 和列 1、3 取值。先判断任务是每行只取指定的一格，还是让每个选中行都取这两列。</p>
+<div class="tw"><table class="index-comparison">
+<caption>行列名单怎样变成坐标</caption>
+<thead><tr><th scope="col">行号</th><th scope="col">列 1</th><th scope="col">列 3</th></tr></thead>
+<tbody>
+<tr><th scope="row">行 0</th><td><strong>配对</strong>也选这格，值 1</td><td>交叉才选，值 3</td></tr>
+<tr><th scope="row">行 2</th><td>交叉才选，值 9</td><td><strong>配对</strong>也选这格，值 11</td></tr>
+</tbody>
+</table></div>
+<p><strong>配对（pairwise indexing）</strong>把同一位置的行号和列号放在一起。两份长度为 2 的名单产生两对坐标 <code>(0,1)</code>、<code>(2,3)</code>。</p>
+<p><strong>交叉组合（Cartesian product）</strong>让每个行号与每个列号都配一次。<code>rows[:, None]</code> 给行号加一根长度为 1 的轴。按<a href="03-广播的三条规则.html">第 03 章的广播规则</a>，<code>(2,1)</code> 和 <code>(2,)</code> 组成 <code>(2,2)</code> 的坐标网格。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="k">import</span> numpy <span class="k">as</span> np
 
-<span class="n">a</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">12</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
-<span class="n">rows</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">])</span>
-<span class="n">cols</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">])</span>
+a <span class="p">=</span> np<span class="p">.</span>arange<span class="p">(</span><span class="mi">12</span><span class="p">)</span><span class="p">.</span>reshape<span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+rows <span class="p">=</span> np<span class="p">.</span>array<span class="p">(</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">]</span><span class="p">)</span>
+cols <span class="p">=</span> np<span class="p">.</span>array<span class="p">(</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">]</span><span class="p">)</span>
+paired <span class="p">=</span> a<span class="p">[</span>rows<span class="p">,</span> cols<span class="p">]</span>
+cross <span class="p">=</span> a<span class="p">[</span>rows<span class="p">[</span><span class="p">:</span><span class="p">,</span> <span class="k">None</span><span class="p">]</span><span class="p">,</span> cols<span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;配对:&quot;</span><span class="p">,</span> paired<span class="p">.</span>tolist<span class="p">(</span><span class="p">)</span><span class="p">,</span> paired<span class="p">.</span>shape<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;交叉:&quot;</span><span class="p">,</span> cross<span class="p">.</span>tolist<span class="p">(</span><span class="p">)</span><span class="p">,</span> cross<span class="p">.</span>shape<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;np.ix_:&quot;</span><span class="p">,</span> a<span class="p">[</span>np<span class="p">.</span>ix_<span class="p">(</span>rows<span class="p">,</span> cols<span class="p">)</span><span class="p">]</span><span class="p">.</span>tolist<span class="p">(</span><span class="p">)</span><span class="p">)</span>
 
-<span class="nb">print</span><span class="p">(</span><span class="s2">"配对 a[rows, cols]        ="</span><span class="p">,</span> <span class="n">a</span><span class="p">[</span><span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">],</span> <span class="s2">" shape"</span><span class="p">,</span> <span class="n">a</span><span class="p">[</span><span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
-
-<span class="n">cross</span> <span class="o">=</span> <span class="n">a</span><span class="p">[</span><span class="n">rows</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">],</span> <span class="n">cols</span><span class="p">]</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"交叉 a[rows[:,None], cols] shape"</span><span class="p">,</span> <span class="n">cross</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">cross</span><span class="p">)</span>
-
-<span class="nb">print</span><span class="p">(</span><span class="s2">"np.ix_ 同样效果:"</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ix_</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">)])</span>
+two_channels <span class="p">=</span> np<span class="p">.</span>arange<span class="p">(</span><span class="mi">24</span><span class="p">)</span><span class="p">.</span>reshape<span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+kept <span class="p">=</span> two_channels<span class="p">[</span>rows<span class="p">,</span> cols<span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;配对并保留尾轴:&quot;</span><span class="p">,</span> kept<span class="p">.</span>tolist<span class="p">(</span><span class="p">)</span><span class="p">,</span> kept<span class="p">.</span>shape<span class="p">)</span>
 </code></pre></div>
 
-<p>实跑输出：</p>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>配对 a[rows, cols] = [ 1 11] shape (2,)</p><p>交叉 a[rows[:,None], cols] shape (2, 2)</p><p>[[ 1 3]</p><p>[ 9 11]]</p><p>np.ix_ 同样效果:</p><p>[[ 1 3]</p><p>[ 9 11]]</p></div></section>
-<p>⭐ <strong>规则只有一条：把几个索引数组按<a href="03-广播的三条规则.html">广播规则</a>对齐，对齐后的 shape 就是结果的 shape。</strong></p>
-<ul>
-<li><code>rows</code> 是 <code>(2,)</code>、<code>cols</code> 是 <code>(2,)</code> → 广播成 <code>(2,)</code> → 结果 2 个元素，取的是 <code>a[0,1]</code> 和 <code>a[2,3]</code></li>
-<li><code>rows[:, None]</code> 是 <code>(2,1)</code>、<code>cols</code> 是 <code>(2,)</code> → 广播成 <code>(2,2)</code> → 才拿到那张 2×2 的交叉表</li>
-</ul>
-<p>⚠️ <strong>想要交叉就写 <code>np.ix_(rows, cols)</code></strong>，它替你插好那些长度 1 的轴，比手数 <code>None</code> 可靠。</p>
-<p>⭐ <strong>「配对」这个语义本身极其有用</strong> —— 它是「每行各取一个」的标准写法：</p>
+<p><strong>核对输出。</strong> 配对是 <code>[1, 11]</code>，形状 <code>(2,)</code>。交叉是 <code>[[1, 3], [9, 11]]</code>，形状 <code>(2,2)</code>。<code>np.ix_(rows, cols)</code> 生成用于交叉组合的索引，取值相同。</p>
+<p><strong>广播决定索引部分的形状。</strong> 二维例子索引了全部轴，所以这个形状也是整个结果的形状。三维表 <code>(3,4,2)</code> 的两对坐标各保留两个通道，得到 <code>[[2,3],[22,23]]</code> 和形状 <code>(2,2)</code>。第八节会说明保留轴的顺序。</p>
+<div class="framecard">
+<div class="fh">应用到每行各取一个分数</div>
+<ul><li>把每行的行号和该行的正确类别配成一对。运行下面的例子，检查每行是否只改了那一个位置。</li></ul>
+</div>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="c1"># 每行取出「属于本行标签」的那一个分数</span>
@@ -629,8 +638,7 @@ strides 只有一个数字的位置，而这里需要<strong>任意一张顺序�
 <p><code>np.arange(n)</code> 和 <code>y</code> 都是 <code>(n,)</code>，配对之后正好是 <code>(0,y₀), (1,y₁), …</code> —— <strong>每行一个</strong>。
 这就是 <a href="../机器学习与深度学习基础/附录C-手撕代码速查.html">ML 基础 附录 C</a> 第 1 题（Softmax + 交叉熵）里
 <code>grad[np.arange(n), y] -= 1.0</code> 那行的机制。⚠️ 那里是<strong>顺手写的、没有一个字解释过它为什么这么写</strong>。</p>
-<p>⚠️ 顺带注意上面那行 <code>-=</code> 能生效，正是因为它<strong>只有一个方括号</strong>（第四节）。
-而如果 <code>y</code> 里有重复……不会有问题，因为 <code>np.arange(n)</code> 保证了每对下标都不同 —— <strong>重复下标的坑在这里恰好躲开了。</strong></p>
+<p><code>scores[np.arange(n), y] -= 1.0</code> 读出分数、减 1，再写回 <code>scores</code> 上的原坐标。行号互不相同，所以即使 <code>y</code> 里有相同类别，完整的行列坐标也不会重复。</p>
 <h3 id="4">🔍 七、④ 布尔掩码：整行、单格和逐行汇总</h3>
 <p>三家门店各记了四个小时的订单数。交日报时，只需要门店 0 和 2 的完整记录。查高峰时，要从三家店挑出订单数超过 5 的小时。如果还要知道每家店有几个高峰小时、这些小时共接了多少单，汇总时就得保留门店归属。</p>
 <p>下表的演示数据就是前面用过的 <code>a = np.arange(12).reshape(3, 4)</code>。行对应门店，列对应小时，格子里的单位是单。下标从 0 开始。按 <a href="02-shape与axis到底怎么数.html">第 02 章的 shape 和 axis 规则</a>，轴 0 有 3 个门店位置，轴 1 有 4 个小时位置。</p>
@@ -651,7 +659,8 @@ strides 只有一个数字的位置，而这里需要<strong>任意一张顺序�
 <p><code>m = a &gt; 5</code> 把每格和 5 比较，得到与 <code>a</code> 同为 <code>(3, 4)</code> 的掩码。门店 0 四格都跳过。门店 1 的 4 和 5 跳过，6 和 7 留下。门店 2 的 8、9、10、11 全留下。</p>
 <p><code>a[m]</code> 按行从上到下、每行从左到右收集命中的值（C 序），得到 <code>[6, 7, 8, 9, 10, 11]</code>。这 6 个值在同一根轴上，形状是 <code>(6,)</code>。这里的逗号表示只有一个轴。这个结果里已经没有门店轴。</p>
 <h4>每店计数和求和时，先留住行列</h4>
-<p>两种汇总都要沿每行的 4 个小时计算。门店下标记为 $i$（0 到 2），小时下标记为 $j$（0 到 3），$a_{ij}$ 是该格的订单数。把掩码的 <code>True</code> 当作 1、<code>False</code> 当作 0，记为 $b_{ij}$。再准备一张同形状的表 $v$，把命中的格子保留原值，其余填 0。因此 $v_{ij}$ 在 $b_{ij}=1$ 时等于 $a_{ij}$，在 $b_{ij}=0$ 时等于 0。</p>
+<p>两种汇总都沿每行的 4 个小时计算。门店下标 $i$ 从 0 到 2，小时下标 $j$ 从 0 到 3。$a_{ij}$ 是该格的订单数。</p>
+<p>数高峰小时，用 $b_{ij}$ 表示掩码，<code>True</code> 记为 1，<code>False</code> 记为 0。加订单数，用同形状的表 $v$，命中的 $v_{ij}$ 填 $a_{ij}$，其余填 0。</p>
 <p>门店 $i$ 的高峰小时数是 $C_i=\sum_{j=0}^{3} b_{ij}$，高峰小时的订单总数是 $S_i=\sum_{j=0}^{3} v_{ij}$。求和符号 $\sum$ 让 $i$ 固定，依次加上小时 0、1、2、3 的四项。前一个和的单位是小时，后一个和的单位是单。</p>
 <div class="tw"><table>
 <caption>每一行各算两次：数高峰小时，再加高峰订单</caption>
@@ -663,6 +672,7 @@ strides 只有一个数字的位置，而这里需要<strong>任意一张顺序�
 </tbody>
 </table></div>
 <p><code>m.sum(axis=1)</code> 加的是每行的布尔值。<code>np.where(m, a, 0)</code> 逐格按掩码选原值或 0，对应上面的表 $v$，接着 <code>.sum(axis=1)</code> 加的是每行保留的订单数。两次都消去小时轴，每家门店各留一个数，所以结果都是 <code>(3,)</code>。门店 0 没有命中，两个结果里的第一项仍是 0。</p>
+<p>例如，门店 1 有 <strong>2 小时</strong>高峰，但共接 <strong>13 单</strong>。把订单值填成 1 再求和，会只数出小时数。</p>
 <h4>运行一次，对照刚才算出的形状和数值</h4>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
@@ -738,10 +748,8 @@ print("每店高峰订单数:", np.where(m, a, 0).sum(axis=1).tolist())
 </tr>
 </tbody>
 </table></div>
-<p>💀 <strong>中间那一条最危险。</strong> <code>(a &gt; 3) &amp; a &lt; 8</code> 里 <code>&amp;</code> 的优先级高于 <code>&lt;</code>，
-于是它算的是 <code>((a &gt; 3) &amp; a) &lt; 8</code> —— 先把布尔和整数按位与，再比 8。
-上面实跑的结果是全 True，<code>a[bad]</code> 把 12 个元素一个不落全返回了。
-⭐ <strong>规矩：比较表达式一律加括号，<code>(x &gt; 3) &amp; (x &lt; 8)</code>，一个不漏。</strong></p>
+<p>少括号时，<code>&amp;</code> 比 <code>&lt;</code> 先算。<code>((a &gt; 3) &amp; a) &lt; 8</code> 中的第一步是按位与（bitwise AND），先对整数的二进制位计算，随后才拿结果比 8。本例因此错误地返回全部 12 个元素。</p>
+<p>每个比较都加括号，例如 <code>(a &gt; 3) &amp; (a &lt; 8)</code>。这样 <code>&amp;</code> 才会组合两份布尔结果。</p>
 <h4>自检：把高峰门槛改成超过 7 单</h4>
 <p>继续用原表。先预测逐格筛选的结果与形状，再算每店的高峰小时数和订单总数。然后试着用 <code>a[a[:, :1] &gt; 7]</code> 取格子，解释报错发生在哪根轴。</p>
 <details>
@@ -751,7 +759,17 @@ print("每店高峰订单数:", np.where(m, a, 0).sum(axis=1).tolist())
 </details>
 <p>回顾时先说清结果里每个位置代表什么。整行筛选保留每个入选门店的全部小时，逐格筛选收集命中的值，沿轴 1 汇总给每家店留一个数。接下来会看混合索引时结果轴放在哪里。到 <a href="07-把循环改写成数组运算.html">第 07 章</a>，也会先辨认循环在沿哪根轴或按哪些组累积，再选择数组写法。</p>
 <div class="nm-takeaway"><button type="button" class="nm-save-note" data-nm-save="_4" data-nm-enhance disabled>记住这一段</button></div></section><section class="nm-section nm-prose" data-nm-section="3"><p class="nm-kicker">03 / 完整解释</p><h2>看结果轴，也看搬运量。</h2><h3 id="_6" data-nm-stop="">🧷 八、混着用：花式索引被切片隔开时，结果轴会跑到最前面</h3>
-<p>这是 NumPy 索引里<strong>唯一一条真正反直觉的规则</strong>：</p>
+<p>把原表看成 <code>(3,4,5)</code>，三根轴依次有 3、4、5 个位置。先圈出用整数数组选的轴，再找仍由 <code>:</code> 保留的轴。</p>
+<div class="tw"><table class="index-comparison">
+<caption>先预测结果的轴顺序</caption>
+<thead><tr><th scope="col">写法</th><th scope="col">索引部分放在哪</th><th scope="col">结果形状</th></tr></thead>
+<tbody>
+<tr><th scope="row"><code>a[:, [0,2], :]</code></th><td>只有一处，放在两根保留轴之间</td><td><code>(3,2,5)</code></td></tr>
+<tr><th scope="row"><code>a[[0,1], [0,2], :]</code></th><td>两处相邻，合成一根配对轴</td><td><code>(2,5)</code></td></tr>
+<tr><th scope="row"><code>a[[0,1], :, [0,2]]</code></th><td>被全切片隔开，配对轴移到最前</td><td><code>(2,4)</code></td></tr>
+</tbody>
+</table></div>
+<p>相邻的索引组放在原位置。被 <code>:</code>、<code>...</code> 或 <code>None</code> 隔开时，索引部分放在最前。普通整数和整数数组混用时，整数的位置也参与判断这一组索引是否相邻。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="n">a</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">60</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
@@ -773,36 +791,7 @@ print("交叉组合（组合轴在前）:", cross_broadcast.shape)
 
 <p>实跑输出：</p>
 <section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>花式索引挨着切片，位置不变: (3, 2, 5)</li><li>花式索引被切片隔开: (2, 4)</li><li>两个花式索引挨在一起: (2, 5)</li><li>逐对取值: (2, 4) [[0, 5, 10, 15], [22, 27, 32, 37]]</li><li>逐对取值的显式写法: True</li><li>交叉组合（保留原轴顺序）: (2, 4, 2)</li><li>交叉组合（组合轴在前）: (2, 2, 4)</li></ol></section>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>写法</th>
-<th>花式索引在哪</th>
-<th>结果 shape</th>
-<th>那根「被选出来的」轴在第几位</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>a[:, [0,2], :]</code></td>
-<td>只有一处</td>
-<td><code>(3, 2, 5)</code></td>
-<td><strong>原位</strong>（第 1 位）</td>
-</tr>
-<tr>
-<td><code>a[[0,1], [0,2], :]</code></td>
-<td>两处<strong>挨着</strong></td>
-<td><code>(2, 5)</code></td>
-<td><strong>原位</strong>（第 0 位）</td>
-</tr>
-<tr>
-<td><code>a[[0,1], :, [0,2]]</code></td>
-<td>两处，<strong>被 <code>:</code> 隔开</strong></td>
-<td><code>(2, 4)</code></td>
-<td>⚠️ <strong>被提到最前面</strong></td>
-</tr>
-</tbody>
-</table></div>
+
 <p>看表格最后一行。轴 0 的 <code>[0, 1]</code> 和轴 2 的 <code>[0, 2]</code> 逐位配成 <code>(0, 0)</code>、<code>(1, 2)</code> 两对。两个索引数组被切片隔开，NumPy 把长度为 2 的配对轴放在结果最前面。中间的 <code>:</code> 为每对坐标保留轴 1 的 4 个位置，所以形状是 <code>(2, 4)</code>。</p>
 <p>先确定需要哪几对坐标，再选写法。</p>
 <ul>
@@ -810,28 +799,29 @@ print("交叉组合（组合轴在前）:", cross_broadcast.shape)
 <li><strong>交叉组合，保留原来的轴顺序</strong>。<code>a[[0, 1]][:, :, [0, 2]]</code> 分两次选择，先取轴 0 的两项，再取轴 2 的两项。每个轴 0 下标都和每个轴 2 下标组合，共有 <code>(0, 0)</code>、<code>(0, 2)</code>、<code>(1, 0)</code>、<code>(1, 2)</code> 四对，形状是 <code>(2, 4, 2)</code>。</li>
 <li><strong>交叉组合，把组合轴放在前面</strong>。<code>a[np.array([0, 1])[:, None], :, [0, 2]]</code> 把两个索引数组的形状 <code>(2, 1)</code> 与 <code>(2,)</code> 广播成 <code>(2, 2)</code>，取同样四对坐标。两个索引数组被切片隔开，因此两根组合轴都排在长度 4 的轴之前，形状是 <code>(2, 2, 4)</code>。</li>
 </ul>
-<h3 id="014-6">⚖️ 九、账单：视图 0.14 微秒，拷贝 6 毫秒</h3>
-<p>前面八节讲的都是<strong>语义</strong>。这一节给的是<strong>价格</strong>：</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span><span class="o">,</span><span class="w"> </span><span class="nn">timeit</span>
+<h3 id="014-6">⚖️ 九、视图、拷贝与预计算的成本</h3>
+<p>现在让切片和整数索引取同一批偶数行。三项分别计时：创建视图、复制切片、用已算好的下标取值。结果相同后再比较时间。</p>
+<p><code>timeit.repeat</code> 每组连续跑 20 次。取 7 组中最短的一组，再除以 20，估计每次操作较少受系统干扰的耗时。这里测的是该输入下的表现。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="k">import</span> numpy <span class="k">as</span> np<span class="p">,</span> timeit
 
-<span class="n">n</span> <span class="o">=</span> <span class="mi">2000</span>
-<span class="n">a</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="n">n</span><span class="p">,</span> <span class="n">n</span><span class="p">))</span>
-<span class="n">idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>           <span class="c1"># 和 ::2 选出完全一样的行</span>
+n <span class="p">=</span> <span class="mi">2000</span>
+a <span class="p">=</span> np<span class="p">.</span>ones<span class="p">(</span><span class="p">(</span>n<span class="p">,</span> n<span class="p">)</span><span class="p">,</span> dtype<span class="p">=</span>np<span class="p">.</span>float64<span class="p">)</span>
+idx <span class="p">=</span> np<span class="p">.</span>arange<span class="p">(</span><span class="mi">0</span><span class="p">,</span> n<span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
 
-<span class="nb">print</span><span class="p">(</span><span class="s2">"选出的东西一模一样:"</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">array_equal</span><span class="p">(</span><span class="n">a</span><span class="p">[::</span><span class="mi">2</span><span class="p">],</span> <span class="n">a</span><span class="p">[</span><span class="n">idx</span><span class="p">]))</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"结果占 </span><span class="si">{</span><span class="n">a</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span><span class="o">.</span><span class="n">nbytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">2</span><span class="o">**</span><span class="mi">20</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2"> MB"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;选出的值一样:&quot;</span><span class="p">,</span> np<span class="p">.</span>array_equal<span class="p">(</span>a<span class="p">[</span><span class="p">:</span><span class="p">:</span><span class="mi">2</span><span class="p">]</span><span class="p">,</span> a<span class="p">[</span>idx<span class="p">]</span><span class="p">)</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span>f&quot;结果大小 <span class="p">{</span>a<span class="p">[</span>idx<span class="p">]</span><span class="p">.</span>nbytes <span class="p">/</span> <span class="mi">2</span><span class="p">**</span><span class="mi">20</span><span class="p">:</span>.2f<span class="p">}</span> MiB&quot;<span class="p">)</span>
 
-<span class="n">t_sl</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">timeit</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">a</span><span class="p">[::</span><span class="mi">2</span><span class="p">],</span>        <span class="n">number</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span> <span class="n">repeat</span><span class="o">=</span><span class="mi">7</span><span class="p">))</span> <span class="o">/</span> <span class="mi">20</span>
-<span class="n">t_cp</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">timeit</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">a</span><span class="p">[::</span><span class="mi">2</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">(),</span> <span class="n">number</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span> <span class="n">repeat</span><span class="o">=</span><span class="mi">7</span><span class="p">))</span> <span class="o">/</span> <span class="mi">20</span>
-<span class="n">t_fa</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">timeit</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">a</span><span class="p">[</span><span class="n">idx</span><span class="p">],</span>        <span class="n">number</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span> <span class="n">repeat</span><span class="o">=</span><span class="mi">7</span><span class="p">))</span> <span class="o">/</span> <span class="mi">20</span>
+t_view <span class="p">=</span> <span class="nb">min</span><span class="p">(</span>timeit<span class="p">.</span>repeat<span class="p">(</span><span class="k">lambda</span><span class="p">:</span> a<span class="p">[</span><span class="p">:</span><span class="p">:</span><span class="mi">2</span><span class="p">]</span><span class="p">,</span> number<span class="p">=</span><span class="mi">20</span><span class="p">,</span> repeat<span class="p">=</span><span class="mi">7</span><span class="p">)</span><span class="p">)</span> <span class="p">/</span> <span class="mi">20</span>
+t_copy <span class="p">=</span> <span class="nb">min</span><span class="p">(</span>timeit<span class="p">.</span>repeat<span class="p">(</span><span class="k">lambda</span><span class="p">:</span> a<span class="p">[</span><span class="p">:</span><span class="p">:</span><span class="mi">2</span><span class="p">]</span><span class="p">.</span>copy<span class="p">(</span><span class="p">)</span><span class="p">,</span> number<span class="p">=</span><span class="mi">20</span><span class="p">,</span> repeat<span class="p">=</span><span class="mi">7</span><span class="p">)</span><span class="p">)</span> <span class="p">/</span> <span class="mi">20</span>
+t_index <span class="p">=</span> <span class="nb">min</span><span class="p">(</span>timeit<span class="p">.</span>repeat<span class="p">(</span><span class="k">lambda</span><span class="p">:</span> a<span class="p">[</span>idx<span class="p">]</span><span class="p">,</span> number<span class="p">=</span><span class="mi">20</span><span class="p">,</span> repeat<span class="p">=</span><span class="mi">7</span><span class="p">)</span><span class="p">)</span> <span class="p">/</span> <span class="mi">20</span>
 
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"切片（视图）    </span><span class="si">{</span><span class="n">t_sl</span><span class="o">*</span><span class="mf">1e6</span><span class="si">:</span><span class="s2">8.2f</span><span class="si">}</span><span class="s2"> us"</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"切片 + .copy()  </span><span class="si">{</span><span class="n">t_cp</span><span class="o">*</span><span class="mf">1e6</span><span class="si">:</span><span class="s2">8.2f</span><span class="si">}</span><span class="s2"> us"</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"花式索引        </span><span class="si">{</span><span class="n">t_fa</span><span class="o">*</span><span class="mf">1e6</span><span class="si">:</span><span class="s2">8.2f</span><span class="si">}</span><span class="s2"> us"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span>f&quot;切片视图: <span class="p">{</span>t_view<span class="p">*</span><span class="mi">1e6</span><span class="p">:</span>.2f<span class="p">}</span> μs&quot;<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span>f&quot;复制切片: <span class="p">{</span>t_copy<span class="p">*</span><span class="mi">1e6</span><span class="p">:</span>.2f<span class="p">}</span> μs&quot;<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span>f&quot;整数索引: <span class="p">{</span>t_index<span class="p">*</span><span class="mi">1e6</span><span class="p">:</span>.2f<span class="p">}</span> μs&quot;<span class="p">)</span>
 </code></pre></div>
 
-<p>本机（numpy 2.4.6）实测，三次重跑：</p>
-<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>选出的东西一模一样: True</p><p>结果占 15 MB</p><p>切片（视图） 0.14 us</p><p>切片 + .copy() 5595.84 us</p><p>花式索引 5850.59 us</p></div></section>
+<p>原实验记录（NumPy 2.4.6，同一台机器测量三次）：</p>
+<section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>选出的东西一模一样: True</p><p>结果大小约 15.26 MiB</p><p>切片（视图） 0.14 us</p><p>切片 + .copy() 5595.84 us</p><p>花式索引 5850.59 us</p></div></section>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -849,58 +839,59 @@ print("交叉组合（组合轴在前）:", cross_broadcast.shape)
 <tr>
 <td><code>a[::2].copy()</code></td>
 <td><strong>5.6 – 6.6 毫秒</strong></td>
-<td>真的搬 15 MB</td>
+<td>真的搬 15.26 MiB</td>
 </tr>
 <tr>
 <td><code>a[idx]</code></td>
 <td><strong>5.9 – 6.9 毫秒</strong></td>
-<td>同样搬 15 MB</td>
+<td>同样搬 15.26 MiB</td>
 </tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>后两行几乎一样，这才是重点</strong>：花式索引的开销<strong>就是拷贝的开销，一分不多</strong>。
-它不慢在「花式」，慢在「它必须拷」。而切片快了大约五个数量级，因为它一个字节都没碰。</p>
-<p>⚠️ <strong>但别因此就认定「布尔掩码总是最慢的那个」。</strong> 命中很稀疏时，反过来了：</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span><span class="o">,</span><span class="w"> </span><span class="nn">timeit</span>
+<ul>
+<li>视图只建立读取描述。复制切片和整数索引都生成 <code>1000 × 2000 × 8</code> 字节的数据，约 15.26 MiB。</li>
+<li>整数索引还要按下标取值。本例按顺序选整行。下标顺序、内存布局和选取规模都会影响耗时。</li>
+</ul>
+<p>再看一维数组的稀疏掩码。种子 0 固定本例生成的数据，阈值 <code>0.001</code> 让命中约占千分之一。三项分别计时，区分复用现成下标和现场生成下标。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="k">import</span> numpy <span class="k">as</span> np<span class="p">,</span> timeit
 
-<span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-<span class="n">x</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">random</span><span class="p">(</span><span class="mi">5_000_000</span><span class="p">)</span>
-<span class="n">mask</span> <span class="o">=</span> <span class="n">x</span> <span class="o">&lt;</span> <span class="mf">0.001</span>                      <span class="c1"># 只有千分之一命中</span>
-<span class="n">idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">flatnonzero</span><span class="p">(</span><span class="n">mask</span><span class="p">)</span>            <span class="c1"># 同一批元素的整数下标</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"命中"</span><span class="p">,</span> <span class="n">idx</span><span class="o">.</span><span class="n">size</span><span class="p">,</span> <span class="s2">"个 /"</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">size</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"结果一样:"</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">array_equal</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="n">mask</span><span class="p">],</span> <span class="n">x</span><span class="p">[</span><span class="n">idx</span><span class="p">]))</span>
+rng <span class="p">=</span> np<span class="p">.</span>random<span class="p">.</span>default_rng<span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+x <span class="p">=</span> rng<span class="p">.</span>random<span class="p">(</span><span class="mi">5_000_000</span><span class="p">)</span>
+mask <span class="p">=</span> x <span class="p">&lt;</span> <span class="mi">0.001</span>
+idx <span class="p">=</span> np<span class="p">.</span>flatnonzero<span class="p">(</span>mask<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;命中&quot;</span><span class="p">,</span> idx<span class="p">.</span>size<span class="p">,</span> <span class="s2">&quot;个 /&quot;</span><span class="p">,</span> x<span class="p">.</span>size<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;结果一样:&quot;</span><span class="p">,</span> np<span class="p">.</span>array_equal<span class="p">(</span>x<span class="p">[</span>mask<span class="p">]</span><span class="p">,</span> x<span class="p">[</span>idx<span class="p">]</span><span class="p">)</span><span class="p">)</span>
 
-<span class="n">t_mask</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">timeit</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="n">mask</span><span class="p">],</span> <span class="n">number</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span> <span class="n">repeat</span><span class="o">=</span><span class="mi">5</span><span class="p">))</span> <span class="o">/</span> <span class="mi">20</span>
-<span class="n">t_idx</span>  <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">timeit</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="n">idx</span><span class="p">],</span>  <span class="n">number</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span> <span class="n">repeat</span><span class="o">=</span><span class="mi">5</span><span class="p">))</span> <span class="o">/</span> <span class="mi">20</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"布尔掩码 </span><span class="si">{</span><span class="n">t_mask</span><span class="o">*</span><span class="mf">1e6</span><span class="si">:</span><span class="s2">8.1f</span><span class="si">}</span><span class="s2"> us   整数下标 </span><span class="si">{</span><span class="n">t_idx</span><span class="o">*</span><span class="mf">1e6</span><span class="si">:</span><span class="s2">8.1f</span><span class="si">}</span><span class="s2"> us   </span><span class="si">{</span><span class="n">t_mask</span><span class="o">/</span><span class="n">t_idx</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2">x"</span><span class="p">)</span>
+cases <span class="p">=</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s2">&quot;布尔掩码&quot;</span><span class="p">,</span> <span class="k">lambda</span><span class="p">:</span> x<span class="p">[</span>mask<span class="p">]</span><span class="p">)</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;复用现成下标&quot;</span><span class="p">,</span> <span class="k">lambda</span><span class="p">:</span> x<span class="p">[</span>idx<span class="p">]</span><span class="p">)</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;现场求下标再取值&quot;</span><span class="p">,</span> <span class="k">lambda</span><span class="p">:</span> x<span class="p">[</span>np<span class="p">.</span>flatnonzero<span class="p">(</span>mask<span class="p">)</span><span class="p">]</span><span class="p">)</span><span class="p">,</span>
+<span class="p">]</span>
+<span class="k">for</span> name<span class="p">,</span> select <span class="k">in</span> cases<span class="p">:</span>
+    seconds <span class="p">=</span> <span class="nb">min</span><span class="p">(</span>timeit<span class="p">.</span>repeat<span class="p">(</span>select<span class="p">,</span> number<span class="p">=</span><span class="mi">20</span><span class="p">,</span> repeat<span class="p">=</span><span class="mi">5</span><span class="p">)</span><span class="p">)</span> <span class="p">/</span> <span class="mi">20</span>
+    <span class="nb">print</span><span class="p">(</span>f&quot;<span class="p">{</span>name<span class="p">}</span>: <span class="p">{</span>seconds<span class="p">*</span><span class="mi">1e6</span><span class="p">:</span>.1f<span class="p">}</span> μs&quot;<span class="p">)</span>
 </code></pre></div>
-
-<p>实跑（三次重跑，贴的是第一次）：</p>
-<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>命中 5031 个 / 5000000</p><p>结果一样: True</p><p>布尔掩码 809.6 us 整数下标 9.8 us 83x</p></div></section>
-<p>另两次是 <code>863.6</code> vs <code>19.7</code>（44x）、<code>1053.8</code> vs <code>22.2</code>（48x）。
-⚠️ 你的绝对数值会不同（这台机器有热降频，同一个脚本重跑倍数就在 <strong>44–83x</strong> 之间晃），
-<strong>但方向是结构性的</strong>：</p>
-<p>⭐ <strong>布尔掩码每次都要把 500 万个 bool 从头扫一遍</strong>（结果多少个只有扫完才知道），
-而整数下标<strong>只碰那 5031 个</strong>。所以：</p>
-<blockquote>
-<p>本例的 <code>x</code> 是一维数组，<code>np.flatnonzero(mask)</code> 返回的摊平下标正好对应 <code>x</code> 的唯一一根轴。掩码不变且需要反复取值时，可以先算 <code>idx = np.flatnonzero(mask)</code>，再用 <code>x[idx]</code>。计时从下标已算好开始，第一次求下标也要扫描掩码。</p>
-</blockquote>
-<p>回到第七节的二维表，<code>a[np.nonzero(m)]</code> 用一组行号和一组列号逐对取格，结果与 <code>a[m]</code> 相同。重复取值时，可以先存 <code>coords = np.nonzero(m)</code>，再用 <code>a[coords]</code>。直接把摊平下标传给二维数组的 <code>a[...]</code> 会把它当作行号。</p>
-<p>（<code>np.flatnonzero</code> 在 <a href="07-把循环改写成数组运算.html">07 章的套路 ⑥</a> 里还有另一个用法：配合 <code>np.diff</code> 找相邻变化。）</p>
+<p>本例命中 5031 个元素，取值结果一致。读计时结果时，先确认每一项从哪一步开始。</p>
+<ul>
+<li><strong>布尔掩码。</strong> 从检查整张掩码开始。</li>
+<li><strong>复用现成下标。</strong> 只计按 <code>idx</code> 取值，适合掩码不变而且要多次取值的场景。</li>
+<li><strong>现场求下标再取值。</strong> 包括遍历掩码并创建下标。只取一次时，用这一项和第一项比。</li>
+</ul>
+<p>如果掩码也是现算的，三项都要加上生成掩码的成本。</p>
+<p>一维的 <code>x[idx]</code> 使用摊平下标。二维表逐格取值时，保存 <code>coords = np.nonzero(m)</code>，再用 <code>a[coords]</code>。直接把摊平下标交给 <code>a[...]</code> 会把它当成行号。<a href="07-把循环改写成数组运算.html">第 07 章的套路 ⑥</a>还会用 <code>np.flatnonzero</code> 找相邻变化。</p>
 <hr>
 <!--MIDSTOP-->
 <blockquote>
-<p>🛑 <strong>读到这里可以停</strong> —— 已经读了约 58 分钟。
-<strong>最后一段还有</strong>（约 21 分钟）：一页速记 · 检查点与走神救援
-回来的时候不用重读，直接从下一节接着看就行。</p>
+<p><strong>可以在这里暂停。</strong> 先分清索引部分的形状和保留的轴。比较速度时，记得确认计时从哪一步开始。</p>
+<p>回来从下一节的速记表继续，再用检查题预测结果。</p>
 </blockquote>
 <h3 id="_7">📋 十、一页速记</h3>
-<div class="tw"><table>
+<div class="tw"><table class="index-reference">
 <thead>
 <tr>
-<th>想干的事</th>
-<th>写法</th>
-<th>视图还是拷贝</th>
+<th scope="col">想干的事</th>
+<th scope="col">写法</th>
+<th scope="col">视图还是拷贝</th>
 </tr>
 </thead>
 <tbody>
@@ -968,21 +959,21 @@ print("交叉组合（组合轴在前）:", cross_broadcast.shape)
 </table></div>
 <p>⭐ <strong>两条判据，记住这两条就够了</strong>：</p>
 <ol>
-<li><strong>视图、拷贝还是标量</strong> → 先看索引语法：普通数值 ndarray 的基础切片返回视图，整数数组和布尔高级索引读取返回副本，即使下标恰好等距；基础整数索引取尽所有轴时返回标量。shape、strides 与起点解释视图怎样共享数据，不能反过来充当“能描述就必定给视图”的充分判据。</li>
+<li><strong>视图、拷贝还是标量</strong> → 先看索引语法：普通数值 ndarray 的基础切片返回视图，整数数组和布尔高级索引读取返回副本，即使下标恰好等距；只用整数索引取尽所有轴时返回标量。shape、strides 与起点解释视图怎样共享数据，不能反过来充当“能描述就必定给视图”的充分判据。</li>
 <li><strong>赋值写到哪里</strong> → 看赋值目标及中间结果是否共享原数据：基础索引得到视图时，链式赋值可能写回；高级索引先读出临时副本后，再改那份副本不会写回。优先直接在原数组上合并选择做一次索引赋值，可避免误写临时副本；不能只靠方括号数量判断。</li>
 </ol>
 <div class="nm-takeaway"><button type="button" class="nm-save-note" data-nm-save="_6" data-nm-enhance disabled>记住这一段</button></div></section><section class="nm-section nm-prose" data-nm-section="4"><p class="nm-kicker">04 / 完整解释</p><h2>留下能回查的索引判据。</h2><h3 id="_8" data-nm-stop="">🔗 这一章连到哪里</h3>
-<div class="tw"><table>
+<div class="tw"><table class="index-reference">
 <thead>
 <tr>
-<th>相关的地方</th>
-<th>为什么</th>
+<th scope="col">相关的地方</th>
+<th scope="col">为什么</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><a href="05-内存布局与stride.html">05 · 内存布局与 stride</a></td>
-<td>⭐ <strong>这一章的全部理由都在那里</strong>。本章说「能不能写成一份说明书」，那一章讲说明书里到底有什么、strides 怎么算</td>
+<td>用起点与步长解释为什么基础切片能共享数据。</td>
 </tr>
 <tr>
 <td><a href="04-视图还是拷贝.html">04 · 视图还是拷贝</a></td>
@@ -990,7 +981,7 @@ print("交叉组合（组合轴在前）:", cross_broadcast.shape)
 </tr>
 <tr>
 <td><a href="03-广播的三条规则.html">03 · 广播的三条规则</a></td>
-<td>第六节「多个索引数组按广播规则对齐」用的就是那三条规则，<code>rows[:, None]</code> 也是那一章的模式</td>
+<td>第六节用广播规则组合行列下标，并用 <code>rows[:, None]</code> 增加长度为 1 的轴。</td>
 </tr>
 <tr>
 <td><a href="07-把循环改写成数组运算.html">07 · 把循环改写成数组运算</a></td>
@@ -1002,50 +993,47 @@ print("交叉组合（组合轴在前）:", cross_broadcast.shape)
 </tr>
 <tr>
 <td><a href="../机器学习与深度学习基础/附录C-手撕代码速查.html">ML 基础 附录 C · 手撕代码速查</a></td>
-<td>⭐ 第 1 题（Softmax + 交叉熵）那行 <code>grad[np.arange(n), y] -= 1.0</code> 是本章第六节的正主。<strong>那是一道题的写法，这一章是它成立的理由</strong></td>
+<td>第 1 题用 <code>grad[np.arange(n), y] -= 1.0</code>，将行号与每行的正确类别配对。</td>
 </tr>
 </tbody>
 </table></div>
 <h3 id="_9">✅ 检查点</h3>
 <ol>
 <li>用一句话说清「什么时候给视图、什么时候给拷贝」的判据。</li>
-<li><code>a = np.arange(12).reshape(3,4)</code>，<code>a[1:3, ::2]</code> 的 shape 和 strides 分别是多少？第二个 16 是怎么来的？</li>
+<li><code>a = np.arange(12, dtype=np.int64).reshape(3,4)</code>。<code>a[1:3, ::2]</code> 的形状和步长是多少？第二个 16 怎样算出？</li>
 <li><code>a[[2, 0, 2]]</code> 为什么没法是视图？拿那三行的字节偏移说明。</li>
 <li><code>a[:, 3]</code> 选出的元素在内存里并不挨着，它还是视图吗？为什么？</li>
 <li><code>f = a[[0, 1]]; f[:] = -1</code> 之后 <code>a</code> 变了吗？<code>a[[0, 1]] = -1</code> 呢？两者差在哪？</li>
-<li><code>a[a &gt; 5][0] = 999</code> 会发生什么？为什么 <code>b[0][1] = 777</code> 反而生效？该记住哪条判据？</li>
+<li><code>a[a &gt; 5][0] = 999</code> 会改到原表吗？怎样只改原表的第一个命中格？写入 <code>b[0][1]</code> 为什么能到达原表？</li>
 <li>💀 <code>b = np.zeros(5, int); b[[1,1,1]] += 1</code> 之后 <code>b[1]</code> 是几？为什么？该怎么写才对？</li>
-<li><code>a[rows, cols]</code> 和 <code>a[rows[:, None], cols]</code> 分别得到什么形状？规则是什么？</li>
+<li>二维表的配对和交叉各得到什么形状？如果原表是 <code>(3,4,2)</code>，按同样的行列名单配对，第三根轴会怎样？</li>
 <li>按什么规则判断布尔索引读取会返回副本？掩码里的 <code>True</code> 数在本章的整行和逐格示例中分别决定什么？<code>a[(a &gt; 3) &amp; a &lt; 8]</code> 少了一对括号又会怎样？</li>
 <li>第八节的三维数组里，<code>a[[0,1], :, [0,2]]</code> 和 <code>a[[0,1]][:, :, [0,2]]</code> 各取哪几对坐标？结果各是什么形状？如果要反复使用同一个掩码，第九节的一维 <code>x</code> 和第七节的二维表 <code>a</code> 分别怎样保存下标？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>先按索引语法判断</strong>：普通数值 ndarray 的基础切片返回视图，整数数组和布尔高级索引读取返回副本，取尽所有轴的基础整数索引返回标量。shape、strides 与起点解释视图怎样共享原数据，不能反过来推出“能描述就一定给视图”；<code>a[[0,1,2]]</code> 即使等距也仍是副本。</li>
+<li><strong>先按索引语法判断</strong>：普通数值 ndarray 的基础切片返回视图，整数数组和布尔高级索引读取返回副本，只用整数索引取尽所有轴时返回标量。shape、strides 与起点解释视图怎样共享原数据，不能反过来推出“能描述就一定给视图”；<code>a[[0,1,2]]</code> 即使等距也仍是副本。</li>
 <li>shape <code>(2, 2)</code>，strides <strong><code>(32, 16)</code></strong>。行步长照抄原来的 32（一整行 4 个 int64）；列步长是 <code>8 × 2 = 16</code>，因为 <code>::2</code> 隔一个取。起点还挪了 <code>1 × 32 = 32</code> 字节，所以第一个元素是 <code>4</code>。</li>
-<li>那三行的偏移是 <strong>64、0、64</strong> —— 既不是等差（先 +64 再 −64 再 +64），又有重复（第 2 行出现两次）。strides 只有「一格挪 N 字节」这一个位置，填不出这张任意顺序表，所以只能真抄一份。</li>
-<li><strong>还是视图</strong>。本题沿用 <code>a = np.arange(12).reshape(3,4)</code>：C 连续数组每行有 4 个元素，<code>a[:, 3].strides</code> 是 <code>(4 * a.itemsize,)</code>。当元素大小是 8 字节时就是 <code>(32,)</code>；若是 4 字节则为 <code>(16,)</code>。前文 <code>(80,)</code> 对应的是另一段 <code>(10,10)</code>、每元素 8 字节的示例，不能直接套到这里。元素虽不相邻，但间隔等差，一份 shape/strides/起点说明书就能描述。形态 ② 的“整数索引给标量”指每根轴都给整数；只给部分轴，剩下的轴仍是基础索引得到的视图。</li>
+<li>三行的偏移为 64、0、64 字节，先减 64，再加 64，无法用一个固定行步长表示。索引语法决定读取结果是副本。</li>
+<li><strong>是视图。</strong> 原表每行 4 个元素，沿列向下走一格要跨 <code>4 * a.itemsize</code> 字节。元素占 8 字节时就是 32 字节。前文的 80 字节来自每行有 10 个元素的表。</li>
 <li><code>f[:] = -1</code> 之后 <strong><code>a</code> 没变</strong>（<code>f</code> 是拷贝）；<code>a[[0, 1]] = -1</code> 之后 <code>a</code> 变了。差别是 Python 编译成了不同的调用：前者 <code>__getitem__</code> 先抄一份再改那份拷贝，后者 <code>__setitem__</code> 直接按下标往原数组写、压根没有中间数组。</li>
-<li><code>a[a &gt; 5][0] = 999</code> 只修改临时副本，<strong>原数组 a 不变</strong>（<code>a[1,2]</code> 仍是 <code>6</code>），且不报错：第一次布尔高级索引先读出副本，第二次索引赋值写的是副本。<code>b[0][1] = 777</code> 能写回，是因为本例 <code>b[0]</code> 是基础索引得到的共享视图。真正的判据是中间结果是否共享原数组的数据；优先合并为原数组上的一次索引赋值，可避免高级索引链式读取后误写副本。</li>
+<li><code>a[a &gt; 5][0] = 999</code> 只修改临时副本。用 <code>rows, cols = np.nonzero(a &gt; 5)</code> 找坐标，有命中时用 <code>a[rows[0], cols[0]] = 999</code> 只改一格。<code>b[0]</code> 是共享行，所以写入这行能到达原表。</li>
 <li><strong><code>b[1]</code> 是 1</strong>。高级索引先读出三个 0，各自加 1，再将三个相同的 1 写回同一位置。若要在原数组上累计，从新的零数组 <code>b</code> 开始运行 <code>np.add.at(b, [1, 1, 1], 1)</code>。若要单独生成一张计数表，用 <code>np.bincount([1, 1, 1], minlength=5)</code>，结果是 <code>[0, 3, 0, 0, 0]</code>。</li>
-<li><code>a[rows, cols]</code> 得 <strong><code>(2,)</code></strong>（两个索引数组都是 <code>(2,)</code>，广播还是 <code>(2,)</code>，逐位配对取 <code>a[0,1]</code> 和 <code>a[2,3]</code>）；<code>a[rows[:, None], cols]</code> 得 <code>(2,2)</code>（<code>(2,1)</code> 和 <code>(2,)</code> 广播成 <code>(2,2)</code>，才是交叉表）。规则：把几个索引数组按广播规则对齐，对齐后的 shape 就是结果的 shape。 想要交叉写 <code>np.ix_(rows, cols)</code> 更可靠。</li>
-<li>布尔掩码和整数数组都属于<strong>高级索引</strong>，读取按索引契约返回副本。整行示例中，<code>True</code> 数是结果的行数，4 列照留。逐格示例中，<code>True</code> 数是结果的一维长度。（顺带：<code>a[m]</code> 和 <code>a[np.nonzero(m)]</code> 输出相同，布尔掩码可用对应的整数坐标表达。）少一对括号 ⚠️⚠️ 不报错，静默给出全错的答案 —— <code>&amp;</code> 的优先级高于 <code>&lt;</code>，实际算的是 <code>((a &gt; 3) &amp; a) &lt; 8</code>，实跑得到全 True 的掩码，12 个元素一个不落全返回了。规矩：比较表达式一律加括号。（用 <code>and</code> 反而好，它会当场报 <code>The truth value of an array with more than one element is ambiguous</code>。）</li>
+<li>二维表的配对形状是 <code>(2,)</code>，交叉形状是 <code>(2,2)</code>。广播得到索引部分的形状。三维表保留长度为 2 的尾轴，所以两对坐标的结果是 <code>(2,2)</code>，每对带两个值。</li>
+<li>布尔高级索引读取产生副本。整行例子的两个 <code>True</code> 决定行数，4 列保留。逐格例子的六个 <code>True</code> 决定一维长度。少括号会先做按位与，例子中 12 个值都被选中。使用 <code>and</code> 会抛出 <code>ValueError</code>。</li>
 <li>一次索引逐对取 <code>(0, 0)</code> 和 <code>(1, 2)</code>，每对保留中间轴的 4 个位置，形状是 <strong><code>(2, 4)</code></strong>。两步索引还取 <code>(0, 2)</code> 和 <code>(1, 0)</code>，四对坐标按原轴顺序排列，形状是 <strong><code>(2, 4, 2)</code></strong>。一维 <code>x</code> 可以预先算 <code>idx = np.flatnonzero(mask)</code> 后用 <code>x[idx]</code>。二维逐格选择预先算 <code>coords = np.nonzero(m)</code> 后用 <code>a[coords]</code>，等价于 <code>a[np.nonzero(m)]</code>。</li>
 </ol>
 </details>
 <h3 id="_10">🛑 可以停在这里</h3>
-<p>⚡ <strong>走神救援</strong></p>
-<blockquote>
-<p>⭐ <strong>先按语法区分：基础切片是视图，整数数组与布尔高级索引读取是副本。</strong> shape、strides 与起点解释基础切片的共享机制，不能反向当充分判据；例如等距的 <code>a[[0,1,2]]</code> 读取仍是副本。</p>
-<p><strong>基础切片是视图</strong>，因为每一维都是「起点 + 公差 + 个数」的等差数列，而 strides 能表达的恰好就是等差数列——⚠️ 所以哪怕选出的元素在内存里根本不挨着（比如取一整列），<strong>只要间隔是等差的</strong>就仍然是视图。</p>
-<p><strong>整数数组和布尔高级索引读取按契约返回副本。</strong> 任意偏移、重复下标或扫描掩码解释了典型结果的构造方式；即使整数下标恰好等距，也不会因此改成视图。</p>
-<p>⚠️⚠️ 但「拷贝」<strong>只对读成立</strong>：<code>a[[0,1]] = -1</code> 是写得进去的。区别在于前者是 <code>__getitem__</code>（先抄一份），后者是 <code>__setitem__</code>（直接按下标写）。</p>
-<p>💀 <code>a[a&gt;5][0] = 999</code> 先通过布尔高级索引读取临时副本，随后只改那份副本，<strong>原数组不变且不报错</strong>。但本例 <code>b[0][1] = 777</code> 的基础索引中间结果是视图，所以能写回。⭐ <strong>关键是中间结果是否共享数据；优先把赋值目标合成原数组上的一次索引，不把“两对方括号”当成必然失败的条件。</strong></p>
-<p><code>b[[1,1,1]] += 1</code> 先读出一份副本，给每个临时值加 1，再把相同的值写回同一位置。从 0 开始的例子里，结果是 1。每次命中都要累加到已有数组时，用 <code>np.add.at</code>。要生成新的非负整数频次表时，用 <code>np.bincount</code>。</p>
-<p>⭐ <strong>多个整数数组是「配对」不是「交叉」</strong>：要交叉表得先把一边升维，或者用 <code>np.ix_</code>。而「配对」这个语义正是「每行各取一个」的标准写法。</p>
-</blockquote>
-<p><strong>下一节</strong> 👉 <a href="07-把循环改写成数组运算.html">07-把循环改写成数组运算.md</a></p>
+<p><strong>走神救援</strong>。按任务回到下面三处。</p>
+<ul>
+<li><strong>读完还要修改。</strong> 先用语法分清视图和副本，再问最后的赋值目标是哪一个数组。直接写原坐标，或通过可写的共享视图，都能改到原数据。</li>
+<li><strong>同一个下标反复出现。</strong> 从 0 开始，<code>b[[1,1,1]] += 1</code> 写回 1。要逐次累加，用 <code>np.add.at</code>。从零生成频次表可以用 <code>np.bincount</code>。</li>
+<li><strong>有多份下标。</strong> 先列出配对或交叉坐标，再标出保留的轴。二维布尔掩码逐格筛选时，坐标会合在一根轴上。</li>
+</ul>
+<p>本章用索引确定取值位置。下一章会从一个循环的目标出发，判断该做累计、分组还是滑动窗口。</p>
+<p><a href="07-把循环改写成数组运算.html">下一章 · 把循环改写成数组运算</a></p>
 <div class="nm-takeaway"><button type="button" class="nm-save-note" data-nm-save="_8" data-nm-enhance disabled>记住这一段</button></div></section><aside class="nm-prose nm-original-navigation" aria-label="原有完整章节目录"><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
@@ -1057,7 +1045,7 @@ print("交叉组合（组合轴在前）:", cross_broadcast.shape)
 <li><a href="#_5">🧮 六、两个整数数组是「配对」，不是「交叉」</a></li>
 <li><a href="#4">🔍 七、④ 布尔掩码：整行、单格和逐行汇总</a></li>
 <li><a href="#_6">🧷 八、混着用：花式索引被切片隔开时，结果轴会跑到最前面</a></li>
-<li><a href="#014-6">⚖️ 九、账单：视图 0.14 微秒，拷贝 6 毫秒</a></li>
+<li><a href="#014-6">⚖️ 九、视图、拷贝与预计算的成本</a></li>
 <li><a href="#_7">📋 十、一页速记</a></li>
 <li><a href="#_8">🔗 这一章连到哪里</a></li>
 <li><a href="#_9">✅ 检查点</a></li>
