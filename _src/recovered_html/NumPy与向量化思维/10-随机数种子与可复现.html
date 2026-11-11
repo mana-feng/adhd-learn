@@ -290,42 +290,47 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <button class="js-done-btn">☐ 打卡</button>
   <button id="themeToggle" title="切换深浅色">🌗</button>
 </div></header>
-<main class="nm-main"><header class="nm-cover"><div class="nm-cover-copy"><p class="nm-kicker" id="10">NUMPY / 10 · 10 · 随机数、种子与可复现</p><h1 class="nm-question">种子相同，为什么 worker 给了同一段数据？</h1><p class="nm-dek">种子是起点，不是整个运行现场。反复从同一个起点创建生成器，可能正好让多个 worker 重复。</p><p class="nm-outcome">你能区分初始种子、生成器状态和子流分配，知道需要保存哪一种信息。</p><div class="nm-actions"><a class="nm-primary" href="#api">从这个问题开始</a><a class="nm-secondary" href="#nm-reading-start">直接进入完整解释</a></div><p class="nm-resume-status" role="status"></p></div><figure class="nm-cover-visual"><svg xmlns="http://www.w3.org/2000/svg" id="nm-cover-10-svg" viewbox="0 0 320 312" role="img" aria-labelledby="nm-cover-10-title nm-cover-10-desc"><title id="nm-cover-10-title">rng 机制示意</title><desc id="nm-cover-10-desc">分支只表示由 SeedSequence.spawn 派生子流的关系；不承诺任意短片段必不相同，也不把教学图当统计检验。</desc><defs><marker id="nm-cover-10-arrow" markerwidth="7" markerheight="7" refx="6" refy="3.5" orient="auto"><path d="M0 0 L7 3.5 L0 7Z" fill="#1e6661"></path></marker></defs><rect width="320" height="312" fill="#f7f6f0"></rect><rect x="16" y="22" width="288" height="77" rx="3" fill="#e9eee3" stroke="#8da396"></rect><text x="29" y="51" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="18" fill="#1e6661">每次重新用同一 seed</text><text x="29" y="80" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="19" fill="#202720">可能从同一段序列开始</text><path d="M160 100 L160 118" stroke="#1e6661" stroke-width="2" fill="none" marker-end="url(#nm-cover-10-arrow)"></path><rect x="16" y="122" width="288" height="77" rx="3" fill="#e9eee3" stroke="#8da396"></rect><text x="29" y="151" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="18" fill="#1e6661">SeedSequence.spawn</text><text x="29" y="180" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="19" fill="#202720">父起点 → 子流 A / B</text><path d="M160 200 L160 218" stroke="#1e6661" stroke-width="2" fill="none" marker-end="url(#nm-cover-10-arrow)"></path><rect x="16" y="222" width="288" height="77" rx="3" fill="#e9eee3" stroke="#8da396"></rect><text x="29" y="251" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="18" fill="#1e6661">需要恢复到同一步</text><text x="29" y="280" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="19" fill="#202720">保存生成器 state</text></svg><figcaption>分支只表示由 SeedSequence.spawn 派生子流的关系；不承诺任意短片段必不相同，也不把教学图当统计检验。</figcaption></figure></header><article class="nm-article" id="nm-reading-start"><details class="nm-deep nm-prose"><summary>阅读范围、用时与原有实验记录</summary><details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
-<p>⏱ <strong>64 分钟</strong> ｜ ⭐ <strong>四个 worker 各自 <code>np.random.seed(42)</code>，抽出来的「随机数」四个一模一样 —— 而且它和操作系统无关，Windows 上照样复现</strong></p>
+<main class="nm-main"><header class="nm-cover"><div class="nm-cover-copy"><p class="nm-kicker" id="10">NUMPY / 10 · 10 · 随机数、种子与可复现</p><h1 class="nm-question">四个任务都在随机抽样，为什么抽到同一段？</h1><p class="nm-dek">想让每个并行任务抽到各自的一串数，还想下次重跑能对上。先分清从哪里开始、现在走到哪里，以及每个任务用哪一串。</p><p class="nm-outcome">学完后，你能预测什么时候会重复抽样，给并行任务分配子流，并在读档后接着抽。</p><div class="nm-actions"><a class="nm-primary" href="#api">对照两代随机 API</a><a class="nm-secondary" href="#nm-reading-start">从种子与状态学起</a></div><p class="nm-resume-status" role="status"></p></div><figure class="nm-cover-visual"><svg xmlns="http://www.w3.org/2000/svg" id="nm-cover-10-svg" viewbox="0 0 320 312" role="img" aria-labelledby="nm-cover-10-title nm-cover-10-desc"><title id="nm-cover-10-title">rng 机制示意</title><desc id="nm-cover-10-desc">分支只表示由 SeedSequence.spawn 派生子流的关系；不承诺任意短片段必不相同，也不把教学图当统计检验。</desc><defs><marker id="nm-cover-10-arrow" markerwidth="7" markerheight="7" refx="6" refy="3.5" orient="auto"><path d="M0 0 L7 3.5 L0 7Z" fill="#1e6661"></path></marker></defs><rect width="320" height="312" fill="#f7f6f0"></rect><rect x="16" y="22" width="288" height="77" rx="3" fill="#e9eee3" stroke="#8da396"></rect><text x="29" y="51" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="18" fill="#1e6661">每次重新用同一 seed</text><text x="29" y="80" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="19" fill="#202720">可能从同一段序列开始</text><path d="M160 100 L160 118" stroke="#1e6661" stroke-width="2" fill="none" marker-end="url(#nm-cover-10-arrow)"></path><rect x="16" y="122" width="288" height="77" rx="3" fill="#e9eee3" stroke="#8da396"></rect><text x="29" y="151" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="18" fill="#1e6661">SeedSequence.spawn</text><text x="29" y="180" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="19" fill="#202720">父起点 → 子流 A / B</text><path d="M160 200 L160 218" stroke="#1e6661" stroke-width="2" fill="none" marker-end="url(#nm-cover-10-arrow)"></path><rect x="16" y="222" width="288" height="77" rx="3" fill="#e9eee3" stroke="#8da396"></rect><text x="29" y="251" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="18" fill="#1e6661">需要恢复到同一步</text><text x="29" y="280" font-family="Consolas,Microsoft YaHei,sans-serif" font-size="19" fill="#202720">保存生成器 state</text></svg><figcaption>分支只表示由 SeedSequence.spawn 派生子流的关系；不承诺任意短片段必不相同，也不把教学图当统计检验。</figcaption></figure></header><article class="nm-article" id="nm-reading-start"><details class="nm-deep nm-prose"><summary>阅读范围、用时与原有实验记录</summary><details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
+<p>先跟着手算走三步，再选一个代码块复跑。示例用到数组下标和 <a href="02-shape与axis到底怎么数.html">第 02 章的 shape 与 axis</a>，洗牌前可以回看 <a href="06-索引的四种形态.html">第 06 章的整数数组索引</a>。逐段运行代码需要 Python 及 NumPy 1.25 或以上版本，其中多进程示例需保存为 <code>.py</code> 文件。本章的固定输出在 Windows、NumPy 2.3.5 上复跑核对。</p>
 </details><section class="nm-section nm-prose" data-nm-section="1"><p class="nm-kicker">01 / 完整解释</p><h2>相同种子，不等于相同运行状态。</h2><h3 id="_1" data-nm-stop="">🎯 一句话</h3>
-<p><strong><code>np.random.seed(42)</code> 播的是一个全局状态，进程内谁都能动它、进程间又没法让它们各不相同。</strong>
-现代 API（<code>np.random.default_rng</code> / <code>SeedSequence.spawn</code>）把状态收进对象里，一次解决这两个问题。</p>
-<h3 id="_2">🧩 一、先把三块地让出去</h3>
-<p>「可复现」这个词太大，站内有三处在讲它，各管一层：</p>
+<p>假设四个任务要给四份订单数据随机抽样。你在每个任务开头都写了 <code>np.random.seed(42)</code>，四份结果却从同一个数开始。把实验重跑一次，这个现象又出现了。要解释它，先看程序怎样一边出数，一边记住自己走到了哪一步。</p>
+<h3 id="_2">🧩 一、从种子和状态开始</h3>
+<p><strong>伪随机数（pseudorandom numbers）</strong>由确定的计算规则生成。<strong>种子（seed）</strong>是用来初始化的输入。<strong>状态（state）</strong>是生成器继续计算时要用的内部记录。重新用同样的配置和种子初始化，会回到同一个起点。继续用已经抽过数的生成器，则从它当时的状态向前走。</p>
+<div class="flowchain">
+  <div class="fstep"><b>初始化</b><span>用种子建立起始状态</span></div>
+  <span class="farrow" aria-hidden="true">→</span>
+  <div class="fstep"><b>抽一次</b><span>按规则返回数值，同时更新状态</span></div>
+  <span class="farrow" aria-hidden="true">→</span>
+  <div class="fstep"><b>接着抽</b><span>下一次使用刚更新的状态</span></div>
+</div>
+<p><strong>教学用状态模型。</strong>为了看清重开和续跑的差别，假设内部只存一个整数。每一步把它乘 3、加 1，再取除以 7 的余数，余数也作为本步的输出。</p><p><code>s(t+1) = (3 × s(t) + 1) mod 7</code></p><p><code>t</code> 是已经完成的步数，从 0 开始。<code>s(t)</code> 是第 <code>t</code> 步后的状态，取 0 到 6 的整数。<code>mod 7</code> 就是取余数。演示里直接令种子和初始状态都等于 2。</p>
 <div class="tw"><table>
-<thead>
-<tr>
-<th>说的是</th>
-<th>在哪讲</th>
-<th>内容</th>
-</tr>
-</thead>
+<caption>种子取 2 时的前三次抽样</caption>
+<thead><tr><th scope="col">第几次抽样</th><th scope="col">代入与取余（粗体为输出）</th></tr></thead>
 <tbody>
-<tr>
-<td><strong>训练可复现清单</strong></td>
-<td><a href="../机器学习与深度学习基础/11-训练调试手册.html">ML 基础 · 11 · 训练调试手册</a></td>
-<td><code>set_seed()</code> 要同时播 <code>random</code> / <code>numpy</code> / <code>torch</code> / <code>torch.cuda</code>，加上 cuDNN 的确定性开关</td>
-</tr>
-<tr>
-<td><strong>系统级可复现</strong></td>
-<td><a href="../模型上线之后/17-版本回溯与可复现.html">模型上线之后 · 17 · 版本回溯与可复现</a></td>
-<td>git commit + data_hash + 环境快照 —— 那里 <code>seed</code> 只是元数据字典里的一个字段</td>
-</tr>
-<tr>
-<td>⭐ <strong>随机数 API 本身</strong></td>
-<td><strong>本章</strong></td>
-<td><code>Generator</code> / <code>SeedSequence</code> / <code>spawn</code>，以及全局 <code>np.random.seed</code> 到底错在哪</td>
-</tr>
+<tr><th scope="row">第 1 次</th><td>3 × 2 + 1 = 7，7 = 1 × 7 + <strong>0</strong></td></tr>
+<tr><th scope="row">第 2 次</th><td>3 × 0 + 1 = 1，1 = 0 × 7 + <strong>1</strong></td></tr>
+<tr><th scope="row">第 3 次</th><td>3 × 1 + 1 = 4，4 = 0 × 7 + <strong>4</strong></td></tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>本章是那两处的地基</strong>：它们都告诉你「要设种子」，<strong>但都没说设了之后为什么还是不一样</strong>。</p>
-<p><a href="../Kaggle竞赛方法论/04_超参数调优与工程实践.html">Kaggle 竞赛方法论 · 04 · 超参数调优与工程实践</a> 里那句「设置 Python、NumPy、PyTorch 的随机种子确保实验可复现」是<strong>那个板块唯一一次提到 NumPy</strong> —— ⭐ <strong>给了指令没给机制</strong>，本章补的正是机制那一半。</p>
+<p>第二次抽完时存下状态 1，恢复后下一次得到 4。用种子 2 重开，下一次又得到 0。这条短规则只用来演示状态怎样更新，循环很短，实际采样使用 NumPy 的生成器。</p>
+<div class="codehilite" data-code-language="python"><pre><code>def draw(state, count):
+    values = []
+    for _ in range(count):
+        state = (3 * state + 1) % 7  # % 表示取余数
+        values.append(state)
+    return state, values
+
+saved_state, first_two = draw(state=2, count=2)
+_, continued = draw(state=saved_state, count=1)
+_, restarted = draw(state=2, count=1)
+print(first_two, saved_state)  # [0, 1] 1
+print(continued, restarted)   # [4] [0]
+</code></pre></div>
+<p><code>draw</code> 接收起始状态和抽样次数，同时返回结束时的状态和包含抽样结果的列表。保存 <code>saved_state</code> 后，只需用它作为下一次调用的起点。</p>
+<p>本章聚焦 NumPy 的随机流。<a href="../机器学习与深度学习基础/11-训练调试手册.html">训练调试手册</a>继续处理多库随机源与计算确定性，<a href="../模型上线之后/17-版本回溯与可复现.html">版本回溯与可复现</a>还要记录代码、数据和环境。<a href="../Kaggle竞赛方法论/04_超参数调优与工程实践.html">Kaggle 工程实践</a>中记录种子的做法也依赖这些条件。</p>
 <h3 id="api">🧩 二、两代 API：同一个种子，给的数不一样</h3>
+<p>实际的 NumPy 还分两层。<strong>比特生成器（BitGenerator）</strong>管理内部状态并产生随机比特。<strong>随机数生成器（Generator）</strong>用这些比特构造你要的样本，例如 0 到 99 的整数。先预测下面三次比较的真假。<code>randint(0, 100, 5)</code> 和 <code>integers(0, 100, 5)</code> 都取 5 个整数，包含 0，排除 100。<code>array_equal</code> 比较数组形状和每个元素。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">42</span><span class="p">);</span> <span class="n">a1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
@@ -340,106 +345,78 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">legacy seed(42) 两次 -&gt; [51 92 14 71 60] / [51 92 14 71 60] 一致: True</span></div><div class="vb-flow-row"><span class="vb-flow-step">default_rng(42) 两次 -&gt; [ 8 77 65 43 43] / [ 8 77 65 43 43] 一致: True</span></div><div class="vb-flow-row"><span class="vb-flow-step">同一个种子 42，两代 API 给的数一样吗: False</span></div></div></section>
-<p>⚠️⚠️ <strong>两代 API 各自可复现，但互相之间不可复现。</strong> 底层的比特发生器不是同一个（遗留那套是 Mersenne Twister，现代默认是 PCG64），生成算法也不同。</p>
-<p>💀 <strong>这一条会以最讨厌的方式咬人</strong>：一份代码里前半段用 <code>np.random.seed(42)</code> 播种、后半段用 <code>default_rng(42)</code> 建 Generator，<strong>播的那个种子对后半段一点作用都没有</strong>。改半天「为什么结果还是变」，其实两半从来就没连上过。</p>
-<p>⭐ <strong>规矩：一个项目里只用一套。</strong> 遇到混用的老代码，把 <code>np.random.seed(42)</code> 那半改掉，别指望它们对齐。</p>
+
+<p>两组各自复跑都得 <code>True</code>，交叉比较得 <code>False</code>。遗留模块级接口使用 <code>RandomState</code> 的梅森旋转算法（Mersenne Twister，MT19937）。<code>default_rng(42)</code> 会另建一个 <code>Generator</code>，这里用的默认比特生成器是 PCG64。换了初始化、底层生成与采样路径，种子 42 仍可在各自配置内重放。</p>
+<p><code>np.random.seed(42)</code> 只会重置遗留模块的共享状态，后面新建的 <code>default_rng(42)</code> 由括号里的 42 初始化。省略后者的种子时，<code>default_rng()</code> 从操作系统取得新的随机输入。复跑应同时记录 NumPy 的版本和构建、比特生成器、调用顺序和参数（包括输出大小），并保留运行环境和机器配置。<a href="https://numpy.org/doc/stable/reference/random/compatibility.html">NumPy 随机流兼容政策</a>列出了这些条件。</p>
 <h3 id="_3">🧩 三、💀 全局状态：任何人都能动它</h3>
-<p>上一节看到的还只是「不一致」，真正的问题是<strong>遗留 API 的状态是全局的</strong>。</p>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<p>假设你正在用遗留 API 抽三条订单，另一段代码也调用同一个模块级接口。下面用相同的整数抽样模拟它提前取走一条。现代生成器的对照组则在中途调用一次遗留接口。</p>
+<div class="codehilite" data-code-language="python"><pre><code>import numpy as np
 
-<span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
-<span class="n">c1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
-<span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
-<span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">rand</span><span class="p">()</span>                      <span class="c1"># 假装这是某个第三方函数</span>
-<span class="n">c2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"seed(42) 直接抽             -&gt;"</span><span class="p">,</span> <span class="n">c1</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"seed(42) 中间被抽了一次     -&gt;"</span><span class="p">,</span> <span class="n">c2</span><span class="p">)</span>
+np.random.seed(42)
+direct = np.random.randint(0, 100, 3)
+np.random.seed(42)
+discarded = np.random.randint(0, 100)
+shifted = np.random.randint(0, 100, 3)
+print(direct, discarded, shifted)  # [51 92 14] 51 [92 14 71]
 
-<span class="n">g</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">42</span><span class="p">);</span> <span class="n">d1</span> <span class="o">=</span> <span class="n">g</span><span class="o">.</span><span class="n">integers</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
-<span class="n">g</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">42</span><span class="p">);</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">rand</span><span class="p">();</span> <span class="n">d2</span> <span class="o">=</span> <span class="n">g</span><span class="o">.</span><span class="n">integers</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">100</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"Generator 中间被抽了一次    -&gt;"</span><span class="p">,</span> <span class="n">d2</span><span class="p">,</span> <span class="s2">" 和不被打扰时一致:"</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">array_equal</span><span class="p">(</span><span class="n">d1</span><span class="p">,</span> <span class="n">d2</span><span class="p">))</span>
+rng = np.random.default_rng(42)
+baseline = rng.integers(0, 100, 3)
+rng = np.random.default_rng(42)
+np.random.rand()  # 这次抽样只使用遗留模块的共享状态
+isolated = rng.integers(0, 100, 3)
+print(isolated, np.array_equal(baseline, isolated))  # [ 8 77 65] True
 </code></pre></div>
+<p>相同的整数抽样先取走了 51，所以后面的三个整数变成 <code>[92 14 71]</code>。换成别的分布或参数，消耗的底层比特数也可能变，不能把这个观测套成「任何调用都只跳过一个整数」。</p>
+<p><code>rng</code> 持有自己的比特生成器，因此遗留接口的调用不影响它。若两个函数拿的是<strong>同一个</strong> <code>rng</code>，它们还是会轮流推进同一份状态。通常在调用方建好 <code>rng</code>，再传入负责抽样的函数。要让额外的调试抽样不扰动主流程，就为调试单独分配生成器。</p>
+<div class="nm-takeaway"><button type="button" class="nm-save-note" data-nm-save="_1" data-nm-enhance disabled>记住这一段</button></div></section><section class="nm-section nm-prose" data-nm-section="2"><p class="nm-kicker">02 / 完整解释</p><h2>给 worker 分配各自的子流。</h2><h3 id="worker" data-nm-stop="">🧩 四、💀💀 招牌坑：四个任务，同一个种子</h3>
+<p><strong>工作进程（worker）</strong>是并行执行任务的子进程。下面把四个抽样任务交给进程池。<code>map</code> 按输入顺序收集结果，某个进程可能处理多个任务，因此这里的四项输出表示四个<strong>逻辑任务</strong>，不用于判断哪个进程执行了它们。</p>
+<p>先预测第一组。每个任务都把遗留状态重置为 42，接着抽一个 0 到 9999 的整数。把代码保存为 <code>rng_workers.py</code>，运行 <code>python rng_workers.py</code>。入口判断保护创建进程池的代码，避免子进程导入文件时又创建一组进程。</p><p>第三组先用 <code>np.random.SeedSequence(42).spawn(4)</code> 给四个任务派生各自的起点，下一节会拆解这一步。这里有两个叫 <code>spawn</code> 的操作。进程池用它来启动子进程，NumPy 用它来派生随机子流。</p>
+<div class="codehilite" data-code-language="python"><pre><code>import numpy as np
+from multiprocessing import get_context
 
-<section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">seed(42) 直接抽 -&gt; [51 92 14]</span></div><div class="vb-flow-row"><span class="vb-flow-step">seed(42) 中间被抽了一次 -&gt; [92 14 71]</span></div><div class="vb-flow-row"><span class="vb-flow-step">Generator 中间被抽了一次 -&gt; [ 8 77 65] 和不被打扰时一致: True</span></div></div></section>
-<p>⭐ <strong>看清楚这个错位</strong>：本来该拿到 <code>[51 92 14]</code>，中间被别人抽了<strong>一个数</strong>，你就整体往后挪了一位，拿到 <code>[92 14 71]</code>。</p>
-<p>💀 <strong>「别人」是谁，你根本控制不了</strong>：sklearn 的某个默认 <code>random_state=None</code> 的估计器、某个数据增强库、某个 pandas 的 <code>sample()</code>、甚至你自己两周前加的一行调试代码。<strong>换个版本、多导入一个包，序列就变了。</strong></p>
-<p>⭐ <strong><code>Generator</code> 免疫</strong>：状态在 <code>g</code> 这个对象里，全局 <code>np.random</code> 怎么折腾都碰不到它。</p>
-<p><strong>这就是「把状态从全局搬进对象」的全部理由</strong>——和面向对象那些大道理无关，纯粹是因为全局状态没法保证独占。</p>
-<div class="nm-takeaway"><button type="button" class="nm-save-note" data-nm-save="_1" data-nm-enhance disabled>记住这一段</button></div></section><section class="nm-section nm-prose" data-nm-section="2"><p class="nm-kicker">02 / 完整解释</p><h2>给 worker 分配各自的子流。</h2><h3 id="worker" data-nm-stop="">🧩 四、💀💀 招牌坑：四个 worker，同一个种子</h3>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">multiprocessing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pool</span>
+def fixed_seed(task_id):
+    np.random.seed(42)
+    return int(np.random.randint(0, 10000))
 
-<span class="k">def</span><span class="w"> </span><span class="nf">worker_fixed_seed</span><span class="p">(</span><span class="n">i</span><span class="p">):</span>            <span class="c1"># 每个 worker 各自写死同一个种子</span>
-    <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
-    <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10000</span><span class="p">))</span>
+def no_seed(task_id):
+    return int(np.random.randint(0, 10000))
 
-<span class="k">def</span><span class="w"> </span><span class="nf">worker_no_seed</span><span class="p">(</span><span class="n">i</span><span class="p">):</span>               <span class="c1"># 什么都不做</span>
-    <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10000</span><span class="p">))</span>
+def child_seed(seed_seq):
+    rng = np.random.default_rng(seed_seq)
+    return int(rng.integers(0, 10000))
 
-<span class="k">def</span><span class="w"> </span><span class="nf">worker_spawned</span><span class="p">(</span><span class="n">seed_seq</span><span class="p">):</span>        <span class="c1"># 从一颗种子派生出互相独立的子种子</span>
-    <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="n">seed_seq</span><span class="p">)</span><span class="o">.</span><span class="n">integers</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10000</span><span class="p">))</span>
-
-<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">"__main__"</span><span class="p">:</span>           <span class="c1"># Windows 上 spawn 必须有这一行</span>
-    <span class="k">with</span> <span class="n">Pool</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span> <span class="k">as</span> <span class="n">p</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">"每个 worker 各自 seed(42) -&gt;"</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">worker_fixed_seed</span><span class="p">,</span> <span class="nb">range</span><span class="p">(</span><span class="mi">4</span><span class="p">)))</span>
-    <span class="k">with</span> <span class="n">Pool</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span> <span class="k">as</span> <span class="n">p</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">"什么都不做（第一次）      -&gt;"</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">worker_no_seed</span><span class="p">,</span> <span class="nb">range</span><span class="p">(</span><span class="mi">4</span><span class="p">)))</span>
-    <span class="k">with</span> <span class="n">Pool</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span> <span class="k">as</span> <span class="n">p</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">"什么都不做（第二次）      -&gt;"</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">worker_no_seed</span><span class="p">,</span> <span class="nb">range</span><span class="p">(</span><span class="mi">4</span><span class="p">)))</span>
-
-    <span class="n">children</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">SeedSequence</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span><span class="o">.</span><span class="n">spawn</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span>
-    <span class="k">with</span> <span class="n">Pool</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span> <span class="k">as</span> <span class="n">p</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">"SeedSequence(42).spawn(4) -&gt;"</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">worker_spawned</span><span class="p">,</span> <span class="n">children</span><span class="p">))</span>
-    <span class="n">children</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">SeedSequence</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span><span class="o">.</span><span class="n">spawn</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span>
-    <span class="k">with</span> <span class="n">Pool</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span> <span class="k">as</span> <span class="n">p</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">"再跑一次                  -&gt;"</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">worker_spawned</span><span class="p">,</span> <span class="n">children</span><span class="p">))</span>
+if __name__ == "__main__":
+    context = get_context("spawn")
+    with context.Pool(4) as pool:
+        print("每个任务都重置成 42", pool.map(fixed_seed, range(4)))
+    for run in (1, 2):
+        with context.Pool(4) as pool:
+            print("未记录种子", run, pool.map(no_seed, range(4)))
+    for run in (1, 2):
+        children = np.random.SeedSequence(42).spawn(4)
+        with context.Pool(4) as pool:
+            print("按任务分配子序列", run, pool.map(child_seed, children))
 </code></pre></div>
-
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">每个 worker 各自 seed(42) -&gt; [7270, 7270, 7270, 7270]</span></div><div class="vb-flow-row"><span class="vb-flow-step">什么都不做（第一次） -&gt; [999, 7120, 5449, 4607]</span></div><div class="vb-flow-row"><span class="vb-flow-step">什么都不做（第二次） -&gt; [7388, 6308, 6543, 8111]</span></div><div class="vb-flow-row"><span class="vb-flow-step">SeedSequence(42).spawn(4) -&gt; [4974, 746, 7031, 8994]</span></div><div class="vb-flow-row"><span class="vb-flow-step">再跑一次 -&gt; [4974, 746, 7031, 8994]</span></div></div></section>
-<p><strong>三种做法，三种结局</strong>：</p>
 <div class="tw"><table>
-<thead>
-<tr>
-<th>做法</th>
-<th>独立吗</th>
-<th>可复现吗</th>
-<th>结果</th>
-</tr>
-</thead>
+<caption>四个任务如何得到各自的随机输入</caption>
+<thead><tr><th scope="col">任务的起点</th><th scope="col">本次可观察的结果</th><th scope="col">重跑需要什么</th></tr></thead>
 <tbody>
-<tr>
-<td>每个 worker <code>np.random.seed(42)</code></td>
-<td>💀 <strong>不独立</strong></td>
-<td>可复现</td>
-<td><code>[7270, 7270, 7270, 7270]</code> ——<strong>四个完全一样</strong></td>
-</tr>
-<tr>
-<td>什么都不做</td>
-<td>独立</td>
-<td>❌ <strong>不可复现</strong></td>
-<td>两次跑给出完全不同的两组</td>
-</tr>
-<tr>
-<td>⭐ <code>SeedSequence(42).spawn(4)</code></td>
-<td>✅ 独立</td>
-<td>✅ 可复现</td>
-<td><code>[4974, 746, 7031, 8994]</code>，<strong>再跑一次一模一样</strong></td>
-</tr>
+<tr><th scope="row">各自重置成 42</th><td>四项都为 7270。给同样的输入、执行同样的抽样，随机选择也会重复。</td><td>记录 42 和抽样配置。</td></tr>
+<tr><th scope="row">未管理遗留状态</th><td>两次输出通常不同，进程启动方式与任务调度都会影响结果。</td><td>这段代码没有保存重跑需要的随机输入和分配信息。</td></tr>
+<tr><th scope="row">为任务派生子流</th><td>示例两轮都是 <code>[4974, 746, 7031, 8994]</code>。</td><td>记录根种子 42、子流与任务的对应关系，以及各任务的抽样调用。</td></tr>
 </tbody>
 </table></div>
-<p>⚠️⚠️ <strong>注意这个坑和操作系统无关。</strong> 常见的说法是「fork 让子进程继承了父进程的随机状态」，那确实是 Linux/macOS 上的<strong>另一种</strong>撞法；⭐ 但上面这一组是在 Windows（spawn，子进程从零启动）上跑出来的，照样四个一样。</p>
-<p>真正的成因只有一句：<code>worker</code> 函数里写死了一个常数种子。子进程怎么创建、继不继承状态，全都不重要——<strong>每个 worker 都从同一个种子出发，当然走到同一个地方。</strong></p>
-<p>💀 <strong>它为什么难发现</strong>：四个 worker 做数据增强，各自「随机」裁剪、翻转、加噪声——结果四份增强完全相同。<strong>训练不报错，loss 照常下降，只是你的数据多样性只有你以为的四分之一</strong>。</p>
-<p>⚠️ <strong>这一条也是「什么都不做反而更安全」的少数场景之一</strong>：不设种子至少四个 worker 是不同的，只是没法复现。<strong>最糟的组合是「设了种子，还设成同一个」</strong>——既没多样性，又让你相信自己是可复现的。</p>
+<p>这里显式使用 <code>spawn</code>（子进程重新启动并导入脚本）。每个任务主动重置同样的种子，换成别的启动方式也会重复。使用 <code>fork</code>（从父进程复制起始状态）时，遗留状态还可能在没有显式重置的情况下被继承。某次看到几个输出不同，仍无法凭一次观测判断各流独立。</p>
+<p>如果四个任务对同一张样本执行同一套随机裁剪，重复的随机流会让四次裁剪采用同样的选择。训练可能照常运行，单看损失值无法发现这类重复。</p>
 <hr>
 <!--MIDSTOP-->
 <blockquote>
-<p>🛑 <strong>读到这里可以停</strong> —— 前半章讲完了（约 22 分钟）。
-<strong>后半章还有</strong>：<code>SeedSequence</code> 和 <code>spawn</code>：既独立又可复现 · <code>Generator</code> 的 API：改了名字的和改了行为的 · 存档读档：把「随机到哪儿了」存下来 · 五条规矩
+<p>🛑 <strong>读到这里可以停</strong> —— 你已经看过为什么固定成相同种子会让任务重复。
+<strong>后半章还有</strong>：用 SeedSequence 派生可复跑的子流 · <code>Generator</code> 的 API：改了名字的和改了行为的 · 存档读档：把「随机到哪儿了」存下来 · 五条规矩
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<h3 id="seedsequence-spawn">🧩 五、<code>SeedSequence</code> 和 <code>spawn</code>：既独立又可复现</h3>
-<p><code>SeedSequence</code> 做的事只有一件：<strong>把一颗种子按一棵树展开成任意多颗互相独立的子种子</strong>。</p>
+<h3 id="seedsequence-spawn">🧩 五、用 SeedSequence 派生可复跑的子流</h3>
+<p>想让第 0 个任务和第 1 个任务下次各自复跑，得给它们可追踪的不同起点。<strong>种子序列（SeedSequence）</strong>把根种子与子节点在派生树中的位置一起混入初始化数据。根种子 42 的前四个子节点位置是 <code>(0,)</code> 到 <code>(3,)</code>。用这些子节点初始化的<strong>随机子流</strong>以极高概率相互独立，单次抽到相同的整数仍然可能。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="n">parent</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
@@ -452,37 +429,22 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </code></pre></div>
 
 <section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>parent.spawn(3) 各抽一个: [4974, 746, 7031]</p><p>SeedSequence(42).spawn(3): [4974, 746, 7031]</p></div></section>
-<p>⭐ <strong>两种写法等价</strong>，<code>rng.spawn(n)</code> 是简写。而且和上一节 <code>spawn(4)</code> 的前三个完全一致——<strong>派生是确定的、和你要几个无关</strong>。</p>
-<p>⭐ <strong>正确的多进程模板只有三行</strong>：</p>
+
+<p>上面两种写法都从刚初始化的根开始，得到同样的前三个结果。<code>parent.spawn(3)</code> 需要 NumPy 1.25 或更高版本。在这个实验中，从同一个新根派生 4 个孩子时，前三个仍处于相同位置。若在<strong>同一个</strong> <code>ss</code> 上先调用 <code>spawn(3)</code>，再调用 <code>spawn(1)</code>，新孩子的位置是 <code>(3,)</code>，接着已有编号往后排。</p>
 <div class="tw"><table>
-<thead>
-<tr>
-<th>步骤</th>
-<th>代码</th>
-<th>在哪执行</th>
-</tr>
-</thead>
+<caption>从根种子到第 i 个任务</caption>
+<thead><tr><th scope="col">步骤</th><th scope="col">代码</th><th scope="col">位置</th></tr></thead>
 <tbody>
-<tr>
-<td>① 主进程建一颗种子</td>
-<td><code>ss = np.random.SeedSequence(42)</code></td>
-<td>主进程</td>
-</tr>
-<tr>
-<td>② 派生 n 个子种子</td>
-<td><code>children = ss.spawn(n_workers)</code></td>
-<td>主进程</td>
-</tr>
-<tr>
-<td>③ 每个 worker 用分到的那颗建 Generator</td>
-<td><code>rng = np.random.default_rng(children[i])</code></td>
-<td>worker</td>
-</tr>
+<tr><th scope="row">建立根</th><td><code>ss = np.random.SeedSequence(42)</code></td><td>主进程</td></tr>
+<tr><th scope="row">派生四个子节点</th><td><code>children = ss.spawn(4)</code></td><td>主进程</td></tr>
+<tr><th scope="row">任务 i 初始化自己的流</th><td><code>rng = np.random.default_rng(children[i])</code></td><td>执行该任务的 worker</td></tr>
 </tbody>
 </table></div>
-<p>⚠️ <strong>关键是「种子在主进程分好再发下去」</strong>，而不是「让每个 worker 自己想办法」。worker 自己算种子（比如用 <code>os.getpid()</code>）能拿到独立性，但<strong>丢掉可复现性</strong>——进程号每次都不一样。</p>
-<p>⚠️ <strong>PyTorch 的 <code>DataLoader</code> 有它自己的一套 worker 种子机制</strong>（<code>worker_init_fn</code>、每个 worker 拿到独立的 base_seed）。⭐ 那套机制解决的是同一个问题，但<strong>参数怎么调是 <a href="../AI基础设施/22-数据管线与存储.html">AI 基础设施 · 22 · 数据管线与存储</a> 的题</strong>，本章只讲 NumPy 这一侧。</p>
+<p>这里让任务编号 <code>i</code> 在 0 到 3 之间，决定任务用哪条子流。改变调度顺序时，只要任务仍拿到同一个子节点，并用同样的顺序调用生成器，结果就能对上。增加任务、换分片方法或用会变的进程号当标识时，要重新核对子流分配。若一个任务需要抽很多次，就在任务开始时建一次 <code>rng</code>，随后一直复用。</p>
+<p><a href="https://numpy.org/doc/stable/reference/random/parallel.html">NumPy 并行随机数指南</a>还介绍了其他划分随机流的方法。PyTorch 的 <code>DataLoader</code> 有自己的 worker 初始化机制，详情见 <a href="../AI基础设施/22-数据管线与存储.html">AI 基础设施第 22 章</a>。</p>
 <div class="nm-takeaway"><button type="button" class="nm-save-note" data-nm-save="worker" data-nm-enhance disabled>记住这一段</button></div></section><section class="nm-section nm-prose" data-nm-section="3"><p class="nm-kicker">03 / 完整解释</p><h2>恢复现场，需要的不只是起点。</h2><h3 id="generator-api" data-nm-stop="">🧩 六、<code>Generator</code> 的 API：改了名字的和改了行为的</h3>
+<p>订单例子里常用两种操作。抽样可以从候选里挑若干项。洗牌保留全部项目，只调整顺序。<code>integers(0, 10, 5)</code> 返回 5 个 0 到 9 的整数，加上 <code>endpoint=True</code> 后 10 也在候选范围内。<code>choice(10, 4, replace=False)</code> 从编号 0 到 9 中抽 4 个，抽过的编号不放回。</p>
+<p>下面每行用同一个 <code>rng</code>，按执行顺序推进状态。<code>random(3)</code> 抽 3 个大于等于 0、小于 1 的均匀浮点数。<code>normal(0, 1, 3)</code> 从中心为 0、标准差为 1 的正态分布抽 3 个数。标准差描述数值围绕中心的分散程度。表里的小数只为阅读做了四舍五入。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
@@ -530,7 +492,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td><code>choice</code> / <code>shuffle</code> / <code>permutation</code></td>
 <td>同名</td>
-<td>行为一致</td>
+<td>用途相近，迁移时核对参数、维度和输出</td>
 </tr>
 <tr>
 <td><code>RandomState(42)</code></td>
@@ -539,7 +501,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>⭐ <strong><code>permutation</code> / <code>shuffle</code> / <code>permuted</code> 三兄弟，二维上才分得清</strong>：</p>
+<p><strong>对照二维数组的三种洗牌。</strong>回想第 02 章，沿 <code>axis=1</code> 改变列位置。先看多行是共用一次排列，还是各自抽一次排列，再看原数组是否被修改。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="n">m</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">12</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
@@ -574,8 +536,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><code>permuted(m, axis=1)</code></td>
-<td>⭐ <strong>每行独立打乱</strong>，三行顺序各不相同</td>
-<td>❌ 返回新的</td>
+<td><strong>每行各自抽一次排列</strong>，两行偶尔也能抽到相同顺序</td>
+<td>默认返回新的，<code>out=m</code> 时写回 <code>m</code></td>
 </tr>
 <tr>
 <td><code>shuffle(m, axis=1)</code></td>
@@ -584,144 +546,124 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>💀 <strong>打乱样本和标签时，只能用 <code>permutation</code> 拿下标再一起索引</strong>，绝不能对 <code>X</code> 和 <code>y</code> 各 <code>shuffle</code> 一次——那样两边的顺序不一样，标签就和样本对不上了，<strong>而且不报错</strong>。</p>
-<h3 id="_4">🧩 七、存档读档：把「随机到哪儿了」存下来</h3>
-<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-
-<span class="n">g</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-<span class="n">g</span><span class="o">.</span><span class="n">random</span><span class="p">(</span><span class="mi">100</span><span class="p">)</span>                                  <span class="c1"># 先烧掉一些</span>
-<span class="n">state</span> <span class="o">=</span> <span class="n">g</span><span class="o">.</span><span class="n">bit_generator</span><span class="o">.</span><span class="n">state</span>                  <span class="c1"># ⭐ 这就是全部状态，一个 dict</span>
-<span class="n">x1</span> <span class="o">=</span> <span class="n">g</span><span class="o">.</span><span class="n">random</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
-<span class="n">g</span><span class="o">.</span><span class="n">bit_generator</span><span class="o">.</span><span class="n">state</span> <span class="o">=</span> <span class="n">state</span>                  <span class="c1"># 读档</span>
-<span class="n">x2</span> <span class="o">=</span> <span class="n">g</span><span class="o">.</span><span class="n">random</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"存档后重放，两次一致:"</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">array_equal</span><span class="p">(</span><span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">x1</span><span class="p">,</span> <span class="mi">6</span><span class="p">))</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"state 的键:"</span><span class="p">,</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">keys</span><span class="p">()),</span> <span class="s2">"| bit_generator:"</span><span class="p">,</span> <span class="n">state</span><span class="p">[</span><span class="s2">"bit_generator"</span><span class="p">])</span>
-</code></pre></div>
-
-<section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>存档后重放，两次一致: True [0.479988 0.232373 0.801881]</p><p>state 的键: ['bit_generator', 'has_uint32', 'state', 'uinteger'] | bit_generator: PCG64</p></div></section>
-<p>⭐ <strong>用途</strong>：训练跑到第 30 个 epoch 挂了，想从检查点续跑并且<strong>接上原来的随机序列</strong>——光存种子不够（种子只能从头开始），得存 <code>bit_generator.state</code>。</p>
-<p>⚠️ 这个 dict 可以直接 JSON 化存进 checkpoint 元数据里。<strong>系统级怎么组织这些元数据</strong>（和 git commit、data_hash 一起）是 <a href="../模型上线之后/17-版本回溯与可复现.html">模型上线之后 · 17</a> 的题。</p>
-<h3 id="_5">🚦 八、五条规矩</h3>
+<p><strong>用同一组下标搬动两张表。</strong>有 4 笔订单，<code>X</code> 的每一行存一个耗时，单位是分钟。<code>y</code> 的同位置存标签，超过 20 分钟为 1，其余为 0。打乱后，每个耗时还应和它原来的标签配在一起。下面是本例抽到的下标 <code>[2, 0, 1, 3]</code>。</p>
 <div class="tw"><table>
-<thead>
-<tr>
-<th>#</th>
-<th>规矩</th>
-<th>为什么</th>
-</tr>
-</thead>
+<caption>按同一组下标移动订单耗时和标签</caption>
+<thead><tr><th scope="col">新位置</th><th scope="col">来源下标</th><th scope="col">耗时（分钟）</th><th scope="col">标签</th></tr></thead>
 <tbody>
-<tr>
-<td>1</td>
-<td>⭐ <strong>一个项目只用一套 API</strong></td>
-<td>两代 API 同种子给的数不同（<code>[51 92 14 71 60]</code> vs <code>[8 77 65 43 43]</code>），混用等于没播种</td>
-</tr>
-<tr>
-<td>2</td>
-<td>⭐ <strong>函数里不要建 Generator，把 <code>rng</code> 当参数传进去</strong></td>
-<td>函数内 <code>default_rng(42)</code> 意味着每次调用都重放同一段序列</td>
-</tr>
-<tr>
-<td>3</td>
-<td>⭐ <strong>多进程一律 <code>SeedSequence(seed).spawn(n)</code>，在主进程分好再发下去</strong></td>
-<td>worker 自己算种子会丢掉可复现性；写死常数种子会丢掉独立性</td>
-</tr>
-<tr>
-<td>4</td>
-<td>⚠️ <strong>别把种子当超参数调</strong></td>
-<td>换种子换出来的 0.3% 提升是噪声。⭐ 正确做法是<strong>跑多个种子报均值和标准差</strong></td>
-</tr>
-<tr>
-<td>5</td>
-<td>⚠️ <strong>能复现 ≠ 结果可信</strong></td>
-<td>固定种子只保证「同一份代码跑两遍一样」。⭐ 模型是不是真的更好，得看换种子之后还成不成立</td>
-</tr>
+<tr><th scope="row">0</th><td>2</td><td>15</td><td>0</td></tr>
+<tr><th scope="row">1</th><td>0</td><td>8</td><td>0</td></tr>
+<tr><th scope="row">2</th><td>1</td><td>23</td><td>1</td></tr>
+<tr><th scope="row">3</th><td>3</td><td>30</td><td>1</td></tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>第 4、5 条合起来是本章最容易被忽略的一半</strong>：设种子的目的是<strong>让差异可归因</strong>（改了代码之后的变化确实来自代码），不是让数字好看。</p>
+<div class="codehilite" data-code-language="python"><pre><code>import numpy as np
+
+X = np.array([[8], [23], [15], [30]])
+y = np.array([0, 1, 0, 1])
+
+rng = np.random.default_rng(0)
+idx = rng.permutation(len(X))
+X_shuffled = X[idx]
+y_shuffled = y[idx]
+
+print(idx.tolist())                  # [2, 0, 1, 3]
+print(X_shuffled[:, 0].tolist())      # [15, 8, 23, 30]
+print(y_shuffled.tolist())           # [0, 0, 1, 1]
+assert np.array_equal(y_shuffled, X_shuffled[:, 0] &gt; 20)
+</code></pre></div>
+<p><code>len(X)</code> 是行数 4。<code>permutation(4)</code> 把 0 到 3 各用一次。<code>X[idx]</code> 和 <code>y[idx]</code> 都沿第 0 轴选出同一批原位置，<code>X_shuffled[:, 0]</code> 则取出全部耗时用于检查标签。若保留原标签顺序，23 分钟会和原位置 2 的标签 0 配对。分别调用两次 <code>shuffle</code> 也可能错位，因为两次调用各抽一次排列，形状检查无法发现配错。</p>
+<h3 id="_4">🧩 七、存档读档：把「随机到哪儿了」存下来</h3>
+<p>回到手算例子。存下第二步的状态 1 才能接着得到 4。实际程序要保存比特生成器的状态快照。下面固定使用 PCG64，比对不中断时的下一批数字和新对象从快照恢复后得到的数字。</p>
+<div class="codehilite" data-code-language="python"><pre><code>import json
+import numpy as np
+
+rng = np.random.Generator(np.random.PCG64(0))
+rng.random(100)
+checkpoint = json.dumps(rng.bit_generator.state)
+expected = rng.random(3)
+
+restored = np.random.Generator(np.random.PCG64(0))
+restored.bit_generator.state = json.loads(checkpoint)
+actual = restored.random(3)
+
+print(np.round(actual, 6))  # [0.479988 0.232373 0.801881]
+print(np.array_equal(expected, actual))  # True
+</code></pre></div>
+<p>先抽 100 个数推进状态，<code>json.dumps</code> 把这一刻的 PCG64 状态字典转成文本。接着抽 3 个作参照。新建的 <code>restored</code> 起初在起点，赋回 <code>json.loads</code> 还原的字典后就能从第 100 次抽样之后继续。代码比较的是原始浮点数组，打印时才取六位小数。</p>
+<p>这个 JSON 写法适用于例子里的 PCG64。别的比特生成器的状态字典可能含 NumPy 数组，序列化时要保留形状和类型，并用同类比特生成器恢复。在第 30 轮训练结束后要精确续跑，还应保存其他随机源、数据读取位置、模型和优化器等状态。如果恢复后还要派生新的子流，还得记录派生进度或完整的子流分配方案。系统级的检查点记录见 <a href="../模型上线之后/17-版本回溯与可复现.html">模型上线之后第 17 章</a>。</p>
+<h3 id="_5">🚦 八、五条规矩</h3>
+<div class="tw"><table>
+<caption>复跑实验前要核对的五件事</caption>
+<thead><tr><th scope="col">检查项</th><th scope="col">怎么做</th></tr></thead>
+<tbody>
+<tr><th scope="row">随机源</th><td>新代码优先用 <code>Generator</code>。兼容旧库时分别管理旧接口、现代生成器及其他库的状态。</td></tr>
+<tr><th scope="row">创建时机</th><td>为每个需要持续抽样的任务建一次 <code>rng</code>，把它传给该任务中的抽样函数。</td></tr>
+<tr><th scope="row">并行分配</th><td>给每个任务分配可追踪的子流，保存任务标识与子流的对应关系。</td></tr>
+<tr><th scope="row">恢复条件</th><td>从头重放要记种子、环境、比特生成器及抽样调用。从中途恢复还要记状态与进度。</td></tr>
+<tr><th scope="row">结果波动</th><td>比较两种模型时，事先选定一组种子，报告每次结果及均值、标准差，避免只挑最有利的一次。</td></tr>
+</tbody>
+</table></div>
+<p>固定同一套随机输入有助于排查代码改动。评估一个改动是否稳定时，还要看它在多次实验中的变化和原本就存在的波动。</p>
 <div class="nm-takeaway"><button type="button" class="nm-save-note" data-nm-save="generator-api" data-nm-enhance disabled>记住这一段</button></div></section><section class="nm-section nm-prose" data-nm-section="4"><p class="nm-kicker">04 / 完整解释</p><h2>留下能复建的随机过程。</h2><h3 id="_6" data-nm-stop="">🔗 这一章连到哪里</h3>
 <div class="tw"><table>
-<thead>
-<tr>
-<th>相关的地方</th>
-<th>为什么</th>
-</tr>
-</thead>
+<caption>遇到下一类问题时去哪里</caption>
+<thead><tr><th scope="col">相关课程</th><th scope="col">读到什么</th></tr></thead>
 <tbody>
-<tr>
-<td><a href="../机器学习与深度学习基础/11-训练调试手册.html">ML 基础 · 11 · 训练调试手册</a></td>
-<td>⭐ 那里有一份 <code>set_seed()</code> <strong>训练可复现清单</strong>（<code>random</code> / <code>numpy</code> / <code>torch</code> / <code>torch.cuda</code> 一起播、cuDNN 确定性开关）。<strong>本章是它的地基</strong>：它告诉你要播哪几个，这里告诉你播了之后为什么在多进程下还是不管用</td>
-</tr>
-<tr>
-<td><a href="../模型上线之后/17-版本回溯与可复现.html">模型上线之后 · 17 · 版本回溯与可复现</a></td>
-<td>那里的可复现是<strong>系统级</strong>的：git commit + data_hash + 环境快照，<code>seed</code> 只是元数据里的一个字段。⭐ 第七节存下来的 <code>bit_generator.state</code> 正是该塞进那份元数据的东西</td>
-</tr>
-<tr>
-<td><a href="../Kaggle竞赛方法论/04_超参数调优与工程实践.html">Kaggle 竞赛方法论 · 04 · 超参数调优与工程实践</a></td>
-<td>那里写着「设置 Python、NumPy、PyTorch 的随机种子确保实验可复现」——⭐ <strong>给了指令没给机制</strong>。本章第四节那个「四个 worker 全是 7270」就是照着做了还是不复现的典型</td>
-</tr>
-<tr>
-<td><a href="../AI基础设施/22-数据管线与存储.html">AI 基础设施 · 22 · 数据管线与存储</a></td>
-<td>PyTorch <code>DataLoader</code> 的 <code>num_workers</code> 怎么配、worker 拿到什么种子，在那一章。⭐ 它解决的正是第四节这个问题，<strong>但那是框架层的解法</strong>，本章只讲 NumPy 这一侧</td>
-</tr>
-<tr>
-<td><a href="11-从NumPy到PyTorch.html">11 · 从 NumPy 到 PyTorch</a></td>
-<td>下一章讲 NumPy 用户跨到 torch 时会踩的四个语义陷阱。⚠️ 随机数是第五个隐性差别：<code>torch.manual_seed</code> 和 <code>np.random.default_rng</code> 是<strong>两套完全独立的状态</strong>，播一个不影响另一个</td>
-</tr>
-<tr>
-<td><a href="07-把循环改写成数组运算.html">07 · 把循环改写成数组运算</a></td>
-<td>那一章每段代码都以 <code>rng = np.random.default_rng(0)</code> 开头。⭐ 读完本章你就知道那不是装饰——<strong>换成 <code>np.random.seed(0)</code> 的话，那些倍数就没法在你的机器上复现</strong>了</td>
-</tr>
+<tr><th scope="row"><a href="07-把循环改写成数组运算.html">07 · 把循环改写成数组运算</a></th><td>回看部分实验如何用 <code>default_rng(0)</code> 固定输入数组。重放这些输入和复现计时结果需要不同的条件。</td></tr>
+<tr><th scope="row"><a href="09-log域运算.html">09 · log 域运算</a></th><td>上一章处理相同输入下的数值稳定性。本章处理用随机方法生成的输入怎样对上。</td></tr>
+<tr><th scope="row"><a href="11-从NumPy到PyTorch.html">11 · 从 NumPy 到 PyTorch</a></th><td>下一章检查跨库的数组操作语义。扩展到训练时，还要分别管理 NumPy 的 <code>Generator</code> 与 PyTorch 的随机状态。</td></tr>
+<tr><th scope="row"><a href="../机器学习与深度学习基础/11-训练调试手册.html">ML 基础 · 11 · 训练调试手册</a></th><td>检查 Python、NumPy、PyTorch 及 GPU 运算的可复现设置。</td></tr>
+<tr><th scope="row"><a href="../AI基础设施/22-数据管线与存储.html">AI 基础设施 · 22 · 数据管线与存储</a></th><td>跟踪 <code>DataLoader</code> 怎样初始化工作进程并处理数据。</td></tr>
+<tr><th scope="row"><a href="../Kaggle竞赛方法论/04_超参数调优与工程实践.html">Kaggle · 04 · 超参数调优与工程实践</a></th><td>把种子和配置一起记录到实验中，再比较模型设置。</td></tr>
+<tr><th scope="row"><a href="../模型上线之后/17-版本回溯与可复现.html">模型上线之后 · 17 · 版本回溯与可复现</a></th><td>用代码版本、数据指纹和环境记录定位完整运行。</td></tr>
 </tbody>
 </table></div>
 <h3 id="_7">✅ 检查点</h3>
+<p>先在纸上预测结果，再跑相应的代码块核对。可以按小节分几次做。</p>
 <ol>
-<li><code>np.random.seed(42)</code> 和 <code>np.random.default_rng(42)</code> 抽出来的数一样吗？各是什么？</li>
-<li>一份代码前半段 <code>np.random.seed(42)</code>、后半段 <code>default_rng(42)</code>，会发生什么？</li>
-<li><code>seed(42)</code> 之后被第三方函数抽走一个数，你拿到的三个数会变成什么？<code>Generator</code> 会不会有这个问题？</li>
-<li>四个 worker 各自 <code>np.random.seed(42)</code> 会得到什么？这和操作系统（fork 还是 spawn）有关吗？</li>
-<li>上一题那个坑「什么都不做」反而更好吗？好在哪、差在哪？</li>
-<li>正确的多进程种子模板是哪三步？关键在哪一步？</li>
-<li><code>rng.permutation(m, axis=1)</code> 和 <code>rng.permuted(m, axis=1)</code> 在二维上有什么区别？</li>
-<li>打乱样本 <code>X</code> 和标签 <code>y</code>，为什么不能各 <code>shuffle</code> 一次？</li>
-<li>训练到第 30 个 epoch 挂了，想续跑并接上原来的随机序列，光存种子够吗？</li>
-<li>换个种子模型指标涨了 0.3%，该怎么解读？</li>
+<li>教学模型的第三步得到 4。存下 4 后读档，第四步是多少？用种子 2 重开又是多少？</li>
+<li>同样传入 42，遗留和现代整数抽样示例为什么各自能重放，却得出不同的数组？</li>
+<li>只调用 <code>np.random.seed(42)</code>，能否控制后面的 <code>default_rng()</code>？两个函数共享同一个 <code>rng</code> 时，额外抽样会怎样？</li>
+<li>在第三节的遗留实验中先取走哪个整数？随后的三个数是什么？</li>
+<li>四个任务都主动重置同样的种子，为什么在 <code>spawn</code> 下也会重复？如果省去重置，能凭四个值不同就确认独立吗？</li>
+<li>同一个 <code>ss</code> 执行 <code>spawn(3)</code> 后再 <code>spawn(1)</code>，最后一个孩子的位置是什么？怎样让任务换到另一个 worker 执行时仍抽到同一组数？</li>
+<li>将 <code>integers(0, 10)</code> 改成 <code>integers(0, 10, endpoint=True)</code>，候选范围变在哪里？</li>
+<li>二维数组中，<code>permutation(m, axis=1)</code>、<code>permuted(m, axis=1)</code> 与 <code>shuffle(m, axis=1)</code> 怎样搬列？哪一个就地改动原数组？</li>
+<li>用下标 <code>[2, 0, 1, 3]</code> 打乱订单，若只移动 <code>X</code>，23 分钟会对应哪个错误标签？</li>
+<li>训练第 30 轮结束后想继续抽数，为什么只存种子不够？</li>
+<li>同一组种子下，新旧模型的指标差为 +0.3、−0.1、+0.1 个百分点。平均差是多少？每次都改善了吗？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>不一样</strong>。<code>np.random.seed(42)</code> + <code>randint(0,100,5)</code> 给 <code>[51 92 14 71 60]</code>，<code>default_rng(42).integers(0,100,5)</code> 给 <code>[8 77 65 43 43]</code>。底层比特发生器不同（Mersenne Twister vs PCG64）。</li>
-<li>💀 <strong>播的那个种子对后半段一点作用都没有</strong>。两半从来没连上过，你会一直在查「为什么设了种子结果还是变」。规矩：一个项目只用一套。</li>
-<li>从 <code>[51 92 14]</code> 变成 <strong><code>[92 14 71]</code></strong> ——整体往后挪了一位。<code>Generator</code> 不会：实测中间被 <code>np.random.rand()</code> 抽了一次，<code>g.integers</code> 照样给 <code>[8 77 65]</code>，因为状态在对象里。</li>
-<li><strong><code>[7270, 7270, 7270, 7270]</code> ——四个完全一样</strong>。⚠️ 和操作系统无关：这组是在 Windows（spawn，子进程从零启动）上跑出来的。成因只有一句：worker 里写死了常数种子。</li>
-<li><strong>一半好一半差</strong>。「什么都不做」四个 worker 确实各不相同（实测两次跑给出完全不同的两组），但不可复现。最糟的是「设了种子还设成同一个」——既没多样性，又让你相信自己可复现。</li>
-<li>① 主进程 <code>ss = np.random.SeedSequence(42)</code> ② 主进程 <code>children = ss.spawn(n_workers)</code> ③ worker 里 <code>rng = np.random.default_rng(children[i])</code>。<strong>关键在「种子在主进程分好再发下去」</strong>。worker 自己算种子（如用 pid）能拿到独立性但丢掉可复现性。</li>
-<li><code>permutation(m, axis=1)</code> <strong>整列一起搬</strong>，三行用同一套顺序（实测 <code>[[2,0,1,3],[6,4,5,7],[10,8,9,11]]</code>）；<code>permuted(m, axis=1)</code> 每行独立打乱（<code>[[2,0,1,3],[7,6,5,4],[9,11,8,10]]</code>）。</li>
-<li>💀 因为两次 <code>shuffle</code> 用的是随机序列的<strong>不同段</strong>，两边顺序不一样，标签和样本就对不上了，而且不报错。正确做法：<code>idx = rng.permutation(len(X))</code>，然后 <code>X[idx]</code>、<code>y[idx]</code>。</li>
-<li><strong>不够</strong>。种子只能从头开始。要接上得存 <code>g.bit_generator.state</code>（一个 dict，键是 <code>['bit_generator', 'has_uint32', 'state', 'uinteger']</code>，<code>bit_generator</code> 是 <code>PCG64</code>），可以直接 JSON 化塞进 checkpoint。</li>
-<li>⚠️ <strong>当噪声看</strong>。种子不是超参数。正确做法是跑多个种子报均值和标准差；如果改进只在某一个种子上成立，那它不是改进。设种子的目的是让差异可归因，不是让数字好看。</li>
+<li>第四步是 <code>(3 × 4 + 1) mod 7 = 13 mod 7 = 6</code>，因为 <code>13 = 1 × 7 + 6</code>。重开则从 2 算起，第一步输出 0。</li>
+<li>在相同的版本、环境、比特生成器和调用条件下，各自重放。示例的遗留接口基于 MT19937，现代接口默认用 PCG64，两条生成与采样路径给出不同结果。</li>
+<li>模块级 <code>seed</code> 只重置遗留共享状态。<code>default_rng()</code> 从系统取随机输入。两个函数共享同一对象时，先执行的抽样会推进状态，影响后续结果。</li>
+<li>先取走 51，接着得到 <code>[92 14 71]</code>。这里两处调用抽的是同一范围的整数。</li>
+<li>子进程重新启动后，任务代码仍会把状态重置到同一个起点。省去重置后，观察到的不同值也无法证明独立，尤其还要考虑 <code>fork</code> 可能继承状态。</li>
+<li>最后一个位置是 <code>(3,)</code>。保存逻辑任务到子节点的映射，换进程时给它同一子节点，并保持抽样配置和顺序。</li>
+<li>右端点 10 加入候选，整数范围由 0 到 9 变为 0 到 10。</li>
+<li><code>permutation</code> 和 <code>shuffle</code> 用同一排列移动整列，其中 <code>shuffle</code> 就地修改。<code>permuted</code> 对每一行分别抽排列，默认返回新数组。</li>
+<li>23 分钟被移到新位置 2，原标签序列在位置 2 是 0。用同一个 <code>idx</code> 同时索引 <code>X</code> 和 <code>y</code> 会得到正确标签 1。</li>
+<li>种子用于初始化。续跑要存下当时的比特生成器状态，用匹配的类型恢复。完整训练还要恢复数据读取位置等其他进度。</li>
+<li>三次差值相加为 <code>0.3 − 0.1 + 0.1 = 0.3</code> 个百分点，再除以 3 得 +0.1 个百分点。第二次下降。这三次的均值和逐次结果可以一并报告，观察是否有稳定改善还需结合实验的波动。</li>
 </ol>
 </details>
 <h3 id="_8">🛑 可以停在这里</h3>
-<p>⚡ <strong>走神救援</strong></p>
 <blockquote>
-<p>「可复现」站内有三层，<strong>本章只做 NumPy 的随机数 API</strong>（训练清单归 ML 基础，系统级归模型上线之后）。</p>
-<p>⚠️ <strong>两代 API 各自可复现，互相之间不可复现</strong>：老的 <code>np.random.seed</code> 和新的 <code>default_rng</code> 底层是两种发生器，同样的种子给出完全不同的数。💀 <strong>混用等于没播种。</strong></p>
-<p>💀 <strong>遗留 API 的状态是全局的，谁都能动</strong>：中间被第三方抽走一个数，你后面拿到的整个序列就挪了一位。而「别人」可能是 sklearn 的某个估计器、某个增强库、或者你自己两周前加的调试行。⭐ <code>Generator</code> 免疫，因为状态在对象里。</p>
-<p>⭐ <strong>招牌坑</strong>：多个 worker 各自 <code>np.random.seed(42)</code>，于是<strong>它们生成的随机数完全一样</strong>。⚠️⚠️ <strong>这和操作系统无关</strong>——在 spawn（子进程从零启动）的平台上照样一样，<strong>真正的成因是 worker 里写死了常数种子</strong>，不是 fork 继承了状态。</p>
-<p>⚠️ 它难发现是因为不报错：几个 worker 做数据增强给出几份相同结果，loss 照常下降，<strong>只是多样性打了折</strong>。⭐ 对照之下「什么都不做」是随机但不可复现，<strong>最糟的组合恰恰是「设了种子、还设成同一个」</strong>。</p>
-<p>⭐ <strong>正确模板三步</strong>：主进程建一个 <code>SeedSequence</code> → <code>spawn(n)</code> 分出 n 个子种子 → 每个 worker 用自己那个建 <code>default_rng</code>。<strong>关键在种子是在主进程分好再发下去的</strong>——这样既独立又可复现。</p>
-<p>API 对照里最容易绊人的两个：<code>randint</code> → <code>integers</code>（多了 <code>endpoint=</code>），<code>rand(3,4)</code> → <code>random((3,4))</code>（⚠️ <strong>形状要写成元组</strong>）。</p>
+<p><strong>从头重放</strong>记录种子、比特生成器、调用和环境。<strong>并行抽样</strong>记录任务与子流的对应。<strong>从中途继续</strong>记录生成器当时的状态和任务进度。</p>
+<p>如果刚回来，先做检查点第 1 题。算出读档后的 6 和重新开始时的 0，就可以接着看多进程子流。</p>
 </blockquote>
-<p><strong>下一节</strong> 👉 <a href="11-从NumPy到PyTorch.html">11-从NumPy到PyTorch.md</a></p>
+<p><strong>下一章</strong> <a href="11-从NumPy到PyTorch.html">从 NumPy 到 PyTorch</a>。</p>
 <div class="nm-takeaway"><button type="button" class="nm-save-note" data-nm-save="_6" data-nm-enhance disabled>记住这一段</button></div></section><aside class="nm-prose nm-original-navigation" aria-label="原有完整章节目录"><details class="toc-box"><summary>📑 本页目录（点开跳转）</summary><div class="toc">
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
-<li><a href="#_2">🧩 一、先把三块地让出去</a></li>
+<li><a href="#_2">🧩 一、从种子和状态开始</a></li>
 <li><a href="#api">🧩 二、两代 API：同一个种子，给的数不一样</a></li>
 <li><a href="#_3">🧩 三、💀 全局状态：任何人都能动它</a></li>
-<li><a href="#worker">🧩 四、💀💀 招牌坑：四个 worker，同一个种子</a></li>
-<li><a href="#seedsequence-spawn">🧩 五、SeedSequence 和 spawn：既独立又可复现</a></li>
+<li><a href="#worker">🧩 四、💀💀 招牌坑：四个任务，同一个种子</a></li>
+<li><a href="#seedsequence-spawn">🧩 五、用 SeedSequence 派生可复跑的子流</a></li>
 <li><a href="#generator-api">🧩 六、Generator 的 API：改了名字的和改了行为的</a></li>
 <li><a href="#_4">🧩 七、存档读档：把「随机到哪儿了」存下来</a></li>
 <li><a href="#_5">🚦 八、五条规矩</a></li>
