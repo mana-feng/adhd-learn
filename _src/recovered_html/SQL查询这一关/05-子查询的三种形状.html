@@ -59,6 +59,11 @@ ul,ol{padding-left:1.5em}li{margin:.35em 0}
    最窄单元格只剩 40px。给单元格一个 min-width 让它不再无限压缩，超出的由 .tw 兜住。
    2–4 列的表仍然占满不滚动，只有真挤不下的多列表才出现滚动条。 */
 .tw{overflow-x:auto;margin:1.2em 0;-webkit-overflow-scrolling:touch}
+/* Keep each condition, result, and explanation together on narrow screens. */
+.sql05-cases{margin:1em 0;overflow-wrap:anywhere}
+.sql05-cases > div{padding:.55em 0;border-bottom:1px solid var(--border)}
+.sql05-cases dt{font-weight:650}
+.sql05-cases dd{margin:.15em 0 0}
 table{border-collapse:collapse;width:100%;margin:0;font-size:var(--fs-md)}
 th,td{min-width:5.2em}
 th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
@@ -294,7 +299,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <ul>
 <li><a href="#_1">🎯 一句话</a></li>
 <li><a href="#_2">🧩 一、三种形状：按「它返回什么」分类</a></li>
-<li><a href="#vs">🔁 二、相关 vs 非相关：判据是「单独拎出来能不能跑」</a></li>
+<li><a href="#vs">🔁 二、相关与非相关：检查是否引用外层列</a></li>
 <li><a href="#_3">🎚️ 三、⭐ 行值：整行一起比，不是逐列比</a></li>
 <li><a href="#in-exists-join">🚦 四、IN / EXISTS / JOIN：同一个问题，三种写法</a></li>
 <li><a href="#not-in">五、反连接：先确定谁算未匹配</a></li>
@@ -306,15 +311,15 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </details>
 <h1 id="05-in-exists-join">05 · 子查询的三种形状，和 IN / EXISTS / JOIN 选哪个</h1>
-<aside class="mg-remaining-entry" aria-label="本页问题与阅读路径"><p class="mg-remaining-question">这个子查询返回一格、一列，还是一张表？</p><p class="mg-remaining-outcome">先看返回形状与相关性，再比较 IN、EXISTS、JOIN 的语义边界。</p><nav aria-label="原文阅读停靠点"><a href="#_2">一、三种形状：按「它返回什么」分类</a><a href="#vs">二、相关 vs 非相关：判据是「单独拎出来能不能跑」</a><a href="#in-exists-join">四、IN / EXISTS / JOIN：同一个问题，三种写法</a><a href="#mg-sql-query-remaining-start">直接进入完整原文</a></nav></aside><span id="mg-sql-query-remaining-start" aria-hidden="true"></span>
+<aside class="mg-remaining-entry" aria-label="本页问题与阅读路径"><p class="mg-remaining-question">这个子查询要提供一个值、一行，还是一张表？</p><p class="mg-remaining-outcome">带着第 02 章的连接、第 03 章的计数和第 04 章的三值逻辑，本章练习识别外层引用、按排序键翻页，以及选择保留未匹配行的写法。</p><nav aria-label="原文阅读停靠点"><a href="#_2">一、三种形状：按「它返回什么」分类</a><a href="#vs">二、相关与非相关：检查是否引用外层列</a><a href="#in-exists-join">四、IN / EXISTS / JOIN：同一个问题，三种写法</a><a href="#mg-sql-query-remaining-start">直接进入完整原文</a></nav></aside><span id="mg-sql-query-remaining-start" aria-hidden="true"></span>
 
 <details class="polish-evidence"><summary>实验记录怎么读</summary><p>本页原有耗时、内存、报错和环境值保留为原文记录；本轮内容审校未逐项复跑这些实验。版本、硬件、数据和测量方法都会影响结果，示例中的倍数也不是保证。需要复现时先核对依赖版本，再在同一输入下比较。</p></details>
-<p>⏱ <strong>100 分钟</strong> ｜ ⭐ <strong><code>06b</code> 那个复合游标 <code>(updated_at, id) &lt; (?, ?)</code> 到底是什么 —— 它是一个「行值」</strong></p>
+<p>⏱ 预计 100 分钟。可以在行值分页和反连接之后分别停下来。</p>
 <h2 id="_1">🎯 一句话</h2>
-<p><strong>子查询只有三种形状 —— 一个值、一行、一张表 —— 形状决定了它能写在哪；而 <code>IN</code> / <code>EXISTS</code> / <code>JOIN</code> 三选一的判据只有一句话：右表的列你到底要不要。</strong>
-不要就 <code>EXISTS</code>，要就 <code>JOIN</code>。这一条判据能挡掉 <a href="02-JOIN的几种语义.html">02 章</a>那个把 <code>SUM</code> 从 150 变成 250 的扇出。</p>
+<p>要筛出有消息的会话，又要让每条会话只出现一次，可以先问数据库「这条会话有匹配的消息吗？」。第 02 章中，直接连接重复匹配曾把 <code>SUM</code> 从 150 放大到 250。<a href="02-JOIN的几种语义.html">复习连接扇出</a></p>
+<p>子查询可以提供一个值、一行或一张表。先看查询位置需要什么，再决定是用 <code>IN</code> 查名单、用 <code>EXISTS</code> 查匹配，还是用 <code>JOIN</code> 取配对行。</p>
 <h2 id="_2" data-mg-stop="">🧩 一、三种形状：按「它返回什么」分类</h2>
-<p>子查询就是写在另一条查询里的查询。它没有第四种分类法，只有三种形状：</p>
+<p>子查询（subquery）是写在另一条查询里的查询。外层可以使用它提供的一个值、一行或一张表。下面按外层如何使用结果来分类。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -325,18 +330,18 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </thead>
 <tbody>
 <tr>
-<td><strong>标量子查询</strong></td>
-<td>一行一列 = <strong>一个值</strong></td>
+<td><strong>标量子查询</strong><br>scalar subquery</td>
+<td>一列，写成至多一行。<br>零行时得到 <code>NULL</code>。</td>
 <td><code>(SELECT MAX(updated_at) FROM conv)</code></td>
 </tr>
 <tr>
-<td><strong>行子查询</strong></td>
-<td>一行多列 = <strong>一整行</strong></td>
-<td><code>(SELECT updated_at, id FROM conv ORDER BY … LIMIT 1)</code></td>
+<td><strong>行子查询</strong><br>row subquery</td>
+<td>取一组列值。<br>例如会话的时间和编号。</td>
+<td><code>(SELECT updated_at, id FROM conv<br>ORDER BY … LIMIT 1)</code></td>
 </tr>
 <tr>
-<td><strong>表子查询</strong></td>
-<td>多行（可以多列）</td>
+<td><strong>表子查询</strong><br>table subquery</td>
+<td>零行或多行，可以包含多列。</td>
 <td><code>(SELECT id FROM conv WHERE uid = 7)</code></td>
 </tr>
 </tbody>
@@ -351,7 +356,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </thead>
 <tbody>
 <tr>
-<td><code>SELECT</code> 列表里、<code>ORDER BY</code> 里、和一个列比大小的右边</td>
+<td><code>SELECT</code> 列表、<code>ORDER BY</code><br>与单值比较的位置</td>
 <td>必须<strong>标量</strong></td>
 </tr>
 <tr>
@@ -359,13 +364,18 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <td>必须<strong>行</strong>，且列数、顺序都要对上</td>
 </tr>
 <tr>
-<td><code>FROM</code> 后面、<code>IN</code> / <code>NOT IN</code> 后面、<code>EXISTS</code> 后面</td>
-<td><strong>表</strong>（<code>IN</code> 那个还要求只有一列）</td>
+<td><code>FROM</code> 或 <code>EXISTS</code> 后面</td>
+<td><strong>表</strong>。<code>FROM</code> 提供行与列。<br><code>EXISTS</code> 检查是否至少有一行。</td>
+</tr>
+<tr>
+<td><code>IN</code> / <code>NOT IN</code> 的右侧子查询</td>
+<td>返回候选行，列数与左侧匹配。<br>单值配一列，行值逐列对应。</td>
 </tr>
 </tbody>
 </table></div>
-<p>⭐ <code>FROM</code> 里的表子查询顺便解决了 <a href="01-一条查询是怎么跑的.html">01 章</a>第二节那个 ①「<code>WHERE</code> 里用 <code>SELECT</code> 的别名」：按逻辑顺序 <code>WHERE</code> 排在 <code>SELECT</code> 之前，别名那时还不存在（SQLite 宽容地放行了，换个库就报错）。但 <code>WHERE</code> 永远看得见一张已经算完的表 —— 把带别名的那一层塞进 <code>FROM</code>，外层再去 <code>WHERE</code> 那个别名，顺序问题就消失了。这就是「包一层子查询」这个套路的全部原理。</p>
-<p>三种一起跑一遍（<code>conv</code> 是一张会话表：7 行，其中 4 行的 <code>updated_at</code> 都是 100）：</p>
+<p><strong>试两个最小查询。</strong> 在 SQLite 中，<code>SELECT (SELECT 1 WHERE 0)</code> 得到 <code>NULL</code>，因为括号里没有一行能通过 <code>WHERE 0</code>。<code>SELECT (1, 2) IN (SELECT 1, 2)</code> 得到 <code>1</code>，因为两个位置都相等。<a href="https://www.sqlite.org/lang_expr.html#subquery_expressions">SQLite 子查询规则</a> · <a href="https://www.sqlite.org/rowvalue.html#row_value_in_operators">行值 IN</a></p>
+<p>回忆 <a href="01-一条查询是怎么跑的.html">第 01 章</a>。在常见的 SQL 写法中，同层 <code>WHERE</code> 先筛行，<code>SELECT</code> 才给计算结果命名。可以把计算放进 <code>FROM</code> 子查询，这样计算结果的名字就是外层查询可用的列名。</p>
+<p>三种一起跑一遍。会话表 <code>conv</code> 有 7 行，其中 5 行的 <code>updated_at</code> 为 100。这组演示把时间写成整数秒，<code>id</code> 是会话编号，<code>uid</code> 是用户编号。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 
 <span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
@@ -385,13 +395,19 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>实测输出：</p>
 <section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>标量（一个值）: (100,)</li><li>行（一行多列）: [(7, 8, 100)]</li><li>表（多行） : (6,)</li></ol></section>
 <p>⚠️ <strong>形状对不上的时候，未必会报错。</strong> 第六节有三个具体的坑，其中一个 SQLite <strong>一声不吭地给你一个错答案</strong>。</p>
-<h2 id="vs" data-mg-stop="">🔁 二、相关 vs 非相关：判据是「单独拎出来能不能跑」</h2>
-<p>这是子查询的第二个分类维度，和形状正交，但很多人分不清：</p>
+<h2 id="vs" data-mg-stop="">🔁 二、相关与非相关：检查是否引用外层列</h2>
+<p>如果每条会话都要附上自己的消息数，内层查询需要知道外层当前处理的是哪个会话。这就是判断相关性的线索。</p>
 <ul>
-<li><strong>非相关</strong>：子查询里没有任何一个东西来自外层。它是一段独立的查询，<strong>整条语句只算一次</strong>。</li>
-<li><strong>相关（correlated）</strong>：子查询里<strong>引用了外层的列</strong>。它依赖外层当前这一行，概念上每行跑一次。</li>
+<li><strong>非相关子查询（uncorrelated subquery）</strong> 没有引用外层查询的列。例如对整张会话表求最大更新时间，每条外行看到的是同一个全表最大值。</li>
+<li><strong>相关子查询（correlated subquery）</strong> 引用了外层查询的列。例如消息计数里的 <code>m.conv_id = c.id</code> 使用外层会话表别名 <code>c</code> 的编号。</li>
 </ul>
-<p>⭐ <strong>判据不用去数括号，一句话就够：把子查询单独复制出来能不能跑。</strong> 能跑就是非相关，报「no such column」就是相关。</p>
+<p><strong>跟一遍会话 3 的消息计数</strong></p>
+<ol>
+<li>从外层会话表读出 <code>c.id = 3</code>。</li>
+<li>在内层消息表找 <code>m.conv_id = 3</code>。本例没有匹配。</li>
+<li><code>COUNT(*)</code> 得到 0，外层这条会话输出 <code>(3, 0)</code>。</li>
+</ol>
+<p>单独运行时出现 <code>no such column: c.id</code>，可以回去检查 <code>c</code> 在哪一层定义。列名拼错也会报 <code>no such column</code>，例如独立查询 <code>SELECT MAX(typo) FROM conv</code>。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 
 <span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
@@ -432,19 +448,16 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>非相关 : [(1,), (2,), (3,), (4,), (7,)]</p><p>单独拎出来跑 : (100,)</p><p>相关 : [(1, 3), (2, 1), (3, 0), (4, 0), (5, 2), (6, 0), (7, 4)]</p><p>单独拎出来跑 : OperationalError - no such column: c.id</p><p>改写成 JOIN 内连接 : [(1, 3), (2, 1), (5, 2), (7, 4)]</p><p>改写成 JOIN 左连接 : [(1, 3), (2, 1), (3, 0), (4, 0), (5, 2), (6, 0), (7, 4)]</p></div></section>
 <p>⭐ 看最后三行：相关标量子查询给了 7 行（一条会话一行，没消息的写 0），内连接的 <code>GROUP BY</code> 只给了 4 行 —— 会话 3、4、6 一条消息都没有，内连接根本没把它们带进来。左连接才回到 7 行。</p>
 <blockquote>
-<p>⭐ <strong>这就是相关标量子查询最值钱的性质：它天然是「左连接」的。</strong>
-外层有几行，结果就有几行，<strong>子查询查不到东西时给的是 <code>NULL</code>（<code>COUNT</code> 给 0），而不是让这一行消失</strong>。
-⚠️ 用 <code>JOIN</code> 改写它，第一件要问自己的事就是「该用 <code>JOIN</code> 还是 <code>LEFT JOIN</code>」——
-答错了，看板上那几个「零调用的会话」会<strong>整行不见</strong>，而且不报错。</p>
+<p>本例把计数放在外层的 <code>SELECT</code> 列表中，给每条已经选中的会话附一个值。改写成左连接时，用 <code>COUNT(m.conv_id)</code> 数匹配，左连接补出的空行才不会被算成一条消息。</p>
 </blockquote>
-<p>⚠️ <strong>「每行跑一次」是语义，不是性能承诺。</strong> 数据库大概率会把它改写成一次连接（第六节末尾有本机的执行计划）。<strong>先按语义选写法，慢了再回到 <a href="09-计划里的连接与索引失效.html">09 章</a>看计划。</strong></p>
+<p>位置变了，作用也会变。把相关计数放进 <code>WHERE</code> 并要求计数大于 0，外层就只会留下有消息的会话。SQLite 按需要取得相关子查询的结果，具体执行方式由查询计划决定。<a href="#in-exists-join">第四节的计划对照</a> · <a href="https://www.sqlite.org/lang_expr.html#correlated_subqueries">SQLite 相关子查询</a></p>
 <h2 id="_3">🎚️ 三、⭐ 行值：整行一起比，不是逐列比</h2>
-<p>《AI 全栈》<a href="../AI全栈/06b-列表接口与分页.html">06b 列表接口与分页</a>里有一行 SQL，很多人抄过但没想过它凭什么成立：</p>
+<p>一页读到更新时间 100 秒、会话编号 3，下一页要从这条记录之后继续。用这两个值记录翻页位置，就是复合游标（composite cursor）。<a href="../AI全栈/06b-列表接口与分页.html">列表接口与分页</a></p>
 <div class="codehilite" data-code-language="sql"><pre><span></span><code><span class="k">WHERE</span><span class="w"> </span><span class="p">(</span><span class="n">updated_at</span><span class="p">,</span><span class="w"> </span><span class="n">id</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="p">(</span><span class="o">?</span><span class="p">,</span><span class="w"> </span><span class="o">?</span><span class="p">)</span>
 </code></pre></div>
 
-<p>⭐ <code>(updated_at, id)</code> 是一个「行值（row value）」：把几个列打包成一整行，然后整行和整行比大小。</p>
-<p>它的定义就一句话：字典序（电话簿序）。 先比第一列，分出胜负就结束；打平了才轮到第二列。手工展开等价于：</p>
+<p><code>(updated_at, id)</code> 是一个<strong>行值（row value）</strong>。它把两个值按顺序放在一起。上面两个 <code>?</code> 是参数占位符，执行时依次绑定时间 <code>100</code> 和编号 <code>3</code>。</p>
+<p><strong>字典序（lexicographic order）</strong>先比较第一列。第一列相同，才比较第二列。对本例的整数键，展开成下面的 <code>OR</code> 条件也能得到同样的行。三个占位符依次绑定 <code>100, 100, 3</code>。</p>
 <div class="codehilite" data-code-language="sql"><pre><span></span><code><span class="k">WHERE</span><span class="w"> </span><span class="n">updated_at</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="o">?</span><span class="w">  </span><span class="k">OR</span><span class="w">  </span><span class="p">(</span><span class="n">updated_at</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">?</span><span class="w">  </span><span class="k">AND</span><span class="w">  </span><span class="n">id</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="o">?</span><span class="p">)</span>
 </code></pre></div>
 
@@ -500,10 +513,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>⭐ 游标分页要的正是第一种。 <code>ORDER BY updated_at DESC, id DESC</code> 定义了一个全序，游标的任务是「从这个全序上的某一点接着往下取」；能表达「在这个全序上排在某一点之后」的只有行值比较，因为它用的正是同一套字典序。
-⚠️ <code>(100,3) &lt; (99,999)</code> 算出 0 就是证据：第一列 100 &gt; 99 已经分出胜负，第二列那个巨大的 999 一眼都没看。</p>
-<p>⚠️ 行值里出现 <code>NULL</code> 也遵守同一条规则：<code>(1,NULL) &lt; (1,5)</code> 是 <code>None</code>（第一列打平，胜负交给第二列，而第二列有 <code>NULL</code>）；但 <code>(1,NULL) &lt; (2,5)</code> 是 1（第一列就分出了胜负，第二列根本没参与）。</p>
-<p>行值不只能比大小，也能配 <code>=</code> 和 <code>IN</code>。 一个立刻能用上的例子 —— 「每个用户最新的一条会话」：</p>
+<p>本例的 <code>ORDER BY updated_at DESC, id DESC</code> 将两列都按降序排列。两列的值都已知，末尾的主键 <code>id</code> 唯一，所以每条会话有确定的位置。行值 <code>&lt;</code> 和它的 <code>OR</code> 展开都能取到游标之后的行。</p>
+<ul>
+<li><strong>排序方向改变。</strong> 若时间降序、编号升序，游标仍是 <code>(100, 3)</code>，同为 100 秒时，<code>(100, 4)</code> 在后，<code>(100, 2)</code> 在前。此时用 <code>updated_at &lt; 100 OR (updated_at = 100 AND id &gt; 3)</code>，第二个比较符跟随编号的方向。</li>
+<li><strong>排序键可能缺值。</strong> 普通比较可能得到未知。分页前要明确是否纳入缺值记录，以及它们排在哪里。若要纳入，翻页条件也要覆盖缺值所在的排序位置。</li>
+</ul>
+<p>例如 <code>(1, NULL) &lt; (1, 5)</code> 得到未知，第一列相同，第二列有缺值。<code>(1, NULL) &lt; (2, 5)</code> 得到真，第一列已确定结果。<a href="https://www.sqlite.org/rowvalue.html#row_value_comparisons">SQLite 行值比较</a></p>
+<p>接下来用行值相等来选「每个用户最新的一条会话」。同一时刻可能有多条，先按时间排，再用唯一的编号决定取哪条。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 
 <span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
@@ -524,11 +540,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>实测输出：</p>
 <section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">用户数 : 2</span></div><div class="vb-flow-row"><span class="vb-flow-step">⚠️ 只比 MAX(updated_at) -&gt; 5 行 [(1, 7, 100), (2, 7, 100), (3, 7, 100), (4, 7, 100), (7, 8, 100)]</span></div><div class="vb-flow-row"><span class="vb-flow-step">✅ 比行值 (updated_at,id) -&gt; 2 行 [(4, 7, 100), (7, 8, 100)]</span></div></div></section>
-<p>💀 <strong>两个用户，<code>MAX</code> 版本返回了 5 行。</strong> 因为用户 7 有 4 条会话的 <code>updated_at</code> 都是 100，<code>= MAX(...)</code> 把它们全部判为「最新」。这个 bug 在测试数据里几乎撞不上（时间戳很少撞车），一到线上批量回填就集中爆发。
-⭐ <strong>修法和游标分页是同一件事：在排序键末尾补一个唯一列（通常是主键）当决胜，然后整行比。</strong>
-（<a href="07-窗口函数.html">07 章</a>会用 <code>ROW_NUMBER()</code> 再解一遍同一个问题 —— 那是更顺手的写法，但决胜列这条规矩一模一样。）</p>
-<p>⚠️ 边界：<a href="../AI全栈/06b-列表接口与分页.html">AI 全栈 06b</a> owns 复合游标怎么用（游标怎么编码成不透明串、翻页途中那条记录被删了怎么办、要配什么索引）；本节只 owns 它是什么。
-🗓️ 未实跑：Postgres 和 MySQL 都支持行值比较的语法，但能不能用上复合索引各版本差别很大，上生产前请自己 <code>EXPLAIN</code> 一遍。</p>
+<p>只比较 <code>MAX(updated_at)</code> 时，UID 7 有四条会话都符合 100 秒，UID 8 有一条，因此共返回 5 行。</p>
+<p>把 <code>id</code> 作为最后一个排序键，每个用户只选一条，再比较完整行值，结果是会话 4 和 7。<a href="07-窗口函数.html">第 07 章会用窗口函数解决同一问题</a>。</p>
+<p>游标编码、翻页途中记录被删和索引选择见 <a href="../AI全栈/06b-列表接口与分页.html">AI 全栈第 06b 章</a>。PostgreSQL 和 MySQL 支持行值比较，能否使用具体索引要查看该引擎的实际查询计划。</p>
 <hr />
 <!--MIDSTOP-->
 <blockquote>
@@ -537,7 +551,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
 <h2 id="in-exists-join" data-mg-stop="">🚦 四、<code>IN</code> / <code>EXISTS</code> / <code>JOIN</code>：同一个问题，三种写法</h2>
-<p>问题：哪些会话里出现过 <code>assistant</code> 消息？</p>
+<p>问题：哪些会话里出现过 <code>assistant</code> 消息？先预测会话 1 会出现几次，再运行下面三种写法。</p>
+<p><strong>半连接（semi-join）</strong>按有没有匹配来筛左表的行。这里 <code>IN</code> 查看会话编号是否在名单里，<code>EXISTS</code> 查看是否找到一条匹配的消息。<code>JOIN</code> 则为每一对匹配行产出结果。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 
 <span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
@@ -576,11 +591,9 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>实测输出：</p>
 <section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">IN -&gt; 3 行 [1, 5, 7]</span></div><div class="vb-flow-row"><span class="vb-flow-step">EXISTS -&gt; 3 行 [1, 5, 7]</span></div><div class="vb-flow-row"><span class="vb-flow-step">JOIN -&gt; 5 行 [1, 1, 5, 7, 7]</span></div><div class="vb-flow-row"><span class="vb-flow-step">JOIN+DIS -&gt; 3 行 [1, 5, 7]</span></div><div class="vb-flow-row"><span class="vb-flow-step">EXISTS 版 SUM : 299</span></div><div class="vb-flow-row"><span class="vb-flow-step">JOIN 版 SUM : 499</span></div></div></section>
-<p>⭐ <strong><code>IN</code> 和 <code>EXISTS</code> 是 3 行，<code>JOIN</code> 是 5 行。</strong> 会话 1 和会话 7 各有 2 条 <code>assistant</code> 消息，<code>JOIN</code> 就把它们各带出来 2 遍 —— <strong>这正是 <a href="02-JOIN的几种语义.html">02 章</a>那个扇出</strong>，只不过换了张表。接一步 <code>SUM</code> 立刻变成 299 对 499：没有报错，账就这么错了。</p>
+<p><code>IN</code> 和 <code>EXISTS</code> 各返回 3 行，<code>JOIN</code> 返回 5 行。会话 1 和 7 各有两条匹配的消息，因此在连接结果中各出现两次。</p>
 <blockquote>
-<p>⭐ <strong><code>IN</code> 和 <code>EXISTS</code> 做的是「半连接（semi-join）」：只问右表</strong>有没有<strong>匹配的行，不把右表的行带进来。</strong>
-<code>JOIN</code> 做的是「配对」：每一个匹配都产出一行。
-⚠️ 差别不在语法风格，<strong>在结果的行数</strong>，而行数错了下一步的聚合就全错。</p>
+<p>把更新时间相加只是为了看清重复计入。存在性筛选得到 <code>100 + 99 + 100 = 299</code>，连接后还多算两个 100，得到 499。</p>
 </blockquote>
 <p><strong>三选一的判据表</strong>（按「右表的列你要不要」往下读）：</p>
 <div class="tw"><table>
@@ -615,28 +628,27 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td>每一行都要一个附加的小值，而且<strong>没匹配也要保留这一行</strong></td>
 <td><strong>相关标量子查询</strong></td>
-<td>它天然是左连接语义（第二节）</td>
+<td>把相关标量子查询放在 <code>SELECT</code> 列表中，本例就能给每条外行附上计数。</td>
 </tr>
 </tbody>
 </table></div>
-<p>⚠️ <strong>别拿「<code>IN</code> 慢 <code>EXISTS</code> 快」这种口诀选写法。</strong> 那句话来自二十年前某些数据库的实现，<strong>今天不成立</strong>。给上面 <code>IN</code> 版和 <code>EXISTS</code> 版各加一句 <code>EXPLAIN QUERY PLAN</code>，本机（SQLite 3.50.4）给的计划完全不同（下面只留了操作名）：</p>
+<p><code>EXPLAIN QUERY PLAN</code> 显示 SQLite 打算怎样找行，例如扫描全表或用主键定位。它输出计划，实际耗时需要另测。下面保留 SQLite 3.50.4 的计划记录。</p>
 <section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>IN : SEARCH c USING INTEGER PRIMARY KEY (rowid=?) / LIST SUBQUERY 1 / SCAN msg / CREATE BLOOM FILTER</p><p>EXISTS : SCAN c / CORRELATED SCALAR SUBQUERY 1 / SCAN m</p></div></section>
-<p>⭐ <code>IN</code> 版反而先扫小表、建了个布隆过滤器再去主键上定位。 结论：按语义选写法，性能问题交给 <a href="09-计划里的连接与索引失效.html">09 章</a>去看计划。</p>
+<p>这个计划里的布隆过滤器（Bloom filter）能提前排除一些肯定不在候选集中的键。它给出「可能匹配」时，数据库仍要核实。不同版本可以为同样的查询选择不同计划。<a href="09-计划里的连接与索引失效.html">第 09 章会继续读查询计划</a>。</p>
 <h2 id="not-in">五、反连接：先确定谁算未匹配</h2>
 <p>上一节问「哪些会话有匹配的消息」。现在要审查会话，找出没有匹配黑名单记录的会话。<code>conv</code> 是会话表，<code>blk</code> 是黑名单，<code>uid</code> 是用户编号。按条件找出左表中没有匹配右行的记录，叫<strong>反连接（anti-join）</strong>。如果会话的 UID 缺失，报表是否应把它列为「未查到匹配」？先算真值，再决定哪些行应保留。</p>
 <h3 id="not-in-truth">先用 7 和 8 算一遍</h3>
 <p>回顾 <a href="04-NULL与三值逻辑.html#unknown">04 章的三值逻辑</a>。<code>WHERE</code> 只保留条件为真（<code>TRUE</code>）的行。普通等号或不等号与 <code>NULL</code> 比较会得到未知（<code>UNKNOWN</code>）。</p>
-<p>以下展开用于本章的<strong>单列 UID</strong> 示例。左右两侧的非缺失值都是整数，缺失值记为 <code>NULL</code>。在这个例子里，<code>x NOT IN (a, b)</code> 可以按 <code>x &lt;&gt; a AND x &lt;&gt; b</code> 计算。<code>x</code> 是当前 UID，<code>a</code>、<code>b</code> 是右侧候选值。<code>&lt;&gt;</code> 表示不等于，<code>AND</code> 要求两次比较都为真。实际查询中，SQLite 的列亲和性（列倾向使用的类型）会影响比较前的类型转换，遇到混合类型时要按数据库的比较规则判断。（<a href="https://www.sqlite.org/datatype3.html#type_conversions_prior_to_comparison">SQLite 的类型转换规则</a>）</p>
-<div class="tw"><table>
-<caption>每一行先比较，再决定能否通过筛选</caption>
-<thead><tr><th scope="col">条件</th><th scope="col">逐项计算</th><th scope="col">通过 WHERE？</th></tr></thead>
-<tbody>
-<tr><th scope="row"><code>7 NOT IN (8)</code></th><td><code>7 &lt;&gt; 8</code> → <strong>TRUE</strong></td><td>保留</td></tr>
-<tr><th scope="row"><code>7 NOT IN (8, NULL)</code></th><td><code>7 &lt;&gt; 8</code> 为真，<code>7 &lt;&gt; NULL</code> 未知。真 AND 未知 → <strong>UNKNOWN</strong></td><td>丢弃</td></tr>
-<tr><th scope="row"><code>8 NOT IN (8, NULL)</code></th><td><code>8 &lt;&gt; 8</code> 为假，<code>8 &lt;&gt; NULL</code> 未知。假 AND 未知 → <strong>FALSE</strong></td><td>丢弃</td></tr>
-<tr><th scope="row"><code>NULL NOT IN (8)</code></th><td><code>NULL &lt;&gt; 8</code> → <strong>UNKNOWN</strong></td><td>丢弃</td></tr>
-</tbody>
-</table></div>
+<p>用单列 UID 算一个例子。<code>x</code> 是当前用户编号，<code>a</code>、<code>b</code> 是名单里的两个候选值。已知值都是整数，缺值记为 <code>NULL</code>。</p>
+<p><code>x NOT IN (a, b)</code> 在这里可以展开成 <code>x &lt;&gt; a AND x &lt;&gt; b</code>。<code>&lt;&gt;</code> 表示不等于。两次比较都为真，整条条件才为真。</p>
+<p id="not-in-truth-cases"><strong>逐项比较，再决定能否通过 WHERE</strong></p>
+<dl class="sql05-cases" aria-labelledby="not-in-truth-cases">
+<div><dt><code>7 NOT IN (8)</code></dt><dd><code>7 &lt;&gt; 8</code> 为真，得到 <strong>TRUE，通过 WHERE</strong>。</dd></div>
+<div><dt><code>7 NOT IN (8, NULL)</code></dt><dd><code>7 &lt;&gt; 8</code> 为真，<code>7 &lt;&gt; NULL</code> 未知。真 AND 未知得到 <strong>UNKNOWN，不通过 WHERE</strong>。</dd></div>
+<div><dt><code>8 NOT IN (8, NULL)</code></dt><dd><code>8 &lt;&gt; 8</code> 为假，<code>8 &lt;&gt; NULL</code> 未知。假 AND 未知得到 <strong>FALSE，不通过 WHERE</strong>。</dd></div>
+<div><dt><code>NULL NOT IN (8)</code></dt><dd><code>NULL &lt;&gt; 8</code> 得到 <strong>UNKNOWN，不通过 WHERE</strong>。</dd></div>
+</dl>
+<p>混合类型要按数据库的规则比较。SQLite 的列亲和性（column affinity）是列偏好的数据类型，例如整数列倾向把文本 <code>'7'</code> 转为整数。<a href="https://www.sqlite.org/datatype3.html#type_conversions_prior_to_comparison">SQLite 的类型转换规则</a></p>
 <p>找到一个确定相等的值，<code>NOT IN</code> 就为假。所有比较都确定不等，结果为真。没有确定相等的值、且至少一次比较未知，结果才是未知。<strong>右侧子查询返回零行时</strong>，没有任何候选值需要排除，<code>NOT IN</code> 为真，即使左值是 <code>NULL</code>。</p>
 <p>下面的 SQLite 实验用原来的 7 条会话，左侧 UID 只有 7 和 8。黑名单右侧有 8 和 <code>NULL</code>。<code>SELECT DISTINCT uid</code> 让同一个 UID 只显示一次。本实验的报表只比较已知 UID。末尾的 <code>SELECT</code> 直接显示条件值，SQLite 的真、假分别显示为 <code>1</code>、<code>0</code>，Python 用 <code>None</code> 显示 SQL 的 <code>NULL</code> 结果。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
@@ -711,19 +723,16 @@ queries = {
     print(label, ids)
 db.close()
 </code></pre></div>
-<div class="tw"><table>
-<caption>SQLite 实测 · 返回的会话编号</caption>
-<thead><tr><th scope="col">写法</th><th scope="col">结果</th><th scope="col">为什么</th></tr></thead>
-<tbody>
-<tr><th scope="row">A 原始 <code>NOT IN</code></th><td><code>[]</code></td><td>1 和 3 的条件未知，2 的条件为假。</td></tr>
-<tr><th scope="row">B <code>NOT EXISTS</code></th><td><code>[1, 3]</code></td><td>这两条会话都找不到等号为真的右行。</td></tr>
-<tr><th scope="row">C 左连接检查 <code>b.id</code></th><td><code>[1, 3]</code></td><td>这两条会话的右侧编号是左连接补出的 <code>NULL</code>。</td></tr>
-<tr><th scope="row">D <code>NOT IN</code> 滤右侧</th><td><code>[1]</code></td><td>右侧只剩 8，<code>7 NOT IN (8)</code> 为真，<code>NULL NOT IN (8)</code> 未知。</td></tr>
-<tr><th scope="row">E <code>NOT EXISTS</code> 滤外侧</th><td><code>[1]</code></td><td>外层先要求 UID 已知，结果只留下没有匹配的 1。</td></tr>
-<tr><th scope="row">F 左连接误查 <code>b.note</code></th><td><code>[1, 2, 3]</code></td><td>2 匹配到的真实右行恰好没有备注。</td></tr>
-<tr><th scope="row">G <code>NOT IN</code> 空子查询</th><td><code>[1, 2, 3]</code></td><td><code>WHERE 1 = 0</code> 使右侧没有候选值，连外侧缺值的 3 也通过。</td></tr>
-</tbody>
-</table></div>
+<p id="anti-join-results"><strong>SQLite 实测 · 返回的会话编号</strong></p>
+<dl class="sql05-cases" aria-labelledby="anti-join-results">
+<div><dt>A 原始 <code>NOT IN</code></dt><dd><strong><code>[]</code></strong>。会话 1 和 3 的条件未知，会话 2 的条件为假。</dd></div>
+<div><dt>B <code>NOT EXISTS</code></dt><dd><strong><code>[1, 3]</code></strong>。这两条会话都找不到等号为真的右行。</dd></div>
+<div><dt>C 左连接检查 <code>b.id</code></dt><dd><strong><code>[1, 3]</code></strong>。这两条会话的右侧编号是左连接补出的 <code>NULL</code>。</dd></div>
+<div><dt>D <code>NOT IN</code> 滤右侧</dt><dd><strong><code>[1]</code></strong>。右侧只剩 8，<code>7 NOT IN (8)</code> 为真，<code>NULL NOT IN (8)</code> 未知。</dd></div>
+<div><dt>E <code>NOT EXISTS</code> 滤外侧</dt><dd><strong><code>[1]</code></strong>。外层先要求 UID 已知，只留下没有匹配的会话 1。</dd></div>
+<div><dt>F 左连接误查 <code>b.note</code></dt><dd><strong><code>[1, 2, 3]</code></strong>。会话 2 匹配到的真实右行恰好没有备注，因此被误留。</dd></div>
+<div><dt>G <code>NOT IN</code> 空子查询</dt><dd><strong><code>[1, 2, 3]</code></strong>。<code>WHERE 1 = 0</code> 使右侧没有候选值，外侧缺值的会话 3 也通过。</dd></div>
+</dl>
 <h3 id="anti-join-choice">先定报表口径，再选写法</h3>
 <ul>
 <li><strong>找不到满足匹配条件的右行</strong>，用 <code>NOT EXISTS</code> 直接表达。使用普通等号时，左侧 UID 缺失的行也会留下。只统计 UID 已知的会话时，显式加 <code>c.uid IS NOT NULL</code>。</li>
@@ -736,7 +745,7 @@ db.close()
 <!--MIDSTOP-->
 <blockquote>
 <p>🛑 <strong>读到这里可以停</strong> —— 已经读了约 64 分钟。
-<strong>最后一段还有</strong>（约 32 分钟）：剩下三个容易踩的 · 检查点与走神救援
+<strong>最后一段还有</strong>（约 32 分钟）：剩下三个容易踩的 · 检查点与回顾
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
 <h2 id="_4">🧯 六、剩下三个容易踩的</h2>
@@ -761,12 +770,18 @@ db.close()
 <p>实测输出：</p>
 <section class="visual-block visual-block-note" aria-label="要点"><p class="visual-block-title">要点</p><div class="vb-note"><p>多【行】的子查询塞进标量位置 : (1,) ← 只取了第一行</p><p>多【列】的子查询塞进标量位置 : OperationalError - sub-select returns 2 columns - expected 1</p><p>FROM 子查询不给别名 : (7,)</p></div></section>
 <p>💀 <strong>列数不对会报错，行数不对不会。</strong> SQLite 悄悄取第一行 —— 而「第一行」在没有 <code>ORDER BY</code> 时是不做承诺的（<a href="01-一条查询是怎么跑的.html">01 章</a>讲过这件事）。</p>
-<p>⭐ <strong>所以：写在标量位置的子查询，得由你自己保证它最多一行</strong> —— 要么是聚合（<code>MAX</code> / <code>COUNT</code>），要么带明确的 <code>ORDER BY</code> + <code>LIMIT 1</code>。</p>
+<p><strong>先确定标量子查询最多返回一行。</strong></p>
+<ul>
+<li>不分组的全表 <code>COUNT(*)</code> 产生一个计数，空输入时是 0。<code>MAX(...) GROUP BY uid</code> 按用户各产一行，两个用户可得到两行。</li>
+<li>从多行中挑一行时，用含唯一决胜键的 <code>ORDER BY</code> 配合 <code>LIMIT 1</code>。</li>
+</ul>
+<p>如果最终没有一行，标量子查询的值为 <code>NULL</code>。</p>
 <p>🗓️ 未实跑：Postgres 在这种情况下会直接报「more than one row returned by a subquery」，MySQL 报 <code>Subquery returns more than 1 row</code> —— 换库时同一条 SQL 会从「悄悄错」变成「直接崩」。</p>
 <h3 id="2-from">② <code>FROM</code> 子查询的别名</h3>
-<p>SQLite 不要求（上面 <code>FROM (SELECT id FROM conv)</code> 跑通了），🗓️ 但 Postgres 和 MySQL 要求（未实跑）。⭐ 一律加别名 <code>AS t</code>，零成本，还让外层引用它的列时有名字可用。</p>
+<p>SQLite 和 PostgreSQL 16 及以上版本允许省略 <code>FROM</code> 子查询的别名。PostgreSQL 15 和 MySQL 8.4 要求提供别名。写 <code>AS t</code> 能让外层用 <code>t.列名</code> 明确引用子查询的列。<a href="https://www.postgresql.org/docs/16/release-16.html">PostgreSQL 16 变更</a> · <a href="https://dev.mysql.com/doc/refman/8.4/en/derived-tables.html">MySQL 8.4 派生表</a></p>
 <h3 id="3-exists-select">③ 普通 <code>EXISTS</code> 例里，<code>SELECT</code> 投影未求值</h3>
-<p><code>SELECT 1</code> 还是 <code>SELECT *</code>？下面这组 SQLite 普通 <code>EXISTS</code> 查询只检查有没有行，投影中的溢出表达式没有被求值。先看本例结果，再划清适用范围。</p>
+<p><strong>投影（projection）</strong>是选定结果要输出哪些列或表达式。例如 <code>SELECT 1 FROM msg</code> 输出常量 1，<code>SELECT * FROM msg</code> 输出消息表的全部列。</p>
+<p>下面把会溢出的表达式放进 <code>EXISTS</code> 里，观察它是否求值。<code>abs</code> 取绝对值，这个输入的绝对值比 SQLite 的最大整数还大 1，所以单独求值会报错。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 
 <span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
@@ -789,7 +804,8 @@ db.close()
 <p>实测输出：</p>
 <section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">单独跑 : OperationalError - integer overflow</span></div><div class="vb-flow-row"><span class="vb-flow-step">EXISTS (SELECT 1 ) -&gt; 4</span></div><div class="vb-flow-row"><span class="vb-flow-step">EXISTS (SELECT NULL ) -&gt; 4</span></div><div class="vb-flow-row"><span class="vb-flow-step">EXISTS (SELECT * ) -&gt; 4</span></div><div class="vb-flow-row"><span class="vb-flow-step">EXISTS (SELECT abs(-9223372036854775808) ) -&gt; 4</span></div></div></section>
 <p>⭐ 上面四种原普通查询都返回 4，溢出投影没有触发。<strong><code>EXISTS</code> 只问子查询是否返回行，不保证子查询内部不需要计算表达式。</strong>在这组查询里，写 <code>SELECT 1</code> 是表达意图的习惯，不是提速保证。</p>
-<p>边界反例（SQLite 3.53.1 内存对照）：普通 <code>EXISTS(SELECT abs(-9223372036854775808))</code> 返回 1；子查询改为 <code>SELECT abs(-9223372036854775808) INTERSECT SELECT 1</code> 后报 <code>integer overflow</code>；两边都投影 <code>1</code> 时又返回 1。<code>INTERSECT</code> 要用投影值确定交集是否有行。不要依赖表达式副作用或求值次数；其他引擎与版本分别核验。依据：SQLite <a href="https://www.sqlite.org/lang_expr.html#the_exists_operator">EXISTS</a>、<a href="https://www.sqlite.org/lang_select.html#compound_select_statements">复合 SELECT</a>。</p>
+<p><strong>交集（<code>INTERSECT</code>）</strong>只留下两个查询都返回的行。<code>SELECT 1 INTERSECT SELECT 1</code> 留下一行，因为两边都有 1。</p>
+<p>在 SQLite 中，<code>EXISTS(SELECT abs(-9223372036854775808))</code> 得到 1。加入 <code>INTERSECT SELECT 1</code> 后报 <code>integer overflow</code>，因为要读取结果值才能判断有没有共同的行。<a href="https://www.sqlite.org/lang_expr.html#the_exists_operator">SQLite EXISTS</a> · <a href="https://www.sqlite.org/lang_select.html#compound_select_statements">复合 SELECT</a></p>
 <h2 id="_5">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
 <thead>
@@ -832,7 +848,7 @@ db.close()
 <h2 id="_6">✅ 检查点</h2>
 <ol>
 <li>子查询的三种形状各是什么？决定该用哪一种的是子查询自己，还是它出现的位置？</li>
-<li>怎么一眼分辨相关子查询和非相关子查询？说出那条不用数括号的判据。</li>
+<li>怎么从列的来源分辨相关子查询和非相关子查询？用 <code>m.conv_id = c.id</code> 解释。</li>
 <li>相关标量子查询和 <code>JOIN</code> + <code>GROUP BY</code> 改写，实测行数为什么不一样（7 行 vs 4 行）？该怎么补？</li>
 <li><code>(updated_at, id) &lt; (100, 3)</code> 的定义是什么？为什么它不等于 <code>updated_at &lt; 100 AND id &lt; 3</code>？实测两者各命中几行？</li>
 <li>单列游标 <code>updated_at &lt; 100</code> 和行值游标各取 2 条，实测分别是哪两条？漏掉的是谁、为什么？</li>
@@ -847,31 +863,28 @@ db.close()
 <details>
 <summary>👀 答案</summary>
 <ol>
-<li><strong>标量</strong>（一行一列 = 一个值）、行（一行多列）、表（多行）。决定形状的是位置：<code>SELECT</code> 列表 / <code>ORDER BY</code> / 和一个列比大小的右边必须是标量；和行值比较的必须是行；<code>FROM</code> / <code>IN</code> / <code>EXISTS</code> 后面是表（<code>IN</code> 还要求只有一列）。</li>
-<li><strong>把子查询单独复制出来能不能跑</strong>：能跑 = 非相关（整条语句只算一次）；报 <code>no such column</code>（实测 <code>no such column: c.id</code>）= 相关（引用了外层的列，概念上每行跑一次）。</li>
-<li>相关标量子查询给 <strong>7 行</strong>（会话 3、4、6 一条消息都没有，写成 0），内连接的 <code>GROUP BY</code> 只给 4 行 —— 内连接把没有匹配的左行整行丢掉了。补法是改成 <code>LEFT JOIN</code> 且用 <code>COUNT(m.conv_id)</code> 而不是 <code>COUNT(*)</code>，实测回到 7 行。相关标量子查询天然是左连接语义。</li>
+<li><strong>标量</strong>用于取一个值，零行给 <code>NULL</code>。<strong>行</strong>用于取一组列值。<strong>表</strong>可以提供多行多列。对 <code>IN</code> 的右侧子查询，列数与左侧匹配。</li>
+<li>如果内层引用了外层的列，就是相关子查询。这里 <code>m.conv_id</code> 来自内层消息表，<code>c.id</code> 来自外层会话表。</li>
+<li>在 <code>SELECT</code> 列表中为每条会话计算消息数，本例保留 <strong>7 行</strong>，会话 3、4、6 的计数是 0。内连接只返回 4 行。用 <code>LEFT JOIN</code> 保留未匹配会话，再用 <code>COUNT(m.conv_id)</code> 排除补出的空行，得到 7 行。</li>
 <li>定义是<strong>字典序</strong>：先比第一列，分出胜负就结束，打平了才比第二列；等价展开是 <code>updated_at &lt; 100 OR (updated_at = 100 AND id &lt; 3)</code>。它不是两个条件求交集。实测行值命中 4 行 <code>[2,1,5,6]</code>，逐列 <code>AND</code> 命中 0 行。⚠️ <code>(100,3) &lt; (99,999)</code> 算出 0，因为第一列已分胜负，第二列没看。</li>
-<li>行值游标 → <code>[2, 1]</code>；单列游标 → <code>[5, 6]</code>。⚠️ 漏掉的是 <code>id=2</code>、<code>id=1</code> —— 它们的 <code>updated_at</code> 也是 100，被 <code>updated_at &lt; 100</code> <strong>整段跳过</strong>了。只有行值比较和 <code>ORDER BY updated_at DESC, id DESC</code> 这个全序一一对应。</li>
+<li>行值游标 → <code>[2, 1]</code>。单列游标 → <code>[5, 6]</code>。会话 2 和 1 也在 100 秒，被单列条件跳过。本例用两个非空降序键、唯一编号和与之对应的行值条件，或等价的 <code>OR</code> 展开。</li>
 <li>因为用户 7 有 <strong>4 条</strong>会话的 <code>updated_at</code> 都是 100，<code>= MAX(...)</code> 把它们全判成「最新」，2 个用户实测出 5 行。修法：排序键末尾补一个唯一列（主键）当决胜，然后整行比 —— <code>(updated_at, id) = (SELECT updated_at, id … ORDER BY updated_at DESC, id DESC LIMIT 1)</code>，实测回到 2 行。</li>
 <li><code>IN</code> <strong>3 行</strong>、<code>EXISTS</code> 3 行、<code>JOIN</code> 5 行（会话 1 和 7 各有 2 条 assistant 消息，各被带出 2 遍）、<code>JOIN + DISTINCT</code> 回到 3 行。接 <code>SUM(updated_at)</code>：<code>EXISTS</code> 版 299，<code>JOIN</code> 版 499。<code>IN</code>/<code>EXISTS</code> 是半连接（只问有没有），<code>JOIN</code> 是配对（每个匹配产出一行）。</li>
-<li><strong>右表的列你到底要不要</strong>。不要 → <code>EXISTS</code>（结构上不可能扇出）；判据是一小撮字面值/单列小结果集 → <code>IN</code>；要右表的列 → <code>JOIN</code>（自己处理扇出）；要右表的聚合值 → 先聚合再连（扇出在聚合那一步就消掉了）；每行加个小值且没匹配也要保留该行 → 相关标量子查询。</li>
+<li>问名单成员关系用 <code>IN</code>，问有无匹配用 <code>EXISTS</code>，要配对行的列用 <code>JOIN</code>。要右侧的聚合值时，可先按连接键聚合，再做连接。只需为每条会话附一个计数时，可以在 <code>SELECT</code> 列表中用相关标量子查询。</li>
 <li><code>7 &lt;&gt; 8</code> 为真，所以第一式通过。第二式多了 <code>7 &lt;&gt; NULL</code>，真 AND 未知得到未知。第三式有 <code>8 &lt;&gt; 8</code> 这个假，假 AND 未知得到假。后两式都无法通过。右侧子查询返回零行时，<code>NOT IN</code> 对所有外行都为真，包括 UID 缺失的会话。</li>
 <li>会话 3 与右表两个 UID 的普通等号比较都未知，子查询找不到真匹配，所以 <code>NOT EXISTS</code> 为真。加上外层 <code>c.uid IS NOT NULL</code> 后，只留下会话 1。用 <code>b.note IS NULL</code> 会多留会话 2，因为它匹配的右行 10 恰好缺备注。检查 <code>b.id IS NULL</code> 可以识别左连接补出的右侧空行。</li>
-<li>多<strong>行</strong>：⚠️ 不报错，悄悄取第一行（实测 <code>(1,)</code>）；多列：报 <code>sub-select returns 2 columns - expected 1</code>。要求是自己保证它最多一行 —— 要么是聚合，要么带明确的 <code>ORDER BY</code> + <code>LIMIT 1</code>（不带 <code>ORDER BY</code> 时「第一行是谁」SQL 不做承诺）。🗓️ Postgres / MySQL 在这种情况下会直接报错（未实跑）。</li>
+<li>SQLite 在标量位置遇到多行会取第一行，多列会报错，零行得到 <code>NULL</code>。先检查聚合是否分组，或用含唯一决胜键的 <code>ORDER BY</code> 和 <code>LIMIT 1</code> 明确选哪一行。PostgreSQL 和 MySQL 对标量位置的多行结果会报错。</li>
 <li>原普通查询把 <code>abs(-9223372036854775808)</code> 放进 <code>EXISTS</code> 的 <code>SELECT</code> 列表，与 <code>1</code> / <code>NULL</code> / <code>*</code> 一样返回 4，说明本例没有求值这个溢出投影；单独运行它仍报 <code>integer overflow</code>。加入 <code>INTERSECT</code> 的子查询可能要用投影值确定结果行，内存反例会报同一溢出错误。<code>EXISTS</code> 检查有没有行，不是子查询内部永不求值的保证；不要依赖表达式副作用。</li>
 </ol>
 </details>
 <h2 id="_7">🛑 可以停在这里</h2>
-<p>⚡ <strong>走神救援</strong></p>
-<blockquote>
-<p>⭐ <strong>子查询只有三种形状（一个值 / 一行 / 一张表），而决定用哪种的不是子查询自己，是它出现的位置。</strong> 第二个正交的维度是<strong>相关 vs 非相关</strong>——⭐ 判据不用数括号：<strong>把子查询单独复制出来能不能跑</strong>，报「no such column」的就是相关。</p>
-<p>⭐ <strong>相关标量子查询天然是左连接语义</strong>：它会保留没有匹配的那些行（补 0），而换成 <code>JOIN + GROUP BY</code> 会让那些行<strong>整行消失且不报错</strong>，得写 <code>LEFT JOIN</code> 才回得来。</p>
-<p>⭐ 本章的核心是<strong>行值</strong>：把几列打包成一整行按<strong>字典序</strong>比——先比第一列，分出胜负就结束，打平了才比第二列。⚠️⚠️ <strong>它绝不等于 <code>a &lt; ? AND b &lt; ?</code></strong>：实测行值命中好几行，而逐列 <code>AND</code> 一行都没有。<strong>这就是复合游标分页成立的全部理由</strong>——排序定义了一个全序，只有行值比较和它一一对应；用单列游标会把同一秒里没读完的记录整段跳过。</p>
-<p>同一条规矩也治「每个用户最新的一条」：只比 <code>MAX(时间)</code> 会在时间戳撞车时<strong>返回多行</strong>，⭐ 补上唯一列决胜才回到一行。</p>
-<p>🚦 <strong><code>IN</code> / <code>EXISTS</code> / <code>JOIN</code> 三选一，判据只有一句：右表的列你到底要不要。</strong> 不要就 <code>EXISTS</code>（半连接，<strong>结构上不可能扇出</strong>），要列就 <code>JOIN</code>。⚠️ 实测同一个存在性问题，<code>JOIN</code> 会把匹配多次的行<strong>各带出好几遍</strong>，接一步 <code>SUM</code> 结果就完全不同。</p>
-<p><strong>做反连接先定外侧缺值口径。</strong> <code>NOT EXISTS</code> 检查有没有真匹配。单列 <code>NOT IN</code> 要检查两侧缺值与空名单。左连接用 <code>IS NULL</code> 判断未匹配时，要检查匹配后必定有值的右列。</p>
-</blockquote>
-<p><strong>下一节</strong> 👉 <a href="06-CTE与递归查询.html">06-CTE与递归查询.md</a></p>
+<ul>
+<li><a href="#_2">定形状</a>。先看外层位置需要一个值、一组列还是多行。</li>
+<li><a href="#vs">查引用</a>。沿列名找到它定义在哪一层。</li>
+<li><a href="#_3">按顺序翻页</a>。让翻页条件与排序方向、缺值规则和唯一决胜键一致。</li>
+<li><a href="#not-in">筛出未匹配行</a>。先定缺值是否保留，再选 <code>NOT EXISTS</code>、单列 <code>NOT IN</code> 或左连接。</li>
+</ul>
+<p>本章比较了查询结果。想把多层查询摊开阅读，可以继续学 <a href="06-CTE与递归查询.html">第 06 章 CTE 与递归查询</a>。查询慢时，回到 <a href="09-计划里的连接与索引失效.html">第 09 章读执行计划</a>。</p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="04-NULL与三值逻辑.html"><div class="dir">← 上一节</div>🕳️ 04 · NULL 与三值逻辑</a><a class="next" href="06-CTE与递归查询.html"><div class="dir">下一节 →</div>🌲 06 · CTE 与递归查询</a></nav>
