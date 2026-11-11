@@ -300,11 +300,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p class="mg-question">复用了前缀计算，为什么显存反而不够了？</p>
 <p class="mg-dek">固定参数和一致前缀规则下，旧 K/V 可以复用；它们也会随着上下文与并发占据显存，容量上界还不等于满足延迟目标的并发。</p>
 <p class="mg-outcome">读完能判断：说明缓存复用的前提，区分被省掉的计算与新增的容量，并读懂容量函数的上界。</p>
-<nav class="mg-actions" aria-label="本页阅读入口">
-<a class="mg-primary" href="#_2">先看复用前提与容量</a>
-<a href="#mg-ai-infra-kv-cache-reading-start">直接进入完整正文</a>
-</nav>
-<p class="mg-reading-map">可以分段读：<a href="#_2">① 先看每步复用什么</a><a href="#_3">② 从张量形状推容量</a><a href="#2-prefix-caching">③ 判断前缀能否命中</a><a href="#batch">④ 算容量上界</a></p>
 </div>
 </header>
 <span id="mg-ai-infra-kv-cache-reading-start"></span>
@@ -318,10 +313,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#mla-kv">🧬 四、MLA：换一条思路压 KV</a></li>
 <li><a href="#_4">🗑️ 五、朴素管理方式的浪费</a></li>
 <li><a href="#_5">🧰 六、四个能立刻用的优化</a></li>
+<li><a href="#2-prefix-caching">② 前缀缓存（Prefix Caching）</a></li>
 <li><a href="#batch">🧮 七、动手：算你能开多大 batch</a></li>
 <li><a href="#_6">🔗 和站内其他章的关系</a></li>
 <li><a href="#_7">✅ 检查点</a></li>
-<li><a href="#_8">🛑 可以停在这里</a></li>
+<li><a href="#_8">本节回顾</a></li>
 </ul>
 </div>
 </details>
@@ -775,13 +771,6 @@ DeepSeek-V2 论文在其模型和评测设置中报告质量<strong>不低于其
    它头特别多（128 个），所以 MHA 那一列显得格外夸张。</li>
 </ol>
 <hr />
-<!--MIDSTOP-->
-<blockquote>
-<p>🛑 <strong>读到这里可以停</strong> —— 已经读了约 24 分钟。
-<strong>最后一段还有</strong>（约 25 分钟）：朴素管理方式的浪费 · 四个能立刻用的优化 · 动手：算你能开多大 batch · 检查点与走神救援
-回来的时候不用重读，直接从下一节接着看就行。</p>
-</blockquote>
-<hr />
 <h2 id="_4">🗑️ 五、朴素管理方式的浪费</h2>
 <section class="visual-block visual-block-compare" aria-label="对照"><p class="visual-block-title">对照</p><div class="vb-compare"><p>❌ 朴素做法：为每个请求预分配【最大长度】的连续显存</p><p>请求 A（实际用 100 token，max 2048）：</p><p>[████░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 只使用约 5%，其余是预留</p><p>请求 B（实际用 1500）：</p><p>[████████████████████████░░░░░░░░] 约 27% 尚未使用</p><p>⭐ PagedAttention 原论文报告其对比系统存在显著 KV 浪费；你自己的比例取决于长度分布、引擎和块大小</p></div></section>
 <p><strong>三种浪费</strong>：</p>
@@ -965,7 +954,7 @@ print(max_batch(80, 14, 32, 8, 128, 2048))    # 216, 0.268435456 GB
 </ol>
 </details>
 <hr />
-<h2 id="_8">🛑 可以停在这里</h2>
+<h2 id="_8">本节回顾</h2>
 <p>⚡ <strong>走神救援</strong></p>
 <p>先分清训练的反向/更新与推理的固定参数复用；缓存省下重复计算，也要付容量与读写代价。容量来自 <strong>K/V 两份 × 层数 × 已驻留 token 数 × KV 头数 × 头维度 × 元素字节</strong>。投影/MLP 的 O(n) 不代表全部注意力 O(n)，并发上界也不代表能守住延迟目标。</p>
 <blockquote>
