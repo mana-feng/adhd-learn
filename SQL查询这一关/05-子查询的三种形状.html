@@ -64,6 +64,10 @@ ul,ol{padding-left:1.5em}li{margin:.35em 0}
 .sql05-cases > div{padding:.55em 0;border-bottom:1px solid var(--border)}
 .sql05-cases dt{font-weight:650}
 .sql05-cases dd{margin:.15em 0 0}
+@media(min-width:641px){
+ .sql05-cases-columns > div{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.6fr);column-gap:1em}
+ .sql05-cases-columns dd{margin:0}
+}
 table{border-collapse:collapse;width:100%;margin:0;font-size:var(--fs-md)}
 th,td{min-width:5.2em}
 th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
@@ -346,33 +350,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 </tbody>
 </table></div>
-<p>⭐ <strong>判据不是「它自己长什么样」，是「它出现的位置要求它是什么形状」。</strong> 位置定形状：</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>位置</th>
-<th>要求的形状</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>SELECT</code> 列表、<code>ORDER BY</code><br>与单值比较的位置</td>
-<td>必须<strong>标量</strong></td>
-</tr>
-<tr>
-<td>和一个<strong>行值</strong>比较（<code>(a, b) = (…)</code>）</td>
-<td>必须<strong>行</strong>，且列数、顺序都要对上</td>
-</tr>
-<tr>
-<td><code>FROM</code> 或 <code>EXISTS</code> 后面</td>
-<td><strong>表</strong>。<code>FROM</code> 提供行与列。<br><code>EXISTS</code> 检查是否至少有一行。</td>
-</tr>
-<tr>
-<td><code>IN</code> / <code>NOT IN</code> 的右侧子查询</td>
-<td>返回候选行，列数与左侧匹配。<br>单值配一列，行值逐列对应。</td>
-</tr>
-</tbody>
-</table></div>
+<p id="sql05-query-positions"><strong>按查询位置判断子查询形状</strong></p>
+<dl class="sql05-cases sql05-cases-columns" aria-labelledby="sql05-query-positions">
+<div><dt><code>SELECT</code> 列表、<code>ORDER BY</code> 或与单值比较</dt><dd>在这里用<strong>标量子查询</strong>提供一个值。</dd></div>
+<div><dt>和行值比较，如 <code>(a, b) = (…)</code></dt><dd>子查询提供一组列值。两侧的列数要相同，顺序要对应。</dd></div>
+<div><dt><code>FROM</code> 或 <code>EXISTS</code> 后面</dt><dd><code>FROM</code> 使用子查询提供的行和列。<code>EXISTS</code> 检查子查询是否至少返回一行。</dd></div>
+<div><dt><code>IN</code> / <code>NOT IN</code> 的右侧子查询</dt><dd>返回候选行，<strong>列数与左侧匹配</strong>。左侧是单值用一列，左侧是行值按位置对应。</dd></div>
+</dl>
 <p><strong>试两个最小查询。</strong> 在 SQLite 中，<code>SELECT (SELECT 1 WHERE 0)</code> 得到 <code>NULL</code>，因为括号里没有一行能通过 <code>WHERE 0</code>。<code>SELECT (1, 2) IN (SELECT 1, 2)</code> 得到 <code>1</code>，因为两个位置都相等。<a href="https://www.sqlite.org/lang_expr.html#subquery_expressions">SQLite 子查询规则</a> · <a href="https://www.sqlite.org/rowvalue.html#row_value_in_operators">行值 IN</a></p>
 <p>回忆 <a href="01-一条查询是怎么跑的.html">第 01 章</a>。在常见的 SQL 写法中，同层 <code>WHERE</code> 先筛行，<code>SELECT</code> 才给计算结果命名。可以把计算放进 <code>FROM</code> 子查询，这样计算结果的名字就是外层查询可用的列名。</p>
 <p>三种一起跑一遍。会话表 <code>conv</code> 有 7 行，其中 5 行的 <code>updated_at</code> 为 100。这组演示把时间写成整数秒，<code>id</code> 是会话编号，<code>uid</code> 是用户编号。</p>
@@ -595,43 +579,14 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <blockquote>
 <p>把更新时间相加只是为了看清重复计入。存在性筛选得到 <code>100 + 99 + 100 = 299</code>，连接后还多算两个 100，得到 499。</p>
 </blockquote>
-<p><strong>三选一的判据表</strong>（按「右表的列你要不要」往下读）：</p>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>你想要的</th>
-<th>用哪个</th>
-<th>为什么</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>只想按右表<strong>筛选</strong>，右表的列一个都不要</td>
-<td>⭐ <code>EXISTS</code></td>
-<td>语义就是「有没有」，不带行进来，<strong>结构上不可能扇出</strong></td>
-</tr>
-<tr>
-<td>判据是一小撮<strong>字面值</strong>或一个小的单列结果集</td>
-<td><code>IN</code></td>
-<td>直接表达「值是否在名单中」。要排除名单时，先按<a href="#not-in">第五节</a>检查两侧缺值</td>
-</tr>
-<tr>
-<td>右表的<strong>列</strong>要用（消息内容、标签名）</td>
-<td><code>JOIN</code></td>
-<td>只有它把右表的列带进结果。⚠️ 那就必须自己处理扇出</td>
-</tr>
-<tr>
-<td>右表的<strong>聚合值</strong>要用（消息数、最后时间）</td>
-<td><strong>先聚合再连</strong></td>
-<td>先把右表压成「一个键一行」，扇出在聚合那一步就消掉了</td>
-</tr>
-<tr>
-<td>每一行都要一个附加的小值，而且<strong>没匹配也要保留这一行</strong></td>
-<td><strong>相关标量子查询</strong></td>
-<td>把相关标量子查询放在 <code>SELECT</code> 列表中，本例就能给每条外行附上计数。</td>
-</tr>
-</tbody>
-</table></div>
+<p id="sql05-query-choices"><strong>按查询需求选写法</strong></p>
+<dl class="sql05-cases sql05-cases-columns" aria-labelledby="sql05-query-choices">
+<div><dt>只按右表是否有匹配来筛选</dt><dd><strong><code>EXISTS</code></strong>。右侧找到一行就满足条件，右侧的多次匹配不会复制这条左行。</dd></div>
+<div><dt>检查一个值是否在单列名单里</dt><dd><strong><code>IN</code></strong>。名单可以直接写出，也可以由子查询提供。排除名单时，先到<a href="#not-in">第五节</a>检查两侧缺值。</dd></div>
+<div><dt>取右表的消息内容或标签名</dt><dd><strong><code>JOIN</code></strong>。可以取到配对行的列。一条左行匹配多条右行时，结果会增加行数。</dd></div>
+<div><dt>取右表的消息数或最后时间</dt><dd><strong>先聚合再连接</strong>。先按连接键把右表汇总成每键一行，再用同一个键连接。</dd></div>
+<div><dt>给每条外行附一个值，保留没有匹配的行</dt><dd><strong>相关标量子查询</strong>。放在 <code>SELECT</code> 列表中，本章的消息计数示例会给无匹配的会话附上 0。</dd></div>
+</dl>
 <p><code>EXPLAIN QUERY PLAN</code> 显示 SQLite 打算怎样找行，例如扫描全表或用主键定位。它输出计划，实际耗时需要另测。下面保留 SQLite 3.50.4 的计划记录。</p>
 <section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>IN : SEARCH c USING INTEGER PRIMARY KEY (rowid=?) / LIST SUBQUERY 1 / SCAN msg / CREATE BLOOM FILTER</p><p>EXISTS : SCAN c / CORRELATED SCALAR SUBQUERY 1 / SCAN m</p></div></section>
 <p>这个计划里的布隆过滤器（Bloom filter）能提前排除一些肯定不在候选集中的键。它给出「可能匹配」时，数据库仍要核实。不同版本可以为同样的查询选择不同计划。<a href="09-计划里的连接与索引失效.html">第 09 章会继续读查询计划</a>。</p>
