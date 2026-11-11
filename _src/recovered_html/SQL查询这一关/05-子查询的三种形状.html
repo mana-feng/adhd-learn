@@ -297,7 +297,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#vs">🔁 二、相关 vs 非相关：判据是「单独拎出来能不能跑」</a></li>
 <li><a href="#_3">🎚️ 三、⭐ 行值：整行一起比，不是逐列比</a></li>
 <li><a href="#in-exists-join">🚦 四、IN / EXISTS / JOIN：同一个问题，三种写法</a></li>
-<li><a href="#not-in">💀 五、三选一里唯一写死的一格：「不在里面」不用 NOT IN</a></li>
+<li><a href="#not-in">五、反连接：先确定谁算未匹配</a></li>
 <li><a href="#_4">🧯 六、剩下三个容易踩的</a></li>
 <li><a href="#_5">🔗 这一章连到哪里</a></li>
 <li><a href="#_6">✅ 检查点</a></li>
@@ -533,7 +533,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <!--MIDSTOP-->
 <blockquote>
 <p>🛑 <strong>读到这里可以停</strong> —— 前半章讲完了（约 38 分钟）。
-<strong>后半章还有</strong>：<code>IN</code> / <code>EXISTS</code> / <code>JOIN</code>：同一个问题，三种写法 · 三选一里唯一写死的一格：「不在里面」不用 <code>NOT IN</code> · 剩下三个容易踩的
+<strong>后半章还有</strong>：<code>IN</code> / <code>EXISTS</code> / <code>JOIN</code>：同一个问题，三种写法 · 反连接：先确定谁算未匹配 · 剩下三个容易踩的
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
 <h2 id="in-exists-join" data-mg-stop="">🚦 四、<code>IN</code> / <code>EXISTS</code> / <code>JOIN</code>：同一个问题，三种写法</h2>
@@ -600,7 +600,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <tr>
 <td>判据是一小撮<strong>字面值</strong>或一个小的单列结果集</td>
 <td><code>IN</code></td>
-<td>最短最好读。⚠️ 但「不在里面」要用 <code>NOT EXISTS</code>，见第五节</td>
+<td>直接表达「值是否在名单中」。要排除名单时，先按<a href="#not-in">第五节</a>检查两侧缺值</td>
 </tr>
 <tr>
 <td>右表的<strong>列</strong>要用（消息内容、标签名）</td>
@@ -622,9 +622,23 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⚠️ <strong>别拿「<code>IN</code> 慢 <code>EXISTS</code> 快」这种口诀选写法。</strong> 那句话来自二十年前某些数据库的实现，<strong>今天不成立</strong>。给上面 <code>IN</code> 版和 <code>EXISTS</code> 版各加一句 <code>EXPLAIN QUERY PLAN</code>，本机（SQLite 3.50.4）给的计划完全不同（下面只留了操作名）：</p>
 <section class="visual-block visual-block-calc" aria-label="算一算"><p class="visual-block-title">算一算</p><div class="vb-calc"><p>IN : SEARCH c USING INTEGER PRIMARY KEY (rowid=?) / LIST SUBQUERY 1 / SCAN msg / CREATE BLOOM FILTER</p><p>EXISTS : SCAN c / CORRELATED SCALAR SUBQUERY 1 / SCAN m</p></div></section>
 <p>⭐ <code>IN</code> 版反而先扫小表、建了个布隆过滤器再去主键上定位。 结论：按语义选写法，性能问题交给 <a href="09-计划里的连接与索引失效.html">09 章</a>去看计划。</p>
-<h2 id="not-in">💀 五、三选一里唯一写死的一格：「不在里面」不用 <code>NOT IN</code></h2>
-<p>⚠️ 先划界。 <a href="04-NULL与三值逻辑.html">04 章</a> owns 这个坑的全部机理 —— 三值逻辑的真值表、<code>UNKNOWN</code> 在 <code>AND</code> / <code>OR</code> 下怎么传播、以及四种反连接写法语义上的分叉（它实测出「<code>NOT IN</code> + 内层过滤」那种会比 <code>NOT EXISTS</code> 少一行，那是业务口径不同，不是 bug）。
-<strong>本节只 owns 一件事：为什么上面那张三选一表里，「不在里面」那一格是写死的、没有权衡余地。</strong></p>
+<h2 id="not-in">五、反连接：先确定谁算未匹配</h2>
+<p>上一节问「哪些会话有匹配的消息」。现在要审查会话，找出没有匹配黑名单记录的会话。<code>conv</code> 是会话表，<code>blk</code> 是黑名单，<code>uid</code> 是用户编号。按条件找出左表中没有匹配右行的记录，叫<strong>反连接（anti-join）</strong>。如果会话的 UID 缺失，报表是否应把它列为「未查到匹配」？先算真值，再决定哪些行应保留。</p>
+<h3 id="not-in-truth">先用 7 和 8 算一遍</h3>
+<p>回顾 <a href="04-NULL与三值逻辑.html#unknown">04 章的三值逻辑</a>。<code>WHERE</code> 只保留条件为真（<code>TRUE</code>）的行。普通等号或不等号与 <code>NULL</code> 比较会得到未知（<code>UNKNOWN</code>）。</p>
+<p>这里比较的是<strong>单列</strong> UID。<code>x NOT IN (a, b)</code> 要求当前 UID <code>x</code> 与右侧两个候选值 <code>a</code>、<code>b</code> 都不相等，因此可以写成 <code>x &lt;&gt; a AND x &lt;&gt; b</code>。<code>&lt;&gt;</code> 表示不等于，<code>AND</code> 要求两次比较都为真。</p>
+<div class="tw"><table>
+<caption>每一行先比较，再决定能否通过筛选</caption>
+<thead><tr><th scope="col">条件</th><th scope="col">逐项计算</th><th scope="col">通过 WHERE？</th></tr></thead>
+<tbody>
+<tr><th scope="row"><code>7 NOT IN (8)</code></th><td><code>7 &lt;&gt; 8</code> → <strong>TRUE</strong></td><td>保留</td></tr>
+<tr><th scope="row"><code>7 NOT IN (8, NULL)</code></th><td><code>7 &lt;&gt; 8</code> 为真，<code>7 &lt;&gt; NULL</code> 未知。真 AND 未知 → <strong>UNKNOWN</strong></td><td>丢弃</td></tr>
+<tr><th scope="row"><code>8 NOT IN (8, NULL)</code></th><td><code>8 &lt;&gt; 8</code> 为假，<code>8 &lt;&gt; NULL</code> 未知。假 AND 未知 → <strong>FALSE</strong></td><td>丢弃</td></tr>
+<tr><th scope="row"><code>NULL NOT IN (8)</code></th><td><code>NULL &lt;&gt; 8</code> → <strong>UNKNOWN</strong></td><td>丢弃</td></tr>
+</tbody>
+</table></div>
+<p>找到一个确定相等的值，<code>NOT IN</code> 就为假。所有比较都确定不等，结果为真。没有确定相等的值、且至少一次比较未知，结果才是未知。<strong>右侧子查询返回零行时</strong>，没有任何候选值需要排除，<code>NOT IN</code> 为真，即使左值是 <code>NULL</code>。</p>
+<p>下面的 SQLite 实验用原来的 7 条会话，左侧 UID 只有 7 和 8。黑名单右侧有 8 和 <code>NULL</code>。<code>SELECT DISTINCT uid</code> 让同一个 UID 只显示一次。本实验的报表只比较已知 UID。末尾的 <code>SELECT</code> 直接显示条件值，SQLite 的真、假分别显示为 <code>1</code>、<code>0</code>，Python 用 <code>None</code> 显示 SQL 的 <code>NULL</code> 结果。</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 
 <span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
@@ -653,18 +667,71 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 
 <p>实测输出：</p>
 <section class="visual-block visual-block-flow" aria-label="关键信息"><p class="visual-block-title">关键信息</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">问：哪些 uid 不在黑名单里？（正确答案是 7）</span></div><div class="vb-flow-row"><span class="vb-flow-step">NOT IN -&gt; []</span></div><div class="vb-flow-row"><span class="vb-flow-step">NOT EXISTS -&gt; [(7,)]</span></div><div class="vb-flow-row"><span class="vb-flow-step">LEFT JOIN · IS NULL -&gt; [(7,)]</span></div><div class="vb-flow-row"><span class="vb-flow-step">NOT IN + 先滤掉 NULL -&gt; [(7,)]</span></div><div class="vb-flow-row"><span class="vb-flow-step">7 NOT IN (8) -&gt; 1</span></div><div class="vb-flow-row"><span class="vb-flow-step">7 NOT IN (8, NULL) -&gt; None</span></div><div class="vb-flow-row"><span class="vb-flow-step">8 NOT IN (8, NULL) -&gt; 0</span></div><div class="vb-flow-row"><span class="vb-flow-step">7 &lt;&gt; NULL -&gt; None</span></div></div></section>
-<p>💀 <strong><code>NOT IN</code> 返回了空集，一行都没有，而且不报错。</strong> 黑名单表里多了一行 <code>NULL</code>（谁都想不到要去防的一行），整条业务规则就静默失效了。</p>
-<p>为什么：<code>x NOT IN (a, b)</code> 展开就是 <code>x &lt;&gt; a AND x &lt;&gt; b</code>。而 <code>7 &lt;&gt; NULL</code> 不是真也不是假，是 UNKNOWN（上面实测的 <code>None</code>）。<code>真 AND UNKNOWN</code> = UNKNOWN，<code>WHERE</code> 只放行确定为真的行 —— 于是所有没被匹配上的行全被 UNKNOWN 吃掉了。</p>
-<p>⚠️ 注意 <code>8 NOT IN (8, NULL)</code> 算出的是确定的 <strong>0</strong>（因为 <code>8 &lt;&gt; 8</code> 是确定的假，<code>假 AND 任何</code> 都是假）。</p>
-<p>⭐ <strong>所以 <code>NOT IN</code> 只在「确实匹配上」时给确定答案，「没匹配上」时给 UNKNOWN —— 恰好把你想要的那些行全部丢掉。</strong></p>
-<p>⚠️ <code>UNKNOWN</code> 在 <code>AND</code> / <code>OR</code> 下的完整传播规则、<code>IS NULL</code> 为什么不能写成 <code>= NULL</code>、以及上面后三行为什么各不相同，全在 <a href="04-NULL与三值逻辑.html">04 章</a>第二节。本节只借它这一个结论。</p>
-<p>回到子查询的视角，这个坑真正的意义是：它把「三选一」变成了「二选一」。上节相同匹配条件的 <code>WHERE</code> 筛选中，<code>IN</code> 与 <code>EXISTS</code> 返回相同行（实测都是 3 行 <code>[1, 5, 7]</code>）；表达式真值却不总相同：<code>IN</code> 可有 <code>UNKNOWN</code>，<code>EXISTS</code> 只返回真或假。加上 <code>NOT</code> 后，<code>IN</code> 那一支就带上了一个不报错的失效模式，而 <code>EXISTS</code> 那一支没有 —— 因为 <code>EXISTS</code> 问的是「有没有配上的行」，<code>b.uid = c.uid</code> 判成 <code>UNKNOWN</code> 就是没配上，是个明确的否，不往外传染。</p>
-<blockquote>
-<p>⭐ <strong>判据可以背下来：只要是「不在某个集合里」，一律写 <code>NOT EXISTS</code>。</strong>
-不用先去查那一列有没有 <code>NULL</code> —— <strong>今天没有不代表明天没有</strong>，而这个 bug 不报错、不告警，
-只是安静地把结果变成空集。</p>
-</blockquote>
-<p>⚠️ 上面四种写法在这份数据里答案一致（后三种都是 <code>[(7,)]</code>），是因为 <code>conv.uid</code> 这一列本身没有 <code>NULL</code>。当外层那一列自己也可能是 <code>NULL</code> 时它们会分叉 —— 那个分叉是业务口径的选择，04 章第四节实测并解释了它。</p>
+<p>这份数据里，原始 <code>NOT IN</code> 的空集来自两种淘汰原因。UID 8 命中黑名单，条件为假。UID 7 与黑名单的缺值比较后，条件未知。右侧滤掉缺值后，<code>NOT IN</code> 对 UID 7 为真。</p>
+<h3 id="anti-join-missing">外侧 UID 缺失时，比较查询结果</h3>
+<p>把例子缩小成三条会话。会话 1 的 UID 是 7，右表没有 7。会话 2 的 UID 是 8，右表有一条备注缺失的记录。会话 3 的 UID 还没录入。右表的 <code>id</code> 是本例中有值的记录编号，<code>note</code> 是可以缺失的备注。</p>
+<div class="tw"><table>
+<caption>左表 conv · 会话</caption>
+<thead><tr><th scope="col">id</th><th scope="col">uid</th></tr></thead>
+<tbody><tr><td>1</td><td>7</td></tr><tr><td>2</td><td>8</td></tr><tr><td>3</td><td>NULL</td></tr></tbody>
+</table></div>
+<div class="tw"><table>
+<caption>右表 blk · 黑名单</caption>
+<thead><tr><th scope="col">id</th><th scope="col">uid</th><th scope="col">note</th></tr></thead>
+<tbody><tr><td>10</td><td>8</td><td>NULL</td></tr><tr><td>11</td><td>NULL</td><td>待补 UID</td></tr></tbody>
+</table></div>
+<p><code>c</code> 和 <code>b</code> 分别是两张表的别名。B 对当前会话找满足 <code>b.uid = c.uid</code> 的右行，<code>SELECT 1</code> 为每条匹配行返回一个占位值。会话 3 的 UID 与右表两个值比较都是未知，子查询返回零行，所以 <code>NOT EXISTS</code> 为真。E 多加外层条件 <code>c.uid IS NOT NULL</code>，会排除会话 3。</p>
+<p>C 的 <code>ON</code> 使用同一个匹配条件。会话 2 真正配到右行 10，右侧 <code>id</code> 是 10，备注却是 <code>NULL</code>。会话 1 和 3 未匹配，左连接补出的右侧 <code>id</code> 才是 <code>NULL</code>。F 检查备注，会把已经匹配的会话 2 也留下。</p>
+<p>下面的 Python 可以单独运行。它在内存中建好这两张表，用同一个 <code>SELECT c.id FROM conv c</code> 接上各组条件，按会话编号排序后打印编号列表。Python 的 <code>None</code> 在写入时对应 SQL 的 <code>NULL</code>。</p>
+<div class="codehilite" data-code-language="python"><pre><span></span><code><span class="k">import</span> sqlite3
+
+db = sqlite3.connect(<span class="s2">":memory:"</span>)
+db.execute(<span class="s2">"CREATE TABLE conv (id INTEGER PRIMARY KEY, uid INTEGER)"</span>)
+db.execute(<span class="s2">"CREATE TABLE blk (id INTEGER PRIMARY KEY, uid INTEGER, note TEXT)"</span>)
+db.executemany(<span class="s2">"INSERT INTO conv VALUES (?, ?)"</span>, [(<span class="mi">1</span>, <span class="mi">7</span>), (<span class="mi">2</span>, <span class="mi">8</span>), (<span class="mi">3</span>, <span class="kc">None</span>)])
+db.executemany(<span class="s2">"INSERT INTO blk VALUES (?, ?, ?)"</span>,
+               [(<span class="mi">10</span>, <span class="mi">8</span>, <span class="kc">None</span>), (<span class="mi">11</span>, <span class="kc">None</span>, <span class="s2">"待补 UID"</span>)])
+
+queries = {
+    <span class="s2">"A 原始 NOT IN"</span>: <span class="s2">"WHERE c.uid NOT IN (SELECT uid FROM blk)"</span>,
+    <span class="s2">"B NOT EXISTS"</span>: <span class="s2">"WHERE NOT EXISTS "</span>
+                   <span class="s2">"(SELECT 1 FROM blk b WHERE b.uid = c.uid)"</span>,
+    <span class="s2">"C 左连接检查 id"</span>: <span class="s2">"LEFT JOIN blk b ON b.uid = c.uid WHERE b.id IS NULL"</span>,
+    <span class="s2">"D NOT IN 滤右侧"</span>: <span class="s2">"WHERE c.uid NOT IN "</span>
+                      <span class="s2">"(SELECT uid FROM blk WHERE uid IS NOT NULL)"</span>,
+    <span class="s2">"E NOT EXISTS 滤外侧"</span>: <span class="s2">"WHERE c.uid IS NOT NULL AND NOT EXISTS "</span>
+                         <span class="s2">"(SELECT 1 FROM blk b WHERE b.uid = c.uid)"</span>,
+    <span class="s2">"F 左连接误查 note"</span>: <span class="s2">"LEFT JOIN blk b ON b.uid = c.uid WHERE b.note IS NULL"</span>,
+    <span class="s2">"G NOT IN 空子查询"</span>: <span class="s2">"WHERE c.uid NOT IN (SELECT uid FROM blk WHERE 1 = 0)"</span>,
+}
+<span class="k">for</span> label, clause <span class="k">in</span> queries.items():
+    ids = [row[<span class="mi">0</span>] <span class="k">for</span> row <span class="k">in</span> db.execute(
+        f"SELECT c.id FROM conv c {clause} ORDER BY c.id"
+    )]
+    print(label, ids)
+db.close()
+</code></pre></div>
+<div class="tw"><table>
+<caption>SQLite 实测 · 返回的会话编号</caption>
+<thead><tr><th scope="col">写法</th><th scope="col">结果</th><th scope="col">为什么</th></tr></thead>
+<tbody>
+<tr><th scope="row">A 原始 <code>NOT IN</code></th><td><code>[]</code></td><td>1 和 3 的条件未知，2 的条件为假。</td></tr>
+<tr><th scope="row">B <code>NOT EXISTS</code></th><td><code>[1, 3]</code></td><td>这两条会话都找不到等号为真的右行。</td></tr>
+<tr><th scope="row">C 左连接检查 <code>b.id</code></th><td><code>[1, 3]</code></td><td>这两条会话的右侧编号是左连接补出的 <code>NULL</code>。</td></tr>
+<tr><th scope="row">D <code>NOT IN</code> 滤右侧</th><td><code>[1]</code></td><td>右侧只剩 8，<code>7 NOT IN (8)</code> 为真，<code>NULL NOT IN (8)</code> 未知。</td></tr>
+<tr><th scope="row">E <code>NOT EXISTS</code> 滤外侧</th><td><code>[1]</code></td><td>外层先要求 UID 已知，结果只留下没有匹配的 1。</td></tr>
+<tr><th scope="row">F 左连接误查 <code>b.note</code></th><td><code>[1, 2, 3]</code></td><td>2 匹配到的真实右行恰好没有备注。</td></tr>
+<tr><th scope="row">G <code>NOT IN</code> 空子查询</th><td><code>[1, 2, 3]</code></td><td><code>WHERE 1 = 0</code> 使右侧没有候选值，连外侧缺值的 3 也通过。</td></tr>
+</tbody>
+</table></div>
+<h3 id="anti-join-choice">先定报表口径，再选写法</h3>
+<ul>
+<li><strong>找不到满足匹配条件的右行</strong>，用 <code>NOT EXISTS</code> 直接表达。使用普通等号时，左侧 UID 缺失的行也会留下。只统计 UID 已知的会话时，显式加 <code>c.uid IS NOT NULL</code>。</li>
+<li><strong>排除一份已知的单列名单</strong>，可以用 <code>NOT IN</code>。如果口径是只比较已知 UID，就同时保证右侧名单无 <code>NULL</code>、左侧 UID 有值。表约束可以提供保证，也可以像 D 那样滤右侧，再显式加左侧 <code>IS NOT NULL</code>。左侧条件在右侧被滤空时依然有效。</li>
+<li><strong>已有左连接，要筛出没配到右行的记录</strong>，可以用 <code>LEFT JOIN … WHERE b.id IS NULL</code>。把决定「是否匹配」的右表条件写进 <code>ON</code>，并检查匹配成功时必定有值的右列。原实验检查 <code>b.uid</code> 也成立，因为 <code>b.uid = c.uid</code> 为真时 <code>b.uid</code> 必有值。</li>
+</ul>
+<p>上节在相同匹配条件的肯定式 <code>WHERE</code> 中，<code>IN</code> 和 <code>EXISTS</code> 都留下了会话 1、5、7。<code>IN</code> 的真值可以是未知，<code>EXISTS</code> 根据子查询有无行只给真或假。把两者分别取反时，未知仍是未知，原先的假则变为真。第五节的 A、B 正好显示这种差别。</p>
+<p>可对照 <a href="04-NULL与三值逻辑.html#_3">04 章的反连接实验</a>、<a href="https://www.sqlite.org/lang_expr.html#the_in_and_not_in_operators">SQLite 的 IN / NOT IN 真值表</a>和 <a href="https://www.postgresql.org/docs/current/functions-subquery.html#FUNCTIONS-SUBQUERY-NOTIN">PostgreSQL 的 NOT IN 规则</a>。</p>
 <hr />
 <!--MIDSTOP-->
 <blockquote>
@@ -738,7 +805,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </tr>
 <tr>
 <td><a href="04-NULL与三值逻辑.html">04-NULL与三值逻辑.html</a></td>
-<td>⭐ <strong>上一节</strong>，也是欠着本章的那一半：它第四节给出「反连接一律写 <code>NOT EXISTS</code>」并写着「<code>IN</code> / <code>EXISTS</code> / <code>JOIN</code> 的取舍那一章接着讲」—— 本章第四节就是那个取舍。反过来，<code>NOT IN</code> 塌成空集的<strong>机理</strong>（三值逻辑、四种反连接写法的语义分叉）归它，本章第五节只借一个结论</td>
+<td><strong>上一章</strong>第二节解释三值逻辑，第四节用用户和总部城市对照反连接写法，先问外侧缺值是否应保留。本章第四节比较存在性筛选和连接，第五节把缺值口径应用到会话与黑名单。</td>
 </tr>
 <tr>
 <td><a href="../AI全栈/06b-列表接口与分页.html">AI全栈 06b 列表接口与分页</a></td>
@@ -772,8 +839,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>「每个用户最新的一条会话」只比 <code>MAX(updated_at)</code>，两个用户为什么实测返回了 5 行？修法是什么？</li>
 <li>同一个存在性问题，<code>IN</code> / <code>EXISTS</code> / <code>JOIN</code> 实测各返回几行？接一步 <code>SUM</code> 之后两个数各是多少？</li>
 <li>三选一的判据是什么？右表的聚合值要用时该怎么写？</li>
-<li><code>NOT IN</code> 遇到含 <code>NULL</code> 的子查询，实测返回什么？把 <code>x NOT IN (a, b)</code> 展开成等价式子，说明它为什么塌。</li>
-<li>为什么说这个坑「把三选一变成了二选一」？<code>NOT EXISTS</code> 凭什么不被传染？实测四种写法在这份数据里各返回什么，它们什么时候会分叉？</li>
+<li>逐项比较，算出 <code>7 NOT IN (8)</code>、<code>7 NOT IN (8, NULL)</code> 和 <code>8 NOT IN (8, NULL)</code> 的真值。哪些能通过 <code>WHERE</code>？如果右侧子查询返回零行，外侧 UID 缺失的会话会留下吗？</li>
+<li>三行小表中，<code>NOT EXISTS</code> 为什么保留会话 3？报表只统计 UID 已知的会话时，怎样改写？如果左连接改查 <code>b.note IS NULL</code>，会多留哪一行？</li>
 <li>标量位置塞进一个多行子查询，SQLite 是什么反应？多列呢？这对写法有什么要求？</li>
 <li>原普通 <code>EXISTS</code> 查询怎样说明溢出投影未求值？为什么加入 <code>INTERSECT</code> 后不能照搬这个结论？</li>
 </ol>
@@ -788,8 +855,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li>因为用户 7 有 <strong>4 条</strong>会话的 <code>updated_at</code> 都是 100，<code>= MAX(...)</code> 把它们全判成「最新」，2 个用户实测出 5 行。修法：排序键末尾补一个唯一列（主键）当决胜，然后整行比 —— <code>(updated_at, id) = (SELECT updated_at, id … ORDER BY updated_at DESC, id DESC LIMIT 1)</code>，实测回到 2 行。</li>
 <li><code>IN</code> <strong>3 行</strong>、<code>EXISTS</code> 3 行、<code>JOIN</code> 5 行（会话 1 和 7 各有 2 条 assistant 消息，各被带出 2 遍）、<code>JOIN + DISTINCT</code> 回到 3 行。接 <code>SUM(updated_at)</code>：<code>EXISTS</code> 版 299，<code>JOIN</code> 版 499。<code>IN</code>/<code>EXISTS</code> 是半连接（只问有没有），<code>JOIN</code> 是配对（每个匹配产出一行）。</li>
 <li><strong>右表的列你到底要不要</strong>。不要 → <code>EXISTS</code>（结构上不可能扇出）；判据是一小撮字面值/单列小结果集 → <code>IN</code>；要右表的列 → <code>JOIN</code>（自己处理扇出）；要右表的聚合值 → 先聚合再连（扇出在聚合那一步就消掉了）；每行加个小值且没匹配也要保留该行 → 相关标量子查询。</li>
-<li>实测返回 <strong><code>[]</code>（空集），且不报错</strong>。展开是 <code>x &lt;&gt; a AND x &lt;&gt; b</code>，而 <code>7 &lt;&gt; NULL</code> 是 UNKNOWN（实测 <code>None</code>），<code>真 AND UNKNOWN</code> = UNKNOWN，<code>WHERE</code> 只放行确定为真的行。⚠️ 对照：<code>8 NOT IN (8, NULL)</code> 是确定的 0 —— 所以 <code>NOT IN</code> 只在「确实匹配上」时给确定答案，没匹配上的那些正是你想要的行，全被 UNKNOWN 吃掉。</li>
-<li>在相同匹配条件的肯定式 <code>WHERE</code> 筛选中，<code>IN</code> 与 <code>EXISTS</code> 实测都返回 3 行 <code>[1,5,7]</code>；这不代表表达式真值相同：<code>IN</code> 可有 <code>UNKNOWN</code>，<code>EXISTS</code> 只返回真或假。加上 <code>NOT</code> 后，<code>IN</code> 那一支就带上了一个不报错的失效模式，<code>EXISTS</code> 那一支没有 —— <code>EXISTS</code> 问的是「有没有配上的行」，<code>b.uid = c.uid</code> 判成 UNKNOWN 就是没配上，是个明确的否，不往外传染。实测：<code>NOT IN</code> → <code>[]</code>，<code>NOT EXISTS</code> / <code>LEFT JOIN … IS NULL</code> / <code>NOT IN</code> + 内层过滤 → 都是 <code>[(7,)]</code>。⚠️ 这里一致是因为 <code>conv.uid</code> 本身没有 <code>NULL</code>；外层那一列自己也可能是 <code>NULL</code> 时它们会分叉，那是业务口径的选择，在 <a href="04-NULL与三值逻辑.html">04 章</a>第四节。</li>
+<li><code>7 &lt;&gt; 8</code> 为真，所以第一式通过。第二式多了 <code>7 &lt;&gt; NULL</code>，真 AND 未知得到未知。第三式有 <code>8 &lt;&gt; 8</code> 这个假，假 AND 未知得到假。后两式都无法通过。右侧子查询返回零行时，<code>NOT IN</code> 对所有外行都为真，包括 UID 缺失的会话。</li>
+<li>会话 3 与右表两个 UID 的普通等号比较都未知，子查询找不到真匹配，所以 <code>NOT EXISTS</code> 为真。加上外层 <code>c.uid IS NOT NULL</code> 后，只留下会话 1。用 <code>b.note IS NULL</code> 会多留会话 2，因为它匹配的右行 10 恰好缺备注。检查 <code>b.id IS NULL</code> 可以识别左连接补出的右侧空行。</li>
 <li>多<strong>行</strong>：⚠️ 不报错，悄悄取第一行（实测 <code>(1,)</code>）；多列：报 <code>sub-select returns 2 columns - expected 1</code>。要求是自己保证它最多一行 —— 要么是聚合，要么带明确的 <code>ORDER BY</code> + <code>LIMIT 1</code>（不带 <code>ORDER BY</code> 时「第一行是谁」SQL 不做承诺）。🗓️ Postgres / MySQL 在这种情况下会直接报错（未实跑）。</li>
 <li>原普通查询把 <code>abs(-9223372036854775808)</code> 放进 <code>EXISTS</code> 的 <code>SELECT</code> 列表，与 <code>1</code> / <code>NULL</code> / <code>*</code> 一样返回 4，说明本例没有求值这个溢出投影；单独运行它仍报 <code>integer overflow</code>。加入 <code>INTERSECT</code> 的子查询可能要用投影值确定结果行，内存反例会报同一溢出错误。<code>EXISTS</code> 检查有没有行，不是子查询内部永不求值的保证；不要依赖表达式副作用。</li>
 </ol>
@@ -802,7 +869,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⭐ 本章的核心是<strong>行值</strong>：把几列打包成一整行按<strong>字典序</strong>比——先比第一列，分出胜负就结束，打平了才比第二列。⚠️⚠️ <strong>它绝不等于 <code>a &lt; ? AND b &lt; ?</code></strong>：实测行值命中好几行，而逐列 <code>AND</code> 一行都没有。<strong>这就是复合游标分页成立的全部理由</strong>——排序定义了一个全序，只有行值比较和它一一对应；用单列游标会把同一秒里没读完的记录整段跳过。</p>
 <p>同一条规矩也治「每个用户最新的一条」：只比 <code>MAX(时间)</code> 会在时间戳撞车时<strong>返回多行</strong>，⭐ 补上唯一列决胜才回到一行。</p>
 <p>🚦 <strong><code>IN</code> / <code>EXISTS</code> / <code>JOIN</code> 三选一，判据只有一句：右表的列你到底要不要。</strong> 不要就 <code>EXISTS</code>（半连接，<strong>结构上不可能扇出</strong>），要列就 <code>JOIN</code>。⚠️ 实测同一个存在性问题，<code>JOIN</code> 会把匹配多次的行<strong>各带出好几遍</strong>，接一步 <code>SUM</code> 结果就完全不同。</p>
-<p>💀 <strong>唯一一条硬规矩：「不在某个集合里」一律写 <code>NOT EXISTS</code></strong>——⭐ 这个坑把三选一<strong>变成了二选一</strong>，因为 <code>NOT</code> 只毒化 <code>IN</code> 那一支。</p>
+<p><strong>做反连接先定外侧缺值口径。</strong> <code>NOT EXISTS</code> 检查有没有真匹配。单列 <code>NOT IN</code> 要检查两侧缺值与空名单。左连接用 <code>IS NULL</code> 判断未匹配时，要检查匹配后必定有值的右列。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="06-CTE与递归查询.html">06-CTE与递归查询.md</a></p>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
