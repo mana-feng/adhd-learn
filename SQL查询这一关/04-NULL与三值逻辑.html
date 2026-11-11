@@ -300,7 +300,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><a href="#_3">🩹 四、反连接：找不到匹配行时留谁</a></li>
 <li><a href="#null_1">🧮 五、那些 NULL 行，到底是在哪一步没的</a></li>
 <li><a href="#sql-null">🔀 六、⭐ SQL 里其实有两套 NULL 语义</a></li>
-<li><a href="#coalesce-nullif-null">🧰 七、日常工具：COALESCE / NULLIF / 空串不是 NULL</a></li>
+<li><a href="#coalesce-nullif-null">🧰 七、日常工具：COALESCE / NULLIF / 空串与 NULL</a></li>
 <li><a href="#_4">🔗 这一章连到哪里</a></li>
 <li><a href="#_5">✅ 检查点</a></li>
 <li><a href="#_6">🛑 可以停在这里</a></li>
@@ -314,7 +314,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>⏱ <strong>108 分钟</strong> ｜ ⭐ <strong>实测：<code>NOT IN ('BJ', NULL)</code> 返回空集——一行都没有，且不报错</strong></p>
 <h2 id="_1">🎯 一句话</h2>
 <p>报表想找不在总部名单里的用户，查询却一行也没返回。先看名单里有没有 <code>NULL</code>，也就是 SQL 的缺值标记。<strong>普通等号遇到 <code>NULL</code> 会得到未知（<code>UNKNOWN</code>）。<code>WHERE</code> 只留下条件为真的行。</strong></p>
-<p>先回忆 <a href="01-一条查询是怎么跑的.html">01 章的查询顺序</a>、<a href="02-JOIN的几种语义.html">02 章的连接</a>和 <a href="03-聚合与分组.html">03 章的分组</a>。本章用小表定位缺值影响了哪一步，再用 <a href="05-子查询的三种形状.html">05 章</a>继续学习子查询。下面每段 Python 都能独立运行，使用标准库 <code>sqlite3</code> 和临时内存数据库，无需安装第三方库或准备数据文件。</p>
+<p>先回忆 <a href="01-一条查询是怎么跑的.html">01 章的查询顺序</a>、<a href="02-JOIN的几种语义.html">02 章的连接</a>和 <a href="03-聚合与分组.html">03 章的分组</a>。本章用小表定位缺值影响了哪一步。<strong>子查询</strong>是写在另一条 SQL 查询里面的查询，例如先用括号里的 <code>SELECT city FROM hq</code> 查总部城市，再让外层查询用这份名单筛用户。<a href="05-子查询的三种形状.html">05 章</a>会继续讲它的写法。下面每段 Python 都能独立运行，使用标准库 <code>sqlite3</code> 和临时内存数据库，无需安装第三方库或准备数据文件。</p>
 <h2 id="_2">⚠️ 零、先划清一件事：这不是「缺失值处理」</h2>
 <p>站内有一章叫<a href="../数据这一关/05-缺失不是一种东西.html">《数据这一关》· 05 缺失不是一种东西</a>，它讲的是<strong>统计学意义上的缺失</strong>：这个值<strong>为什么</strong>没有（MCAR / MAR / MNAR）、能不能填、填了会不会把偏差带进模型。</p>
 <p>这一章讲的是完全不同的另一件事：值已经缺在库里了，<code>NULL</code> 这个东西在 SQL 里<strong>怎么参与运算和比较</strong>。</p>
@@ -350,7 +350,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 相比之下 <code>NULL</code> 至少是<strong>诚实的</strong>：它明说自己不知道。本章讲的是这份诚实要你付出的代价。</p>
 </blockquote>
 <h2 id="null" data-mg-stop="">🚦 一、招牌事故：一个 <code>NULL</code> 清空整个结果集</h2>
-<p><code>users</code> 记录用户编号 <code>id</code> 和城市 <code>city</code>。<code>hq</code> 是总部城市名单，已录入北京（BJ），还有一行待补。试着找出未匹配到已录入城市的用户。</p>
+<p><code>users</code> 记录用户编号 <code>id</code> 和城市 <code>city</code>。<code>hq</code> 是总部城市名单，已录入北京（BJ），还有一行待补。试着找出未匹配到已录入城市的用户。直接写在 SQL 里的常量叫<strong>字面量</strong>，例如名单 <code>('BJ', NULL)</code> 里的文本 <code>'BJ'</code> 和缺值标记 <code>NULL</code>。</p>
 <div class="tw"><table>
 <caption>演示输入：用户城市</caption>
 <thead><tr><th scope="col">用户编号</th><th scope="col">城市</th></tr></thead>
@@ -507,15 +507,14 @@ WHERE v &gt; 10 OR NOT (v &gt; 10): [(1,), (3,)]
 IS NULL 写法: [(2,)]
 </code></pre></div>
 
-<p>💀💀 <strong>一个条件和它的否定，加起来不等于全表。</strong> 3 行的表，两边各拿走 1 行，<strong>有 1 行谁都没要</strong>。
-连 <code>WHERE v &gt; 10 OR NOT (v &gt; 10)</code> 这种看上去必然恒真的条件，都漏掉了 <code>id=2</code>。</p>
-<p>⚠️ <strong>这条在业务上非常贵</strong>：「大额订单」和「非大额订单」两张报表加起来对不上总数，两边的 SQL 都是对的，两边的开发都查不出问题。</p>
+<p>设 <code>P</code> 表示一整条筛选条件，本例中是 <code>v &gt; 10</code>。<strong>只有当 <code>P</code> 为 <code>UNKNOWN</code> 时，<code>WHERE P</code> 和 <code>WHERE NOT (P)</code> 才会同时排除这一行。</strong><code>P</code> 为真时，第一条留下该行。<code>P</code> 为假时，第二条留下该行。本例只有 <code>id=2</code> 在两边都被排除。</p>
+<p>所以同一批订单中，“金额超过 10 元”和“金额不超过 10 元”各计 1 笔，两组共 2 笔，金额待补的 1 笔需要单独处理。</p>
 <p>如果报表要求覆盖全表，可以把“金额待补”单独列一组；如果报表明确把待补订单计入第二组，就写 <code>WHERE NOT (v &gt; 10) OR v IS NULL</code>。给待补记录选择分组时，要依据报表口径。</p>
 <h3 id="is-null-null"><code>IS NULL</code> 为什么不能写成 <code>= NULL</code></h3>
 <p><code>v = NULL</code> 用普通等号比较，右侧始终缺值，因此每行都得到 <code>UNKNOWN</code>。<code>v IS NULL</code> 检查标量 <code>v</code> 是否带有缺值标记，结果只有真或假，只有编号 2 为真。<code>IS NOT NULL</code> 检查是否有值，保留编号 1、3。</p>
 <h3 id="on-having-unknown"><code>ON</code> 决定配对，<code>HAVING</code> 决定留组</h3>
 <p>沿用 20 元、5 元、金额待补三种情况。账户表 <code>accounts</code> 有编号 1、2、3，付款表 <code>payments</code> 各有一笔付款，付款编号分别为 11、22、33。按账户编号相等找候选配对。每个账户只有一个编号相等的候选，其余候选因编号不等而无法通过 <code>AND</code>。</p>
-<p><code>ON</code> 的整个条件为真时才建立配对。用 <code>LEFT JOIN</code> 时，没有任何配对的左行仍保留，右侧列由连接补为 <code>NULL</code>。把金额条件写到 <code>WHERE</code>，则在连接之后检查每一行，金额为 <code>NULL</code> 的行会被排除。</p>
+<p><code>ON</code> 的整个条件为真时才建立配对。<code>LEFT JOIN</code> 会为没有任何配对的左行补一行，右侧列填 <code>NULL</code>。后续 <code>WHERE</code> 也检查补行，<strong>整个 <code>WHERE</code> 为 <code>FALSE</code> 或 <code>UNKNOWN</code> 时才排除该行</strong>。例如，补行的 <code>p.amount &gt; 10</code> 为未知。若把金额门槛留在 <code>ON</code>，再写 <code>WHERE a.id = 3</code>，这个条件对账户 3 为真，结果仍有 <code>(3, NULL)</code>。</p>
 <div class="tw"><table>
 <caption>把金额门槛放到 ON 与 HAVING 后</caption>
 <thead><tr><th scope="col">账户</th><th scope="col">付款金额</th><th scope="col">ON 配对</th><th scope="col">LEFT JOIN 的付款编号</th><th scope="col">HAVING 留组</th></tr></thead>
@@ -647,7 +646,7 @@ B + 外层只留已知城市: [(2,), (4,), (5,)]
 <tr>
 <td><strong>D <code>NOT IN</code> + 内层滤掉 <code>NULL</code></strong></td>
 <td>3 行</td>
-<td>内层干净了，但 ⚠️ <strong>外层的 <code>id=3</code> 自己是 <code>NULL</code></strong>，<code>NULL NOT IN ('BJ')</code> 仍是 <code>UNKNOWN</code>，被扔了</td>
+<td>内层名单只剩 <code>'BJ'</code>。<strong>外层用户 <code>id=3</code> 的 <code>city</code> 为 <code>NULL</code></strong>，<code>NULL NOT IN ('BJ')</code> 得到 <code>UNKNOWN</code>，所以这位用户被排除。</td>
 </tr>
 </tbody>
 </table></div>
@@ -659,7 +658,7 @@ B + 外层只留已知城市: [(2,), (4,), (5,)]
 <!--MIDSTOP-->
 <blockquote>
 <p>🛑 <strong>读到这里可以停</strong> —— 前半章讲完了（约 42 分钟）。
-<strong>后半章还有</strong>：那些 <code>NULL</code> 行，到底是在哪一步没的 · ⭐ SQL 里其实有两套 <code>NULL</code> 语义 · 日常工具：<code>COALESCE</code> / <code>NULLIF</code> / 空串不是 <code>NULL</code>
+<strong>后半章还有</strong>：那些 <code>NULL</code> 行，到底是在哪一步没的 · ⭐ SQL 里其实有两套 <code>NULL</code> 语义 · 日常工具：<code>COALESCE</code> / <code>NULLIF</code> / 空串与 <code>NULL</code>
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
 <h2 id="null_1">🧮 五、那些 <code>NULL</code> 行，到底是在哪一步没的</h2>
@@ -718,8 +717,7 @@ c) WHERE city IN (…)  : 11.0
 b 补上 NULL 之后      : 22.0
 </code></pre></div>
 
-<p>⭐ <strong><code>GROUP BY</code> 一分钱没丢</strong>：三组加起来正好 <strong>31.0</strong>，<code>NULL</code> 老老实实自成一组，占 20.0——接近全表的三分之二。
-（<code>GROUP BY</code> 把所有 <code>NULL</code> 收进同一组，用的是本章第六节要讲的「另一套语义」。）</p>
+<p>这里仅按 <code>city</code> 分组，城市缺值的两笔通话归入同一组，合计 <code>4 + 16 = 20</code> 分。三组的合计是 <code>20 + 9 + 2 = 31</code> 分，与全表一致。第六节会看多列分组怎样处理缺值。</p>
 <p>💀 <strong>丢在后面三步，而且都不报错</strong>：</p>
 <div class="tw"><table>
 <thead>
@@ -787,11 +785,12 @@ UNIQUE 列里的三个 NULL: [(1, &#39;a@x.com&#39;), (3, None), (4, None), (5, 
 <thead><tr><th scope="col">操作</th><th scope="col">两个 NULL 的处理</th></tr></thead>
 <tbody>
 <tr><th scope="row">普通等号 <code>=</code></th><td>比较结果是 UNKNOWN，<code>ON</code> 无法建立配对。</td></tr>
-<tr><th scope="row"><code>GROUP BY</code></th><td>同一分组键上的两个缺值归到同一组。</td></tr>
+<tr><th scope="row"><code>GROUP BY</code></th><td>分组时同一键位置的两个 <code>NULL</code> 视作相同。<strong>多列分组要求其余分组键也相同</strong>。</td></tr>
 <tr><th scope="row"><code>DISTINCT</code>、<code>UNION</code></th><td>其余列也相同时，去重只保留一行。</td></tr>
 <tr><th scope="row"><code>ORDER BY</code></th><td>在该排序键上并列，先后由后续排序键决定。</td></tr>
 </tbody>
 </table></div>
+<p>用 <code>GROUP BY city, channel</code> 按城市和渠道一起分组时，两个 <code>(NULL, 'web')</code> 同组，<code>(NULL, 'app')</code> 另成一组。</p>
 <p>需要让两个缺值在连接中匹配时，要显式使用支持空值的相等判断。对普通标量列，SQLite 可写 <code>a IS b</code>，PostgreSQL 可写 <code>a IS NOT DISTINCT FROM b</code>，MySQL 提供 <code>a &lt;=&gt; b</code>。如果两边有多行缺值，缺值之间也会组合出多对。<a href="https://www.sqlite.org/lang_expr.html">SQLite 表达式</a> · <a href="https://www.postgresql.org/docs/current/functions-comparison.html">PostgreSQL 比较谓词</a> · <a href="https://dev.mysql.com/doc/refman/8.4/en/comparison-operators.html">MySQL 比较运算符</a></p>
 <p>唯一约束按数据库自身规则检查。SQLite 的例子拒绝重复的 <code>'a@x.com'</code>，接受三个 <code>NULL</code>。如果业务要求邮箱必填且唯一，就同时声明 <code>NOT NULL</code> 和 <code>UNIQUE</code>。PostgreSQL 15 起也可声明 <code>UNIQUE NULLS NOT DISTINCT</code>，让单列唯一约束最多接受一个缺值。<a href="https://www.postgresql.org/docs/15/ddl-constraints.html#DDL-CONSTRAINTS-UNIQUE-CONSTRAINTS">PostgreSQL 15 唯一约束</a></p>
 <h3 id="order-by-null"><code>ORDER BY</code> 里 <code>NULL</code> 排哪儿</h3>
@@ -861,17 +860,18 @@ CASE 指定缺值在末尾: [(3, 10), (5, 20), (1, 30), (2, None), (4, None)]
 <!--MIDSTOP2-->
 <blockquote>
 <p>🛑 <strong>第二个休息点</strong> —— 中段讲完了（约 29 分钟）。
-<strong>最后一段还有</strong>：日常工具：<code>COALESCE</code> / <code>NULLIF</code> / 空串不是 <code>NULL</code>
+<strong>最后一段还有</strong>：日常工具：<code>COALESCE</code> / <code>NULLIF</code> / 空串与 <code>NULL</code>
 这一章确实长，分三次读完全没问题 —— 回来直接从下一节接着看。</p>
 </blockquote>
 <hr />
 <!--MIDSTOP-->
 <blockquote>
 <p>🛑 <strong>读到这里可以停</strong> —— 已经读了约 71 分钟。
-<strong>最后一段还有</strong>（约 33 分钟）：日常工具：<code>COALESCE</code> / <code>NULLIF</code> / 空串不是 <code>NULL</code> · 检查点与走神救援
+<strong>最后一段还有</strong>（约 33 分钟）：日常工具：<code>COALESCE</code> / <code>NULLIF</code> / 空串与 <code>NULL</code> · 检查点与走神救援
 回来的时候不用重读，直接从下一节接着看就行。</p>
 </blockquote>
-<h2 id="coalesce-nullif-null">🧰 七、日常工具：<code>COALESCE</code> / <code>NULLIF</code> / 空串不是 <code>NULL</code></h2>
+<h2 id="coalesce-nullif-null">🧰 七、日常工具：<code>COALESCE</code> / <code>NULLIF</code> / 空串与 <code>NULL</code></h2>
+<p>在 SQLite 中，空串 <code>''</code> 是长度为 0 的文本，和 <code>NULL</code> 是两种情况。下面的例子使用 SQLite。Oracle Database 19c 将零长度字符值视为 <code>NULL</code>。<a href="https://docs.oracle.com/en/database/oracle/oracle-database/19/sqlrf/Nulls.html">Oracle 19c 缺值规则</a></p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">sqlite3</span>
 
 <span class="n">db</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
@@ -927,14 +927,12 @@ NULLIF 防除零     : (None, None)
 </tr>
 </tbody>
 </table></div>
-<p>💀 <strong>空串 <code>''</code> 不是 <code>NULL</code>，它是一个长度为 0 的真实字符串。</strong> 实跑三处都在证明这件事：
+<p><strong>在 SQLite 的输出里，可以从筛选、计数和长度三个地方看到区别。</strong>
 <code>note IS NULL</code> 只找到 <code>id=3,4</code>，<code>note = ''</code> 找到的是 <code>id=2</code>；<code>COUNT(note)</code> 是 <strong>2</strong>（空串被数进去了）；<code>length('')</code> 是 0 而 <code>length(NULL)</code> 是 <code>NULL</code>。</p>
 <p>⚠️ <strong>所以 <code>COALESCE(nick, name, '(匿名)')</code> 对 <code>id=3</code> 返回空串</strong>——它的 <code>nick</code> 是空串不是 <code>NULL</code>，<code>COALESCE</code> 认这个值。
 ⭐ <strong>修法是套一层 <code>NULLIF</code></strong>：<code>COALESCE(NULLIF(nick,''), name, '(匿名)')</code>，实跑正确返回 <code>韩梅</code>。</p>
 <blockquote>
-<p>⭐ <strong>判据：在写入端就定一个规矩</strong>——一列里要么统一存 <code>NULL</code>，要么统一存空串，别两种都有。
-一个前端没填就提交空串的表单，会让表里<strong>同时存在两种「没有」</strong>，而所有 <code>IS NULL</code> 检查只看得见其中一种。
-（🗓️ <strong>未实跑</strong>：Oracle Database 会把零长度字符值视为 <code>NULL</code>。<a href="https://docs.oracle.com/en/database/oracle/oracle-database/19/sqlrf/Nulls.html">Oracle 19c 缺值规则</a>）</p>
+<p>写入规则取决于业务含义。如果业务区分“明确填了空文本”和“未填写”，就分别保存空串和 <code>NULL</code>，并按需要检查两种情况。如果业务把两者都当作未填写，可以在写入时统一为 <code>NULL</code>。单独用 <code>IS NULL</code> 在 SQLite 中只会找到 <code>NULL</code>。</p>
 </blockquote>
 <h2 id="_4">🔗 这一章连到哪里</h2>
 <div class="tw"><table>
@@ -947,11 +945,11 @@ NULLIF 防除零     : (None, None)
 <tbody>
 <tr>
 <td><a href="01-一条查询是怎么跑的.html">01-一条查询是怎么跑的.html</a></td>
-<td>那一章说「<code>WHERE</code> 逐行判断，扔掉不要的行」——本章第三节给出精确版本：只放行 <code>TRUE</code>，<code>FALSE</code> 和 <code>UNKNOWN</code> 一起扔，于是一个条件和它的否定加起来<strong>不等于全表</strong></td>
+<td>那一章说「<code>WHERE</code> 逐行判断，扔掉不要的行」——本章第三节说明筛选只保留 <code>TRUE</code>。同一条件及其否定会同时排除条件为 <code>UNKNOWN</code> 的行。</td>
 </tr>
 <tr>
 <td><a href="02-JOIN的几种语义.html">02-JOIN的几种语义.html</a></td>
-<td>那一章有两处欠着本章一个解释：<code>LEFT JOIN</code> 补出来的 <code>NULL</code> 为什么会让 <code>WHERE</code> 把整行扔掉，以及连接键是 <code>NULL</code> 时为什么两边都 <code>NULL</code> 也配不上对</td>
+<td>那一章有两处欠着本章一个解释：<code>LEFT JOIN</code> 补行后，哪些 <code>WHERE</code> 条件会保留它。两个缺值键用普通等号比较时，为什么无法配对。</td>
 </tr>
 <tr>
 <td><a href="03-聚合与分组.html">03-聚合与分组.html</a></td>
@@ -984,8 +982,8 @@ NULLIF 防除零     : (None, None)
 <li><code>CHECK (age &gt;= 18)</code> 是否接受 <code>NULL</code>？要让年龄必填，可以加什么约束？</li>
 <li>第四节的四种写法各返回几行？如果只要城市已知且找不到匹配的人，如何改写 B？右侧子查询为空时，城市缺值能通过 <code>NOT IN</code> 吗？</li>
 <li>只剩一笔金额待补的付款时，<code>COUNT(*)</code>、<code>COUNT(amount)</code>、<code>SUM(amount)</code> 和 <code>AVG(amount)</code> 分别是什么？在通话报表里，城市缺值的 20 分在哪些查询中消失？</li>
-<li>两个缺值键在 <code>GROUP BY</code> 和普通等值连接中各怎样处理？SQLite 的 <code>MIN(v)</code> 和 <code>ORDER BY v LIMIT 1</code> 为什么不同？</li>
-<li><code>COALESCE(nick, name, '(匿名)')</code> 遇到空串昵称会返回什么？业务若把空串当成未填，应如何改写？</li>
+<li>按城市和渠道一起分组时，<code>(NULL, 'web')</code> 和 <code>(NULL, 'app')</code> 同组吗？两个缺值城市键在普通等值连接中能配对吗？SQLite 的 <code>MIN(v)</code> 和 <code>ORDER BY v LIMIT 1</code> 为什么不同？</li>
+<li>在 SQLite 中，<code>COALESCE(nick, name, '(匿名)')</code> 遇到空串昵称会返回什么？业务若把空串当成未填，应如何改写？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
@@ -997,14 +995,14 @@ NULLIF 防除零     : (None, None)
 <li>接受。<code>CHECK</code> 在条件为假时拒绝，可以同时用 <code>NOT NULL</code> 要求该列有值。</li>
 <li>A、B、C、D 依次是 0、4、4、3 行。给 B 加外层 <code>u.city IS NOT NULL</code>。右侧子查询返回零行时，即使左侧城市缺值，<code>NOT IN</code> 也为真。</li>
 <li>依次为 1、0、<code>NULL</code>、<code>NULL</code>。通话表分组时仍保留 <code>NULL</code> 城市组，4 + 16 = 20 分。内连接没有找到匹配城市，<code>WHERE city &lt;&gt; 'BJ'</code> 和白名单 <code>IN</code> 的条件对这两行为未知，三种查询都排除了这 20 分。</li>
-<li>分到同组。普通等值连接的配对条件为未知，无法匹配。<code>MIN(v)</code> 在 30、10、20 中取 10，SQLite 默认升序把缺值放在最前。可用 <code>CASE WHEN v IS NULL THEN 1 ELSE 0 END</code> 作第一个排序键，把缺值排在末尾。</li>
+<li>两行渠道不同，分到不同组。城市键都缺值时，普通等值连接的配对条件为未知，无法匹配。<code>MIN(v)</code> 在 30、10、20 中取 10，SQLite 默认升序把缺值放在最前。可用 <code>CASE WHEN v IS NULL THEN 1 ELSE 0 END</code> 作第一个排序键，把缺值排在末尾。</li>
 <li>在 SQLite 中得到空串。可用 <code>COALESCE(NULLIF(nick, ''), name, '(匿名)')</code> 先把空串转为 <code>NULL</code>，再找第一个有值的参数。</li>
 </ol>
 </details>
 <h2 id="_6">🛑 可以停在这里</h2>
 <ul>
 <li>用 <code>IS NULL</code> 检查缺值。用普通比较算条件时，先写出 TRUE、FALSE 或 UNKNOWN，再做 <code>AND</code>、<code>OR</code> 和 <code>NOT</code>。</li>
-<li><code>WHERE</code> 留真行，<code>HAVING</code> 留真组，<code>ON</code> 配对需要真。左连接会为没有配对的左行补出空的右侧列。</li>
+<li><code>WHERE</code> 留真行，<code>HAVING</code> 留真组，<code>ON</code> 配对需要真。左连接会为没有配对的左行补出空的右侧列，补行通过后续筛选仍要求整个 <code>WHERE</code> 为真。</li>
 <li>反连接先确定外侧缺值如何处理。<code>NOT EXISTS</code> 检查有没有真匹配。含缺值的单列 <code>NOT IN</code> 右侧会让未匹配行的条件变为未知。</li>
 <li>核对 <code>COUNT(*)</code> 和 <code>COUNT(列)</code>，分别检查输入行数与已知值数。取排序首行时，显式指定缺值位置和并列顺序。</li>
 </ul>
