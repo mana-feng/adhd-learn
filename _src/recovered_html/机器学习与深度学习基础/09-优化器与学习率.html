@@ -518,7 +518,7 @@ for t, g in enumerate((2.0, -1.0), start=1):
 <ul>
 <li><strong>阶梯衰减（Step）：</strong>每过 $K$ 个计数单位，就把当前学习率乘以 $\gamma$，其中 $K$ 是正整数、$0&lt;\gamma&lt;1$。例如每 2 轮乘 $0.5$，头两轮用 $0.1$，第三轮起用 $0.1\times0.5=0.05$，第五轮起用 $0.05\times0.5=0.025$。</li>
 <li><strong>余弦衰减（Cosine）：</strong>用余弦曲线把进度映射成从 1 降到 0 的比例。设 $k$ 是已走的调度单位、$T$ 是总单位数、$0\le k\le T$。设起始学习率 $\eta_{\max}$ 和下限 $\eta_{\min}$。取 $\eta_k=\eta_{\min}+(\eta_{\max}-\eta_{\min})(1+\cos(\pi k/T))/2$。$\pi$ 弧度是半圈，余弦从 1 到 −1；进度一半时余弦为 0。起点 $0.1$、下限 $0.01$、走完 $2/4$ 时，$\eta_2=0.01+(0.1-0.01)(1+0)/2=0.055$。</li>
-<li><strong>停滞时衰减（ReduceLROnPlateau）：</strong>在评估后传入指定验证指标。例如配置监视验证损失，连续若干轮未见足够改善时再降低学习率。要同时设定观察方向和容忍轮数。</li>
+<li><strong>停滞时衰减（ReduceLROnPlateau）：</strong>算出被监控的指标后，调用 <code>scheduler.step(metric)</code>。例如配置成每轮评估一次验证损失，就在每次验证后传入 <code>val_loss</code>。按指标含义设定改善方向，再按评估频率设定容忍次数。</li>
 </ul>
 <h3 id="warmup">⭐ Warmup（先验证是否需要）</h3>
 <figure class="dia" id="warmup-cosine-curve" data-curve="warmup">
@@ -576,6 +576,7 @@ for t, g in enumerate((2.0, -1.0), start=1):
 from math import isfinite
 
 lrs, losses = [], []
+best_loss = float("inf")
 lr = 1e-7
 for batch in loader:
     if lr &gt; 1:
@@ -587,10 +588,12 @@ for batch in loader:
         break
     lrs.append(lr)
     losses.append(loss)
-    if loss &gt; 4 * min(losses):
-        break  # 演示停止条件，倍率按任务调整
+    best_loss = min(best_loss, loss)
+    if best_loss &gt; 0 and loss &gt; 4 * best_loss:
+        break  # 仅对正的基准损失使用倍数阈值
     lr *= 1.1
 </code></pre></div>
+<p>这里用已记录的最低损失作基准。基准为 1.0 时，损失升到 4.1，超过 4 倍就停止。基准为 0 或负数时跳过倍数判断，例如最低值为 −2 时，乘 4 得到 −8，直接比较会把 −2 本身误判为发散。遇到非有限损失或学习率超过上限仍会停止。</p>
 <figure class="dia" id="lr-range-curve" data-curve="lr-range">
 <svg viewBox="0 0 480 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="学习率范围测试示意：横轴是学习率的对数，越往右学习率越大；纵轴是损失。曲线先较平，在候选区间快速下降，之后回升并发散。">
   <rect x="166" y="55" width="73" height="185" fill="var(--accent-soft)"/>
@@ -686,7 +689,7 @@ selected=0.5
 <ol>
 <li><code>zero_grad()</code> 清除上一步梯度；计划做梯度累积时，改在一组小批量的边界清除。</li>
 <li><code>clip_grad_norm_</code> 可在反向传播后、更新前限制总梯度范数；遇到非有限梯度时先定位来源。</li>
-<li><code>scheduler.step()</code> 按配置的计数单位推进，应在本次优化器更新之后。日志记下优化器实际使用的学习率。</li>
+<li><code>scheduler.step()</code> 按步数或轮数推进的调度器，在对应的优化器更新之后调用。根据指标决定是否衰减的调度器，在指标算出之后调用。日志记下优化器实际使用的学习率。</li>
 <li><code>weight_decay</code> 控制 AdamW 的解耦衰减强度，第 10 章会用验证集判断是否有益。</li>
 </ol>
 <p>⚠️ <strong><code>scheduler.step()</code> 的位置是个高频错误</strong>：</p>
@@ -708,7 +711,7 @@ selected=0.5
 </tr>
 <tr>
 <td><code>ReduceLROnPlateau</code></td>
-<td>每个 epoch，<strong>且必须传验证指标</strong>：<code>scheduler.step(val_loss)</code></td>
+<td>算出监控指标后调用 <code>scheduler.step(metric)</code>。例如配置为每轮验证一次，就在验证结束后调用 <code>scheduler.step(val_loss)</code>。<a href="https://docs.pytorch.org/docs/stable/generated/torch.optim.lr_scheduler.ReduceLROnPlateau.html">PyTorch 示例</a></td>
 </tr>
 </tbody>
 </table></div>
@@ -744,20 +747,33 @@ selected=0.5
 </tr>
 </tbody>
 </table></div>
-<div class="codehilite" data-code-language="python"><pre><span></span><code># 骨架：model、optimizer、loader、criterion 由训练项目提供。
-# criterion 返回逐样本损失的均值；这里不使用 AMP。
-accum = 4; samples = 0
+<div class="codehilite" data-code-language="python"><pre><code># 骨架：model、optimizer、loader、criterion 由训练项目提供。
+# criterion 返回逐样本损失的均值。此例用非空小批量且不使用 AMP。
+def step_with_average_gradient(sample_count):
+    for parameter in model.parameters():
+        if parameter.grad is not None:
+            parameter.grad.div_(sample_count)
+    optimizer.step()
+    optimizer.zero_grad()
+
+accum = 4
+samples = 0
 optimizer.zero_grad()
-<span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">xb</span><span class="p">,</span> <span class="n">yb</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">loader</span><span class="p">):</span>
-    loss = criterion(model(xb), yb) * len(xb)  # 先累计样本损失和
-    loss.backward(); samples += len(xb)
-    if (i + 1) % accum == 0 or i + 1 == len(loader):
-        for p in model.parameters():
-            if p.grad is not None: p.grad.div_(samples)
-        optimizer.step(); optimizer.zero_grad(); samples = 0
+
+for batch_index, (xb, yb) in enumerate(loader, start=1):
+    batch_samples = len(xb)
+    loss = criterion(model(xb), yb) * batch_samples
+    loss.backward()
+    samples += batch_samples
+    if batch_index % accum == 0:
+        step_with_average_gradient(samples)
+        samples = 0
+
+if samples &gt; 0:
+    step_with_average_gradient(samples)
 </code></pre></div>
 <p><strong>手算尾批：</strong>两批分别给出逐样本梯度 $(2,4)$ 和 $(8)$。先加总 $2+4+8=14$，再除以总样本数 3，梯度为 $14/3$；把两批均值直接平均则是 $(3+8)/2=5.5$，会给尾批更大的权重。上面用损失均值乘批量大小恢复样本和，最后才除以总数。</p>
-<p>按实际样本数平均可覆盖不足一组的尾批；若损失按有效 token、像素或权重平均，每批先乘回该批的有效数量或权重和，整组再除以对应的总量。BatchNorm、Dropout 等会使累积小批与一次大批的结果不同。使用 AMP 时需先 unscale，再归一化/裁剪，最后 step 和 update。</p>
+<p>每攒满 4 批就更新一次并重置样本数。迭代结束后，如果还累计着样本，就用余下这组的实际样本数做最后一次更新。若损失按有效 token、像素或权重平均，每批先乘回该批的有效数量或权重和，整组再除以对应的总量。BatchNorm、Dropout 等会使累积小批与一次大批的结果不同。使用 AMP 时需先 unscale，再归一化/裁剪，最后 step 和 update。</p>
 
 <blockquote>
 <p>⚠️ <strong>先核对分母。</strong>若把四个等大小批的梯度均值直接求和，漏除以 4，普通 SGD 的那一步位移会变成正确值的 4 倍（没有动量、裁剪等其他操作）。代码累积的是样本梯度和，所以应除以实际样本数。Adam 的自适应缩放还要考虑矩状态与分母。</p>
