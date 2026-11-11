@@ -550,26 +550,24 @@ strides 只有一个数字的位置，而这里需要<strong>任意一张顺序�
 <span class="n">np</span><span class="o">.</span><span class="n">add</span><span class="o">.</span><span class="n">at</span><span class="p">(</span><span class="n">c</span><span class="p">,</span> <span class="n">idx</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"np.add.at     -&gt;"</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="s2">"  ✅ 加了三次"</span><span class="p">)</span>
 
-<span class="nb">print</span><span class="p">(</span><span class="s2">"np.bincount   -&gt;"</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">bincount</span><span class="p">(</span><span class="n">idx</span><span class="p">,</span> <span class="n">minlength</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span> <span class="s2">"  ✅ 同一件事的专用通道"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"np.bincount   -&gt;"</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">bincount</span><span class="p">(</span><span class="n">idx</span><span class="p">,</span> <span class="n">minlength</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span> <span class="s2">"  返回新的计数数组"</span><span class="p">)</span>
 
-<span class="c1"># 为什么：赋值那一步是「最后一个写的赢」</span>
+<span class="c1"># 观察：给同一个位置写入不同的值</span>
 <span class="n">d</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">int</span><span class="p">)</span>
 <span class="n">d</span><span class="p">[[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[</span><span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">30</span><span class="p">]</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"d[[1,1,1]] = [10,20,30] -&gt;"</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span>
 </code></pre></div>
 
 <p>实跑输出：</p>
-<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">b[idx] += 1 -&gt; [0 1 0 1 0] ⚠️ 1 号位只加了一次</span></div><div class="vb-flow-row"><span class="vb-flow-step">np.add.at -&gt; [0 3 0 1 0] ✅ 加了三次</span></div><div class="vb-flow-row"><span class="vb-flow-step">np.bincount -&gt; [0 3 0 1 0] ✅ 同一件事的专用通道</span></div><div class="vb-flow-row"><span class="vb-flow-step">d[[1,1,1]] = [10,20,30] -&gt; [ 0 30 0 0 0]</span></div></div></section>
+<section class="visual-block visual-block-flow" aria-label="结果对照"><p class="visual-block-title">结果对照</p><div class="vb-flow"><div class="vb-flow-row"><span class="vb-flow-step">b[idx] += 1 -&gt; [0 1 0 1 0] ⚠️ 1 号位只加了一次</span></div><div class="vb-flow-row"><span class="vb-flow-step">np.add.at -&gt; [0 3 0 1 0] ✅ 加了三次</span></div><div class="vb-flow-row"><span class="vb-flow-step">np.bincount -&gt; [0 3 0 1 0] 返回新的计数数组</span></div><div class="vb-flow-row"><span class="vb-flow-step">d[[1,1,1]] = [10,20,30] -&gt; [ 0 30 0 0 0]（本次观察）</span></div></div></section>
 <p>⭐ <strong>为什么是 1 不是 3</strong>：<code>b[idx] += 1</code> 不是原子操作，它被拆成三步 ——</p>
 <ol>
 <li><code>tmp = b[idx]</code> → 取出 <code>[0, 0, 0, 0]</code>（<strong>一份拷贝</strong>，就是第三节那件事）</li>
 <li><code>tmp += 1</code> → 变成 <code>[1, 1, 1, 1]</code></li>
 <li><code>b[idx] = tmp</code> → 按下标写回去</li>
 </ol>
-<p>第 3 步里 1 号位被写了三次，<strong>每次写的都是 <code>1</code>，而且后写的盖掉先写的</strong>。
-最后那行 <code>d[[1,1,1]] = [10,20,30]</code> 得到 <code>30</code> 就是这个机制的裸照 —— <strong>最后一个写的赢。</strong></p>
-<p>⭐ <strong>要「累加」而不是「覆盖」，用 <code>np.add.at</code></strong>（它对每个下标逐个执行，不走「取出—改—写回」）。
-<code>np.bincount</code> 是同一件事的专用快速通道，<a href="07-把循环改写成数组运算.html">07 章的套路 ②</a> 实测它比循环快 <strong>120–137 倍</strong>。</p>
+<p>第 3 步里，写到 1 号位的三个临时值都是 <code>1</code>。无论先处理哪一个，写完都是 <code>1</code>。若写回的值不同，情况就变了：<code>d[[1,1,1]] = [10,20,30]</code> 在本次运行后观察到 <code>d[1] == 30</code>。NumPy 的高级索引赋值通常不保证迭代顺序，因此不能靠右边的排列预测重复位置最终留下哪个值。</p>
+<p><strong><code>np.add.at(c, idx, 1)</code> 就地更新 <code>c</code></strong>。<code>idx</code> 里的每次出现都在目标位置加 1，1 号位走过 0 → 1 → 2 → 3。<strong><code>np.bincount(idx, minlength=5)</code> 为一维非负整数 <code>idx</code> 返回一个新的计数数组</strong>。两者在这个从零开始的计数例子里得到相同数字。分组计数与求和见 <a href="07-把循环改写成数组运算.html">07 章的套路 ②</a>。</p>
 <blockquote>
 <p>💀 <strong>这个 bug 的典型现场</strong>：直方图、词频、稀疏梯度累加 —— 全是「同一个桶会被撞好几次」的场景。
 症状是<strong>总数比预期小</strong>，而且小多少取决于数据里重复得有多厉害，<strong>看起来毫无规律</strong>。</p>
@@ -691,7 +689,7 @@ print("每店高峰订单数:", np.where(m, a, 0).sum(axis=1).tolist())
 <section class="comparison-repair" id="comparison-repair-17"><p>掩码本身: bool (3, 4)</p><div class="tw"><table><caption>按行、列对齐查看数组</caption><thead><tr><th scope="col">行 / 列</th><th scope="col">列 0</th><th scope="col">列 1</th><th scope="col">列 2</th><th scope="col">列 3</th></tr></thead><tbody><tr><th scope="row">0</th><td>False</td><td>False</td><td>False</td><td>False</td></tr><tr><th scope="row">1</th><td>False</td><td>False</td><td>True</td><td>True</td></tr><tr><th scope="row">2</th><td>True</td><td>True</td><td>True</td><td>True</td></tr></tbody></table></div><p>a[m] = [ 6 7 8 9 10 11] shape (6,)</p><p>共享内存: False</p><p>等价写法 a[np.nonzero(m)] = [ 6 7 8 9 10 11]</p><p>nonzero 给的是下标: (array([1, 1, 2, 2, 2, 2]), array([2, 3, 0, 1, 2, 3]))</p><p>按行选: (2, 4)</p><p>按行选的值: [[0, 1, 2, 3], [8, 9, 10, 11]]</p><p>每店高峰小时数: [0, 2, 4]</p><p>每店高峰订单数: [0, 13, 38]</p></section>
 <p>布尔索引读取返回副本，可用 <code>np.shares_memory</code> 验证。<code>np.nonzero(m)</code> 给出两组下标，一组行号、一组列号。按上一节的规则逐位配对，前两个坐标是 <code>(1, 2)</code> 和 <code>(1, 3)</code>，所以 <code>a[np.nonzero(m)]</code> 和本例的 <code>a[m]</code> 取到相同的值。</p>
 <h4>查错时，先看掩码的形状和类型</h4>
-<p>本例的 <code>a[mask]</code> 从第一根轴开始对齐。整行掩码要给 3 个门店各一个布尔值。同形逐格掩码要给 3 × 4 个位置各一个布尔值。<code>[True, False]</code> 只回答了两家店，和轴 0 的长度 3 对不上，所以会抛出 <code>IndexError</code>。布尔索引不会把缺的布尔值按第 03 章的运算广播规则补齐。</p>
+<p><code>a[rowmask]</code> 用前面定义的 <code>rowmask</code> 对齐轴 0，给 3 个门店各一个布尔值。<code>a[m]</code> 用前面定义的 <code>m = a &gt; 5</code> 对齐两个轴，给 3 × 4 个位置各一个布尔值。<code>[True, False]</code> 只回答了两家店，和轴 0 的长度 3 对不上，所以会抛出 <code>IndexError</code>。布尔索引不会把缺的布尔值按第 03 章的运算广播规则补齐。</p>
 <p>检查 <code>dtype</code> 也很重要。<code>a[[0, 1, 0]]</code> 里是整数，会依次读第 0、1、0 行。需要做开关时，应传布尔值。</p>
 <p>再用原表检查三个常见错误：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -761,10 +759,20 @@ print("每店高峰订单数:", np.where(m, a, 0).sum(axis=1).tolist())
 <span class="nb">print</span><span class="p">(</span><span class="s2">"① 花式索引挨着切片，位置不变:"</span><span class="p">,</span> <span class="n">a</span><span class="p">[:,</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span> <span class="p">:]</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"② 花式索引被切片隔开:      "</span><span class="p">,</span> <span class="n">a</span><span class="p">[[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="p">:,</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">]]</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"③ 两个花式索引挨在一起:    "</span><span class="p">,</span> <span class="n">a</span><span class="p">[[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span> <span class="p">:]</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+
+paired = a[[0, 1], :, [0, 2]]
+paired_explicit = np.stack((a[0, :, 0], a[1, :, 2]))
+cross = a[[0, 1]][:, :, [0, 2]]
+cross_broadcast = a[np.array([0, 1])[:, None], :, [0, 2]]
+
+print("逐对取值:", paired.shape, paired.tolist())
+print("逐对取值的显式写法:", np.array_equal(paired, paired_explicit))
+print("交叉组合（保留原轴顺序）:", cross.shape)
+print("交叉组合（组合轴在前）:", cross_broadcast.shape)
 </code></pre></div>
 
 <p>实跑输出：</p>
-<section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>花式索引挨着切片，位置不变: (3, 2, 5)</li><li>花式索引被切片隔开: (2, 4)</li><li>两个花式索引挨在一起: (2, 5)</li></ol></section>
+<section class="visual-block visual-block-steps" aria-label="操作步骤"><p class="visual-block-title">操作步骤</p><ol class="vb-steps"><li>花式索引挨着切片，位置不变: (3, 2, 5)</li><li>花式索引被切片隔开: (2, 4)</li><li>两个花式索引挨在一起: (2, 5)</li><li>逐对取值: (2, 4) [[0, 5, 10, 15], [22, 27, 32, 37]]</li><li>逐对取值的显式写法: True</li><li>交叉组合（保留原轴顺序）: (2, 4, 2)</li><li>交叉组合（组合轴在前）: (2, 2, 4)</li></ol></section>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -795,13 +803,12 @@ print("每店高峰订单数:", np.where(m, a, 0).sum(axis=1).tolist())
 </tr>
 </tbody>
 </table></div>
-<p>第三行发生了两件事：0 轴和 2 轴的两个索引数组<strong>配对</strong>成 2 个坐标（第六节那条规则），
-然后<strong>因为它们不连续，NumPy 不知道该把这根新轴放回哪一位，索性放最前面</strong>，剩下的 <code>:</code> 那根轴（长度 4）跟在后面。</p>
-<p>⭐ <strong>不用背这条规则，用它的推论就够了：<code>a[[0,1], :, [0,2]]</code> 这种写法本身就是个坏味道。</strong>
-两个办法都比记规则可靠：</p>
+<p>看表格最后一行。轴 0 的 <code>[0, 1]</code> 和轴 2 的 <code>[0, 2]</code> 逐位配成 <code>(0, 0)</code>、<code>(1, 2)</code> 两对。两个索引数组被切片隔开，NumPy 把长度为 2 的配对轴放在结果最前面。中间的 <code>:</code> 为每对坐标保留轴 1 的 4 个位置，所以形状是 <code>(2, 4)</code>。</p>
+<p>先确定需要哪几对坐标，再选写法。</p>
 <ul>
-<li><strong>拆成两步</strong>：<code>a[[0, 1]][:, :, [0, 2]]</code>（⚠️ 代价是两次拷贝）</li>
-<li><strong>补齐维度自己控制形状</strong>：<code>a[np.array([0,1])[:, None], :, np.array([0,2])[:, None]]</code> 之类，让广播明确</li>
+<li><strong>逐对取值，两个组合</strong>。<code>np.stack((a[0, :, 0], a[1, :, 2]))</code> 把两条长度为 4 的数组叠成两行，形状也是 <code>(2, 4)</code>，值与原写法相同。</li>
+<li><strong>交叉组合，保留原来的轴顺序</strong>。<code>a[[0, 1]][:, :, [0, 2]]</code> 分两次选择，先取轴 0 的两项，再取轴 2 的两项。每个轴 0 下标都和每个轴 2 下标组合，共有 <code>(0, 0)</code>、<code>(0, 2)</code>、<code>(1, 0)</code>、<code>(1, 2)</code> 四对，形状是 <code>(2, 4, 2)</code>。</li>
+<li><strong>交叉组合，把组合轴放在前面</strong>。<code>a[np.array([0, 1])[:, None], :, [0, 2]]</code> 把两个索引数组的形状 <code>(2, 1)</code> 与 <code>(2,)</code> 广播成 <code>(2, 2)</code>，取同样四对坐标。两个索引数组被切片隔开，因此两根组合轴都排在长度 4 的轴之前，形状是 <code>(2, 2, 4)</code>。</li>
 </ul>
 <h3 id="014-6">⚖️ 九、账单：视图 0.14 微秒，拷贝 6 毫秒</h3>
 <p>前面八节讲的都是<strong>语义</strong>。这一节给的是<strong>价格</strong>：</p>
@@ -876,9 +883,9 @@ print("每店高峰订单数:", np.where(m, a, 0).sum(axis=1).tolist())
 <p>⭐ <strong>布尔掩码每次都要把 500 万个 bool 从头扫一遍</strong>（结果多少个只有扫完才知道），
 而整数下标<strong>只碰那 5031 个</strong>。所以：</p>
 <blockquote>
-<p>⭐ <strong>同一个掩码要反复用很多次时，先 <code>idx = np.flatnonzero(mask)</code> 存下来，之后一律用 <code>x[idx]</code>。</strong>
-只用一次就别折腾 —— <code>flatnonzero</code> 自己也要扫一遍。</p>
+<p>本例的 <code>x</code> 是一维数组，<code>np.flatnonzero(mask)</code> 返回的摊平下标正好对应 <code>x</code> 的唯一一根轴。掩码不变且需要反复取值时，可以先算 <code>idx = np.flatnonzero(mask)</code>，再用 <code>x[idx]</code>。计时从下标已算好开始，第一次求下标也要扫描掩码。</p>
 </blockquote>
+<p>回到第七节的二维表，<code>a[np.nonzero(m)]</code> 用一组行号和一组列号逐对取格，结果与 <code>a[m]</code> 相同。重复取值时，可以先存 <code>coords = np.nonzero(m)</code>，再用 <code>a[coords]</code>。直接把摊平下标传给二维数组的 <code>a[...]</code> 会把它当作行号。</p>
 <p>（<code>np.flatnonzero</code> 在 <a href="07-把循环改写成数组运算.html">07 章的套路 ⑥</a> 里还有另一个用法：配合 <code>np.diff</code> 找相邻变化。）</p>
 <hr>
 <!--MIDSTOP-->
@@ -943,9 +950,9 @@ print("每店高峰订单数:", np.where(m, a, 0).sum(axis=1).tolist())
 <td>拷贝（<strong>明码标价</strong>）</td>
 </tr>
 <tr>
-<td><strong>重复下标累加</strong> 💀</td>
+<td><strong>重复下标累加或计数</strong></td>
 <td><code>np.add.at(b, idx, 1)</code> 或 <code>np.bincount(idx)</code></td>
-<td>就地写</td>
+<td>前者就地更新 <code>b</code>。后者返回新的计数数组。</td>
 </tr>
 <tr>
 <td>掩码 → 整数下标</td>
@@ -987,7 +994,7 @@ print("每店高峰订单数:", np.where(m, a, 0).sum(axis=1).tolist())
 </tr>
 <tr>
 <td><a href="07-把循环改写成数组运算.html">07 · 把循环改写成数组运算</a></td>
-<td>⭐ 套路 ② 的 <code>np.bincount</code> 是本章第五节那个「重复下标」问题的<strong>专用快速通道</strong>（实测比循环快 120–137 倍）；套路 ⑥ 的 <code>np.flatnonzero</code> 是本章第九节那个「掩码转下标」的另一个用法</td>
+<td>套路 ② 用 <code>np.bincount</code> 返回分组结果。套路 ⑥ 用 <code>np.flatnonzero</code> 找一维序列里的变化位置。</td>
 </tr>
 <tr>
 <td><a href="02-shape与axis到底怎么数.html">02 · shape 和 axis 到底怎么数</a></td>
@@ -1010,7 +1017,7 @@ print("每店高峰订单数:", np.where(m, a, 0).sum(axis=1).tolist())
 <li>💀 <code>b = np.zeros(5, int); b[[1,1,1]] += 1</code> 之后 <code>b[1]</code> 是几？为什么？该怎么写才对？</li>
 <li><code>a[rows, cols]</code> 和 <code>a[rows[:, None], cols]</code> 分别得到什么形状？规则是什么？</li>
 <li>按什么规则判断布尔索引读取会返回副本？掩码里的 <code>True</code> 数在本章的整行和逐格示例中分别决定什么？<code>a[(a &gt; 3) &amp; a &lt; 8]</code> 少了一对括号又会怎样？</li>
-<li><code>a</code> 是 <code>(3,4,5)</code>，<code>a[[0,1], :, [0,2]]</code> 的 shape 是什么？为什么不是 <code>(2,4,2)</code>？同一个掩码要用 100 次，又该怎么写？</li>
+<li>第八节的三维数组里，<code>a[[0,1], :, [0,2]]</code> 和 <code>a[[0,1]][:, :, [0,2]]</code> 各取哪几对坐标？结果各是什么形状？如果要反复使用同一个掩码，第九节的一维 <code>x</code> 和第七节的二维表 <code>a</code> 分别怎样保存下标？</li>
 </ol>
 <details>
 <summary>👀 答案</summary>
@@ -1021,10 +1028,10 @@ print("每店高峰订单数:", np.where(m, a, 0).sum(axis=1).tolist())
 <li><strong>还是视图</strong>。本题沿用 <code>a = np.arange(12).reshape(3,4)</code>：C 连续数组每行有 4 个元素，<code>a[:, 3].strides</code> 是 <code>(4 * a.itemsize,)</code>。当元素大小是 8 字节时就是 <code>(32,)</code>；若是 4 字节则为 <code>(16,)</code>。前文 <code>(80,)</code> 对应的是另一段 <code>(10,10)</code>、每元素 8 字节的示例，不能直接套到这里。元素虽不相邻，但间隔等差，一份 shape/strides/起点说明书就能描述。形态 ② 的“整数索引给标量”指每根轴都给整数；只给部分轴，剩下的轴仍是基础索引得到的视图。</li>
 <li><code>f[:] = -1</code> 之后 <strong><code>a</code> 没变</strong>（<code>f</code> 是拷贝）；<code>a[[0, 1]] = -1</code> 之后 <code>a</code> 变了。差别是 Python 编译成了不同的调用：前者 <code>__getitem__</code> 先抄一份再改那份拷贝，后者 <code>__setitem__</code> 直接按下标往原数组写、压根没有中间数组。</li>
 <li><code>a[a &gt; 5][0] = 999</code> 只修改临时副本，<strong>原数组 a 不变</strong>（<code>a[1,2]</code> 仍是 <code>6</code>），且不报错：第一次布尔高级索引先读出副本，第二次索引赋值写的是副本。<code>b[0][1] = 777</code> 能写回，是因为本例 <code>b[0]</code> 是基础索引得到的共享视图。真正的判据是中间结果是否共享原数组的数据；优先合并为原数组上的一次索引赋值，可避免高级索引链式读取后误写副本。</li>
-<li><strong><code>b[1]</code> 是 1，不是 3。</strong> 因为 <code>+=</code> 被拆成「取出拷贝 → 加 1 → 按下标写回」，第三步里 1 号位被写了三次、每次写的都是 <code>1</code>，后写的盖掉先写的（<code>d[[1,1,1]] = [10,20,30]</code> 得到 <code>30</code> 就是这个机制的裸照）。正确写法：<code>np.add.at(b, idx, 1)</code>，或者用专用通道 <code>np.bincount(idx, minlength=5)</code>。</li>
+<li><strong><code>b[1]</code> 是 1</strong>。高级索引先读出三个 0，各自加 1，再将三个相同的 1 写回同一位置。若要在原数组上累计，从新的零数组 <code>b</code> 开始运行 <code>np.add.at(b, [1, 1, 1], 1)</code>。若要单独生成一张计数表，用 <code>np.bincount([1, 1, 1], minlength=5)</code>，结果是 <code>[0, 3, 0, 0, 0]</code>。</li>
 <li><code>a[rows, cols]</code> 得 <strong><code>(2,)</code></strong>（两个索引数组都是 <code>(2,)</code>，广播还是 <code>(2,)</code>，逐位配对取 <code>a[0,1]</code> 和 <code>a[2,3]</code>）；<code>a[rows[:, None], cols]</code> 得 <code>(2,2)</code>（<code>(2,1)</code> 和 <code>(2,)</code> 广播成 <code>(2,2)</code>，才是交叉表）。规则：把几个索引数组按广播规则对齐，对齐后的 shape 就是结果的 shape。 想要交叉写 <code>np.ix_(rows, cols)</code> 更可靠。</li>
 <li>布尔掩码和整数数组都属于<strong>高级索引</strong>，读取按索引契约返回副本。整行示例中，<code>True</code> 数是结果的行数，4 列照留。逐格示例中，<code>True</code> 数是结果的一维长度。（顺带：<code>a[m]</code> 和 <code>a[np.nonzero(m)]</code> 输出相同，布尔掩码可用对应的整数坐标表达。）少一对括号 ⚠️⚠️ 不报错，静默给出全错的答案 —— <code>&amp;</code> 的优先级高于 <code>&lt;</code>，实际算的是 <code>((a &gt; 3) &amp; a) &lt; 8</code>，实跑得到全 True 的掩码，12 个元素一个不落全返回了。规矩：比较表达式一律加括号。（用 <code>and</code> 反而好，它会当场报 <code>The truth value of an array with more than one element is ambiguous</code>。）</li>
-<li><strong><code>(2, 4)</code></strong>。两个索引数组先配对成 2 个坐标（不是交叉，所以没有那个 <code>2×2</code>），又因为它们被中间的 <code>:</code> 隔开，NumPy 不知道该把这根新轴放回哪一位，索性放最前面，剩下那根长度 4 的轴跟在后面。不用背 —— 这种写法本身就是坏味道，拆成两步 <code>a[[0,1]][:, :, [0,2]]</code> 更清楚。掩码要反复用就先 <code>idx = np.flatnonzero(mask)</code> 存下来，之后一律 <code>x[idx]</code>：布尔掩码每次都要把 500 万个 bool 从头扫一遍，而整数下标只碰命中的那 5031 个 —— 三次实测 809.6 / 9.8（83x）、863.6 / 19.7（44x）、1053.8 / 22.2（48x），单位都是微秒。⚠️ 只用一次就别折腾，<code>flatnonzero</code> 自己也要扫一遍。</li>
+<li>一次索引逐对取 <code>(0, 0)</code> 和 <code>(1, 2)</code>，每对保留中间轴的 4 个位置，形状是 <strong><code>(2, 4)</code></strong>。两步索引还取 <code>(0, 2)</code> 和 <code>(1, 0)</code>，四对坐标按原轴顺序排列，形状是 <strong><code>(2, 4, 2)</code></strong>。一维 <code>x</code> 可以预先算 <code>idx = np.flatnonzero(mask)</code> 后用 <code>x[idx]</code>。二维逐格选择预先算 <code>coords = np.nonzero(m)</code> 后用 <code>a[coords]</code>，等价于 <code>a[np.nonzero(m)]</code>。</li>
 </ol>
 </details>
 <h3 id="_10">🛑 可以停在这里</h3>
@@ -1035,7 +1042,7 @@ print("每店高峰订单数:", np.where(m, a, 0).sum(axis=1).tolist())
 <p><strong>整数数组和布尔高级索引读取按契约返回副本。</strong> 任意偏移、重复下标或扫描掩码解释了典型结果的构造方式；即使整数下标恰好等距，也不会因此改成视图。</p>
 <p>⚠️⚠️ 但「拷贝」<strong>只对读成立</strong>：<code>a[[0,1]] = -1</code> 是写得进去的。区别在于前者是 <code>__getitem__</code>（先抄一份），后者是 <code>__setitem__</code>（直接按下标写）。</p>
 <p>💀 <code>a[a&gt;5][0] = 999</code> 先通过布尔高级索引读取临时副本，随后只改那份副本，<strong>原数组不变且不报错</strong>。但本例 <code>b[0][1] = 777</code> 的基础索引中间结果是视图，所以能写回。⭐ <strong>关键是中间结果是否共享数据；优先把赋值目标合成原数组上的一次索引，不把“两对方括号”当成必然失败的条件。</strong></p>
-<p>💀💀 本章最贵的坑：<code>b[[1,1,1]] += 1</code> 之后只加了 <strong>1</strong> 不是 3——因为 <code>+=</code> 被拆成「取出拷贝 → 加 → 按下标写回」，<strong>同一位置被写三次、后写的盖掉先写的</strong>。要累加用 <code>np.add.at</code>，专用快速通道是 <code>np.bincount</code>。⚠️ 典型现场是直方图、词频、稀疏梯度累加，<strong>症状是总数比预期小，小多少取决于数据重复得多厉害，看起来毫无规律</strong>。</p>
+<p><code>b[[1,1,1]] += 1</code> 先读出一份副本，给每个临时值加 1，再把相同的值写回同一位置。从 0 开始的例子里，结果是 1。每次命中都要累加到已有数组时，用 <code>np.add.at</code>。要生成新的非负整数频次表时，用 <code>np.bincount</code>。</p>
 <p>⭐ <strong>多个整数数组是「配对」不是「交叉」</strong>：要交叉表得先把一边升维，或者用 <code>np.ix_</code>。而「配对」这个语义正是「每行各取一个」的标准写法。</p>
 </blockquote>
 <p><strong>下一节</strong> 👉 <a href="07-把循环改写成数组运算.html">07-把循环改写成数组运算.md</a></p>
