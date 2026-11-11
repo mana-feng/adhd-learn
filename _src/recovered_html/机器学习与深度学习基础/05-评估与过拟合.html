@@ -699,6 +699,122 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <li><strong>怎么选</strong>：先定业务底线（例如召回率至少 80%），再在验证集上找满足底线、精确率最高的阈值</li>
 <li>阈值只能用验证集，或 OOF 预测（交叉验证里每个样本当验证时拿到的预测）来选；定下后才在测试集上评估一次</li>
 </ul>
+<h4 id="ml05-threshold-decision">先定召回底线，再在验证集选阈值</h4>
+<p>接着看 <a href="03a-逻辑回归与分类.html#_4">03a 的外卖超时提醒</a>。客服希望抓住至少 80% 的超时订单，满足这个条件后，再尽量让发出去的提醒准确。团队在看验证结果前定下这条规则，并列出两个候选门槛 0.75、0.50。下面的分数和标签是人工构造的演示数据，模拟同一个已训练、已冻结的模型给不同订单打分。</p>
+<div class="tw">
+<table>
+<caption>同分的订单合成一行。超时是正类。</caption>
+<thead><tr><th scope="col">分数</th><th scope="col">超时</th><th scope="col">准时</th></tr></thead>
+<tbody>
+<tr><th scope="row">0.75</th><td>3 单</td><td>1 单</td></tr>
+<tr><th scope="row">0.50</th><td>2 单</td><td>2 单</td></tr>
+<tr><th scope="row">0.25</th><td>1 单</td><td>3 单</td></tr>
+</tbody>
+</table>
+</div>
+<p>令 $s$ 为订单的风险分数，$\tau$ 为提醒阈值。本例两者都在 0 到 1 之间，无单位。只要 $s\ge\tau$ 就提醒，恰好等于阈值的订单也一起提醒。提醒且超时计真正例 $TP$，提醒但准时计假正例 $FP$，未提醒却超时计假负例 $FN$，未提醒且准时计真负例 $TN$，单位均为单。</p>
+<p>精确率 $P=TP/(TP+FP)$ 问「已提醒的订单里，有多少真超时」，召回率 $R=TP/(TP+FN)$ 问「实际超时的订单里，抓到了多少」。两个分母分别数所有提醒和所有超时，所以比例本身没有单位。没有提醒时精确率无定义，没有超时订单时召回率无定义。本例标为 N/A，这样的候选阈值不参加比较。</p>
+<div class="tw">
+<table>
+<caption>门槛降低时，0.50 这一组的 4 单一起进入提醒名单。</caption>
+<thead><tr><th scope="col">验证集</th><th scope="col">门槛 0.75</th><th scope="col">门槛 0.50</th></tr></thead>
+<tbody>
+<tr><th scope="row">提醒</th><td>TP＝3，FP＝1</td><td>TP＝3＋2＝5，FP＝1＋2＝3</td></tr>
+<tr><th scope="row">未提醒</th><td>FN＝2＋1＝3，TN＝2＋3＝5</td><td>FN＝1，TN＝3</td></tr>
+<tr><th scope="row">精确率</th><td>3 ÷ (3＋1)＝75%</td><td>5 ÷ (5＋3)＝62.5%</td></tr>
+<tr><th scope="row">召回率</th><td>3 ÷ (3＋3)＝50%</td><td>5 ÷ (5＋1)≈83.3%</td></tr>
+</tbody>
+</table>
+</div>
+<p>0.50 是这两个候选中唯一达标的门槛。比起 0.75，它多抓住 2 单超时，也多误报 2 单。若两个门槛都达标且精确率相同，本例预先约定用较高门槛。若两者都不达标，报告没有合适门槛。</p>
+<p>下面的 Python 3 脚本可直接运行，无需安装依赖。<code>evaluate</code> 把每一行的两种订单数加到四格，再按同一分母计算。<code>main</code> 只用验证集决定门槛，冻结后才用另 10 单演示测试集报告。数据固定，因此没有随机种子。</p>
+<div class="codehilite" id="ml05-threshold-python" data-code-language="python"><pre><code>def evaluate(groups, threshold):
+    tp = fp = fn = tn = 0
+    for score, late, on_time in groups:
+        if score &gt;= threshold:
+            tp += late
+            fp += on_time
+        else:
+            fn += late
+            tn += on_time
+    precision = tp / (tp + fp) if tp + fp else None
+    recall = tp / (tp + fn) if tp + fn else None
+    return (tp, fp, fn, tn), precision, recall
+
+
+def show(split, threshold, result):
+    counts, precision, recall = result
+    p = f"{precision:.3f}" if precision is not None else "N/A"
+    r = f"{recall:.3f}" if recall is not None else "N/A"
+    print(f"{split} {threshold:.2f}: {counts}, P={p}, R={r}")
+
+
+def main():
+    # Each row stores the score, late count, and on-time count.
+    validation = [(0.75, 3, 1), (0.50, 2, 2), (0.25, 1, 3)]
+    eligible = []
+    for threshold in (0.75, 0.50):
+        result = evaluate(validation, threshold)
+        show("validation", threshold, result)
+        _, precision, recall = result
+        if precision is not None and recall is not None and recall &gt;= 0.80:
+            eligible.append((precision, threshold))
+
+    if not eligible:
+        print("No threshold meets the recall target.")
+        return
+
+    # Maximize precision, then use the higher threshold if tied.
+    _, frozen_threshold = max(eligible)
+    test = [(0.75, 2, 2), (0.50, 2, 1), (0.25, 1, 2)]
+    show("test", frozen_threshold, evaluate(test, frozen_threshold))
+
+
+if __name__ == "__main__":
+    main()
+</code></pre></div>
+<p>输出的四格顺序是 TP、FP、FN、TN。验证门槛 0.75 得到 <code>(3, 1, 3, 5)</code>，门槛 0.50 得到 <code>(5, 3, 1, 3)</code>。测试只报告 0.50 的 <code>(4, 3, 1, 2)</code>，精确率 $4/(4+3)\approx57.1\%$，召回率 $4/(4+1)=80\%$。小样本的结果用来核对流程，无法保证实际部署达到 80%。</p>
+<p><strong>一次测试怎样变成了调参？</strong> 如果看到测试集的 3 次误报后，就改用 0.75 来少发提醒，这批测试订单便参与了规则选择。在这 10 单上，误报会从 3 单减到 2 单，抓到的超时订单从 4 单减到 2 单，召回率也变成 $2/(2+3)=40\%$。若要按新目标重选阈值，应回到验证阶段，并另留一批没参与任何选择的订单做最终评估。</p>
+
+<h4 id="ml05-probability-calibration">排序一样，0.50 的概率含义还一样吗？</h4>
+<p>客服需要知道先提醒谁，排班还需要知道这批订单大约有几单会超时。后一个问题要看<strong>概率校准（Probability Calibration）</strong>。把预测概率相近的订单放在一起，比一比组内平均预测概率和组内实际超时频率。</p>
+<p>另取一批人工构造的订单做观察。版本 A 给出 0.25、0.50、0.75 三种概率，每组 20 单，分别有 5、10、15 单超时。中间一组的 20 单预测都为 0.50，平均仍是 0.50，实际频率是 $10/20=0.50$。版本 B 对同一批订单把 A 的每个概率除以 2，中间组的平均概率成了 0.25，实际频率仍是 0.50。差 $0.50-0.25=0.25$，也就是低估了 25 个百分点。</p>
+<figure class="dia" id="ml05-reliability-figure" data-fig="ml05-reliability">
+<svg viewBox="0 0 360 276" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="同一批订单的概率可靠性对照。横轴为组内平均预测概率，纵轴为实际超时率。A 的三个圆点都在等值线上。B 把每组的预测概率减半，同一高度的三个方块都落到等值线左边。">
+<path d="M60 20V220H260 M56 120H64 M56 20H64 M160 216V224 M260 216V224" fill="none" stroke="var(--fg)" stroke-width="1.5"/>
+<path d="M60 220L260 20" fill="none" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 5"/>
+<path d="M110 120H160" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="3 4"/>
+<g fill="var(--accent)">
+<circle cx="110" cy="170" r="5"/><circle cx="160" cy="120" r="5"/><circle cx="210" cy="70" r="5"/>
+<circle cx="31" cy="262" r="5"/>
+</g>
+<g fill="var(--link)">
+<rect x="80" y="165" width="10" height="10"/><rect x="105" y="115" width="10" height="10"/><rect x="130" y="65" width="10" height="10"/>
+<rect x="170" y="257" width="10" height="10"/>
+</g>
+<g class="dia-t" font-size="15" fill="var(--fg)">
+<text x="70" y="18">实际超时率</text>
+<text x="55" y="26" text-anchor="end">100%</text>
+<text x="55" y="125" text-anchor="end">50%</text>
+<text x="60" y="240" text-anchor="middle">0%</text>
+<text x="160" y="240" text-anchor="middle">50%</text>
+<text x="260" y="240" text-anchor="middle">100%</text>
+<text x="268" y="200">平均预测</text><text x="268" y="218">概率</text>
+<text x="231" y="58">预测＝实际</text>
+<text x="43" y="267">A 原概率</text><text x="188" y="267">B 概率减半</text>
+</g>
+</svg>
+<figcaption>每个点代表同分的一组订单。看中间的虚横线。实际超时率都是 50%，A 报 50%，B 只报 25%。</figcaption>
+</figure>
+<p>除以 2 保留高低顺序和所有并列，所以在同一批订单上的 ROC-AUC 不变。原来 A 的 0.50 门槛，换到 B 的刻度上是 0.25。若照搬 0.50，B 最高只到 0.375，一单都不会提醒。<strong>看排序问「谁更高」，看校准问「数字准不准」，选阈值问「什么条件下行动」。</strong></p>
+<p>如果要实际拟合校准器，可以按顺序留出四份互不重叠的数据。</p>
+<ol>
+<li>训练集拟合预处理和分类器。</li>
+<li>校准集用冻结模型的分数和已知标签拟合「分数到概率」的映射。</li>
+<li>验证集用校准后的概率选门槛。</li>
+<li>最终测试集评估冻结的模型、映射与门槛。</li>
+</ol>
+<p>图中的玩具批次只演示如何读可靠性。实际判断还要看样本量和部署分布。<a href="https://scikit-learn.org/stable/modules/calibration.html">scikit-learn 概率校准指南</a></p>
 <hr />
 <h2 id="_8" data-mg-stop>📈 五、学习曲线：加数据有用吗</h2>
 <figure class="dia" data-fig="learning_curves" data-ml-diagram="wide" tabindex="0" style="--ml-diagram-width:720px" aria-label="教学图，可在图内左右滚动或使用放大按钮"><p class="ml-diagram-hint">图内可左右滑动；需要时可放大阅读。</p><svg viewBox="0 0 720 366" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="学习曲线判断加数据是否有用"><line x1="70" y1="250" x2="300" y2="250" stroke="var(--border)" stroke-width="1.4"/><line x1="70" y1="250" x2="70" y2="72" stroke="var(--border)" stroke-width="1.4"/><polyline points="70.0,198.4 73.8,199.5 77.7,200.5 81.5,201.5 85.3,202.4 89.2,203.3 93.0,204.1 96.8,204.8 100.7,205.5 104.5,206.2 108.3,206.8 112.2,207.3 116.0,207.9 119.8,208.4 123.7,208.8 127.5,209.3 131.3,209.7 135.2,210.1 139.0,210.4 142.8,210.8 146.7,211.1 150.5,211.4 154.3,211.6 158.2,211.9 162.0,212.1 165.8,212.4 169.7,212.6 173.5,212.8 177.3,212.9 181.2,213.1 185.0,213.3 188.8,213.4 192.7,213.6 196.5,213.7 200.3,213.8 204.2,213.9 208.0,214.0 211.8,214.1 215.7,214.2 219.5,214.3 223.3,214.4 227.2,214.5 231.0,214.6 234.8,214.6 238.7,214.7 242.5,214.7 246.3,214.8 250.2,214.9 254.0,214.9 257.8,214.9 261.7,215.0 265.5,215.0 269.3,215.1 273.2,215.1 277.0,215.1 280.8,215.2 284.7,215.2 288.5,215.2 292.3,215.2 296.2,215.3 300.0,215.3" fill="none" stroke="var(--link)" stroke-width="2.8" stroke-linecap="round"/><polyline points="70.0,126.2 73.8,130.1 77.7,133.9 81.5,137.4 85.3,140.9 89.2,144.1 93.0,147.2 96.8,150.2 100.7,153.1 104.5,155.8 108.3,158.3 112.2,160.8 116.0,163.2 119.8,165.4 123.7,167.6 127.5,169.6 131.3,171.6 135.2,173.5 139.0,175.3 142.8,177.0 146.7,178.6 150.5,180.2 154.3,181.7 158.2,183.1 162.0,184.5 165.8,185.8 169.7,187.0 173.5,188.2 177.3,189.4 181.2,190.5 185.0,191.5 188.8,192.5 192.7,193.5 196.5,194.4 200.3,195.3 204.2,196.1 208.0,196.9 211.8,197.7 215.7,198.4 219.5,199.1 223.3,199.8 227.2,200.5 231.0,201.1 234.8,201.7 238.7,202.3 242.5,202.8 246.3,203.3 250.2,203.8 254.0,204.3 257.8,204.8 261.7,205.2 265.5,205.6 269.3,206.0 273.2,206.4 277.0,206.8 280.8,207.2 284.7,207.5 288.5,207.8 292.3,208.1 296.2,208.4 300.0,208.7" fill="none" stroke="var(--accent)" stroke-width="2.8" stroke-linecap="round"/><text class="dia-t" x="185" y="274" font-size="13" text-anchor="middle" fill="var(--fg)" font-weight="700">两条线还在收敛</text><text class="dia-t" x="185" y="293" font-size="12" text-anchor="middle" fill="var(--muted)" font-weight="normal">缝隙缩小 → 继续检查加数据的收益</text><line x1="370" y1="250" x2="600" y2="250" stroke="var(--border)" stroke-width="1.4"/><line x1="370" y1="250" x2="370" y2="72" stroke="var(--border)" stroke-width="1.4"/><polyline points="370.0,174.3 373.8,175.4 377.7,176.5 381.5,177.4 385.3,178.3 389.2,179.2 393.0,180.0 396.8,180.7 400.7,181.4 404.5,182.1 408.3,182.7 412.2,183.3 416.0,183.8 419.8,184.3 423.7,184.8 427.5,185.2 431.3,185.6 435.2,186.0 439.0,186.3 442.8,186.7 446.7,187.0 450.5,187.3 454.3,187.6 458.2,187.8 462.0,188.0 465.8,188.3 469.7,188.5 473.5,188.7 477.3,188.9 481.2,189.0 485.0,189.2 488.8,189.3 492.7,189.5 496.5,189.6 500.3,189.7 504.2,189.9 508.0,190.0 511.8,190.1 515.7,190.2 519.5,190.2 523.3,190.3 527.2,190.4 531.0,190.5 534.8,190.5 538.7,190.6 542.5,190.7 546.3,190.7 550.2,190.8 554.0,190.8 557.8,190.9 561.7,190.9 565.5,190.9 569.3,191.0 573.2,191.0 577.0,191.1 580.8,191.1 584.7,191.1 588.5,191.1 592.3,191.2 596.2,191.2 600.0,191.2" fill="none" stroke="var(--link)" stroke-width="2.8" stroke-linecap="round"/><polyline points="370.0,169.2 373.8,170.5 377.7,171.7 381.5,172.9 385.3,173.9 389.2,175.0 393.0,175.9 396.8,176.8 400.7,177.7 404.5,178.5 408.3,179.2 412.2,179.9 416.0,180.6 419.8,181.2 423.7,181.8 427.5,182.4 431.3,182.9 435.2,183.4 439.0,183.8 442.8,184.3 446.7,184.7 450.5,185.1 454.3,185.4 458.2,185.8 462.0,186.1 465.8,186.4 469.7,186.7 473.5,186.9 477.3,187.2 481.2,187.4 485.0,187.6 488.8,187.8 492.7,188.0 496.5,188.2 500.3,188.4 504.2,188.6 508.0,188.7 511.8,188.9 515.7,189.0 519.5,189.2 523.3,189.3 527.2,189.4 531.0,189.5 534.8,189.6 538.7,189.7 542.5,189.8 546.3,189.9 550.2,190.0 554.0,190.1 557.8,190.1 561.7,190.2 565.5,190.3 569.3,190.3 573.2,190.4 577.0,190.5 580.8,190.5 584.7,190.6 588.5,190.6 592.3,190.7 596.2,190.7 600.0,190.7" fill="none" stroke="var(--accent)" stroke-width="2.8" stroke-linecap="round"/><text class="dia-t" x="485" y="274" font-size="13" text-anchor="middle" fill="var(--danger,#e5534b)" font-weight="700">两条线已经贴合</text><text class="dia-t" x="485" y="293" font-size="12" text-anchor="middle" fill="var(--muted)" font-weight="normal">都平了 → 检查容量、特征与数据分布</text><text class="dia-t" x="360" y="32" font-size="13.5" text-anchor="middle" fill="var(--fg)" font-weight="700">蓝=训练误差，橙=验证误差。看两条线的【缝隙】和【高度】</text><text class="dia-t" x="185" y="60" font-size="12" text-anchor="middle" fill="var(--fg)" font-weight="600">缝隙大：泛化问题的线索</text><text class="dia-t" x="485" y="60" font-size="12" text-anchor="middle" fill="var(--danger,#e5534b)" font-weight="600">两者都高：检查欠拟合等原因</text><text class="dia-t" x="360" y="328" font-size="12.5" text-anchor="middle" fill="var(--fg)" font-weight="700">⭐ 这张图提供排查方向：「该去标更多数据，还是该换模型？」</text><text class="dia-t" x="360" y="350" font-size="12" text-anchor="middle" fill="var(--muted)" font-weight="normal">是否加数据需验证收益；平台期还要检查模型、特征、优化与分布</text></svg><figcaption>示意图：只提供排查方向，不能单独诊断偏差或方差。</figcaption></figure>
@@ -722,7 +838,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <hr />
 <h2 id="_10" data-mg-stop>✅ 检查点</h2>
 <div class="ml-quiz">
-<p class="ml-quiz-intro">共 8 题：7 道单选、1 道判断。点一个选项，马上显示对错并展开解析；没把握也可以直接展开解析。</p>
+<p class="ml-quiz-intro">共 9 题：8 道单选、1 道判断。点一个选项，马上显示对错并展开解析；没把握也可以直接展开解析。</p>
 <div class="ml-q" data-answer="c" role="group" aria-labelledby="mlq-1">
 <p class="ml-q-stem" id="mlq-1"><span class="ml-q-tag">单选</span>1. 训练集上分数就很差，你在偏差—方差的哪一侧？</p>
 <ol class="ml-q-options">
@@ -831,6 +947,18 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <details class="ml-q-explain"><summary>看答案与解析</summary>
 <p><strong>答案：C</strong></p>
 <p>精确率 8 / (8 + 2) = 0.8；召回率 8 / (8 + 8) = 0.5；准确率 (8 + 82) / 100 = 0.9 —— 准确率很高，却漏掉了一半正例。</p>
+</details>
+</div>
+<div class="ml-q" data-answer="b" role="group" aria-labelledby="mlq-9">
+<p class="ml-q-stem" id="mlq-9"><span class="ml-q-tag">单选</span>9. 所有预测概率都除以 2，标签原样保留。哪项结论成立？</p>
+<ol class="ml-q-options">
+<li><button type="button" data-choice="a"><span class="ml-q-key">A</span><span class="ml-q-text">ROC-AUC 变小，0.50 门槛下的提醒名单不变</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="b"><span class="ml-q-key">B</span><span class="ml-q-text">ROC-AUC 不变，但照搬原门槛可能改变提醒名单</span><span class="ml-q-mark"></span></button></li>
+<li><button type="button" data-choice="c"><span class="ml-q-key">C</span><span class="ml-q-text">ROC-AUC 不变，说明概率和实际频率还同样匹配</span><span class="ml-q-mark"></span></button></li>
+</ol>
+<p class="ml-q-feedback" role="status"></p>
+<details class="ml-q-explain"><summary>看答案与解析</summary>
+<p><strong>答案 B。</strong>除以 2 保留排序和并列，所以 ROC-AUC 不变。原来恰好得 0.50 的订单现在得 0.25，照搬 0.50 会少发提醒。实际频率仍是原来的数字，校准要重新看。</p>
 </details>
 </div>
 <div class="ml-quiz-footer"><p class="ml-quiz-score" role="status"></p><button type="button" class="ml-quiz-reset" hidden>重做这组题</button></div>
