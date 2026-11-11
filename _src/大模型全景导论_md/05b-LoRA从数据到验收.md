@@ -1,6 +1,6 @@
 # 05b｜LoRA：从数据到验收
 
-<header class="mg-remaining-cover"><p class="mg-kicker">大模型全景导论 / 05b</p><p class="mg-question">loss下降后，怎样证明数据、重载与任务三道门都过了？</p><p class="mg-dek">沿监督token边界→资源与训练条件→新进程重载及未见题比较，保留全部调用示意和未验收状态。</p><nav class="mg-actions" aria-label="本章阅读入口"><a class="mg-primary" href="#token">先看：停止点一：先看模型到底会学哪几个 token</a><a href="#mg-llm-overview-05b-reading-start">直接读完整正文</a></nav></header><span class="mg-reading-start" id="mg-llm-overview-05b-reading-start"></span>
+<header class="mg-remaining-cover"><p class="mg-kicker">大模型全景导论 / 05b</p><p class="mg-question">loss下降后，怎样证明数据、重载与任务三道门都过了？</p><p class="mg-dek">沿监督token边界→资源与训练条件→新进程重载及未见题比较，保留全部调用示意和未验收状态。</p></header><span class="mg-reading-start" id="mg-llm-overview-05b-reading-start"></span>
 
 
 > 本章给出数据、训练与保存重载的验收契约。完整实验工程与运行记录未随本站分发；以下命令是调用方式示意，不能在空目录直接运行。需先自行实现对应脚本并准备数据与环境。
@@ -13,7 +13,7 @@
 
 **验证边界：** 本页不提供可复核的训练成绩。训练、反向传播、保存重载、任务提升与 QLoRA 均需在自己的环境实跑并记录，不能从以下命令推定已通过。
 
-## 停止点一：先看模型到底会学哪几个 token
+## 模型到底会学哪几个 token {#token}
 
 原数据练习使用独立环境与 `requirements-data.txt`，通过 `prepare_tokenizer.py` 准备 tokenizer，将 `LORA_TOKENIZER_DIR` 指向 `.runtime/tokenizer`，再测试并调用：
 
@@ -45,7 +45,7 @@ python data.py --data dataset/train.jsonl dataset/dev.jsonl dataset/test.jsonl -
 
 </details>
 
-## 停止点二：资源够，再付训练成本
+## 资源检查与训练 {#_1}
 
 候选基座为 Apache-2.0 的 `HuggingFaceTB/SmolLM2-135M-Instruct`，锁定commit `12fd25f77366fa6b3b4b768ec3050bf629380bac`。官方文件元数据报告权重约269MB；这不是训练内存预算。模型卡主要语言为英文，练习也采用英文，不据此宣称中文能力。
 
@@ -71,7 +71,7 @@ LoRA只更新附加的低秩参数。代码要求每个target_modules名称匹�
 
 </details>
 
-## 停止点三：在新进程里验收
+## 在新进程里验收 {#_2}
 
 保存成功后关闭训练进程，再运行：
 
@@ -105,7 +105,7 @@ manifest保存基座名/revision、语料/配置/tokenizer/模板哈希、固定
 
 ## 走神救援
 
-现在只做一个动作：回看本章对 `loss_text` 的说明。你能解释它与用户问题的边界，今天的数据停止点就完成了。若环境报缺Jinja2，补数据依赖；若内存、版本或GPU检查失败，记下原始错误并停在这里。不要下载更大的模型“试试看”，不要跳过检查制造成功截图。
+回看本章对 `loss_text` 的说明，解释它与用户问题的边界。若环境报缺Jinja2，补数据依赖；若内存、版本或GPU检查失败，记下原始错误并停止实验。不要下载更大的模型“试试看”，不要跳过检查制造成功截图。
 
 下一条路线：数据分割看[私有评测集怎么建](11b-私有评测集怎么建.html)，显存与精度看[量化](../AI基础设施/18-量化.html)，偏好优化看[对齐与 AI 安全](12-对齐与AI安全.html)；这些路线不能代替本实验的保存重载验收。
 

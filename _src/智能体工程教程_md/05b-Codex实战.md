@@ -4,7 +4,6 @@
 <p class="mg-kicker">智能体工程 · 05b</p>
 <p class="mg-question">预算刚好到30分钟，应当允许还是拒绝？</p>
 <p class="mg-outcome">读完能做的判断：用原任务卡的边界反例、修复结果与diff证明一次小修改。</p>
-<nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#3">从这个问题的原解释开始</a><a href="#mg-agent-engineering-05b-reading-start">直接进入完整解释</a></nav>
 </div></header>
 <span id="mg-agent-engineering-05b-reading-start" tabindex="-1"></span>
 
@@ -88,7 +87,7 @@ git diff --no-index -- examples/coding-agent-lab/app.py examples/coding-agent-la
 ✅ **检查 5：恰好 30 分钟通过后，为什么还测 31 分钟？**
 <details><summary>展开答案</summary>确认补丁没有放宽成永远允许。独立超额样例是 False，负数仍抛异常。</details>
 
-**⏸ 停止点：** 你能解释 `<` 与 `<=`，并找到红绿两份日志，就可以先关掉本节。回来从下一段继续。
+对照红绿两份日志，解释为什么这个边界应使用 `<=`，以及改动前的 `<` 为什么会失败。
 
 ## 4 · 最后看 diff，不只看“完成了”
 

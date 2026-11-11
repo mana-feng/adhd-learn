@@ -4,7 +4,6 @@
 <p class="mg-kicker">智能体工程 · 11e</p>
 <p class="mg-question">PDF提取出了字，表格关系就保住了吗？</p>
 <p class="mg-outcome">读完能做的判断：检查真实解析失败、表头关系与升级记录，而非只看输出存在。</p>
-<nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_3">从这个问题的原解释开始</a><a href="#mg-agent-engineering-11e-reading-start">直接进入完整解释</a></nav>
 </div></header>
 <span id="mg-agent-engineering-11e-reading-start" tabindex="-1"></span>
 
@@ -14,9 +13,9 @@
 
 > 一句话带走：文字能提取，只说明入口有字；型号、单位、条件和阅读顺序仍须逐项核对。
 
-## 先选一个可完成的停止点
+## 实验范围与运行命令 {#_1}
 
-本章用原创虚构的 XR-200 / XR-300 维修资料做实验，不代表真实设备参数。先运行单栏文本 PDF 与 Markdown 表格测试，看懂拒绝原因即可停下；有精力再检查版本迁移和原始结果。OCR 与跨页复杂表格留在第二阶段。
+本章用原创虚构的 XR-200 / XR-300 维修资料做实验，样本中的设备参数为演示数据。测试覆盖单栏文本 PDF、Markdown 表格、拒绝条件和版本迁移。OCR 与跨页复杂表格留在第二阶段。
 
 以下是按原示例目录结构编写的命令；在示例目录内执行时可省略 `examples/knowledge-assistant/` 前缀：
 

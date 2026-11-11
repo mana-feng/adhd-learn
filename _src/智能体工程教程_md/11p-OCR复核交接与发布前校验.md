@@ -4,7 +4,6 @@
 <p class="mg-kicker">智能体工程 · 11p</p>
 <p class="mg-question">原图换了位置，下一位维护者怎样找到同一份材料？</p>
 <p class="mg-outcome">读完能做的判断：用指纹、修订正文与复核范围建立可核验交接，不覆盖旧候选。</p>
-<nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#4">从这个问题的原解释开始</a><a href="#mg-agent-engineering-11p-reading-start">直接进入完整解释</a></nav>
 </div></header>
 <span id="mg-agent-engineering-11p-reading-start" tabindex="-1"></span>
 
@@ -18,9 +17,9 @@
 
 > 一句话带走：交接时要锁定“哪张原图、哪份候选、哪版修订、哪些必查项”；清单完整只表示材料能继续核对，发布仍需可信人工验收。
 
-## 先选一个可以停下的地方
+## OCR 复核交接流程 {#_1}
 
-先看第1节的交接包，就可停下；继续到第4节，辨认“旧复核不能批准新文字”；最后运行离线演示，比较真实候选与合成记录。走神后回到：**原图 → 候选 → 修订与清单 → 逐项复核 → 外部验收**。动手时间另计。
+先看第 1 节的交接包，再到第 4 节核对旧复核不能批准新文字的原因。离线演示比较真实候选与合成记录。处理链为**原图 → 候选 → 修订与清单 → 逐项复核 → 外部验收**。
 
 本章承接[中文文档解析与字段复核](11o-中文文档解析与字段复核.html)，解决“候选产生后，怎样把待办交给下一位复核者”。复用既有校验，不重新识别图片；[表格分块](11j-表格分块与证据保真.html)仍等待可信结构。
 
@@ -153,7 +152,7 @@ python -X utf8 ocr_handoff_lab.py prepare --candidate fixtures/ocr-handoff/saved
 
 本章沿用语雀106/112的解析和表格选题；此前只看到PDF附件入口，附件正文未读。这里的交接格式、夹具、代码和结果均为本项目原创，不引用其附件中的流程或准确率。
 
-当前停止点：说清“为何清晰卡待复核、为何表格阻断、为何合成结构完整也不能发布”，即可结束。走神救援：只打开 `summary.json`，先分清 `saved_real_ocr` 和 `synthetic_fixture` 两个分母，再回到原图。
+在 `summary.json` 中区分 `saved_real_ocr` 和 `synthetic_fixture` 两个分母。结合原图与记录，说明清晰卡为什么待复核、表格为什么阻断，以及合成结构完整为什么仍不能发布。
 
 <details>
 <summary>检查点 8：这一章完成后，还缺哪些真正的发布条件？</summary>

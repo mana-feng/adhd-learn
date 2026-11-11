@@ -296,7 +296,6 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p class="mg-kicker">智能体工程 · 16e</p>
 <p class="mg-question">接上LangChain后，业务规则还由谁检查？</p>
 <p class="mg-outcome">读完能做的判断：比较模型输入、参数失败和幂等重放，框架封装不替代核心合同。</p>
-<nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_4">从这个问题的原解释开始</a><a href="#mg-agent-engineering-16e-reading-start">直接进入完整解释</a></nav>
 </div></header>
 <p><span id="mg-agent-engineering-16e-reading-start" tabindex="-1"></span></p>
 <h1 id="16e-langchain">16e · LangChain 同题实作</h1>
@@ -305,7 +304,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p>本章保留教学代码、路径说明与历史验证结论；完整实验工程和运行记录未随本站及公开仓库分发。命令用于说明调用方式，复现需自行准备对应实现、数据与环境。</p>
 </blockquote>
 <p>一句话带走：LangChain 替你组织模型与工具的消息循环，身份、权限、幂等和审批仍由业务代码保证。</p>
-<p>这一节接在 16b 的框架讨论和 16d 的恢复实作之后。我们继续问「XR-200 的额定功率是多少」，再要求保存一个工单草稿。题目与资料不换，只在已有知识助手外面加一层 <code>create_agent</code>。你可以先停在能力表；想亲手拆开消息循环，再运行下面的实验。</p>
+<p>这一节接在 16b 的框架讨论和 16d 的恢复实作之后。我们继续问「XR-200 的额定功率是多少」，再要求保存一个工单草稿。题目与资料不换，只在已有知识助手外面加一层 <code>create_agent</code>。能力表列出各组件的职责。下面的实验逐步展示消息循环。</p>
 <h2 id="_1">同一件事，三层各做什么</h2>
 <div class="tw"><table>
 <thead>
@@ -363,7 +362,7 @@ python -m venv .venv-langchain
 </code></pre>
 <p>2026-10-10 实跑环境为 Python 3.12.14、Windows 11，LangChain 1.4.4、langchain-core 1.6.9、LangGraph 1.2.11、checkpoint-sqlite 3.1.1。10 项契约测试通过，<code>pip check</code> 无依赖冲突；完整版本在 <code>validation/langchain-freeze.txt</code>。实验使用真正的 <code>create_agent</code> 与确定性 <code>BaseChatModel</code> 夹具，不连接收费 API、不下载模型。</p>
 <p>夹具预先安排模型输出的工具调用。框架仍真正解析消息、验证参数、调用工具，并把 <code>ToolMessage</code> 回送给模型；这能验证接口与边界，但不能验证自然语言理解、回答质量或真实模型面对提示注入时的表现。</p>
-<p>此处可停：能指出搜索和草稿最终落在哪两个业务函数里，就已经理解这层适配器的作用。</p>
+<p>用搜索和草稿分别调用的两个业务函数，说明适配器与业务层怎样衔接。</p>
 <h2 id="_4">看一次参数失败，再看一次幂等重放</h2>
 <p>在 <code>test_invalid_parameter_is_error</code> 中，夹具给 <code>draft_ticket</code> 传入整数 <code>title=123</code>。严格 Schema 拒绝它，消息历史出现 <code>status="error"</code> 的 <code>ToolMessage</code>，数据库中没有草稿。参数错误可以回到模型让它修正；业务拒绝与预算失败则直接抛出，适配器不把失败伪装成成功答案。</p>
 <p>在 <code>test_duplicate_draft_is_pending_and_idempotent</code> 中，夹具连续两次发出相同标题、正文与不同 tool call ID。两次结果返回相同 <code>run_id</code>，数据库只有一条 <code>runs</code>，状态为 <code>pending</code>，<code>tickets</code> 为零。再用裸 <code>workflow.draft</code> 重放同一操作，仍返回相同 <code>run_id</code>。去重来自业务指纹与操作编号，不是框架认出了重复语言。相同编号换正文，会抛出 <code>idempotency_key_conflict</code>；不能为“重试方便”偷偷换编号。</p>

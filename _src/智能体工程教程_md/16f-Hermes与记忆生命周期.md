@@ -4,7 +4,6 @@
 <p class="mg-kicker">智能体工程 · 16f</p>
 <p class="mg-question">记忆被召回，就可以跳过当前权限了吗？</p>
 <p class="mg-outcome">读完能做的判断：区分Hermes能力、本机结果与记忆生命周期，保留只读工具边界。</p>
-<nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_2">从这个问题的原解释开始</a><a href="#mg-agent-engineering-16f-reading-start">直接进入完整解释</a></nav>
 </div></header>
 <span id="mg-agent-engineering-16f-reading-start" tabindex="-1"></span>
 
@@ -29,7 +28,7 @@ python -X utf8 rehearsal.py
 Get-Content .runtime/rehearsal/results.json
 ```
 
-每次复跑写入 `.runtime/`，本地 `validation/` 保留本次历史。每个场景都有 `before.json`、`after.json` 与 `result.json`。输出 6/6 通过后，挑一组前后文件比较，就可以停。初次尝试不必做 MCP 或宿主步骤。
+每次复跑写入 `.runtime/`，本地 `validation/` 保留本次历史。每个场景都有 `before.json`、`after.json` 与 `result.json`。输出 6/6 通过后，挑一组前后文件比较。MCP 和宿主步骤另行验证。
 
 | 场景 | 给它什么 | 有效状态应该怎样变化 |
 |---|---|---|
@@ -73,7 +72,7 @@ Get-Content .runtime/mcp-probe.json
 
 ## 走神救援
 
-迷路时只做两件事：打开 life-03 的前后文件，看旧偏好有没有覆盖新偏好；打开 life-06，看文档污染有没有改掉有效状态。完成这两件就停。
+核对 life-03 的前后文件，看看旧偏好是否覆盖新偏好。再用 life-06 核对文档污染有没有改掉有效状态。
 
 连接失败先看日志与解释器路径，不用关闭认证来修。Hermes 不在 PATH 就停在独立演练，别执行远程安装器。退出探针后没有后台服务。若要清理，仅检查本例 `.runtime/` 中此次生成的文件再删除；本地 validation 是证据，个人 `.hermes` 与共享环境不用清理。
 

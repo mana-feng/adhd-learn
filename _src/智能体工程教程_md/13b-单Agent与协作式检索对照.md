@@ -4,7 +4,6 @@
 <p class="mg-kicker">智能体工程 · 13b</p>
 <p class="mg-question">协作式检索看起来更忙，结果真的更好吗？</p>
 <p class="mg-outcome">读完能做的判断：对齐三种路径的输入、预算和实跑记录，保留失败与开销。</p>
-<nav class="mg-actions" aria-label="本页阅读入口"><a class="mg-primary" href="#_3">从这个问题的原解释开始</a><a href="#mg-agent-engineering-13b-reading-start">直接进入完整解释</a></nav>
 </div></header>
 <span id="mg-agent-engineering-13b-reading-start" tabindex="-1"></span>
 
@@ -14,9 +13,9 @@
 
 > 一句话带走：先证明任务需要拆分，再证明拆分守住同一身份、预算和证据；角色变多本身不会让答案变正确。
 
-## 先选一个能完成的停止点
+## 实验范围与运行命令 {#_1}
 
-第一次只跑报告、找到一条部分失败，再读懂为什么先保留单执行者，就可以停下。第二次回来检查并行、消息契约和取消。先读 [多 Agent 协作](13-多Agent协作.html)，再进入 [评测 Evals](14-评测Evals.html)。
+在实验报告中核对一个部分失败案例，并结合并行、消息契约和取消机制解释为什么先保留单执行者。先读 [多 Agent 协作](13-多Agent协作.html)，再进入 [评测 Evals](14-评测Evals.html)。
 
 以下命令展示 Python 3.12 下按示例目录结构执行测试与演示的方式：
 
@@ -153,4 +152,4 @@ trace 只存 task_id、角色名、类型、次数、耗时、线程 ID、固定
 
 ## 走神救援
 
-只记住三步：任务是谁固定的；证据是谁重新校验的；停止是拒绝采纳还是能够终止函数。回到 `role-failure` 看一眼 partial，就可以在这里停下。下一站是 [评测 Evals](14-评测Evals.html)。
+只记住三步：任务是谁固定的；证据是谁重新校验的；停止是拒绝采纳还是能够终止函数。用 `role-failure` 中的 partial 核对这三点。指标与分母见 [评测 Evals](14-评测Evals.html)。
