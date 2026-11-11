@@ -831,6 +831,12 @@ The current implementation plan is [here](docs/superpowers/plans/2026-10-28-unif
 
 只有用户明确要求时才执行。
 
+Codex 或由 Codex 协调的 Agent 创建任何 Git 提交时：
+
+- 保留仓库当前配置的用户身份作为作者（author）和提交者（committer）。不得用 Codex 替换用户身份或将 Codex 设为唯一作者。
+- 在提交消息末尾追加 `Co-authored-by: Codex <codex@openai.com>`，提交后用 `git show` 核对该 trailer。
+- 不得改写已有提交。
+
 ---
 
 # 13. 实际开发工作流程
