@@ -633,7 +633,39 @@ strides 只有一个数字的位置，而这里需要<strong>任意一张顺序�
 <code>grad[np.arange(n), y] -= 1.0</code> 那行的机制。⚠️ 那里是<strong>顺手写的、没有一个字解释过它为什么这么写</strong>。</p>
 <p>⚠️ 顺带注意上面那行 <code>-=</code> 能生效，正是因为它<strong>只有一个方括号</strong>（第四节）。
 而如果 <code>y</code> 里有重复……不会有问题，因为 <code>np.arange(n)</code> 保证了每对下标都不同 —— <strong>重复下标的坑在这里恰好躲开了。</strong></p>
-<h3 id="4">🔍 七、④ 布尔掩码：长度要到运行时才知道</h3>
+<h3 id="4">🔍 七、④ 布尔掩码：整行、单格和逐行汇总</h3>
+<p>三家门店各记了四个小时的订单数。交日报时，只需要门店 0 和 2 的完整记录。查高峰时，要从三家店挑出订单数超过 5 的小时。如果还要知道每家店有几个高峰小时、这些小时共接了多少单，汇总时就得保留门店归属。</p>
+<p>下表的演示数据就是前面用过的 <code>a = np.arange(12).reshape(3, 4)</code>。行对应门店，列对应小时，格子里的单位是单。下标从 0 开始。按 <a href="02-shape与axis到底怎么数.html">第 02 章的 shape 和 axis 规则</a>，轴 0 有 3 个门店位置，轴 1 有 4 个小时位置。</p>
+<div class="tw"><table>
+<caption>订单数（单）。加粗表示超过 5 单。</caption>
+<thead><tr><th scope="col">门店</th><th scope="col">小时 0</th><th scope="col">小时 1</th><th scope="col">小时 2</th><th scope="col">小时 3</th></tr></thead>
+<tbody>
+<tr><th scope="row">0</th><td>0</td><td>1</td><td>2</td><td>3</td></tr>
+<tr><th scope="row">1</th><td>4</td><td>5</td><td><strong>6</strong></td><td><strong>7</strong></td></tr>
+<tr><th scope="row">2</th><td><strong>8</strong></td><td><strong>9</strong></td><td><strong>10</strong></td><td><strong>11</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>布尔掩码（Boolean mask）</strong>是一张由 <code>True</code>（保留）和 <code>False</code>（跳过）组成的选择表。先问每个布尔值要决定的是一整行，还是一格。</p>
+<h4>取整行时，每家门店一个开关</h4>
+<p>日报选门店 0 和 2。按门店顺序写下 <code>[True, False, True]</code>，得到形状为 <code>(3,)</code> 的 <code>rowmask</code>。在 <code>a[rowmask]</code> 中，它对齐第一根轴（轴 0）。门店 0 留下 <code>[0, 1, 2, 3]</code>，门店 1 跳过，门店 2 留下 <code>[8, 9, 10, 11]</code>。</p>
+<p>选中了 2 行，每行的 4 列都保留，所以结果形状是 <code>(2, 4)</code>。两个 <code>True</code> 决定的是行数，整个结果有 8 个元素。</p>
+<h4>取单格时，每个小时一个开关</h4>
+<p><code>m = a &gt; 5</code> 把每格和 5 比较，得到与 <code>a</code> 同为 <code>(3, 4)</code> 的掩码。门店 0 四格都跳过。门店 1 的 4 和 5 跳过，6 和 7 留下。门店 2 的 8、9、10、11 全留下。</p>
+<p><code>a[m]</code> 按行从上到下、每行从左到右收集命中的值（C 序），得到 <code>[6, 7, 8, 9, 10, 11]</code>。这 6 个值在同一根轴上，形状是 <code>(6,)</code>。这里的逗号表示只有一个轴。这个结果里已经没有门店轴。</p>
+<h4>每店计数和求和时，先留住行列</h4>
+<p>两种汇总都要沿每行的 4 个小时计算。门店下标记为 $i$（0 到 2），小时下标记为 $j$（0 到 3），$a_{ij}$ 是该格的订单数。把掩码的 <code>True</code> 当作 1、<code>False</code> 当作 0，记为 $b_{ij}$。再准备一张同形状的表 $v$，把命中的格子保留原值，其余填 0。因此 $v_{ij}$ 在 $b_{ij}=1$ 时等于 $a_{ij}$，在 $b_{ij}=0$ 时等于 0。</p>
+<p>门店 $i$ 的高峰小时数是 $C_i=\sum_{j=0}^{3} b_{ij}$，高峰小时的订单总数是 $S_i=\sum_{j=0}^{3} v_{ij}$。求和符号 $\sum$ 让 $i$ 固定，依次加上小时 0、1、2、3 的四项。前一个和的单位是小时，后一个和的单位是单。</p>
+<div class="tw"><table>
+<caption>每一行各算两次：数高峰小时，再加高峰订单</caption>
+<thead><tr><th scope="col">门店</th><th scope="col">数小时（小时）</th><th scope="col">加订单（单）</th></tr></thead>
+<tbody>
+<tr><th scope="row">0</th><td>0 + 0 + 0 + 0 = <strong>0</strong></td><td>0 + 0 + 0 + 0 = <strong>0</strong></td></tr>
+<tr><th scope="row">1</th><td>0 + 0 + 1 + 1 = <strong>2</strong></td><td>0 + 0 + 6 + 7 = <strong>13</strong></td></tr>
+<tr><th scope="row">2</th><td>1 + 1 + 1 + 1 = <strong>4</strong></td><td>8 + 9 + 10 + 11 = <strong>38</strong></td></tr>
+</tbody>
+</table></div>
+<p><code>m.sum(axis=1)</code> 加的是每行的布尔值。<code>np.where(m, a, 0)</code> 逐格按掩码选原值或 0，对应上面的表 $v$，接着 <code>.sum(axis=1)</code> 加的是每行保留的订单数。两次都消去小时轴，每家门店各留一个数，所以结果都是 <code>(3,)</code>。门店 0 没有命中，两个结果里的第一项仍是 0。</p>
+<h4>运行一次，对照刚才算出的形状和数值</h4>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="n">a</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">12</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
@@ -649,20 +681,19 @@ strides 只有一个数字的位置，而这里需要<strong>任意一张顺序�
 
 <span class="n">rowmask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="kc">True</span><span class="p">,</span> <span class="kc">False</span><span class="p">,</span> <span class="kc">True</span><span class="p">])</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"按行选:"</span><span class="p">,</span> <span class="n">a</span><span class="p">[</span><span class="n">rowmask</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+
+print("按行选的值:", a[rowmask].tolist())
+print("每店高峰小时数:", m.sum(axis=1).tolist())
+print("每店高峰订单数:", np.where(m, a, 0).sum(axis=1).tolist())
 </code></pre></div>
 
 <p>实跑输出：</p>
-<section class="comparison-repair" id="comparison-repair-17"><p>掩码本身: bool (3, 4)</p><div class="tw"><table><caption>按行、列对齐查看数组</caption><thead><tr><th scope="col">行 / 列</th><th scope="col">列 0</th><th scope="col">列 1</th><th scope="col">列 2</th><th scope="col">列 3</th></tr></thead><tbody><tr><th scope="row">0</th><td>False</td><td>False</td><td>False</td><td>False</td></tr><tr><th scope="row">1</th><td>False</td><td>False</td><td>True</td><td>True</td></tr><tr><th scope="row">2</th><td>True</td><td>True</td><td>True</td><td>True</td></tr></tbody></table></div><p>a[m] = [ 6 7 8 9 10 11] shape (6,)</p><p>共享内存: False</p><p>等价写法 a[np.nonzero(m)] = [ 6 7 8 9 10 11]</p><p>nonzero 给的是下标: (array([1, 1, 2, 2, 2, 2]), array([2, 3, 0, 1, 2, 3]))</p><p>按行选: (2, 4)</p></section>
-<p>⭐ <strong>布尔掩码属于高级索引，读取按规则返回副本。</strong> 结果长度由 <code>mask.sum()</code> 决定，需要扫描掩码才能确定并构造结果；这是结果构造成本的说明，不能当作所有视图与拷贝行为的充分判据。</p>
-<p>⭐ <strong><code>a[m]</code> 和 <code>a[np.nonzero(m)]</code> 是同一件事</strong>（上面实跑输出完全相同）。
-所以布尔掩码本质上是<strong>花式索引的一个便捷入口</strong> —— 先把掩码翻译成整数下标，再走 ③ 那条路。
-拷贝的理由一脉相承。</p>
-<p>⚠️ 两条形状规矩：</p>
-<ul>
-<li><strong>二维掩码 → 一维结果</strong>（选中的元素按 C 序摊平），因为「每行选中几个」不一定相等，摊平是唯一能保证矩形的做法</li>
-<li><strong>一维掩码可以只作用在一根轴上</strong>：<code>a[rowmask]</code> 得到 <code>(2, 4)</code>，整行整行地选</li>
-</ul>
-<p>三个高频翻车现场：</p>
+<section class="comparison-repair" id="comparison-repair-17"><p>掩码本身: bool (3, 4)</p><div class="tw"><table><caption>按行、列对齐查看数组</caption><thead><tr><th scope="col">行 / 列</th><th scope="col">列 0</th><th scope="col">列 1</th><th scope="col">列 2</th><th scope="col">列 3</th></tr></thead><tbody><tr><th scope="row">0</th><td>False</td><td>False</td><td>False</td><td>False</td></tr><tr><th scope="row">1</th><td>False</td><td>False</td><td>True</td><td>True</td></tr><tr><th scope="row">2</th><td>True</td><td>True</td><td>True</td><td>True</td></tr></tbody></table></div><p>a[m] = [ 6 7 8 9 10 11] shape (6,)</p><p>共享内存: False</p><p>等价写法 a[np.nonzero(m)] = [ 6 7 8 9 10 11]</p><p>nonzero 给的是下标: (array([1, 1, 2, 2, 2, 2]), array([2, 3, 0, 1, 2, 3]))</p><p>按行选: (2, 4)</p><p>按行选的值: [[0, 1, 2, 3], [8, 9, 10, 11]]</p><p>每店高峰小时数: [0, 2, 4]</p><p>每店高峰订单数: [0, 13, 38]</p></section>
+<p>布尔索引读取返回副本，可用 <code>np.shares_memory</code> 验证。<code>np.nonzero(m)</code> 给出两组下标，一组行号、一组列号。按上一节的规则逐位配对，前两个坐标是 <code>(1, 2)</code> 和 <code>(1, 3)</code>，所以 <code>a[np.nonzero(m)]</code> 和本例的 <code>a[m]</code> 取到相同的值。</p>
+<h4>查错时，先看掩码的形状和类型</h4>
+<p>本例的 <code>a[mask]</code> 从第一根轴开始对齐。整行掩码要给 3 个门店各一个布尔值。同形逐格掩码要给 3 × 4 个位置各一个布尔值。<code>[True, False]</code> 只回答了两家店，和轴 0 的长度 3 对不上，所以会抛出 <code>IndexError</code>。布尔索引不会把缺的布尔值按第 03 章的运算广播规则补齐。</p>
+<p>检查 <code>dtype</code> 也很重要。<code>a[[0, 1, 0]]</code> 里是整数，会依次读第 0、1、0 行。需要做开关时，应传布尔值。</p>
+<p>再用原表检查三个常见错误：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="n">a</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">12</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
@@ -713,6 +744,14 @@ strides 只有一个数字的位置，而这里需要<strong>任意一张顺序�
 于是它算的是 <code>((a &gt; 3) &amp; a) &lt; 8</code> —— 先把布尔和整数按位与，再比 8。
 上面实跑的结果是全 True，<code>a[bad]</code> 把 12 个元素一个不落全返回了。
 ⭐ <strong>规矩：比较表达式一律加括号，<code>(x &gt; 3) &amp; (x &lt; 8)</code>，一个不漏。</strong></p>
+<h4>自检：把高峰门槛改成超过 7 单</h4>
+<p>继续用原表。先预测逐格筛选的结果与形状，再算每店的高峰小时数和订单总数。然后试着用 <code>a[a[:, :1] &gt; 7]</code> 取格子，解释报错发生在哪根轴。</p>
+<details>
+<summary>查看答案</summary>
+<p>只剩门店 2 的 8、9、10、11。逐格筛选得到 <code>[8, 9, 10, 11]</code>，形状为 <code>(4,)</code>。按门店计数是 <code>[0, 0, 4]</code>，订单总数是 <code>[0, 0, 38]</code>，两次汇总都还给每家店留了一个位置。</p>
+<p><code>a[:, :1]</code> 保留所有行和第一列，因此比较得到 <code>(3, 1)</code> 的二维掩码。轴 1 上的 1 对不上原表的 4，直接用它索引会抛出 <code>IndexError</code>。如果目的是按第一列的条件保留<strong>整行</strong>，用 <code>a[a[:, 0] &gt; 7]</code>：整数索引 <code>0</code> 取出第一列并去掉列轴，生成的 <code>(3,)</code> 掩码选出门店 2 的整行，形状是 <code>(1, 4)</code>。</p>
+</details>
+<p>回顾时先说清结果里每个位置代表什么。整行筛选保留每个入选门店的全部小时，逐格筛选收集命中的值，沿轴 1 汇总给每家店留一个数。接下来会看混合索引时结果轴放在哪里。到 <a href="07-把循环改写成数组运算.html">第 07 章</a>，也会先辨认循环在沿哪根轴或按哪些组累积，再选择数组写法。</p>
 <div class="nm-takeaway"><button type="button" class="nm-save-note" data-nm-save="_4" data-nm-enhance disabled>记住这一段</button></div></section><section class="nm-section nm-prose" data-nm-section="3"><p class="nm-kicker">03 / 完整解释</p><h2>看结果轴，也看搬运量。</h2><h3 id="_6" data-nm-stop="">🧷 八、混着用：花式索引被切片隔开时，结果轴会跑到最前面</h3>
 <p>这是 NumPy 索引里<strong>唯一一条真正反直觉的规则</strong>：</p>
 <div class="codehilite" data-code-language="python"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -970,7 +1009,7 @@ strides 只有一个数字的位置，而这里需要<strong>任意一张顺序�
 <li><code>a[a &gt; 5][0] = 999</code> 会发生什么？为什么 <code>b[0][1] = 777</code> 反而生效？该记住哪条判据？</li>
 <li>💀 <code>b = np.zeros(5, int); b[[1,1,1]] += 1</code> 之后 <code>b[1]</code> 是几？为什么？该怎么写才对？</li>
 <li><code>a[rows, cols]</code> 和 <code>a[rows[:, None], cols]</code> 分别得到什么形状？规则是什么？</li>
-<li>布尔掩码为什么必然是拷贝？这个理由和花式索引的理由有什么不同？<code>a[(a &gt; 3) &amp; a &lt; 8]</code> 少了一对括号又会怎样？</li>
+<li>按什么规则判断布尔索引读取会返回副本？掩码里的 <code>True</code> 数在本章的整行和逐格示例中分别决定什么？<code>a[(a &gt; 3) &amp; a &lt; 8]</code> 少了一对括号又会怎样？</li>
 <li><code>a</code> 是 <code>(3,4,5)</code>，<code>a[[0,1], :, [0,2]]</code> 的 shape 是什么？为什么不是 <code>(2,4,2)</code>？同一个掩码要用 100 次，又该怎么写？</li>
 </ol>
 <details>
@@ -984,7 +1023,7 @@ strides 只有一个数字的位置，而这里需要<strong>任意一张顺序�
 <li><code>a[a &gt; 5][0] = 999</code> 只修改临时副本，<strong>原数组 a 不变</strong>（<code>a[1,2]</code> 仍是 <code>6</code>），且不报错：第一次布尔高级索引先读出副本，第二次索引赋值写的是副本。<code>b[0][1] = 777</code> 能写回，是因为本例 <code>b[0]</code> 是基础索引得到的共享视图。真正的判据是中间结果是否共享原数组的数据；优先合并为原数组上的一次索引赋值，可避免高级索引链式读取后误写副本。</li>
 <li><strong><code>b[1]</code> 是 1，不是 3。</strong> 因为 <code>+=</code> 被拆成「取出拷贝 → 加 1 → 按下标写回」，第三步里 1 号位被写了三次、每次写的都是 <code>1</code>，后写的盖掉先写的（<code>d[[1,1,1]] = [10,20,30]</code> 得到 <code>30</code> 就是这个机制的裸照）。正确写法：<code>np.add.at(b, idx, 1)</code>，或者用专用通道 <code>np.bincount(idx, minlength=5)</code>。</li>
 <li><code>a[rows, cols]</code> 得 <strong><code>(2,)</code></strong>（两个索引数组都是 <code>(2,)</code>，广播还是 <code>(2,)</code>，逐位配对取 <code>a[0,1]</code> 和 <code>a[2,3]</code>）；<code>a[rows[:, None], cols]</code> 得 <code>(2,2)</code>（<code>(2,1)</code> 和 <code>(2,)</code> 广播成 <code>(2,2)</code>，才是交叉表）。规则：把几个索引数组按广播规则对齐，对齐后的 shape 就是结果的 shape。 想要交叉写 <code>np.ix_(rows, cols)</code> 更可靠。</li>
-<li>因为布尔掩码属于<strong>高级索引读取</strong>，按规则返回副本。结果长度由 <code>mask.sum()</code> 决定，构造结果前需要扫描掩码；这一成本不能替代索引契约成为通用判据。（顺带：<code>a[m]</code> 和 <code>a[np.nonzero(m)]</code> 输出相同，布尔掩码可用对应的整数坐标表达。）少一对括号 ⚠️⚠️ 不报错，静默给出全错的答案 —— <code>&amp;</code> 的优先级高于 <code>&lt;</code>，实际算的是 <code>((a &gt; 3) &amp; a) &lt; 8</code>，实跑得到全 True 的掩码，12 个元素一个不落全返回了。规矩：比较表达式一律加括号。（用 <code>and</code> 反而好，它会当场报 <code>The truth value of an array with more than one element is ambiguous</code>。）</li>
+<li>布尔掩码和整数数组都属于<strong>高级索引</strong>，读取按索引契约返回副本。整行示例中，<code>True</code> 数是结果的行数，4 列照留。逐格示例中，<code>True</code> 数是结果的一维长度。（顺带：<code>a[m]</code> 和 <code>a[np.nonzero(m)]</code> 输出相同，布尔掩码可用对应的整数坐标表达。）少一对括号 ⚠️⚠️ 不报错，静默给出全错的答案 —— <code>&amp;</code> 的优先级高于 <code>&lt;</code>，实际算的是 <code>((a &gt; 3) &amp; a) &lt; 8</code>，实跑得到全 True 的掩码，12 个元素一个不落全返回了。规矩：比较表达式一律加括号。（用 <code>and</code> 反而好，它会当场报 <code>The truth value of an array with more than one element is ambiguous</code>。）</li>
 <li><strong><code>(2, 4)</code></strong>。两个索引数组先配对成 2 个坐标（不是交叉，所以没有那个 <code>2×2</code>），又因为它们被中间的 <code>:</code> 隔开，NumPy 不知道该把这根新轴放回哪一位，索性放最前面，剩下那根长度 4 的轴跟在后面。不用背 —— 这种写法本身就是坏味道，拆成两步 <code>a[[0,1]][:, :, [0,2]]</code> 更清楚。掩码要反复用就先 <code>idx = np.flatnonzero(mask)</code> 存下来，之后一律 <code>x[idx]</code>：布尔掩码每次都要把 500 万个 bool 从头扫一遍，而整数下标只碰命中的那 5031 个 —— 三次实测 809.6 / 9.8（83x）、863.6 / 19.7（44x）、1053.8 / 22.2（48x），单位都是微秒。⚠️ 只用一次就别折腾，<code>flatnonzero</code> 自己也要扫一遍。</li>
 </ol>
 </details>
@@ -1009,7 +1048,7 @@ strides 只有一个数字的位置，而这里需要<strong>任意一张顺序�
 <li><a href="#_3">🚦 四、⚠️ 「花式索引是拷贝」这句话，只对【读】成立</a></li>
 <li><a href="#_4">💀 五、重复下标：+= 只加了一次</a></li>
 <li><a href="#_5">🧮 六、两个整数数组是「配对」，不是「交叉」</a></li>
-<li><a href="#4">🔍 七、④ 布尔掩码：长度要到运行时才知道</a></li>
+<li><a href="#4">🔍 七、④ 布尔掩码：整行、单格和逐行汇总</a></li>
 <li><a href="#_6">🧷 八、混着用：花式索引被切片隔开时，结果轴会跑到最前面</a></li>
 <li><a href="#014-6">⚖️ 九、账单：视图 0.14 微秒，拷贝 6 毫秒</a></li>
 <li><a href="#_7">📋 十、一页速记</a></li>
