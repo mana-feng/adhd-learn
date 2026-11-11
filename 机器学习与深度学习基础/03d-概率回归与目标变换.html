@@ -297,174 +297,425 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <button id="themeToggle" type="button" aria-label="切换深浅色" title="切换深浅色">🌗</button>
 </div></header>
 <main id="ml-main" tabindex="-1" class="mg-main">
+<div hidden><link rel="stylesheet" href="../assets/magazine-rollout/ml-foundations/ml03d-reader.css"></div>
 <div class="lesson-layout" data-lesson="probabilistic-regression">
 <div class="lesson-content">
-<section class="lesson-hero mg-cover" data-route="从一个值到一种分布" id="lesson-start">
+<section class="lesson-hero mg-cover" data-route="比较两组配送时间" id="lesson-start">
 <h1 id="03d">03d · 概率回归与目标变换（进阶选读）</h1>
-<p class="reading-time">⏱ <strong>阅读约 25 分钟</strong> · 动手实践另计</p>
-<p class="mg-question">同样预测 30 分钟，模型能否说明“通常差 2 分钟”还是“可能差 20 分钟”？</p>
-<p>03b 和 03c 让模型给出一个数。概率回归更进一步：输出一个分布的参数，让模型同时描述中心位置和不确定性。本章还会解释计数任务与 log 目标变换为什么不能只看“输出为正”。</p>
-<p class="mg-outcome">学完后，你能说明 Gaussian 与 Poisson 回归各自的假设，读懂两种 NLL，并区分对数空间预测与原始空间均值。</p>
+<p class="reading-time">⏱ <strong>阅读约 45 分钟</strong> · 动手实践另计</p>
+<p class="mg-question">都预测 30 分钟，哪组更容易猜准？</p>
+<figure class="ml03d-plot" id="ml03d-dot-plot">
+<svg viewBox="0 0 430 150" role="img" aria-labelledby="ml03d-dot-title ml03d-dot-desc" focusable="false">
+<title id="ml03d-dot-title">同样平均 30 分钟的两组配送时间</title>
+<desc id="ml03d-dot-desc">市中心为 28、30、32 分钟。郊区为 15、25、50 分钟。两组均值为 30，郊区跨度更大。</desc>
+<line class="guide" x1="207.14285714285714" y1="18" x2="207.14285714285714" y2="116"/>
+<text x="207.14285714285714" y="14" text-anchor="middle">均值 30</text>
+<line class="grid" x1="70" y1="48" x2="390" y2="48"/>
+<line class="grid" x1="70" y1="84" x2="390" y2="84"/>
+<line class="axis" x1="70" y1="116" x2="390" y2="116"/>
+<text x="55" y="53" text-anchor="end">市中心</text>
+<text x="55" y="89" text-anchor="end">郊区</text>
+<circle cx="188.85714285714283" cy="48" r="5.5" class="series-a"/>
+<circle cx="207.14285714285714" cy="48" r="5.5" class="series-a"/>
+<circle cx="225.42857142857142" cy="48" r="5.5" class="series-a"/>
+<rect x="65" y="79" width="10" height="10" rx="1" class="series-b"/>
+<rect x="156.42857142857142" y="79" width="10" height="10" rx="1" class="series-b"/>
+<rect x="385" y="79" width="10" height="10" rx="1" class="series-b"/>
+<line class="axis" x1="70" y1="116" x2="70" y2="121"/>
+<text x="70" y="139" text-anchor="middle">15</text>
+<line class="axis" x1="115.71428571428571" y1="116" x2="115.71428571428571" y2="121"/>
+<text x="115.71428571428571" y="139" text-anchor="middle">20</text>
+<line class="axis" x1="207.14285714285714" y1="116" x2="207.14285714285714" y2="121"/>
+<text x="207.14285714285714" y="139" text-anchor="middle">30</text>
+<line class="axis" x1="298.57142857142856" y1="116" x2="298.57142857142856" y2="121"/>
+<text x="298.57142857142856" y="139" text-anchor="middle">40</text>
+<line class="axis" x1="390" y1="116" x2="390" y2="121"/>
+<text x="390" y="139" text-anchor="middle">50</text>
+<text x="426" y="106" text-anchor="end">分钟</text>
+</svg>
+<figcaption>演示数据，每个点代表一单。市中心 28、30、32 分钟，郊区 15、25、50 分钟。</figcaption>
+</figure>
+<p>两组平均都是 30 分钟。郊区的结果离 30 更远，只报平均值会漏掉这层差异。我们还可以描述结果有多分散，也就是这次预测有多大不确定性。</p>
 </section>
 <section aria-label="完整正文" class="lesson-full mg-article" id="full-lesson">
-<h2 data-mg-stop data-route="确认前置与边界" id="prerequisites">0. 前置知识与跳读说明</h2>
-<p>本章是<strong>高级选读</strong>，不是 03b、03c 或 04 的前置条件。建议先会：</p>
-<ul>
-<li><a href="03b-损失函数与输出层进阶.html">03b</a>：残差、损失、梯度；</li>
-<li><a href="03c-回归输出层.html">03c</a>：原始输出 <code>z</code>、正值映射、链式法则。</li>
-</ul>
-<p>只想继续主线时，可以直接去 <a href="04-决策树与集成学习.html">04 · 决策树与集成学习</a>。本章不会把“分布”讲成一张必须背下来的公式表，而是从“同一个预测值可能有不同可靠程度”开始。</p>
-<h2 data-mg-stop data-route="认识分布与不确定性" id="distribution-basics">1. 分布、均值和方差在描述什么</h2>
-<p>想象两个配送区域的平均送达时间都约 30 分钟：</p>
-<ul>
-<li>市中心订单大多在 28～32 分钟，结果集中；</li>
-<li>郊区有时 15 分钟、有时 50 分钟，结果分散。</li>
-</ul>
-<p>只输出 30，无法区分这两种情况。<strong>概率分布</strong>不是说某次订单会出现很多结果，而是描述在相同条件下，各种可能结果及其相对可能性。</p>
-<p>若可能结果为 <code>Y</code>：</p>
-<ul>
-<li><strong>均值</strong> <code>E[Y]</code> 是按概率加权的平均位置，描述分布中心；</li>
-<li><strong>方差</strong> <code>Var(Y)=E[(Y-E[Y])²]</code> 是结果到均值的平方距离的期望，描述分散程度；</li>
-<li><strong>标准差</strong>是方差开平方，与 <code>Y</code> 单位相同。</li>
-</ul>
-<p>例：结果 <code>[28,30,32]</code> 等可能，均值 30；平方偏差是 <code>[4,0,4]</code>，总体方差为 <code>8/3≈2.67 分钟²</code>，标准差约 1.63 分钟。方差与标准差不是同一个量。</p>
-<h2 data-mg-stop data-route="理解 Gaussian 参数" id="gaussian">2. Gaussian 分布：中心加宽窄</h2>
-<p>Gaussian（高斯、正态）分布用均值 <code>μ</code> 和方差 <code>v=σ²</code> 描述钟形曲线：</p>
-<p>$$p(y\mid\mu,v)=\frac{1}{\sqrt{2\pi v}}\exp\left(-\frac{(y-\mu)^2}{2v}\right),\qquad v&gt;0$$</p>
-<ul>
-<li><code>y</code> 是观察到的真实值，例如分钟；</li>
-<li><code>μ</code> 是模型给出的中心预测，同样是分钟；</li>
-<li><code>v</code> 是方差，单位分钟²；<code>σ=√v</code> 才是标准差；</li>
-<li><code>p(y|μ,v)</code> 是在这些参数下观察 <code>y</code> 的概率密度，不是离散点概率。</li>
-</ul>
-<p>回归模型可以同时输出两个原始数：一个直接作为 <code>μ</code>，另一个 <code>s</code> 经 <code>v=Softplus(s)+ε</code> 变成正方差。方差必须大于 0，因为负的平方距离尺度没有意义，<code>v=0</code> 还会让除法和对数失效。<code>ε&gt;0</code> 是数值下界，不是“真实世界一定有这么多噪声”的证明。</p>
-<h2 data-mg-stop data-route="推导 Gaussian NLL" id="gaussian-nll">3. Gaussian NLL 从哪里来</h2>
-<p>训练希望真实 <code>y</code> 在预测分布下尽可能可能，也就是让密度 <code>p(y|μ,v)</code> 大。多个独立样本的密度要相乘；乘很多小数不稳定，所以取对数把乘法变加法，再加负号把“最大化似然”变成“最小化损失”。</p>
-<p>对上面的 Gaussian 密度取负对数：</p>
-<p>$$
--\log p(y\mid\mu,v)
-=\frac12\left[\log(2\pi)+\log v+\frac{(y-\mu)^2}{v}\right]
-$$</p>
-<p>三部分各有作用：</p>
-<ol>
-<li><code>0.5 log(2π)</code> 与模型参数无关，是常数；</li>
-<li><code>0.5 log v</code> 惩罚把方差无限放大；</li>
-<li><code>0.5(y-μ)²/v</code> 在方差小时重罚残差，在方差大时允许更宽分布。</li>
+<h2 data-mg-stop id="prerequisites">0. 本章用到的基础</h2>
+<p>本章用到 <a href="03b-损失函数与输出层进阶.html#mse">03b 的残差和平方损失</a>，以及 <a href="03c-回归输出层.html#softplus">03c 把原始输出映射成正数的做法</a>。读高斯前，可先用下一节的三单回顾均值和标准差。</p>
+<h2 data-mg-stop id="distribution-basics">1. 先算出两组结果有多分散</h2>
+<p>怎样比较两组的分散程度？把每单都减去平均的 30 分钟。市中心的 −2 和 +2 会互相抵消，直接平均偏差就看不出分散程度。</p>
+<figure aria-describedby="ml03d-variance-steps-description" aria-labelledby="ml03d-variance-steps-title" class="ml03d-explain" id="ml03d-variance-steps">
+<figcaption><strong id="ml03d-variance-steps-title">从偏差算到标准差</strong><span id="ml03d-variance-steps-description">市中心三单的手算。依次减去均值、平方、平均，再开平方。</span></figcaption>
+<ol class="ml03d-steps" role="list">
+<li><strong>减去均值</strong><span>28 − 30 = −2<br>30 − 30 = 0<br>32 − 30 = 2（分钟）</span></li>
+<li><strong>平方再平均</strong><span>(−2)²、0²、2² → 4、0、4<br>(4 + 0 + 4) ÷ 3<br>≈ 2.67 分钟²</span></li>
+<li><strong>开平方</strong><span>√(8/3) ≈ <b>1.63 分钟</b></span></li>
 </ol>
-<p>数值例：真实 <code>y=30</code> 分钟，预测均值 <code>μ=28</code> 分钟，预测方差 <code>v=4</code> 分钟²（标准差 2 分钟）。</p>
-<p>$$
-\begin{aligned}
-\text{NLL}
-&amp;=\tfrac12[\log(2\pi)+\log4+(30-28)^2/4]\
-&amp;=\tfrac12[1.8379+1.3863+1]\
-&amp;\approx 2.1121
-\end{aligned}
-$$</p>
-<p>若仍预测 <code>μ=28</code> 但把方差设成 1，完整 NLL <code>=0.5[1.8379+0+4]≈2.9189</code>，因为这条过窄的分布对 2 分钟残差太自信。反过来把方差无限放大也会被 <code>log v</code> 惩罚。</p>
-<p>框架约定必须核对：PyTorch <code>GaussianNLLLoss</code> 接收的是<strong>方差，不是标准差</strong>。其 <code>full=False</code> 默认省略常数 <code>0.5 log(2π)</code>；省略常数不改变最优参数，却会改变报告的绝对数值。还要验证 Gaussian 假设与不确定性校准，NLL 下降不自动保证区间覆盖率正确。</p>
-<h2 data-mg-stop data-route="认识计数分布" id="poisson">4. Poisson 分布：非负整数计数</h2>
-<p>“今天有多少单”与“每单多少分钟”不同。订单数是 <code>0,1,2,...</code> 的非负整数。Poisson 分布常作为给定时间/面积内事件计数的起点：</p>
-<p>$$P(Y=y\mid\lambda)=\frac{e^{-\lambda}\lambda^y}{y!},\qquad y\in{0,1,2,\ldots},\ \lambda&gt;0$$</p>
-<ul>
-<li><code>Y</code> 是随机计数；<code>y</code> 是观察到的整数计数；</li>
-<li><code>λ</code>（lambda）是期望计数，也等于 Poisson 方差；</li>
-<li><code>y!</code> 是阶乘，例如 <code>3!=6</code>。</li>
-</ul>
-<p>Poisson 适用于事件近似独立、观察窗口明确，并且给定特征后均值与方差结构大致相符的计数。现实订单常有过度离散、零值过多、时间依赖等情况，此时负二项、零膨胀模型或别的结构可能更合适。</p>
-<h2 data-mg-stop data-route="推导 Poisson NLL" id="poisson-nll">5. Log-rate 与 Poisson NLL</h2>
-<p>模型原始输出 <code>z</code> 可以是任意实数。令</p>
-<p>$$z=\log\lambda,\qquad \lambda=e^z$$</p>
-<p>就能保证 <code>λ&gt;0</code>。对 Poisson 概率取负对数：</p>
-<p>$$
--\log P(Y=y\mid\lambda)
-=\lambda-y\log\lambda+\log(y!)
-$$</p>
-<p>代入 <code>λ=e^z</code>、<code>log λ=z</code>：</p>
-<p>$$\operatorname{NLL}(y,z)=e^z-yz+\log(y!)$$</p>
-<p>数值例：真实计数 <code>y=3</code>，预测 <code>λ=2</code>，所以 <code>z=log2≈0.6931</code>：</p>
-<p>$$2-3\log2+\log(3!)=2-2.0794+1.7918\approx1.7123$$</p>
-<p><code>log(y!)</code> 与模型输出无关，训练时可以省略；省略后的数值约 <code>-0.0794</code>，它可以为负，这不表示完整概率或训练出错，只是少了常数项。</p>
-<p>PyTorch <code>PoissonNLLLoss(log_input=True)</code> 期望输入的是 <strong>log-rate <code>z</code></strong>，内部使用 <code>exp(z)-y×z</code>。若 <code>log_input=False</code>，输入才是已经为正的 rate <code>λ</code>，并会用 <code>λ-y log(λ+eps)</code>。不要先 <code>exp</code> 得到 <code>λ</code>，又在 <code>log_input=True</code> 下把它当 <code>z</code> 传入。</p>
-<p>最后再强调：使用指数映射只保证输出为正，<strong>不等于自动满足 Poisson 分布假设</strong>。连续的等待时间即使为正，也不是 Poisson 计数。</p>
-<h2 data-mg-stop data-route="区分两个空间" id="log-target">6. 目标 log 变换：改变学习的误差尺度</h2>
-<p>正值目标常有长尾：多数订单 10～30 分钟，少数订单 100 分钟。另一条路线是先把目标变换为</p>
-<p>$$T=\log Y$$</p>
-<p>在对数空间用恒等输出和 MSE 预测 <code>T</code>，最后用 <code>exp</code> 回到原单位。因为 <code>log</code> 把倍数关系变成加法，20→40 与 40→80 都是翻倍，在 log 空间增加同样的 <code>log2</code>。这常缓和长尾，并让训练更关注相对误差。</p>
-<p>但模型若学到</p>
-<p>$$m(x)=E[\log Y\mid X=x]$$</p>
-<p>直接还原得到的是</p>
-<p>$$\exp(E[\log Y\mid X])$$</p>
-<p>它是条件几何中心，<strong>通常不等于</strong>原始空间条件均值 <code>E[Y|X]</code>。指数是凸函数，Jensen 不等式给出 <code>exp(E[logY])≤E[Y]</code>，存在波动时通常严格小于。</p>
-<p>简单样本 <code>[10,20,80]</code>：算术平均是 <code>110/3≈36.67</code>；log 平均还原是 <code>(10×20×80)^(1/3)≈25.20</code>；样本中位数是 20。三者不同，所以不能笼统说“log 还原总是中位数”。</p>
-<p>只有在适当分布假设下，<code>exp(E[log Y|X])</code> 才能解释为<strong>条件中位数</strong>。例如 <code>logY|X</code> 服从均值为 <code>μ</code>、方差为 <code>σ²</code> 的对称 Gaussian（即 <code>Y|X</code> 为 log-normal）时：</p>
-<ul>
-<li>条件中位数是 <code>exp(μ)</code>；</li>
-<li>条件均值是 <code>exp(μ+σ²/2)</code>。</li>
-</ul>
-<p>若目标是原始空间均值，可以在验证过 log-normal 或其他误差模型后做偏差修正，也可以直接选择匹配原始空间目标的概率模型；不能无条件乘一个固定修正项。</p>
-<h2 data-mg-stop data-route="按问题选择模型" id="model-choice">7. 三条路线怎样选</h2>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>问题</th>
-<th>可能的起点</th>
-<th>必须验证</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>连续值，只要一个中心预测</td>
-<td>恒等/Softplus + MSE、MAE、Huber</td>
-<td>误差代价、异常值、范围</td>
-</tr>
-<tr>
-<td>连续值，还要区间或不确定性</td>
-<td>Gaussian 参数回归</td>
-<td>残差形状、方差校准、区间覆盖率</td>
-</tr>
-<tr>
-<td>固定窗口内的非负整数计数</td>
-<td>Poisson log-rate 回归</td>
-<td>均值-方差关系、过度离散、零值、独立性</td>
-</tr>
-<tr>
-<td>正值长尾，比例误差更重要</td>
-<td>log 目标 + 回归</td>
-<td>原空间指标、还原偏差、最终统计量含义</td>
-</tr>
-</tbody>
-</table></div>
-<p>这些不是按输出范围一眼决定的菜单。数据生成过程、要交付的统计量、损失与评估指标要一致。</p>
-<h2 data-mg-stop data-route="检查分布假设" id="checkpoint">8. 检查点与典型错误</h2>
-<h3 id="_1">先判断下面说法</h3>
-<ol>
-<li>“模型输出 Softplus，所以目标一定服从 Poisson。”</li>
-<li>“GaussianNLLLoss 的 <code>var</code> 参数给标准差更直观，因此传标准差。”</li>
-<li>“PoissonNLLLoss(log_input=True) 前先对网络输出做 exp。”</li>
-<li>“对数空间 MSE 的预测 exp 回去，总是原始空间条件均值或条件中位数。”</li>
+</figure>
+<p>把同类配送条件下下一单的分钟数记作<strong>随机变量</strong>（Random Variable）Y。它有哪些可能值、各有多常见，由<strong>概率分布</strong>（Probability Distribution）描述。这里是演示数据，手算时把每组的三个值各当成概率为 1/3 的可能结果。</p>
+<p><strong>均值</strong>（Mean）是按概率加权的平均。市中心为 (28 + 30 + 32) ÷ 3，郊区为 (15 + 25 + 50) ÷ 3，都是 30 分钟。平方偏差的平均叫<strong>方差</strong>（Variance），开平方后叫<strong>标准差</strong>（Standard Deviation），单位回到分钟。</p>
+<p>郊区按同一步骤得到偏差 −15、−5、20。方差为 (225 + 25 + 400) ÷ 3 ≈ 216.67 分钟²，标准差约 <strong>14.72 分钟</strong>。接下来用连续曲线表示这种分散程度。</p>
+<p class="ml03d-source">参阅 <a href="https://ocw.mit.edu/courses/res-6-012-introduction-to-probability-spring-2018/d973b10c2587781f86ca4f2aff49098f_MITRES_6_012S18_Textbook.pdf#page=10">MIT 概率教材的离散均值与方差</a>。</p>
+<h2 data-mg-stop id="gaussian">2. 高斯回归 · 描述每单送达时间的不确定性</h2>
+<p>假设相似订单的分钟数大多靠近中心，两侧逐渐变少，而且形状大致对称。可以试用<strong>高斯分布</strong>（Gaussian Distribution，也叫正态分布）描述这些结果。模型根据一单的特征给出中心 <strong>μ</strong> 和标准差 <strong>σ</strong>，两者都用分钟表示。</p>
+<figure class="ml03d-plot" id="ml03d-gaussian-plot">
+<svg viewBox="0 0 430 188" role="img" aria-labelledby="ml03d-gauss-title ml03d-gauss-desc" focusable="false">
+<title id="ml03d-gauss-title">均值相同、标准差不同的高斯曲线</title>
+<desc id="ml03d-gauss-desc">两条曲线的均值都是 28 分钟。实线标准差 1 分钟，虚线标准差 2 分钟。虚线曲线下 28 到 30 分钟的阴影表示该区间的概率。</desc>
+<text x="9" y="19" text-anchor="start">概率密度</text>
+<line class="axis" x1="46" y1="142" x2="394" y2="142"/>
+<line class="axis" x1="46" y1="33" x2="46" y2="142"/>
+<line class="guide" x1="220" y1="28" x2="220" y2="142"/>
+<line class="guide" x1="278" y1="32" x2="278" y2="142"/>
+<path class="shade" d="M 220 142 L 220.00 87.15 L 222.42 87.19 L 224.83 87.34 L 227.25 87.57 L 229.67 87.90 L 232.08 88.32 L 234.50 88.83 L 236.92 89.43 L 239.33 90.11 L 241.75 90.87 L 244.17 91.71 L 246.58 92.61 L 249.00 93.59 L 251.42 94.63 L 253.83 95.73 L 256.25 96.88 L 258.67 98.08 L 261.08 99.32 L 263.50 100.59 L 265.92 101.90 L 268.33 103.24 L 270.75 104.59 L 273.17 105.96 L 275.58 107.34 L 278.00 108.73 L 278 142 Z"/>
+<path class="curve curve-a" d="M 46.00 142.00 L 48.42 142.00 L 50.83 142.00 L 53.25 142.00 L 55.67 142.00 L 58.08 142.00 L 60.50 142.00 L 62.92 142.00 L 65.33 142.00 L 67.75 142.00 L 70.17 142.00 L 72.58 142.00 L 75.00 142.00 L 77.42 142.00 L 79.83 142.00 L 82.25 142.00 L 84.67 142.00 L 87.08 142.00 L 89.50 142.00 L 91.92 141.99 L 94.33 141.99 L 96.75 141.99 L 99.17 141.98 L 101.58 141.97 L 104.00 141.96 L 106.42 141.95 L 108.83 141.93 L 111.25 141.90 L 113.67 141.87 L 116.08 141.82 L 118.50 141.76 L 120.92 141.68 L 123.33 141.58 L 125.75 141.44 L 128.17 141.27 L 130.58 141.05 L 133.00 140.78 L 135.42 140.44 L 137.83 140.02 L 140.25 139.50 L 142.67 138.87 L 145.08 138.10 L 147.50 137.18 L 149.92 136.08 L 152.33 134.79 L 154.75 133.27 L 157.17 131.51 L 159.58 129.48 L 162.00 127.15 L 164.42 124.52 L 166.83 121.56 L 169.25 118.27 L 171.67 114.64 L 174.08 110.68 L 176.50 106.38 L 178.92 101.78 L 181.33 96.90 L 183.75 91.77 L 186.17 86.45 L 188.58 80.99 L 191.00 75.46 L 193.42 69.93 L 195.83 64.47 L 198.25 59.19 L 200.67 54.15 L 203.08 49.46 L 205.50 45.18 L 207.92 41.41 L 210.33 38.22 L 212.75 35.67 L 215.17 33.80 L 217.58 32.67 L 220.00 32.29 L 222.42 32.67 L 224.83 33.80 L 227.25 35.67 L 229.67 38.22 L 232.08 41.41 L 234.50 45.18 L 236.92 49.46 L 239.33 54.15 L 241.75 59.19 L 244.17 64.47 L 246.58 69.93 L 249.00 75.46 L 251.42 80.99 L 253.83 86.45 L 256.25 91.77 L 258.67 96.90 L 261.08 101.78 L 263.50 106.38 L 265.92 110.68 L 268.33 114.64 L 270.75 118.27 L 273.17 121.56 L 275.58 124.52 L 278.00 127.15 L 280.42 129.48 L 282.83 131.51 L 285.25 133.27 L 287.67 134.79 L 290.08 136.08 L 292.50 137.18 L 294.92 138.10 L 297.33 138.87 L 299.75 139.50 L 302.17 140.02 L 304.58 140.44 L 307.00 140.78 L 309.42 141.05 L 311.83 141.27 L 314.25 141.44 L 316.67 141.58 L 319.08 141.68 L 321.50 141.76 L 323.92 141.82 L 326.33 141.87 L 328.75 141.90 L 331.17 141.93 L 333.58 141.95 L 336.00 141.96 L 338.42 141.97 L 340.83 141.98 L 343.25 141.99 L 345.67 141.99 L 348.08 141.99 L 350.50 142.00 L 352.92 142.00 L 355.33 142.00 L 357.75 142.00 L 360.17 142.00 L 362.58 142.00 L 365.00 142.00 L 367.42 142.00 L 369.83 142.00 L 372.25 142.00 L 374.67 142.00 L 377.08 142.00 L 379.50 142.00 L 381.92 142.00 L 384.33 142.00 L 386.75 142.00 L 389.17 142.00 L 391.58 142.00 L 394.00 142.00"/>
+<path class="curve curve-b" d="M 46.00 141.39 L 48.42 141.31 L 50.83 141.22 L 53.25 141.12 L 55.67 141.01 L 58.08 140.89 L 60.50 140.75 L 62.92 140.60 L 65.33 140.43 L 67.75 140.25 L 70.17 140.05 L 72.58 139.83 L 75.00 139.59 L 77.42 139.33 L 79.83 139.04 L 82.25 138.73 L 84.67 138.39 L 87.08 138.03 L 89.50 137.64 L 91.92 137.21 L 94.33 136.75 L 96.75 136.26 L 99.17 135.74 L 101.58 135.18 L 104.00 134.58 L 106.42 133.94 L 108.83 133.26 L 111.25 132.54 L 113.67 131.78 L 116.08 130.98 L 118.50 130.14 L 120.92 129.25 L 123.33 128.32 L 125.75 127.35 L 128.17 126.34 L 130.58 125.28 L 133.00 124.19 L 135.42 123.06 L 137.83 121.89 L 140.25 120.69 L 142.67 119.45 L 145.08 118.18 L 147.50 116.89 L 149.92 115.57 L 152.33 114.23 L 154.75 112.87 L 157.17 111.50 L 159.58 110.11 L 162.00 108.73 L 164.42 107.34 L 166.83 105.96 L 169.25 104.59 L 171.67 103.24 L 174.08 101.90 L 176.50 100.59 L 178.92 99.32 L 181.33 98.08 L 183.75 96.88 L 186.17 95.73 L 188.58 94.63 L 191.00 93.59 L 193.42 92.61 L 195.83 91.71 L 198.25 90.87 L 200.67 90.11 L 203.08 89.43 L 205.50 88.83 L 207.92 88.32 L 210.33 87.90 L 212.75 87.57 L 215.17 87.34 L 217.58 87.19 L 220.00 87.15 L 222.42 87.19 L 224.83 87.34 L 227.25 87.57 L 229.67 87.90 L 232.08 88.32 L 234.50 88.83 L 236.92 89.43 L 239.33 90.11 L 241.75 90.87 L 244.17 91.71 L 246.58 92.61 L 249.00 93.59 L 251.42 94.63 L 253.83 95.73 L 256.25 96.88 L 258.67 98.08 L 261.08 99.32 L 263.50 100.59 L 265.92 101.90 L 268.33 103.24 L 270.75 104.59 L 273.17 105.96 L 275.58 107.34 L 278.00 108.73 L 280.42 110.11 L 282.83 111.50 L 285.25 112.87 L 287.67 114.23 L 290.08 115.57 L 292.50 116.89 L 294.92 118.18 L 297.33 119.45 L 299.75 120.69 L 302.17 121.89 L 304.58 123.06 L 307.00 124.19 L 309.42 125.28 L 311.83 126.34 L 314.25 127.35 L 316.67 128.32 L 319.08 129.25 L 321.50 130.14 L 323.92 130.98 L 326.33 131.78 L 328.75 132.54 L 331.17 133.26 L 333.58 133.94 L 336.00 134.58 L 338.42 135.18 L 340.83 135.74 L 343.25 136.26 L 345.67 136.75 L 348.08 137.21 L 350.50 137.64 L 352.92 138.03 L 355.33 138.39 L 357.75 138.73 L 360.17 139.04 L 362.58 139.33 L 365.00 139.59 L 367.42 139.83 L 369.83 140.05 L 372.25 140.25 L 374.67 140.43 L 377.08 140.60 L 379.50 140.75 L 381.92 140.89 L 384.33 141.01 L 386.75 141.12 L 389.17 141.22 L 391.58 141.31 L 394.00 141.39"/>
+<line class="curve curve-a" x1="293" y1="35" x2="318" y2="35"/>
+<text x="325" y="40" text-anchor="start">σ = 1 分钟</text>
+<line class="curve curve-b" x1="293" y1="59" x2="318" y2="59"/>
+<text x="325" y="64" text-anchor="start">σ = 2 分钟</text>
+<line class="axis" x1="46" y1="142" x2="46" y2="147"/>
+<text x="46" y="165" text-anchor="middle">22</text>
+<line class="axis" x1="162" y1="142" x2="162" y2="147"/>
+<text x="162" y="165" text-anchor="middle">26</text>
+<line class="axis" x1="220" y1="142" x2="220" y2="147"/>
+<text x="220" y="165" text-anchor="middle">28</text>
+<line class="axis" x1="278" y1="142" x2="278" y2="147"/>
+<text x="278" y="165" text-anchor="middle">30</text>
+<line class="axis" x1="394" y1="142" x2="394" y2="147"/>
+<text x="394" y="165" text-anchor="middle">34</text>
+<text x="220" y="183" text-anchor="middle">中心</text>
+<text x="278" y="183" text-anchor="middle">实测</text>
+<text x="422" y="183" text-anchor="end">分钟</text>
+</svg>
+<figcaption>两条曲线都以 28 分钟为中心。σ = 1 的实线更窄，σ = 2 的虚线更宽。阴影表示 28 到 30 分钟之间的概率，约为 34%。</figcaption>
+</figure>
+<p>横轴是分钟，纵轴是<strong>概率密度</strong>（Probability Density）。整个曲线下的面积为 1。要问「送达时间在 28 到 30 分钟之间的概率」，就看这段区间的面积。曲线在恰好 30 分钟处的高度是密度，单位是每分钟。单点的面积为 0。</p>
+<p>用 v 表示方差，v = σ²，单位为分钟²。给定中心 μ、方差 v 时，观测值 y（分钟）在曲线上的高度写作 p(y | μ, v)。竖线右边是已给定的参数。先算离中心的平方距离相对方差有多大：</p>
+<p>$$q=\frac{(y-\mu)^2}{2v}$$</p>
+<p>离中心越远，q 越大，e 的负 q 次方越小。再乘 1/√(2πv)，使整条曲线下面积为 1，就得到高斯密度：</p>
+<p>$$p(y\mid\mu,v)=\frac{\exp(-q)}{\sqrt{2\pi v}}$$</p>
+<p>这里 exp 是以自然常数 e 为底的指数函数，π 是圆周率。平方根项同时调整曲线高度与宽度，要求 v &gt; 0。高斯曲线在所有实数上都有密度。送达时间若偏斜明显，或模型给了负分钟数不可忽略的概率，需要检验这项假设。</p>
+<p class="ml03d-source">参阅 <a href="https://www.itl.nist.gov/div898/handbook/eda/section3/eda3661.htm">NIST 的正态密度与分布函数</a>。</p>
+<figure aria-describedby="ml03d-gaussian-outputs-description" aria-labelledby="ml03d-gaussian-outputs-title" class="ml03d-explain" id="ml03d-gaussian-outputs">
+<figcaption><strong id="ml03d-gaussian-outputs-title">一单的特征怎样变成一条曲线？</strong><span id="ml03d-gaussian-outputs-description">先读模型输入，再比较两个输出各控制什么。</span></figcaption>
+<p class="ml03d-origin">这单的特征 → 同一个回归模型</p><dl class="ml03d-figure-rows">
+<dt>中心</dt><dd><p>第一个输出 → μ（分钟）→ 决定曲线的位置</p></dd>
+<dt>宽度</dt><dd><p>第二个输出 s → Softplus(s) + ε → 方差 v（分钟²）→ 决定曲线的宽度</p></dd>
+</dl>
+</figure>
+<p><a href="03c-回归输出层.html#softplus">03c 的 Softplus</a> 把任意 s 映射为正数，可对照 <a href="https://docs.pytorch.org/docs/stable/generated/torch.nn.Softplus.html">PyTorch 的定义</a>。再加一个小正数 ε，给训练用的方差设置数值下界。</p>
+<h2 data-mg-stop id="gaussian-nll">3. 用高斯负对数似然训练</h2>
+<p>实际送达时间已经知道。训练要找一组模型参数，使这些观测在它预测的曲线上得到较高的密度。</p>
+<figure aria-describedby="ml03d-likelihood-steps-description" aria-labelledby="ml03d-likelihood-steps-title" class="ml03d-explain" id="ml03d-likelihood-steps">
+<figcaption><strong id="ml03d-likelihood-steps-title">两单的密度怎样变成一个损失？</strong><span id="ml03d-likelihood-steps-description">两项演示密度的单位都是每分钟。假设两单在给定各自输入后独立。</span></figcaption>
+<ol class="ml03d-steps" role="list">
+<li><strong>先相乘</strong><span>0.2 × 0.1 = 0.02</span></li>
+<li><strong>取自然对数</strong><span>ln(0.02) = ln(0.2) + ln(0.1)<br>≈ −1.6094 − 2.3026 = −3.9120</span></li>
+<li><strong>最后取负</strong><span>−(−3.9120) = <b>3.9120</b></span></li>
 </ol>
-<p>四句都错：正值映射不决定分布；Gaussian NLL 的 <code>var</code> 参数要方差；<code>log_input=True</code> 要 log-rate；log 还原的统计含义依赖分布与目标。</p>
-<h3 id="_2">完整计算题</h3>
-<p>某时段观察到 <code>y=3</code> 单，模型预测 log-rate <code>z=log2</code>。</p>
-<ol>
-<li>算 <code>λ</code>；</li>
-<li>写出省略 <code>log(y!)</code> 的 Poisson NLL；</li>
-<li>加回常数得到完整 NLL；</li>
-<li>解释为什么省略常数的结果可能为负，却不影响参数最优点。</li>
-</ol>
+</figure>
+<p>把给定观测的密度乘积用来给模型参数打分，叫<strong>似然</strong>（Likelihood）。取 ln 把小数连乘改成相加，而且保持大小顺序。加负号后，模型改为最小化<strong>负对数似然</strong>（Negative Log-Likelihood，NLL）。</p>
+<p class="ml03d-source">参阅 <a href="https://ocw.mit.edu/courses/18-05-introduction-to-probability-and-statistics-spring-2022/mit18_05_s22_class10-prep-b.pdf#page=3">MIT 的对数似然与连续分布示例</a>。</p>
+<p>对上一节的密度取负对数。分母的平方根变成正的 ½ ln(2πv)，分子 exp(−q) 贡献正的 q。把乘积 2πv 的对数拆开：</p>
+<p>$$\mathrm{NLL}=\tfrac12\ln(2\pi)+\tfrac12\ln v+q$$</p>
+<p>在这个高斯损失里，常数项不随模型参数变化。方差增大时，½ ln v 增大，平方距离项 q 却变小。方差固定时，q 就是按固定系数缩放的平方误差，接回 03b。</p>
+<p><strong>手算一单。</strong> 真实 y = 30 分钟，模型给 μ = 28 分钟、v = 4 分钟²（σ = 2 分钟）。这些是演示参数。</p>
+<figure aria-describedby="ml03d-gaussian-worked-description" aria-labelledby="ml03d-gaussian-worked-title" class="ml03d-explain" id="ml03d-gaussian-worked">
+<figcaption><strong id="ml03d-gaussian-worked-title">高斯 NLL · 同一单的逐步计算</strong><span id="ml03d-gaussian-worked-description">先用真实值和模型参数算平方距离项，再代入损失。</span></figcaption>
+<dl class="ml03d-figure-rows">
+<dt>平方项</dt><dd><p>q = (30 − 28)² ÷ (2 × 4) = 0.5</p></dd>
+<dt>代入</dt><dd><p>NLL = ½ ln(2π) + ½ ln 4 + 0.5</p></dd>
+<dt>化简</dt><dd><p>NLL ≈ 0.9189385 + 0.6931472 + 0.5</p></dd>
+<dt>结果</dt><dd><p>NLL ≈ <strong>2.1121</strong></p></dd>
+</dl>
+</figure>
+<p>如果只改成 v = 1 分钟²，那么 q = 4 ÷ 2 = 2，½ ln 1 = 0，NLL ≈ 0.9189 + 0 + 2 = <strong>2.9189</strong>。实际 y 距中心 2 分钟，图上的窄曲线在这里给了更小的密度。</p>
+<p>传给 PyTorch <a href="https://docs.pytorch.org/docs/2.15/generated/torch.nn.GaussianNLLLoss.html">GaussianNLLLoss</a> 的是方差 v。默认 <strong>full=False</strong> 省略常数 ½ ln(2π)。<strong>reduction</strong> 决定怎样聚合各单的损失，例如 <strong>mean</strong> 取平均。</p>
+<p>若交付的是 <strong>80% 预测区间</strong>，还要在留出的 100 单中数有几单落入各自的区间。落入约 80 单，样本覆盖率就接近目标。单次结果会随样本波动。</p>
 <details>
-<summary>展开答案</summary>
-<p><code>λ=exp(log2)=2</code>。省略常数时 <code>2-3log2≈-0.0794</code>；加回 <code>log(3!)=log6≈1.7918</code>，完整 NLL 约 1.7123。被省略的 <code>log(y!)</code> 只由真实标签决定，对模型参数的梯度为 0，因此不改变最优点，但会改变报告的绝对损失值。</p>
+<summary>换一个输入 · y = 31、μ = 28、v = 9 时，NLL 是多少？</summary>
+<p>q = (31 − 28)² ÷ (2 × 9) = 0.5。完整 NLL ≈ 0.9189385 + 1.0986123 + 0.5 = <strong>2.5176</strong>。这次差了 3 分钟，正好是一个标准差。与上一题的 q 相同，方差项更大。</p>
 </details>
-<h3 id="_3">实际使用前的最后检查</h3>
+<p><strong>带走。</strong> 连续目标可同时交付中心和宽度，并用留出数据检查区间。接下来换个问题。要预测的是每个时间窗有几单，结果只能是整数，该用什么分布？</p>
+<h2 data-mg-stop id="poisson">4. 泊松回归 · 给固定时间窗的订单数建模</h2>
+<p>把每次观察固定为 <strong>10 分钟</strong>，例如 12:00–12:10。Y 是这一窗的随机订单数，y 是实际数出的订单数。它可以是 0、1、2……。<strong>泊松分布</strong>（Poisson Distribution）给每个整数一个概率。</p>
+<figure class="ml03d-plot" id="ml03d-poisson-plot">
+<svg viewBox="0 0 430 187" role="img" aria-labelledby="ml03d-poisson-title ml03d-poisson-desc" focusable="false">
+<title id="ml03d-poisson-title">泊松分布的整数计数概率</title>
+<desc id="ml03d-poisson-desc">固定十分钟观察窗，期望 2 单。整数 0 到 7 各有一根概率柱，3 单的概率约 18.04%。</desc>
+<text x="6" y="17" text-anchor="start">概率</text>
+<line class="axis" x1="48" y1="143" x2="412" y2="143"/>
+<text x="41" y="148" text-anchor="end">0%</text>
+<line class="grid" x1="48" y1="106.5" x2="412" y2="106.5"/>
+<text x="41" y="111.5" text-anchor="end">10%</text>
+<line class="grid" x1="48" y1="70" x2="412" y2="70"/>
+<text x="41" y="75" text-anchor="end">20%</text>
+<line class="grid" x1="48" y1="33.5" x2="412" y2="33.5"/>
+<text x="41" y="38.5" text-anchor="end">30%</text>
+<rect x="55" y="93.60" width="24" height="49.40" rx="2" class="series-a"/><text x="67" y="163" text-anchor="middle">0</text>
+<rect x="101" y="44.21" width="24" height="98.79" rx="2" class="series-a"/><text x="113" y="163" text-anchor="middle">1</text>
+<rect x="147" y="44.21" width="24" height="98.79" rx="2" class="series-a"/><text x="159" y="163" text-anchor="middle">2</text>
+<rect x="193" y="77.14" width="24" height="65.86" rx="2" class="series-b"/><text x="205" y="163" text-anchor="middle">3</text>
+<rect x="239" y="110.07" width="24" height="32.93" rx="2" class="series-a"/><text x="251" y="163" text-anchor="middle">4</text>
+<rect x="285" y="129.83" width="24" height="13.17" rx="2" class="series-a"/><text x="297" y="163" text-anchor="middle">5</text>
+<rect x="331" y="138.61" width="24" height="4.39" rx="2" class="series-a"/><text x="343" y="163" text-anchor="middle">6</text>
+<rect x="377" y="141.75" width="24" height="1.25" rx="2" class="series-a"/><text x="389" y="163" text-anchor="middle">7</text>
+<text x="205" y="70" text-anchor="middle">18.04%</text>
+<text x="412" y="185" text-anchor="end">每 10 分钟的订单数</text>
+</svg>
+<figcaption>当每 10 分钟的期望计数为 2，恰好 3 单的概率约为 18.04%。图画到 7 单，8 单及以上的概率合计约 0.11%。</figcaption>
+</figure>
+<p><strong>λ</strong>（lambda）是给定类似输入条件时，每 10 分钟的期望订单数。本页取 λ &gt; 0。它可为 2.5，意思是很多类似窗口的长期平均为 2.5 单。每个窗口实际数出的 y 仍是整数。在泊松模型里，给定同样条件的计数方差在数值上也等于 λ。</p>
+<div class="ml03d-math">
+$$P(Y=y\mid\lambda)=\frac{e^{-\lambda}\lambda^y}{y!}$$
+$$y\in\{0,1,2,\ldots\}$$
+</div>
+<p>这是泊松的<strong>概率质量函数</strong>（Probability Mass Function，PMF）。它是一种对固定窗口事件计数的分布假设。λ 的 y 次方除以 y! 决定各柱的相对高度。乘上 e 的负 λ 次方后，所有概率加起来为 1。这里 y! 是<strong>阶乘</strong>，3! = 3 × 2 × 1 = 6，0! = 1。</p>
+<p><strong>先算概率。</strong> λ = 2 时，观察到 y = 3 的概率是 e⁻² × 2³ ÷ 3! ≈ 0.135335 × 8 ÷ 6 ≈ <strong>0.1804</strong>。这表示在模型假设下，大约 18% 的同类十分钟窗会有 3 单。</p>
+<p class="ml03d-source">参阅 <a href="https://www.itl.nist.gov/div898/handbook/eda/section3/eda366j.htm">NIST 的泊松概率质量函数</a>。</p>
+<p>估计了 λ 之后，还要检查同类窗口里的计数是否大致独立、均值和方差是否接近。下面比较分开看和混在一起看的结果。</p>
+<figure aria-describedby="ml03d-poisson-groups-description" aria-labelledby="ml03d-poisson-groups-title" class="ml03d-explain ml03d-plot" id="ml03d-poisson-groups">
+<figcaption><strong id="ml03d-poisson-groups-title">把低峰与高峰合并，方差多了什么？</strong><span id="ml03d-poisson-groups-description">从上到下看低峰、高峰和合并。每个点代表一个十分钟窗，虚线标该组均值。右侧是均值（单）和总体方差（单²）。</span></figcaption>
+<svg viewBox="0 0 430 201" role="img" aria-labelledby="ml03d-group-title ml03d-group-desc" focusable="false">
+<title id="ml03d-group-title">分开与合并时的订单数分布</title>
+<desc id="ml03d-group-desc">低峰四窗计数 0、0、2、2，均值和总体方差均为 1。高峰四窗计数 2、2、6、6，均值和总体方差均为 4。合并后均值 2.5，总体方差 4.75。横轴单位是单每十分钟。</desc>
+<line x1="106" y1="35" x2="280" y2="35" class="grid"/>
+<line x1="135" y1="15" x2="135" y2="55" class="guide"/>
+<text x="90" y="39" text-anchor="end">低峰四窗</text>
+<text x="303" y="33" text-anchor="start">均值 1</text>
+<text x="303" y="51" text-anchor="start">方差 1</text>
+<circle cx="106" cy="30.0" r="4" class="series-a"/>
+<circle cx="106" cy="40.0" r="4" class="series-a"/>
+<circle cx="164" cy="30.0" r="4" class="series-a"/>
+<circle cx="164" cy="40.0" r="4" class="series-a"/>
+<line x1="106" y1="88" x2="280" y2="88" class="grid"/>
+<line x1="222" y1="68" x2="222" y2="108" class="guide"/>
+<text x="90" y="92" text-anchor="end">高峰四窗</text>
+<text x="303" y="86" text-anchor="start">均值 4</text>
+<text x="303" y="104" text-anchor="start">方差 4</text>
+<rect x="160" y="79.0" width="8" height="8" class="series-b"/>
+<rect x="160" y="89.0" width="8" height="8" class="series-b"/>
+<rect x="276" y="79.0" width="8" height="8" class="series-b"/>
+<rect x="276" y="89.0" width="8" height="8" class="series-b"/>
+<line x1="106" y1="141" x2="280" y2="141" class="grid"/>
+<line x1="178.5" y1="121" x2="178.5" y2="161" class="guide"/>
+<text x="90" y="145" text-anchor="end">合并八窗</text>
+<text x="303" y="139" text-anchor="start">均值 2.5</text>
+<text x="303" y="157" text-anchor="start">方差 4.75</text>
+<circle cx="106" cy="136.0" r="4" class="ml03d-pooled-dot"/>
+<circle cx="106" cy="146.0" r="4" class="ml03d-pooled-dot"/>
+<circle cx="164" cy="126.0" r="4" class="ml03d-pooled-dot"/>
+<circle cx="164" cy="136.0" r="4" class="ml03d-pooled-dot"/>
+<circle cx="164" cy="146.0" r="4" class="ml03d-pooled-dot"/>
+<circle cx="164" cy="156.0" r="4" class="ml03d-pooled-dot"/>
+<circle cx="280" cy="136.0" r="4" class="ml03d-pooled-dot"/>
+<circle cx="280" cy="146.0" r="4" class="ml03d-pooled-dot"/>
+<line x1="106" y1="168" x2="280" y2="168" class="axis"/>
+<line x1="106" y1="168" x2="106" y2="174" class="axis"/>
+<text x="106" y="192" text-anchor="middle">0</text>
+<line x1="135" y1="168" x2="135" y2="174" class="axis"/>
+<text x="135" y="192" text-anchor="middle">1</text>
+<line x1="164" y1="168" x2="164" y2="174" class="axis"/>
+<text x="164" y="192" text-anchor="middle">2</text>
+<line x1="193" y1="168" x2="193" y2="174" class="axis"/>
+<text x="193" y="192" text-anchor="middle">3</text>
+<line x1="222" y1="168" x2="222" y2="174" class="axis"/>
+<text x="222" y="192" text-anchor="middle">4</text>
+<line x1="251" y1="168" x2="251" y2="174" class="axis"/>
+<text x="251" y="192" text-anchor="middle">5</text>
+<line x1="280" y1="168" x2="280" y2="174" class="axis"/>
+<text x="280" y="192" text-anchor="middle">6</text>
+<text x="414" y="192" text-anchor="end">单 / 10 分钟</text>
+</svg>
+<p class="ml03d-origin">演示计数。低峰为 0、0、2、2，高峰为 2、2、6、6。合并后均值 2.5 单，方差 4.75 单²。</p>
+</figure>
+<p>合并后，组间差异也计入方差。均值接近方差只是泊松假设的一项检查。</p>
+<p class="ml03d-source">参阅 <a href="https://ocw.mit.edu/courses/res-6-012-introduction-to-probability-spring-2018/d973b10c2587781f86ca4f2aff49098f_MITRES_6_012S18_Textbook.pdf#page=33">MIT 概率教材的全方差定理</a>。</p>
+<p>按相似条件分组后，如果实际方差仍明显高于泊松模型的方差，就叫<strong>过度离散</strong>，可以<a href="https://stats.oarc.ucla.edu/r/dae/negative-binomial-regression/">比较负二项模型</a>。零单偏多或相邻窗强相关，也要重新检验模型。</p>
+<h2 data-mg-stop id="poisson-nll">5. 用 log-rate 计算泊松损失</h2>
+<p>沿用 03c 的思路，模型原始输出 z 可为任意实数。把它解释为<strong>对数计数率</strong>（log-rate），用 <strong>λ = exp(z)</strong> 得到正的期望计数。比如 z = ln 2 ≈ 0.6931，λ = 2。实际标签 y 仍保留为原始整数。</p>
+<p>泊松概率由三项相乘或相除得到。训练需要给较低的实际计数概率更大的损失。对概率取负对数，逐项看它们在损失里变成什么：</p>
+<figure aria-describedby="ml03d-poisson-terms-description" aria-labelledby="ml03d-poisson-terms-title" class="ml03d-explain" id="ml03d-poisson-terms">
+<figcaption><strong id="ml03d-poisson-terms-title">泊松概率的三项怎样进入损失？</strong><span id="ml03d-poisson-terms-description">固定 y，按顺序比较每个概率因子和取负对数后的结果。</span></figcaption>
+<dl class="ml03d-figure-rows">
+<dt>指数项</dt><dd><p>e 的负 λ 次方 → +λ，也就是 exp(z)</p></dd>
+<dt>幂项</dt><dd><p>λ 的 y 次方 → −y ln λ，也就是 −yz</p></dd>
+<dt>阶乘分母</dt><dd><p>除以 y! → +ln(y!)，只随标签 y 变化</p></dd>
+</dl>
+</figure>
+<p>把三项加起来，再把 z = ln λ 代入：</p>
+<p>$$\mathrm{NLL}(y,z)=e^z-yz+\ln(y!)$$</p>
+<p><strong>沿用同一个窗口。</strong> 这个十分钟窗内，真实 y = 3，λ = 2，z = ln 2。常数项为 ln(3!) = ln 6 ≈ 1.7918。</p>
+<figure aria-describedby="ml03d-poisson-worked-description" aria-labelledby="ml03d-poisson-worked-title" class="ml03d-explain" id="ml03d-poisson-worked">
+<figcaption><strong id="ml03d-poisson-worked-title">泊松 NLL · 同一窗口的逐步计算</strong><span id="ml03d-poisson-worked-description">实际 3 单，预测平均 2 单。把三个项依次代入。</span></figcaption>
+<dl class="ml03d-figure-rows">
+<dt>代入</dt><dd><p>NLL = 2 − 3 ln 2 + ln 6</p></dd>
+<dt>化简</dt><dd><p>NLL ≈ 2 − 2.079442 + 1.791759</p></dd>
+<dt>结果</dt><dd><p>NLL ≈ <strong>1.7123</strong>，在最后一步舍入。也可以直接对未舍入的概率取负对数。</p></dd>
+</dl>
+</figure>
+<p>只训练参数时可去掉只由 y 决定的 ln(y!)，留下约 <strong>−0.0794</strong>。去掉常数会平移损失数值，模型参数的最优点保持一致。</p>
+<p>PyTorch <a href="https://docs.pytorch.org/docs/2.15/generated/torch.nn.PoissonNLLLoss.html">PoissonNLLLoss</a> 默认 <strong>log_input=True</strong>，传 z。使用 <strong>log_input=False</strong> 时传 λ，框架在对数内加 eps 以避免 ln 0。</p>
+<p>手算使用精确的 ln(y!)。框架的 <strong>full=True</strong> 对 y &gt; 1 加的是 Stirling（斯特林）近似。比较两份损失数值时，先确认它们用了相同的常数约定。</p>
+<details>
+<summary>换一个输入 · 预测每窗 3 单，实际 1 单，概率和 NLL 是多少？</summary>
+<p>z = ln 3，y = 1，1! = 1。概率是 e⁻³ × 3 ≈ <strong>0.1494</strong>。完整 NLL = 3 − ln 3 + ln 1 ≈ <strong>1.9014</strong>。这一题的常数项恰好为 0。</p>
+</details>
+<p><strong>带走。</strong> 计数从固定观察窗开始，模型对 z 取指数来得到 λ。接下来回到每单分钟数。如果业务更关心多等一倍，改变的应该是训练标签的刻度。</p>
+<h2 data-mg-stop id="log-target">6. 对数目标 · 让翻倍的误差可比较</h2>
+<p>多数订单 10–30 分钟，少数拖到 100 分钟，形成右侧较长的<strong>长尾</strong>（Long Tail）。如果业务关心「是否比预期多等一倍」，20→40 和 40→80 应当有同样的差距。直接按分钟算，差距分别是 20 和 40。</p>
+<figure class="ml03d-plot" id="ml03d-log-distance">
+<svg viewBox="0 0 430 161" role="img" aria-labelledby="ml03d-log-title ml03d-log-desc" focusable="false">
+<title id="ml03d-log-title">两次翻倍在原尺度和对数尺度的距离</title>
+<desc id="ml03d-log-desc">20 到 40 分钟和 40 到 80 分钟分别差 20 和 40 分钟，取自然对数后两段都差 ln 2。</desc>
+<text x="10" y="20" text-anchor="start">原单位（分钟）</text>
+<text x="10" y="99" text-anchor="start">取自然对数后</text>
+<line class="curve curve-a" x1="63" y1="47" x2="164" y2="47"/>
+<line class="curve curve-b" x1="164" y1="47" x2="366" y2="47"/>
+<text x="111" y="41" text-anchor="middle">+20</text>
+<text x="265" y="41" text-anchor="middle">+40</text>
+<line class="axis" x1="63" y1="43" x2="63" y2="52"/><text x="63" y="72" text-anchor="middle">20</text>
+<line class="axis" x1="164" y1="43" x2="164" y2="52"/><text x="164" y="72" text-anchor="middle">40</text>
+<line class="axis" x1="366" y1="43" x2="366" y2="52"/><text x="366" y="72" text-anchor="middle">80</text>
+<line class="curve curve-a" x1="63" y1="125" x2="214.5" y2="125"/>
+<line class="curve curve-b" x1="214.5" y1="125" x2="366" y2="125"/>
+<text x="139" y="118" text-anchor="middle">+ ln 2</text>
+<text x="290" y="118" text-anchor="middle">+ ln 2</text>
+<line class="axis" x1="63" y1="121" x2="63" y2="130"/><text x="63" y="151" text-anchor="middle">ln 20</text>
+<line class="axis" x1="214.5" y1="121" x2="214.5" y2="130"/><text x="214.5" y="151" text-anchor="middle">ln 40</text>
+<line class="axis" x1="366" y1="121" x2="366" y2="130"/><text x="366" y="151" text-anchor="middle">ln 80</text>
+</svg>
+<figcaption>20→40 与 40→80 都是翻倍。自然对数把两个差距都变成 ln 2 ≈ 0.6931。</figcaption>
+</figure>
+<p>令 Y 表示以分钟计量的送达时间数值。训练和交付使用同一单位，取自然对数之前要求 Y &gt; 0。接近零的值会变成很大的负数，零无法取对数。遇到 0 或混用秒和分钟，应先理解记录方式和任务，再选择变换。</p>
+<p>$$T=\ln Y$$</p>
+<p>T 是变换后的训练标签。训练用恒等输出预测 T，并在 log 尺度算 MSE。交付时把预测值取指数回到分钟。log 尺度的残差是 ln(实际分钟数 ÷ 预测分钟数)，所以平方损失会同等惩罚相同的倍数偏差。</p>
+<p class="ml03d-source">参阅 <a href="https://openstax.org/books/precalculus-2e/pages/4-5-logarithmic-properties">OpenStax 的对数商法则</a>。</p>
+<figure class="ml03d-flow" id="ml03d-transforms">
+<div class="ml03d-flow-grid">
+<div><strong>泊松 · 转换模型输出</strong><p>训练标签 y 保留整数</p><p>特征 → 原始输出 z → exp(z) → 期望单数 λ</p></div>
+<div><strong>对数目标 · 转换训练标签</strong><p>分钟数 Y → ln(Y) → 标签 T</p><p>特征 → 预测 T → exp(预测值) → 分钟数</p></div>
+</div>
+<figcaption>看清取对数发生在哪一侧。泊松路线改变输出参数的表示。对数目标改变模型学习的标签。</figcaption>
+</figure>
+<figure aria-describedby="ml03d-log-centers-description" aria-labelledby="ml03d-log-centers-title" class="ml03d-explain" id="ml03d-log-centers">
+<figcaption><strong id="ml03d-log-centers-title">同样三单，三种算法交付不同的数</strong><span id="ml03d-log-centers-description">输入都是 10、20、80 分钟。逐行读计算顺序和还原结果。</span></figcaption>
+<dl class="ml03d-figure-rows">
+<dt>算术平均</dt><dd><p>先加再除以 3。<br>(10 + 20 + 80) ÷ 3 ≈ <strong>36.67 分钟</strong>。</p></dd>
+<dt>几何平均</dt><dd><p>先取 ln 得 2.3026、2.9957、4.3820。<br>平均约 3.2268，取 exp 得 <strong>25.20 分钟</strong>，等于把 10 × 20 × 80 开三次方。</p></dd>
+<dt>中位数</dt><dd><p>先排序，再取中间一单。<br>结果为 <strong>20 分钟</strong>。</p></dd>
+</dl>
+</figure>
+<p>和 <a href="03b-损失函数与输出层进阶.html#mean-median">03b 的平方损失</a> 一样，MSE 的理想预测是同类输入下的标签平均。对数目标的训练标签是 ln Y，因此求出的是 log 标签的平均。记订单特征为 X，一组具体特征值为 x：</p>
+<p>$$m(x)=E[\ln Y\mid X=x]$$</p>
+<p>E[⋯] 表示按概率取平均，竖线表示只看输入特征为 x 的这一类。还原的 exp(m(x)) 是几何中心，跟原单位均值可能有差距。可对照 NIST 的<a href="https://itl.nist.gov/div898/software/dataplot/refman2/auxillar/geommean.htm">几何平均定义</a>和<a href="https://www.itl.nist.gov/div898/handbook/eda/section3/eda351.htm">均值与中位数</a>。</p>
+<p>指数函数向上弯。对同一类输入，<a href="https://ocw.mit.edu/courses/18-440-probability-and-random-variables-spring-2014/resources/mit18_440s14_lecture32/">Jensen 不等式</a>给出 exp(E[ln Y]) ≤ E[Y]。期望存在且 Y 有波动时，不等号严格成立。</p>
+<p><strong>对数正态下怎样修正？</strong> 如果验证发现同类订单的 ln Y 可用高斯分布描述，Y 就是<strong>对数正态</strong>（Log-normal）。假设 log 均值 μ = ln 20，方差 σ² = 0.25。</p>
 <ul>
-<li>输入给损失的是均值、方差、标准差、rate 还是 log-rate？</li>
-<li>常数项是否包含，<code>reduction</code> 怎样做？</li>
-<li>分布假设是否与数据的连续/离散、均值-方差关系和零值相符？</li>
-<li>最终要的是均值、中位数、分位数、预测区间还是校准概率？</li>
-<li>是否在<strong>原始业务单位</strong>上重新评估误差与覆盖率？</li>
+<li><strong>交付中位数。</strong> 对称的高斯中心就是中位数，取指数保持顺序。exp(μ) = <strong>20 分钟</strong>。</li>
+<li><strong>交付均值。</strong> 对数正态的公式来自对 exp(t) 按高斯密度积分。exp(μ + σ²/2) = 20 × exp(0.125) ≈ <strong>22.66 分钟</strong>。</li>
 </ul>
-<p><strong>主线下一节</strong>：<a href="04-决策树与集成学习.html">04 · 决策树与集成学习</a>。</p>
+<p>在原单位上检验交付结果。均值修正式依赖同类条件下的对数正态假设与方差。可对照 <a href="https://www.itl.nist.gov/div898/handbook/apr/section1/apr164.htm">NIST 的对数正态分布公式</a>。</p>
+<details>
+<summary>换一个输入 · 两单耗时为 8 和 32 分钟，log 平均还原是多少？</summary>
+<p>几何平均是 √(8 × 32) = <strong>16 分钟</strong>。直接算原单位均值是 (8 + 32) ÷ 2 = <strong>20 分钟</strong>。如果用于预计总耗时，先确认下游需要的是原单位均值。</p>
+</details>
+<p><strong>带走。</strong> 取对数改变了训练在比较的误差，也改变了预测还原后的统计含义。下一节对照三种方法各自交付的量，以及需要验证的条件。</p>
+<h2 data-mg-stop id="model-choice">7. 按问题、输出和验证来选</h2>
+<div class="ml03d-choice">
+<dl>
+<dt>问题</dt>
+<dd>连续值，只需中心预测（03b–03c）</dd>
+<dt>输出</dt>
+<dd>恒等或 Softplus，配合选定的回归损失</dd>
+<dt>必须验证</dt>
+<dd>误差代价、异常值、输出范围</dd>
+</dl>
+<dl>
+<dt>问题</dt>
+<dd>连续值，需要区间</dd>
+<dt>输出</dt>
+<dd>高斯中心和方差，再算所需区间</dd>
+<dt>必须验证</dt>
+<dd>残差形状、方差及区间覆盖率</dd>
+</dl>
+<dl>
+<dt>问题</dt>
+<dd>固定窗口内的整数计数</dd>
+<dt>输出</dt>
+<dd>泊松 log-rate，取指数得到期望计数</dd>
+<dt>必须验证</dt>
+<dd>条件均值与方差、零值、时间依赖</dd>
+</dl>
+<dl>
+<dt>问题</dt>
+<dd>正值长尾，倍数误差更重要</dd>
+<dt>输出</dt>
+<dd>预测 log 标签，再按交付目标还原</dd>
+<dt>必须验证</dt>
+<dd>原单位误差、还原后统计量的含义</dd>
+</dl>
+</div>
+<h2 data-mg-stop id="checkpoint">8. 检查你要交付什么</h2>
+<h3 id="_1">先判断要用什么模型</h3>
+<p>你要分别交付「下一单的 80% 送达区间」、「未来 10 分钟的平均订单数」和「在正值长尾数据上按倍数比较预测」。各选什么模型？你会先检查哪条假设？</p>
+<details>
+<summary>展开要点</summary>
+<ul>
+<li>连续区间可以从高斯回归出发，检查留出数据的覆盖率，并查看高斯假设是否合适。</li>
+<li>十分钟平均订单数可从泊松回归出发，确认观察窗长度一致，λ 是期望计数，检查同类窗口内的均值和方差。</li>
+<li>倍数误差可用 log 目标，确认标签严格为正，并回到原单位检查交付的统计量。</li>
+</ul>
+</details>
+<h3 id="_2">用 Python 复算三条路线</h3>
+<p>用 <a href="https://docs.python.org/3/library/math.html">Python 标准库 math</a> 复算前面的数值，无需额外依赖。先看每组代码在复算哪一步。</p>
+<figure aria-describedby="ml03d-code-map-description" aria-labelledby="ml03d-code-map-title" class="ml03d-explain" id="ml03d-code-map">
+<figcaption><strong id="ml03d-code-map-title">手算步骤如何对应 Python？</strong><span id="ml03d-code-map-description">从上到下，把变量和结果对应到各自的手算示例。</span></figcaption>
+<dl class="ml03d-figure-rows">
+<dt>高斯</dt><dd><p>y、mean、variance → gaussian_nll → <strong>2.1121</strong></p></dd>
+<dt>泊松</dt><dd><p>count、log_rate → rate → probability、poisson_nll → <strong>0.1804、1.7123</strong></p></dd>
+<dt>对数目标</dt><dd><p>minutes → geometric_mean → <strong>25.20</strong> 分钟。log-normal 假设单独计算 log_normal_mean → <strong>22.66</strong> 分钟。</p></dd>
+</dl>
+</figure>
+<pre><code class="language-python">from math import exp, factorial, log, pi
+
+y, mean, variance = 30, 28, 4
+squared_error = (y - mean) ** 2
+gaussian_nll = 0.5 * (
+    log(2 * pi) + log(variance)
+    + squared_error / variance
+)
+
+count, log_rate = 3, log(2)
+rate = exp(log_rate)
+numerator = exp(-rate) * rate ** count
+probability = numerator / factorial(count)
+poisson_nll = -log(probability)
+
+minutes = [10, 20, 80]
+log_sum = sum(log(t) for t in minutes)
+avg_log = log_sum / len(minutes)
+geometric_mean = exp(avg_log)
+log_normal_mean = exp(log(20) + 0.25 / 2)
+
+print(&quot;Gaussian NLL:&quot;, f&quot;{gaussian_nll:.4f}&quot;)
+print(
+    &quot;Poisson probability: &quot;
+    f&quot;{probability:.4f}; &quot;
+    f&quot;NLL: {poisson_nll:.4f}&quot;
+)
+print(
+    &quot;Geometric mean: &quot;
+    f&quot;{geometric_mean:.2f} min&quot;
+)
+print(
+    &quot;Log-normal mean: &quot;
+    f&quot;{log_normal_mean:.2f} min&quot;
+)
+</code></pre>
+<p>将输出与上图逐行核对。试着只改 <strong>variance</strong> 或 <strong>count</strong>，观察哪一行变化。</p>
+<h3 id="_3">实际使用前</h3>
+<p>确认损失输入的单位、是否包含常数、怎样聚合。回到业务问题，检查最后交付的是平均、某个区间还是一种误差尺度，以及留出的数据是否支持你的判断。</p>
+<p><strong>下一节主线</strong>：<a href="04-决策树与集成学习.html">04 · 决策树与集成学习</a>，看模型如何通过提问来缩小判断范围。</p>
 </section>
 </div>
 <aside aria-label="本节学习路线" class="lesson-rail">
@@ -473,9 +724,10 @@ $$</p>
 <p class="lesson-position">从第一站开始</p>
 <div aria-hidden="true" class="lesson-track"><span></span></div>
 <nav aria-label="章节跳转" class="lesson-route-links"></nav>
-<div class="lesson-rail-note"><strong>先问数据是什么</strong><p>连续值、计数、均值与不确定性，是不同问题，不要只按输出为正选择。</p></div><button type="button" class="lesson-save">记住当前位置</button><p class="lesson-save-status" role="status"></p></div>
+<div class="lesson-rail-note"><strong>先选要交付的量</strong><p>用分钟描述一次送达，用整数描述一个窗口的订单数。</p></div><button type="button" class="lesson-save">记住当前位置</button><p class="lesson-save-status" role="status"></p></div>
 </aside>
 </div>
+<script src="../assets/magazine-rollout/ml-foundations/ml03d-profile.js"></script>
 <div class="donebar"><button class="js-done-btn" data-long="1">完成了？点这里打卡 ✔</button>
 <div class="hint">打卡记录保存在你的浏览器里，首页能看到总进度</div></div>
 <nav class="pagenav"><a href="03c-回归输出层.html"><div class="dir">← 上一节</div>🎚️ 03c · 回归输出层</a><a class="next" href="04-决策树与集成学习.html"><div class="dir">下一节 →</div>🌲 04 · 决策树与集成学习</a></nav>
